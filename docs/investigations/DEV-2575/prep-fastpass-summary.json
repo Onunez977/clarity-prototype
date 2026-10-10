@@ -1,0 +1,113 @@
+{
+  "synthesis": "DEV-2575 reports that Scout field users who forget their email have no recovery path, and admins cannot reset passwords on their behalf. VERIFIED: Scout PWA uses email+password auth (Login.vue \u2192 ClarityScoutAuthController:21-87); Clarity main panel uses OTP/passwordless (CustomLoginPage \u2192 OneTimePassword, prior Clarity OTP work). Scout has NO forgot-password / password-reset routes or controllers (web.php:104-113 has only set-password for onboarding, force-login for admin impersonation). Admin resend_onboarding action (ScoutUsersResource:356-412) ONLY works when email_verified_at IS NULL (line 368), so it covers pre-onboarding only \u2014 once a user has set their password and verified, that button disappears and there is no fallback. The ticket proposes two solutions: (A) admin-side password reset / send recovery link from admin panel, (B) magic-link / passwordless auth like Clarity (PREFERRED). AC1 contains a logical contradiction: 'recovery that does NOT require remembering email' vs 'magic-link' (which inherently requires knowing the email to send the link). Forgotten-email lockout is fundamentally unsolvable without an alternate identifier (phone, admin lookup by name/kit) \u2014 the ticket must clarify whether the real ask is 'forgotten password with known email' (solvable) or 'forgotten email itself' (requires out-of-band admin search). Auth is blast-radius (org-scoped clarity-scout permission + kit_id gate, ScoutSetPasswordController:66-84 guards + email_verified_at one-shot, force-login via ScoutForceTokens). The scale is small (Scout is Pro-only, field-user subset), but auth changes touch login, token minting, middleware, and onboarding flows.",
+  "scope_summary": "Convert Scout PWA to OTP/passwordless (preferred per ticket), OR add admin-assisted password-reset capability that works post-verification. Both paths require auth flow changes (Scout login controller/API, PWA Login.vue, signed-URL middleware or OTP classes), admin UI (ScoutUsersResource actions), tests (Scout auth, set-password, force-login, OTP integration), and possibly new notifications (password-reset vs OTP). AC1 contradiction (recovery without email vs magic-link requiring email) MUST be resolved before scoping. If OTP conversion: Scout login becomes 2-step (email \u2192 OTP \u2192 token), aligns with Clarity, reuses OneTimePassword/OneTimePasswordNotification; if admin reset: new signed-URL route similar to set-password but bypasses email_verified_at guard, or admin-triggered OTP send. No data schema changes (users table and pwd_reset_tokens_table already exist), no ClickHouse involvement, no scale-driven allocation concerns.",
+  "target_files": [
+    "app/Http/Controllers/Api/ClarityScoutAuthController.php",
+    "resources/js/clarity-scout/views/Login.vue",
+    "app/Filament/Resources/ScoutUsersResource.php",
+    "app/Filament/Auth/OneTimePassword.php",
+    "routes/api.php",
+    "routes/web.php",
+    "tests/Feature/Http/Controllers/Api/ClarityScoutAuthControllerTest.php",
+    "tests/Filament/Resources/ScoutUsersResourceTest.php",
+    "app/Notifications/ScoutPasswordResetNotification.php",
+    "app/Http/Controllers/Auth/ScoutResetPasswordController.php",
+    "app/Http/Middleware/ValidateScoutSignedUrl.php"
+  ],
+  "out_of_scope": [
+    "User model schema changes (users table already has email, password, email_verified_at; pwd_reset_tokens_table table exists per migration 0001_01_01_000000_create_users_table:25-29)",
+    "ClickHouse / analytics (auth is pure PostgreSQL transactional)",
+    "Filament main panel login (already uses OTP per CustomLoginPage)",
+    "Scout force-login admin impersonation (already exists, ClarityScoutForceLoginController, no change needed)",
+    "Alternate identifiers (phone, admin name/kit lookup) for true 'forgotten email' recovery \u2014 ticket must clarify if that is the ask"
+  ],
+  "questions": [
+    {
+      "q": "AC1 says 'recovery that does NOT require remembering email' but preferred solution is 'magic-link' which REQUIRES email \u2014 is the real ask 'forgotten password with known email' (solvable) or 'forgotten email itself' (requires alternate identifier like phone or admin name/kit lookup)?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    },
+    {
+      "q": "Which path is approved: (A) convert Scout to OTP/passwordless like Clarity (PREFERRED per ticket summary) or (B) add password-reset flow keeping current password login?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    },
+    {
+      "q": "If OTP conversion: does Scout PWA remain a separate 2-step flow (email \u2192 send OTP \u2192 enter OTP \u2192 token) or should it merge with Clarity's CustomLoginPage (single unified login page)?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    },
+    {
+      "q": "Admin-assisted recovery: should admin action send the user an email (OTP or reset link) or should admin be able to directly reset password / generate token on user's behalf without email round-trip?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    },
+    {
+      "q": "Does force-login (admin impersonation, ClarityScoutForceLoginController) satisfy AC2 'admin can assist recovery' or is a separate 'admin sends recovery email' action required? Force-login works but doesn't help a user log in themselves from the field.",
+      "answered": true,
+      "answer": "Force-login is admin-only impersonation that requires the admin to be logged into Filament and have session('admin_impersonator') set (line 16). It does NOT help a Scout user in the field recover their own account \u2014 it's a diagnostic/support tool. AC2 requires a mechanism for the user to regain access themselves (email-delivered OTP or reset link), so a separate admin action is needed.",
+      "source": "code"
+    },
+    {
+      "q": "If password-reset path chosen: should the reset-password signed URL reuse the same 7-day TTL and one-shot pattern as set-password (ScoutOnboardingNotification:17, ScoutSetPasswordController:68-73 email_verified_at guard) or allow multiple uses / different TTL?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    },
+    {
+      "q": "Does Scout need a 'Forgot Password?' self-serve UI in the PWA Login.vue or is admin-only recovery sufficient? Ticket AC1 mentions self-serve but AC2 only requires admin assist.",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    }
+  ],
+  "blockers": [],
+  "acceptance_criteria": [
+    {
+      "item": "Scout users locked out have self-serve recovery that does NOT require remembering email, OR Scout login converted to magic-link eliminating passwords",
+      "source": "ticket",
+      "decision": "defer",
+      "reason": "AC contains logical contradiction: 'recovery WITHOUT remembering email' is impossible for email-based magic-link (magic-link REQUIRES knowing the email to send the link). Ticket MUST clarify: (a) is the real ask 'forgotten password with known email' (solvable via OTP or reset link), or (b) 'forgotten email itself' (requires out-of-band identifier like phone or admin search by name/kit). The preferred solution (OTP/magic-link) solves (a) not (b). NEEDS HUMAN DECISION before implementation."
+    },
+    {
+      "item": "Admins can trigger or assist account recovery from admin panel",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "CLEAR: add admin action to ScoutUsersResource (extending resend_onboarding which currently gates on !email_verified_at, line 368) that sends recovery mechanism (OTP or signed reset link) post-verification. This solves admin-assisted recovery regardless of which auth path (OTP or password-reset) is chosen."
+    },
+    {
+      "item": "Chosen approach consistent with Clarity platform auth patterns",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "CLEAR: if OTP path chosen, Scout reuses OneTimePassword/OneTimePasswordNotification/CustomLoginPage patterns (prior Clarity OTP work precedent); if password-reset path chosen, follows ScoutOnboardingNotification / ValidateScoutSignedUrl / ScoutSetPasswordController precedent. Both are existing Clarity patterns."
+    },
+    {
+      "item": "No Scout user permanently locked out without an admin recovery path",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "CLEAR: admin action (AC2) provides the safety net; even if self-serve fails or user truly forgot email, admin can look up user by kit/name and trigger recovery."
+    }
+  ],
+  "key_files": [
+    "app/Http/Controllers/Api/ClarityScoutAuthController.php:21-87 (Scout password login + token minting)",
+    "resources/js/clarity-scout/views/Login.vue:23-58 (Scout PWA email+password form)",
+    "app/Filament/Resources/ScoutUsersResource.php:356-412 (resend_onboarding admin action, pre-verification only)",
+    "app/Filament/Resources/ScoutUsersResource.php:365-375 (visible() guard: !email_verified_at prevents post-verification resend)",
+    "app/Http/Controllers/Auth/ScoutSetPasswordController.php:66-84 (guardUser() one-shot: rejects already-verified users line 71)",
+    "app/Filament/Auth/CustomLoginPage.php:58-132 (Clarity OTP login flow: send OTP line 134-155, verify OTP line 89-107)",
+    "app/Filament/Auth/OneTimePassword.php:12-76 (OTP generation/storage/verification, reusable for Scout)",
+    "app/Notifications/ScoutOnboardingNotification.php:24-46 (signed-URL pattern for onboarding, 7-day TTL line 17)",
+    "routes/web.php:108-112 (Scout set-password signed-URL routes inside ValidateScoutSignedUrl middleware)",
+    "routes/api.php:29-33 (Scout API /login throttle:5,1, /logout, /me)",
+    "database/migrations/0001_01_01_000000_create_users_table.php:25-29 (pwd_reset_tokens_table table exists but unused)"
+  ],
+  "confidence": 85,
+  "escalate": {
+    "recommend": true,
+    "reason": "AC1 contains a logical contradiction ('recovery WITHOUT remembering email' vs 'magic-link REQUIRING email') that MUST be resolved before implementation can proceed. The ticket must clarify whether the real ask is (a) forgotten password with known email (solvable via OTP or reset link, aligns with PREFERRED magic-link solution), or (b) forgotten email itself (requires out-of-band identifier like phone or admin search by name/kit, fundamentally different scope). Additionally, the choice between OTP conversion (PREFERRED per ticket summary) vs password-reset (simpler, less disruptive to Scout PWA) needs explicit approval \u2014 both paths satisfy AC2/3/4 but have different UX, code surface area, and alignment with Clarity main panel. Recommend: product owner clarifies AC1 contradiction + approves auth path (OTP or password-reset) before prep advances to implementation planning."
+  }
+}

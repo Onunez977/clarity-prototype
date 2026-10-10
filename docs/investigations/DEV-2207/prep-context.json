@@ -1,0 +1,76 @@
+{
+  "mode": "normal",
+  "gate": "CLEAN",
+  "synthesis": "The Clarity 'Manage Your Subscription' page lists per-tier feature bullets under an active 'Included Features' list and a greyed-out 'Coming Soon' list. Several Coming-Soon items have actually shipped and two labels are wrong. Update the hardcoded feature arrays in the Blade view so Pro Lite and Clarity Pro reflect reality: promote/rename shipped features into the active lists, remove the now-empty Pro Lite Coming Soon section, and add one deployed feature (Optimized Gridding (Scout)) that is missing from Clarity Pro.",
+  "scope": {
+    "summary": "Pure marketing-copy edit to one Blade view. Feature bullets are literal strings in @foreach arrays; move/rename/add entries. No PHP logic, no data, no billing behavior changes.",
+    "proposed_changes": [
+      {"file": "resources/views/filament/pages/subscription.blade.php", "change": "Pro Lite active-features array (lines ~265-270): add 'Advanced Plate State recognition' and 'Advanced Kit User Path'.", "reason": "AC1 + AC2 — both features shipped; promote into active list. AC2 also renames from 'Advanced Gridding Analytics'.", "ref": "AC1, AC2"},
+      {"file": "resources/views/filament/pages/subscription.blade.php", "change": "Pro Lite Coming Soon block (the <hr>, the 'Coming Soon' <p>, and its <ul>, lines ~278-294): delete entirely.", "reason": "AC3 — after promoting both items, nothing remains in Pro Lite Coming Soon.", "ref": "AC3"},
+      {"file": "resources/views/filament/pages/subscription.blade.php", "change": "Clarity Pro active-features array (lines ~367-372): add 'RDN Reporting Integration' and 'Optimized Gridding (Scout)'.", "reason": "AC4 renames 'RDN custom reports' → 'RDN Reporting Integration' and promotes it; AC5 adds the deployed-but-unlisted 'Optimized Gridding (Scout)'.", "ref": "AC4, AC5"},
+      {"file": "resources/views/filament/pages/subscription.blade.php", "change": "Clarity Pro Coming Soon array (lines ~387-393): remove 'RDN custom reports' (keep the other four items).", "reason": "AC4 — the renamed feature leaves Coming Soon; the section itself stays because other items remain.", "ref": "AC4"},
+      {"file": "tests/Filament/Pages/SubscriptionTest.php", "change": "Add render-assertion test(s) pinning the new active labels appear and the old/renamed labels no longer appear.", "reason": "Test enforcement — pin the copy so a regression re-introducing the old labels fails.", "ref": "all ACs"}
+    ],
+    "target_files": ["resources/views/filament/pages/subscription.blade.php", "tests/Filament/Pages/SubscriptionTest.php"],
+    "out_of_scope": ["Basic tier (unchanged)", "Clarity Pro Plus tier (unchanged)", "Prices, upgrade/downgrade logic, buttons, modals, RDN metrics toggle", "config/changelog.php 'Kit User Path' mentions (unrelated changelog copy)"]
+  },
+  "acceptance_criteria": [
+    {"item": "AC1: Pro Lite — 'Advanced Plate State recognition' moved from Coming Soon to the active included-features list.", "source": "ticket", "decision": "implement", "reason": "Explicit ticket item 1."},
+    {"item": "AC2: Pro Lite — 'Advanced Gridding Analytics' renamed to 'Advanced Kit User Path' and moved to the active list.", "source": "ticket", "decision": "implement", "reason": "Explicit ticket item 2."},
+    {"item": "AC3: Pro Lite — the Coming Soon section is removed entirely (empty after the two promotions).", "source": "ticket", "decision": "implement", "reason": "Explicit ticket item 3."},
+    {"item": "AC4: Clarity Pro — 'RDN custom reports' renamed to 'RDN Reporting Integration' and moved to the active list.", "source": "ticket", "decision": "implement", "reason": "Explicit ticket item 4."},
+    {"item": "AC5: Clarity Pro — 'Optimized Gridding (Scout)' added as a new active-features entry.", "source": "ticket", "decision": "implement", "reason": "Explicit ticket item 5."}
+  ],
+  "questions": [
+    {"q": "AC1 label casing: ticket writes 'Advanced Plate State Recognition' (capital R); existing code string is 'Advanced Plate State recognition' (lowercase r). Item 1 says 'promote', not 'rename'.", "answered": true, "answer": "Preserve the existing string 'Advanced Plate State recognition' verbatim — item 1 requested a move, not a rename, so making no unrequested label change is the conservative default.", "source": "ASSUMED:preserve-existing-casing"}
+  ],
+  "blockers": [],
+  "notes": [
+    "Feature lists are hardcoded literal-string @foreach arrays — no enum/config/DB source of truth to keep in sync.",
+    "Both the Pro Lite and Clarity Pro cards render unconditionally in the grid regardless of the viewer's currentTier, so a single pro-admin render test can assert all changed strings.",
+    "'Advanced Kit User Path' is distinct from the pre-existing 'Kit User Path' bullet in the Basic tier — no collision.",
+    "No ClickHouse / migration / auth / billing-logic surface; the page mount only reads org Pro-tier meta from Postgres."
+  ],
+  "tests": [
+    {"file": "tests/Filament/Pages/SubscriptionTest.php", "what_it_pins": "Rendered page shows the new active labels ('Advanced Plate State recognition', 'Advanced Kit User Path', 'RDN Reporting Integration', 'Optimized Gridding (Scout)') and no longer shows the removed/renamed labels ('Advanced Gridding Analytics', 'RDN custom reports')."}
+  ],
+  "grounding": {
+    "key_files": [
+      "resources/views/filament/pages/subscription.blade.php:265 (Pro Lite active array)",
+      "resources/views/filament/pages/subscription.blade.php:278-294 (Pro Lite Coming Soon block)",
+      "resources/views/filament/pages/subscription.blade.php:367 (Clarity Pro active array)",
+      "resources/views/filament/pages/subscription.blade.php:387-393 (Clarity Pro Coming Soon array)",
+      "app/Filament/Pages/Subscription.php (Page class; mount() sets currentTier from org meta)",
+      "tests/Filament/Pages/SubscriptionTest.php (existing comprehensive test file)"
+    ],
+    "code_flow": "Subscription Page::mount() loads currentTier from org Pro-tier meta and renders subscription.blade.php. Feature bullets are static @foreach arrays in the view; no dynamic feature source.",
+    "tables": [],
+    "related_components": ["ProTierEnum", "HasProFeature concern (unrelated to copy)"]
+  },
+  "exhaustiveness": {
+    "grep_patterns": ["Advanced Plate State", "Advanced Gridding", "Advanced Kit User Path", "RDN custom reports", "RDN Reporting", "Optimized Gridding", "Kit User Path"],
+    "sites": [
+      {"site": "resources/views/filament/pages/subscription.blade.php:286 'Advanced Plate State recognition'", "status": "buggy", "reason": "in Pro Lite Coming Soon — must promote (AC1)"},
+      {"site": "resources/views/filament/pages/subscription.blade.php:287 'Advanced Gridding Analytics'", "status": "buggy", "reason": "in Pro Lite Coming Soon — must rename+promote (AC2)"},
+      {"site": "resources/views/filament/pages/subscription.blade.php:389 'RDN custom reports'", "status": "buggy", "reason": "in Clarity Pro Coming Soon — must rename+promote (AC4)"},
+      {"site": "config/changelog.php (multiple 'Kit User Path')", "status": "safe", "reason": "changelog release notes — unrelated to the pricing feature lists; out of scope"}
+    ],
+    "conclusion": "The three labels being changed appear ONLY in subscription.blade.php. No upsell/source-feature, enum, or config sibling occurrences. Change is fully contained in one view + its test."
+  },
+  "data_impact": {"pg_tables": [], "ch_tables": [], "mv_or_cdc_implications": "none", "indexes_relied_on": []},
+  "derivation_log": [],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "AC1-AC3", "kind": "human", "intent": "As a Pro Lite org, open Manage Subscription; confirm the two features are in the active list and Pro Lite has no Coming Soon section."},
+      {"ac": "AC4-AC5", "kind": "human", "intent": "As a Clarity Pro org, confirm 'RDN Reporting Integration' and 'Optimized Gridding (Scout)' are in the active list and 'RDN custom reports' is gone from Coming Soon."},
+      {"ac": "all", "kind": "agent", "intent": "Render the page and assert the label strings present/absent."}
+    ],
+    "seed_scenario": "A Pro admin user whose org can be flipped between pro_lite and clarity_pro tiers (via platform_repo_pro_tier meta) — the createUser(pro:true) factory + meta update already used throughout SubscriptionTest.",
+    "personas": ["Clarity Pro admin (default createUser pro:true)", "Pro Lite admin (org meta platform_repo_pro_tier=pro_lite)"],
+    "pg_tables": [],
+    "ch_tables": []
+  },
+  "confidence": 96,
+  "escalate": {"recommend": false, "reason": "Single self-contained Blade view; every change explicitly specified in the ticket; exhaustiveness sweep confirms no siblings; no data/auth/migration/CH surface; no material open questions."},
+  "missed_caller_candidates": []
+}

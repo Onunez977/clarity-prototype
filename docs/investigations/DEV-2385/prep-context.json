@@ -1,0 +1,341 @@
+{
+  "gate": "CLEAN",
+  "mode": "normal",
+  "best_of_n": true,
+  "escalated": true,
+  "escalation_triggers": [
+    "unanswered product questions (skip vs bounded summary vs full-window chunk)",
+    "fast-pass confidence 60 (<80)",
+    "AC1 allows summary OR skip (AC ambiguity)",
+    "scale_relevant queued job with production-cardinality envelope"
+  ],
+  "synthesis": "SendEndOfShiftSummary dies on never-closed multi-week shifts. Two deterministic input-size failures on the same path: (1) BuildShiftSummary.php:262 Hit::whereIn('scan_id', $orderedScanIds) hits PostgreSQL's 65535 bind-parameter limit; (2) the zone ST_Contains query, already fenced by DEV-2325's MATERIALIZED CTE, still hit 57014 statement timeout on a 17-day window (kit 175, shift 20, 2026-08-17). The job retries 5 times on the same input, then records build_failed. Outcome required by the ticket: no HY000; zone query bounded so a multi-week shift cannot timeout; do not blindly retry deterministic size failures; pin with a pathological-cardinality test.",
+  "scope": {
+    "summary": "Cap every BuildShiftSummary query window to the last 8 hours of the shift; replace whereIn(scan_id) with whereIntegerInRaw; set SendEndOfShiftSummary::$tries = 2.",
+    "proposed_changes": [
+      {
+        "file": "app/Services/Scout/BuildShiftSummary.php",
+        "change": "Clamp the UTC read window to last 8 hours (SUMMARY_WINDOW_HOURS). Replace whereIn('scan_id') with whereIntegerInRaw. Keep the DEV-2325 MATERIALIZED CTE.",
+        "reason": "Line 262 is the HY000 site; the CTE fence did not stop a 17-day 57014.",
+        "ref": "BuildShiftSummary.php:186-200, :262"
+      },
+      {
+        "file": "app/Jobs/Scout/SendEndOfShiftSummary.php",
+        "change": "Set public int $tries = 2. No skip path. Keep failed() mail_failed vs build_failed.",
+        "reason": "Retries cannot change a deterministic input-size failure.",
+        "ref": "SendEndOfShiftSummary.php:59, :94, :136-152"
+      },
+      {
+        "file": "tests/Feature/Services/Scout/BuildShiftSummaryTest.php",
+        "change": "Extend existing CH+PG tests: pathological scan-id list (>65535) must not HY000; long window must not issue an unbounded zone query. Use insertPgScan (platform connection), not Scan::factory().",
+        "reason": "AC4. Tests already exist; candidates that said otherwise were wrong.",
+        "ref": "BuildShiftSummaryTest.php (CTE pin at it_attributes_scans_to_the_zone_containing_them_via_a_bounded_shift_scans_cte)"
+      },
+      {
+        "file": "tests/Feature/Jobs/Scout/SendEndOfShiftSummaryTest.php",
+        "change": "Extend existing failed() tests: HY000/57014 do not retry; skip-reason if policy is skip.",
+        "reason": "AC3. Job tests already pin mail_failed vs build_failed (DEV-2325).",
+        "ref": "SendEndOfShiftSummaryTest.php"
+      }
+    ],
+    "target_files": [
+      "app/Services/Scout/BuildShiftSummary.php",
+      "app/Jobs/Scout/SendEndOfShiftSummary.php",
+      "tests/Feature/Services/Scout/BuildShiftSummaryTest.php",
+      "tests/Feature/Jobs/Scout/SendEndOfShiftSummaryTest.php"
+    ],
+    "out_of_scope": [
+      "DEV-2309 never-closing-shift root cause (Relates, not Blocks)",
+      "Removing the DEV-2325 MATERIALIZED CTE",
+      "CloseInactiveShiftsCommand / ClarityScoutShiftController dispatch sites (callers only)",
+      "Email template / Mapbox / CH miles-scan-hit counts",
+      "Adding (kit_id, scanned_at) index in the DB-migrations repo",
+      "LIMIT N on zone rows (would truncate a normal multi-zone workday and does not bound scan-window duration)"
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "A shift with >65,535 scans produces a summary (or a deliberate, logged skip) \u2014 no HY000 parameter error.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Last-8h window keeps scan-id lists workday-sized; whereIntegerInRaw removes the 65535 bind ceiling if a busy 8h still exceeds it."
+    },
+    {
+      "item": "The zone-visits query is bounded such that a multi-week shift cannot exceed the statement timeout.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Same 8h clamp on the zone CTE window. Multi-week shifts cannot pass a 17-day scanned_at range."
+    },
+    {
+      "item": "Deterministic input-size failures are not retried blindly.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Dalton: $tries = 2 (was 5)."
+    },
+    {
+      "item": "Regression test at pathological cardinality (not a 3-scan fixture).",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Extend existing tests. Do not insert 70k PG scan rows if a unit-level whereIntegerInRaw / chunk test plus a bounded-window assertion covers the contract cheaper \u2014 but the test must actually exceed 65535 ids, not a 3-row stand-in."
+    }
+  ],
+  "questions": [
+    {
+      "q": "For a pathological shift (17-day / >65,535 scans): produce a bounded last-N-hours summary, skip+log, or still attempt the full window (chunk/raw-IN / server-side join)?",
+      "answered": true,
+      "answer": "Option A \u2014 bounded last-N-hours summary (not skip, not full window).",
+      "source": "human:Dalton 2026-08-18"
+    },
+    {
+      "q": "If bounded summary: what is N? EnsureOpenShift already uses LOOKBACK_HOURS=24 and MAX_SCAN_ROWS=5000 when inferring shift start \u2014 24h matches the intended workday-sized shift.",
+      "answered": true,
+      "answer": "N = 8 hours. Query window is max(started_at, ended_at - 8h).",
+      "source": "human:Dalton 2026-08-18"
+    },
+    {
+      "q": "If skip: silent summary_skipped_reason only, or also email 'summary unavailable'? New reason string (too_large / shift_too_long) vs reuse build_failed?",
+      "answered": true,
+      "answer": "N/A \u2014 skip path not used.",
+      "source": "human:Dalton 2026-08-18"
+    },
+    {
+      "q": "AC3 retry: catch HY000/57014 in handle and fail immediately (keep $tries=5 for transient errors), or set $tries=1 for the whole job?",
+      "answered": true,
+      "answer": "$tries = 2 for the whole job.",
+      "source": "human:Dalton 2026-08-18"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "All three candidates agreed: line 262 is the HY000 site; fail-fast on deterministic size errors; callers need no code change; scale_relevant=true.",
+    "Disagreement resolved from ground truth: AC2 is NOT satisfied by DEV-2325 alone (prod 57014 on the 17-day CTE window). Tests DO exist. kit 175's 15.6M is lifetime scans, not the 17-day window (ticket said tens of thousands of ids, which still cleared 65535).",
+    "Disagreement left open (do not silently pick): skip vs last-N summary vs full-window attempt; whereIntegerInRaw vs chunked whereIn vs server-side hits\u22c8zones join (repo convention favors whereIntegerInRaw for the param limit; a join still helps if the PHP id list is huge); skip-reason string; skip email.",
+    "Rejected: LIMIT 100 on zone rows; Scan::factory() for 70k rows (wrong connection); 10k skip threshold (a busy 8h shift at 1\u20132 scans/s is ~29k\u201358k).",
+    "EnsureOpenShift LOOKBACK_HOURS=24 / MAX_SCAN_ROWS=5000 is a grounded product precedent for a workday-sized window, not a license to assume 24h.",
+    "Phase 2 answers 2026-08-18 Dalton: A / 8h / skip N/A / tries=2."
+  ],
+  "tests": [
+    {
+      "file": "tests/Feature/Services/Scout/BuildShiftSummaryTest.php",
+      "what_it_pins": "Existing: MATERIALIZED CTE fence, hidden scans counted, timestamps not mutated, scans_cold >90d. Add: >65535 scan ids do not HY000; multi-week window is bounded."
+    },
+    {
+      "file": "tests/Feature/Jobs/Scout/SendEndOfShiftSummaryTest.php",
+      "what_it_pins": "Existing: recipients, idempotency, open-shift refusal, mail_failed vs build_failed (DEV-2325). Add: HY000/57014 not retried; skip-reason if policy is skip."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Services/Scout/BuildShiftSummary.php:262",
+      "app/Services/Scout/BuildShiftSummary.php:186-200",
+      "app/Jobs/Scout/SendEndOfShiftSummary.php:59",
+      "app/Jobs/Scout/SendEndOfShiftSummary.php:136-152",
+      "app/Services/Scout/EnsureOpenShift.php (LOOKBACK_HOURS=24, MAX_SCAN_ROWS=5000)",
+      "app/Console/Commands/CloseInactiveShiftsCommand.php (dispatch)",
+      "app/Http/Controllers/Api/ClarityScoutShiftController.php (dispatch)",
+      "app/Dto/Scout/ShiftSummaryDto.php",
+      "app/Models/KitShift.php (summary_skipped_reason)"
+    ],
+    "code_flow": "ClarityScoutShiftController::end() or CloseInactiveShiftsCommand \u2192 SendEndOfShiftSummary({low}, tries=5) \u2192 lock kit_shifts \u2192 BuildShiftSummary::forShift \u2192 CH counts + buildZoneSummaries (MATERIALIZED CTE on public.scans \u22c8 platform.zones) \u2192 Hit::whereIn(scan_id, $orderedScanIds) \u2192 mail \u2192 stamp summary_sent_at. On exhaustion, failed() stamps mail_failed vs build_failed.",
+    "tables": "platform.kit_shifts, public.scans, public.hits, platform.zones; CH clarity.scans_hot/cold, hits_cold, sc_positions",
+    "related_components": "ShiftSummaryDto, ZoneSummaryDto, EndOfShiftSummary mail, EnsureOpenShift"
+  },
+  "exhaustiveness": {
+    "patterns_used": [
+      "whereIn\\(",
+      "whereIntegerInRaw\\(",
+      "whereIn.*scan_id",
+      "BuildShiftSummary",
+      "SendEndOfShiftSummary",
+      "orderedScanIds",
+      "summary_skipped_reason"
+    ],
+    "sites": [
+      {
+        "file": "app/Services/Scout/BuildShiftSummary.php",
+        "line": 262,
+        "verdict": "buggy",
+        "reason": "whereIn('scan_id', $orderedScanIds) unbounded; prod HY000 on 17-day shift."
+      },
+      {
+        "file": "app/Services/Scout/BuildShiftSummary.php",
+        "line": 186,
+        "verdict": "buggy",
+        "reason": "MATERIALIZED CTE still uses the full shift window; prod 57014 on 17 days. Fence is necessary but not sufficient."
+      },
+      {
+        "file": "app/Services/Scout/BuildShiftSummary.php",
+        "line": 319,
+        "verdict": "safe",
+        "reason": "ANY(?::int[]) on zone ids (tens), not scan ids."
+      },
+      {
+        "file": "app/Jobs/Scout/SendEndOfShiftSummary.php",
+        "line": 59,
+        "verdict": "buggy",
+        "reason": "$tries=5 retries identical cardinality failures."
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [
+      "public.scans (read)",
+      "public.hits (read)",
+      "platform.zones (read)",
+      "platform.kit_shifts (write summary_sent_at / summary_skipped_reason)"
+    ],
+    "ch_tables": [
+      "clarity.scans_hot",
+      "clarity.scans_cold",
+      "clarity.hits_cold",
+      "clarity.sc_positions"
+    ],
+    "mv_or_cdc_implications": "Reads only. No CDC/MV writes.",
+    "indexes_relied_on": [
+      "public.scans (kit_id, scanned_at)",
+      "public.scans geo GiST",
+      "platform.zones geom GiST",
+      "hits.scan_id"
+    ]
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "Queued job app/Jobs/Scout/SendEndOfShiftSummary.php plus ->get() over a data-driven scan-id list.",
+    "driving_tables": [
+      {
+        "table": "scans",
+        "source": "zod.public_scans",
+        "prod_rows": 4542907941,
+        "group_by": "kit_id",
+        "largest_group_rows": 19936578
+      },
+      {
+        "table": "hits",
+        "source": "zod.public_hits",
+        "prod_rows": 305056217,
+        "group_by": "kit_id",
+        "largest_group_rows": 7097206
+      }
+    ],
+    "growth": "Scout fleet expanding (DEV-2342: 29\u219243 kits in a day). Never-closed shifts continue until DEV-2309 ships. Kit 175 lifetime scans \u2248 15.6M (7th-largest kit); the incident window was 17 days and already exceeded 65535 parameters.",
+    "schedule": {
+      "expression": "queued, not scheduled (dispatched on shift close; closer runs everyThirtyMinutes)",
+      "interval_seconds": null,
+      "without_overlapping_minutes": null
+    },
+    "allocation_sketch": "whereIn binds 1 param per scan id (hard cap 65535). ->get() materializes matching hits. In-PHP maps ($zoneStats, $scanZoneMap, $scanTimes, $scanOrder) grow with scans in the window. A 17-day window already timed out the spatial join and blew the param limit. Do not load a kit's lifetime 15\u201320M scan ids into PHP.",
+    "oracle_status": "ok",
+    "unresolved": []
+  },
+  "derivation_log": [
+    {
+      "query_shape": "prod-cardinality.sh --app clarity --table scans:kit_id",
+      "param_classes": [
+        "table=scans",
+        "group_by=kit_id"
+      ],
+      "aggregate_result": "total_rows=4542907941; largest_group kit 11310=19936578; kit 175=15594690",
+      "why": "Envelope for unbounded per-kit scan sets."
+    },
+    {
+      "query_shape": "prod-cardinality.sh --app clarity --table hits:kit_id",
+      "param_classes": [
+        "table=hits",
+        "group_by=kit_id"
+      ],
+      "aggregate_result": "total_rows=305056217; largest_group kit 11599=7097206",
+      "why": "Envelope for hit materialization after scan-id filter."
+    },
+    {
+      "query_shape": "prod-cardinality.sh --app clarity --table kit_shifts:kit_id",
+      "param_classes": [
+        "table=kit_shifts"
+      ],
+      "aggregate_result": "UNKNOWN_TABLE zod.public_kit_shifts (not in CDC) \u2014 N/A, not a failed oracle",
+      "why": "kit_shifts is platform-schema; not a driving table for the failure."
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC1 no HY000",
+        "kind": "agent",
+        "intent": "Pathological scan-id list through BuildShiftSummary / job; assert no parameter-limit exception."
+      },
+      {
+        "ac": "AC2 bounded zone query",
+        "kind": "agent",
+        "intent": "Multi-week shift; assert the zone SQL window is capped (query log) or skip path taken."
+      },
+      {
+        "ac": "AC3 no blind retry",
+        "kind": "agent",
+        "intent": "HY000/57014 fail once; skip-reason or fail-fast."
+      },
+      {
+        "ac": "AC4 pathological test",
+        "kind": "agent",
+        "intent": "Covered by AC1 fixture (>65535 ids)."
+      },
+      {
+        "ac": "Happy-path workday summary still emails",
+        "kind": "human",
+        "intent": "Normal 8h shift still sends driver+admin email with zones."
+      }
+    ],
+    "seed_scenario": "One workday-sized shift (existing test pattern) plus one 17-day / >65535-id shift using insertPgScan on the platform connection. Do not use Scan::factory for the zone-join fixture.",
+    "personas": [
+      "Scout driver (To:)",
+      "Org admin (CC:)",
+      "Support (summary_skipped_reason)"
+    ],
+    "pg_tables": [
+      "scans",
+      "hits",
+      "kit_shifts",
+      "zones"
+    ],
+    "ch_tables": [
+      "scans_hot",
+      "hits_cold",
+      "sc_positions"
+    ]
+  },
+  "confidence": 72,
+  "escalate": {
+    "recommend": true,
+    "reason": "AC1 summary-vs-skip is product policy; window cap N is product policy; skip email/reason is product policy. Mechanics are settled enough to implement immediately after those answers."
+  },
+  "missed_caller_candidates": [
+    {
+      "file": "app/Dto/Scout/ShiftSummaryDto.php",
+      "symbol": "BuildShiftSummary",
+      "referenced_at": "DTO built by forShift; needs a truncated/skipped flag only if policy is partial summary"
+    },
+    {
+      "file": "app/Mail/Scout/EndOfShiftSummary.php",
+      "symbol": "SendEndOfShiftSummary",
+      "referenced_at": "mailable; change only if skip sends an email"
+    },
+    {
+      "file": "app/Models/KitShift.php",
+      "symbol": "summary_skipped_reason",
+      "referenced_at": "column already exists; new reason string if skip"
+    },
+    {
+      "file": "database/factories/KitShiftFactory.php",
+      "symbol": "summary_skipped_reason",
+      "referenced_at": "factory states for skip-reason tests"
+    },
+    {
+      "file": "app/Console/Commands/CloseInactiveShiftsCommand.php",
+      "symbol": "SendEndOfShiftSummary",
+      "referenced_at": "dispatch only \u2014 no code change"
+    },
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutShiftController.php",
+      "symbol": "SendEndOfShiftSummary",
+      "referenced_at": "dispatch only \u2014 no code change"
+    }
+  ]
+}

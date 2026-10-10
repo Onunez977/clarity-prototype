@@ -1,0 +1,466 @@
+{
+  "key": "DEV-2253",
+  "route": "bug",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "gate_reason": "All four blocking questions answered by Dalton in the Phase 2 interview on 2026-08-04. Q1 was raised as a product call but Dalton questioned the need to ask; since Q2/Q3 already put a real-GPS flag in the client, it collapses to a cosmetic default (dim + tooltip) rather than a decision owed, and is flagged for human QA instead.",
+  "prep_method": {
+    "fast_pass": "1x sonnet prep-candidate. Produced correct SURFACE (driverPositions has no fallback) but a WRONG mechanism (bet on (0,0) sentinel rows in sc_positions). Confidence 68, escalate:true.",
+    "escalation_triggers_fired": [
+      "answered:false questions present",
+      "confidence < 80",
+      "escalate.recommend true",
+      "cross-repo/external dependency (GPS egress loader outside this repo)"
+    ],
+    "live_verification": "Driver ran read-only aggregate queries against production ClickHouse Cloud BEFORE the deep path, which KILLED the fast pass's (0,0) hypothesis (0 rows in 172.7M over 60 days) and instead proved the real mechanism. See derivation-log.json (d1-d4). This is the step that prevented building a fix for a mechanism that never fires.",
+    "deep_path": "3x sonnet prep-candidates, blind and parallel, all given identical inputs INCLUDING the live evidence. All three independently confirmed the root cause from code.",
+    "reconcile": "Performed inline by the opus driver (same tier as TICKET_PLAN_MODEL) with all three candidate outputs in full context, applying multi-candidate-merge: additive union deduped, agreement = settled, disagreement = explicit open question. Recorded honestly rather than dispatching a fresh opus pass that would have needed the same three blobs re-passed for no added independence. Anchoring bias mitigated by enumerating agreement/disagreement per field (see candidate_agreement)."
+  },
+  "synthesis": "Drivers at Premier Adjusters and Accurate who scan all day never appear on the Scout admin org map (Bird's Eye). Two layers are in play. The upstream trigger is real and outside this repo: a subset of kits stop reporting GPS fixes to clarity.sc_positions (fleet-wide, 77.8% of kits that scanned in the last 24h have no position row at all) — a known recurring failure class per DEV-2038/DEV-2043/DEV-2048, and consistent with DEV-2228's record that Product confirmed some kits are not reporting GPS. But the user-visible symptom is a platform display gap that IS fixable here: ClarityScoutBirdsEyeController::driverPositions() reads only clarity.sc_positions via OrgLivePositionsQuery and silently skips any kit with no row, while its sibling ClarityScoutMapController::kitPosition() already degrades through a documented 3-tier fallback (sc_positions -> kit_scan_paths -> kit_trips) for precisely this case — its comment says the fallback exists for 'kits not reporting to sc_positions'. Consequence: the same driver is visible on their own single-driver Scout map and invisible on the admin org map. Live production measurement shows the tier that matters, clarity.kit_scan_paths (scan-derived, so populated exactly when GPS is absent), would rescue 100% of the currently-affected kits at both named accounts (4/4 Premier, 2/2 Accurate; 0 unrescuable).",
+  "cause_verdict": {
+    "display_bug": {
+      "verdict": "CONFIRMED — the actionable cause",
+      "evidence": "ClarityScoutBirdsEyeController.php:78-129 is single-source with no fallback tier; ClarityScoutMapController.php:473-608 has the 3-tier degrade. derivation-log.json d4: 6/6 affected kits have a usable clarity.kit_scan_paths bucket inside the org map's own 24h window."
+    },
+    "kit_update_rollout_gap": {
+      "verdict": "CONFIRMED as the upstream trigger, but OUT OF THIS REPO",
+      "evidence": "derivation-log.json d2/d3: the affected kits genuinely have zero sc_positions rows (Premier 141 of 178 kits none in 30 days). Platform cannot fix the kits; it can stop their absence from blanking the map. Precedent DEV-2043 traced this class to the Python GPS egress loader silently dropping rows."
+    },
+    "sync_delay": {
+      "verdict": "RULED OUT as a sufficient cause",
+      "evidence": "LIVE_CUTOFF_HOURS = 24 (ClarityScoutBirdsEyeController.php:48) is far more generous than DEV-2048's measured 7-56 minute ingestion lag, so a merely-late-but-present row still renders. The (0,0) sentinel variant is separately dead (derivation-log.json d1)."
+    }
+  },
+  "scope": {
+    "summary": "Give the org-wide live-dot endpoint the same scan-derived fallback tier its single-driver sibling already has, as ONE additional batched ClickHouse query scoped to only the kits the primary pass failed to resolve. Do not add a tier-3 kit_trips fallback (measured 0 rescues, structurally redundant since kit_trips derives from sc_positions). Do not touch the dead (0,0) filter. Do not fix driverPaths()/OrgLivePathsQuery — that is DEV-2228's trail gap.",
+    "proposed_changes": [
+      {
+        "file": "app/Clickhouse/Queries/OrgScanPathPositionsQuery.php",
+        "change": "NEW ClickhouseQuery subclass. Given org_id + kit_ids + cutoff, return the latest kit_scan_paths bucket's last point per kit in ONE round trip: SELECT kit_id, argMax(arrayElement(path_points, length(path_points)), timestamp) AS last_point, toString(max(timestamp)) AS ts FROM clarity.kit_scan_paths FINAL WHERE org_id = ? AND kit_id IN (...) AND timestamp >= ? GROUP BY kit_id.",
+        "reason": "kit_scan_paths is keyed (org_id, kit_id, timestamp) and has NO kit_mapping column, so it needs its own kit_id-keyed org-wide reader distinct from OrgLivePositionsQuery's mapping-keyed shape. Batched because the endpoint is polled ~10s for a whole org (Premier: 178 kits) — a per-kit fan-out would be a load regression.",
+        "ref": "ClarityScoutMapController.php:543-569 (the single-kit tier-2 this batches); KitScanPathsQuery.php:76 (FINAL precedent); clickhouse-schema.sql:143"
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+        "change": "In driverPositions(): after the existing OrgLivePositionsQuery pass, compute which scoped kits got no tier-1 row; if any, issue one OrgScanPathPositionsQuery call for those kit_ids with the SAME 24h cutoff, in its own try/catch that degrades to 'no rescue' (never wiping tier-1 results). Merge rescued kits into $data with heading => null. Tier 1 always wins. Do NOT attempt the fallback when the tier-1 read THREW — mirror kitPosition()'s reasoning that a throw means the cluster is unreachable, so a sibling-table retry just re-pays the timeout every 10s poll.",
+        "reason": "The fix itself.",
+        "ref": "ClarityScoutBirdsEyeController.php:78-129; kitPosition() ordering at ClarityScoutMapController.php:526-569"
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+        "change": "Compute the 'missing' set from the FULL scoped Kit collection, not from $byMapping's keys.",
+        "reason": "Candidate-3 finding: kitsByMapping() (:742-757) silently drops any kit with a null/empty kit_mapping, so such kits are never even tier-1 candidates. Since kit_scan_paths is keyed by kit_id and needs no mapping, sourcing the missing set from the full collection additionally rescues mapping-less kits. Small change, strictly more correct.",
+        "ref": "ClarityScoutBirdsEyeController.php:742-757"
+      },
+      {
+        "file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php",
+        "change": "Add driverPositions() coverage — the endpoint has ZERO tests today (all three candidates independently confirmed this). Cases: tier-1 happy path (regression pin); falls back to kit_scan_paths when sc_positions is empty (RED before fix); tier-1 wins when both exist; kit with neither source is omitted (no phantom dot); mapping-less kit rescued via kit_id; single fallback query for the whole missing set.",
+        "reason": "The fix's correctness rests entirely on new tests, since nothing covers this endpoint.",
+        "ref": "Template: ClarityScoutMapControllerTest.php:1311-1434 (kitPosition fallback tests); existing insertKitScanPath()/seedKitScanPath() helpers already in the Bird's Eye test file"
+      },
+      {
+        "file": "tests/Unit/Clickhouse/Queries/OrgScanPathPositionsQueryTest.php",
+        "change": "NEW: FINAL collapses a duplicate _version row to the latest; org_id scoping excludes another org's row; empty kit_ids short-circuits.",
+        "reason": "Matches the one-Unit-test-per-query-class convention.",
+        "ref": "tests/Unit/Clickhouse/Queries/KitScanPathsQueryTest.php"
+      },
+      {
+        "file": "okf/concepts/scout-clickhouse-queries.md + okf/concepts/scout-birds-eye.md",
+        "change": "Add the new query class alongside OrgLivePositionsQuery; note the fallback on the driverPositions endpoint row. SEPARATELY (pre-existing staleness, optional): scout-birds-eye.md:51-60's orgScoutKits() pseudocode still shows a kit_settings enrollment gate that DEV-2182 removed.",
+        "reason": "The wiki is the canonical domain source per CLAUDE.md and already documents the tier-1-only vs 3-tier asymmetry; it goes stale the moment this ships.",
+        "ref": "okf/concepts/scout-clickhouse-queries.md:75-91,111-118"
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+        "change": "Add a provenance discriminator to each driverPositions entry (e.g. position_source: \"gps\" for a tier-1 clarity.sc_positions row, \"scan_path\" for a tier-2 clarity.kit_scan_paths rescue). Leave the existing `source` field alone — it means scanner-hardware-vs-browser-GPS and is consumed by map.js for the single-driver null-payload guard; do NOT repurpose it.",
+        "reason": "Q3 (Dalton): add now. Prerequisite for both the banner fix (Q2) and the dot styling (Q1); adding it now avoids a second payload-contract change.",
+        "ref": "ClarityScoutBirdsEyeController.php:105-126; existing `source` semantics at map.js:474"
+      },
+      {
+        "file": "resources/js/clarity-scout/App.vue",
+        "change": "Change noKitsReporting to key on a REAL-GPS dot count rather than total dot count — i.e. count driverPositions entries whose position_source is \"gps\", instead of testing driverPositions.length === 0.",
+        "reason": "Q2 (Dalton): key it on a real-GPS count. Without this, a rescued dot for every driver silently suppresses the DEV-2197 banner while its statement is still true.",
+        "ref": "resources/js/clarity-scout/App.vue:339-345"
+      },
+      {
+        "file": "resources/js/clarity-scout/components/ScannerMap.vue",
+        "change": "In updateDriverMarkers(), render a position_source === \"scan_path\" dot visually dimmed relative to a GPS dot, with a tooltip explaining it is a last-scan position rather than a live GPS fix.",
+        "reason": "Q1 (Dalton, cosmetic default): dim + tooltip. A rescued dot is up to ~15 min stale and sits at the last scan, not the vehicle. Small increment on the client change Q2 already requires. Explicitly flagged for human QA as revertible.",
+        "ref": "resources/js/clarity-scout/components/ScannerMap.vue:691-735"
+      },
+      {
+        "file": "public/build/**",
+        "change": "Rebuild and commit front-end assets (this repo tracks public/build). CRITICAL: npm run build also regenerates CLAUDE.md/AGENTS.md/copilot/junie and drops boost.json — revert those before committing, commit ONLY the real asset changes.",
+        "reason": "Known repo behaviour: a frontend change that is not accompanied by rebuilt committed assets does not take effect for anyone.",
+        "ref": "memory: platform-commits-built-assets, npm-build-regenerates-boost-docs"
+      }
+    ],
+    "target_files": [
+      "app/Clickhouse/Queries/OrgScanPathPositionsQuery.php",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php",
+      "tests/Unit/Clickhouse/Queries/OrgScanPathPositionsQueryTest.php",
+      "okf/concepts/scout-clickhouse-queries.md",
+      "okf/concepts/scout-birds-eye.md",
+      "resources/js/clarity-scout/App.vue",
+      "resources/js/clarity-scout/components/ScannerMap.vue",
+      "public/build/**"
+    ],
+    "out_of_scope": [
+      "The (0,0) geo sentinel filter in OrgLivePositionsQuery/OrgLivePathsQuery/KitHistoricPositionsQuery — proven inert (0 of 172.7M rows/60d). All three candidates agree: leave it, do not even split a follow-up ticket.",
+      "A tier-3 kit_trips fallback — measured 0/6 rescues and structurally impossible to help (kit_trips derives from sc_positions, so it is empty exactly when sc_positions is).",
+      "DEV-2228's trail gap: driverPaths()/OrgLivePathsQuery (org trail) and livePath()/KitHistoricPositionsQuery (single-driver trail) carry the IDENTICAL no-fallback idiom, but a trail fallback is materially different work (stitching 15-min bucketed path_points vs. rendering one dot; HistoricPathBuilder's 500ft segmentation was tuned for 3s-decimated points). Recommend a distinct ticket.",
+      "ClarityScoutMapController::scanPaths() historical-range branch — same idiom but a deliberate DEV-2018 granularity tradeoff, pinned by an existing test.",
+      "BuildShiftSummary's 0-miles/empty-map output for scan-only kits — same idiom, different consumer (async shift email), no accurate mileage fallback exists (15-min bucket endpoints would give wildly wrong distances). Candidate for its own ticket.",
+      "The upstream 'kits not reporting GPS' cause — out of repo, already tracked.",
+      "Repurposing the existing `source` field (means scanner-hardware vs browser-GPS, consumed by map.js:474) — add a NEW field instead.",
+      "Propagating the provenance field to driverPaths()/trails or to the single-driver kitPosition()/livePath() pair — deferred with the trail work per Q4."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Investigate why active drivers/kits are not appearing on the org map for Premier Adjusters and Accurate",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Diagnosed from code + live production evidence; documented in derivation-log.json and the cause_verdict above."
+    },
+    {
+      "item": "Confirm whether this is a kit-update rollout gap, a sync delay, or a display bug",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "All three resolved: display bug CONFIRMED and actionable; rollout gap CONFIRMED as upstream trigger but out-of-repo; sync delay RULED OUT."
+    },
+    {
+      "item": "Cross-reference DEV-2228 for a shared root cause",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Shared upstream fact confirmed; also identified that driverPaths() carries the identical unfixed idiom, which explains DEV-2228's 'hit icon appeared but trail did not render'. This fix does NOT fix that — stated explicitly rather than implied."
+    },
+    {
+      "item": "A kit that scanned inside the live window but has no sc_positions row still renders a dot on the org map, sourced from clarity.kit_scan_paths",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "The concrete, testable fix; mirrors an already-shipped sibling precedent."
+    },
+    {
+      "item": "The fallback is ONE org-wide query, not one per missing kit",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Non-functional requirement — ~10s poll over up to 178 kits."
+    },
+    {
+      "item": "Tier 1 (sc_positions) always wins when both sources exist; existing GPS-reporting behavior is unchanged",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Regression guard matching kitPosition()'s tier ordering."
+    },
+    {
+      "item": "Kits with a null/empty kit_mapping are also rescuable via kit_id",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "kitsByMapping() excludes them from tier-1 candidacy entirely; kit_scan_paths needs no mapping."
+    },
+    {
+      "item": "Visually distinguish a scan-derived dot from a true live-GPS dot",
+      "source": "derived",
+      "decision": "defer",
+      "reason": "BLOCKED on Q1 — product decision."
+    },
+    {
+      "item": "Resolve the DEV-2197 no-GPS banner interaction",
+      "source": "derived",
+      "decision": "defer",
+      "reason": "BLOCKED on Q2 — product decision with a real regression risk."
+    },
+    {
+      "item": "Add a tier-3 kit_trips fallback for full parity with kitPosition()",
+      "source": "derived",
+      "decision": "defer",
+      "reason": "0 measured rescues; structurally redundant."
+    }
+  ],
+  "questions": [
+    {
+      "id": "Q1",
+      "q": "Should a scan-derived dot be visually distinguished from a true live-GPS dot on the org map? A rescued dot is up to ~15 minutes stale and sits at the last SCAN location, not the vehicle's current position. The single-driver map's own code comment argues 'better to show no dot than a misleading one' — but that was written for a driver's own map, not a dispatcher's fleet board where broad coverage, clearly labeled, may be the better trade.",
+      "answered": true,
+      "answer": "Dim the rescued dot and add an explanatory tooltip. Dalton questioned why this was being asked as a blocker; with Q2 keying the banner on a real-GPS count and Q3 adding the discriminator, the client already branches on provenance, so distinct styling is a small increment on work that is happening regardless. Treated as a conservative cosmetic default, trivially revertible, and surfaced in human QA as a look-at-this rather than a gate.",
+      "source": "human:Dalton 2026-08-04 (cosmetic default; asking it as a blocker was over-weighted)",
+      "material": false,
+      "note": "The server fix ships and renders with NO client change either way — ScannerMap.vue's updateDriverMarkers() plots every entry uniformly and never reads `source`. So this decides whether client work joins this ticket, not whether the fix works."
+    },
+    {
+      "id": "Q2",
+      "q": "DEV-2197 deliberately added a 'No kits are reporting GPS locations' banner that triggers on driverPositions.length === 0 && scans_today > 0 (App.vue:339-345). After this fix, an org with ZERO real GPS but active scan coverage would show a rescued dot for every driver, making that condition false and silently suppressing a statement that is still TRUE. Should the banner's trigger change (e.g. keyed on a real-GPS count rather than total dot count), should its copy change, or is suppression acceptable?",
+      "answered": true,
+      "answer": "Key the banner on a REAL-GPS count rather than total dot count. Preserves the true signal DEV-2197 was built to send, so it still fires for exactly the fully-dark orgs it was meant for.",
+      "source": "human:Dalton 2026-08-04",
+      "material": true,
+      "note": "VERIFIED against App.vue by the driver, not just claimed. This is a genuine regression risk introduced BY the fix, and it is the single strongest reason this run is parked rather than proceeding."
+    },
+    {
+      "id": "Q3",
+      "q": "Should the driverPositions payload gain a tier discriminator now? Today both tiers of kitPosition() AND driverPositions() hardcode `source: 'scan'` (meaning 'scanner hardware' as opposed to browser GPS, not 'live vs derived'), so the payload literally cannot express provenance anywhere in the codebase. Options: add it now (cheap, unused until a client change), or wait for Q1's visual design to avoid a second payload-contract change.",
+      "answered": true,
+      "answer": "Add the payload discriminator now. It is a prerequisite for both Q1 and Q2, and adding it now avoids a second payload-contract change.",
+      "source": "human:Dalton 2026-08-04",
+      "material": true,
+      "note": "Candidates split: one said implement now, one said defer, one said recommend-but-product-call. Recorded as an explicit disagreement per multi-candidate-merge rather than silently picked."
+    },
+    {
+      "id": "Q4",
+      "q": "Confirm the scope boundary with DEV-2228: this ticket fixes the org-map DOT only and leaves the breadcrumb TRAIL (driverPaths/OrgLivePathsQuery, plus the single-driver livePath) untouched, to be handled as its own ticket. Is dot-only the right cut for DEV-2253, given the ticket also asks us to 'cross-reference DEV-2228'?",
+      "answered": true,
+      "answer": "Dot only. Leave the breadcrumb trail (driverPaths/OrgLivePathsQuery + single-driver livePath) to its own ticket, and document the shared idiom. Also link DEV-2228 to this ticket.",
+      "source": "human:Dalton 2026-08-04",
+      "material": true,
+      "note": "All three candidates independently recommended dot-only + document the relationship. Surfaced for confirmation because it defines the deliverable, and because a wrong cut either creeps into DEV-2228 or under-delivers here."
+    },
+    {
+      "id": "Q5",
+      "q": "Is the (0,0) sentinel mechanism the cause?",
+      "answered": true,
+      "answer": "No — definitively ruled out. 0 rows with geo=(0,0) across 172,667,380 points / 585 kits over 60 days in production. The missing filter is a real inconsistency against the sibling convention but is inert; all three candidates agree it should be left alone entirely.",
+      "source": "code"
+    },
+    {
+      "id": "Q6",
+      "q": "Is DEV-2182's kit-roster decoupling actually shipped, or is the roster hiding these kits?",
+      "answered": true,
+      "answer": "Shipped and correct. orgScoutKits() (ClarityScoutBirdsEyeController.php:703-734) is Kit::forOrg()->excludingDeleted() with KitSettings attached as an OPTIONAL relation — no kit_settings gate, no user_id gate. Verified by the driver reading the code directly, plus a passing test (test_drivers_lists_all_active_org_kits_regardless_of_scout_enrollment). The roster is not the problem. Note the okf wiki is stale on this point.",
+      "source": "code"
+    },
+    {
+      "id": "Q7",
+      "q": "Are 'not appearing on the map' and 'not shown as online' two different code paths?",
+      "answered": true,
+      "answer": "No, one path. There is no separate online/offline indicator anywhere in resources/js/clarity-scout — a driver is 'online' purely by having a rendered dot from driverPositions. Both ticket phrasings describe the same failure, so one fix addresses both.",
+      "source": "code"
+    },
+    {
+      "id": "Q8",
+      "q": "Could plain ingestion lag (DEV-2048) explain this on its own?",
+      "answered": true,
+      "answer": "No. LIVE_CUTOFF_HOURS = 24 vastly exceeds the measured 7-56 minute lag, and the affected kits have zero rows in 30 days, not late ones.",
+      "source": "code"
+    },
+    {
+      "id": "Q9",
+      "q": "Is driverPositions() cached, and does the fallback change the cache story?",
+      "answered": true,
+      "answer": "It is NOT cached today (unlike hits()/recentHits()/stats() on the same controller, which are Cache::remember-wrapped). Keep it uncached to match. The added query is self-limiting: it only fires when kits are missing (a no-op for a healthy org) and its WHERE org_id=? AND kit_id IN (...) AND timestamp>=? aligns with kit_scan_paths' ORDER BY (org_id, kit_id, timestamp).",
+      "source": "code"
+    },
+    {
+      "id": "Q10",
+      "q": "What does 'the kit update' in the ticket refer to?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human",
+      "material": false,
+      "note": "Non-blocking. The platform-side gap is proven independent of whatever the kit update was; this only affects how we word the reply to the reporter."
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "Test integrity: clarity.kit_scan_paths carries a 90-day DELETE TTL applied AT INSERT — a fixture anchored to a hardcoded past date reads back as 0 rows with nothing to blame. Anchor every fixture to now()/now()->subMinutes(). This is a known repo gotcha and the Bird's Eye test file's own frozenNow() helper comments on it.",
+    "FINAL is mandatory on kit_scan_paths (ReplacingMergeTree(_version)); every existing reader uses DB::clickhouse('kit_scan_paths', final: true). Under the pgsql test bridge FINAL is a documented no-op (AppServiceProvider.php:69-82), so no special-casing is needed.",
+    "New CH-backed tests need the RequiresClickhouse trait, which SKIPS THE WHOLE CLASS unless CLICKHOUSE_DRIVER=clickhouse — so a green local run may mean 'skipped', not 'passed'. Verify the tests actually executed.",
+    "Two different join keys live in the same method: sc_positions is keyed by lower(kit_mapping) while kit_scan_paths is keyed by (org_id, kit_id). Do not conflate them.",
+    "Repo convention in both map controllers: log + return a degraded payload on any ClickHouse Throwable, never a 500. The new fallback must follow this.",
+    "Run vendor/bin/pint --dirty --format agent before finalizing. Do NOT run npm run build — it regenerates CLAUDE.md/AGENTS.md and drops boost.json.",
+    "A rescued dot is scan-triggered, not motion-triggered: it stops advancing the moment a driver stops scanning even if still driving. That could trade this complaint for a new one ('driver froze on the map'). Feeds Q1.",
+    "driverPositions() has zero existing test coverage — independently confirmed by all three candidates. The tier-1 happy path should be pinned too, not just the new fallback."
+  ],
+  "candidate_agreement": {
+    "unanimous": [
+      "Root cause: driverPositions() single-source sc_positions with no fallback tier, versus kitPosition()'s existing 3-tier degrade.",
+      "Fix shape: a NEW org-wide kit_scan_paths query class (batched, FINAL, keyed by kit_id), merged as tier 2, tier 1 always winning.",
+      "Do not add a tier-3 kit_trips fallback (0 measured rescues, structurally redundant).",
+      "Drop the (0,0) filter work entirely.",
+      "Do not attempt the fallback when tier 1 threw (cluster-unreachable reasoning).",
+      "DEV-2228: same idiom on driverPaths()/OrgLivePathsQuery — this fix explains but does NOT fix it; recommend a separate ticket.",
+      "driverPositions() is uncached and has zero test coverage.",
+      "The client needs no change for the fix to render; ScannerMap.vue never reads `source`.",
+      "escalate: true, all three, driven by product decisions rather than technical uncertainty."
+    ],
+    "disagreements_surfaced_as_questions": [
+      "Payload tier discriminator: candidate 1 said implement now; candidate 2 said defer to avoid a double contract change; candidate 3 said recommend-but-product-call. -> Q3, not silently picked.",
+      "okf wiki updates: only candidate 3 proposed them. Kept in scope (the wiki is canonical per CLAUDE.md and would go stale immediately) but flagged as additive, not consensus."
+    ],
+    "unique_findings_kept": [
+      "Candidate 3: the DEV-2197 banner interaction (App.vue:339-345) — the highest-value finding of the whole phase, independently VERIFIED by the driver against the source. Became Q2.",
+      "Candidate 3: kitsByMapping() drops mapping-less kits from tier-1 candidacy, and kit_scan_paths needs no mapping, so sourcing the missing set from the full kit collection rescues them too. Folded into scope.",
+      "Candidate 3: okf/concepts/scout-birds-eye.md:51-60 still documents the pre-DEV-2182 enrollment gate.",
+      "Candidate 2: BuildShiftSummary 0-miles defect and the deliberate DEV-2018 tradeoff on scanPaths()' range branch. Both explicitly out of scope."
+    ],
+    "fast_pass_correction": "The fast pass's primary mechanism ((0,0) sentinel rows) was WRONG and would have produced a 4-file fix for a mechanism that fires zero times in production. It was caught by live verification before any code was written, not by the candidates. Recorded because it is the main process lesson of this run."
+  },
+  "confidence": 92,
+  "confidence_note": "Technical diagnosis and fix design: very high (root cause independently derived by four separate passes and confirmed by direct production measurement with a 100% rescue rate on the affected population). The residual 8% is entirely the four unanswered product/scope questions, not doubt about the mechanism.",
+  "escalated": true,
+  "best_of_n": true,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [
+    {
+      "file": "app/Services/Scout/BuildShiftSummary.php",
+      "symbol": "KitHistoricPositionsQuery",
+      "referenced_at": "line 7/16/105-117",
+      "assessment": "same no-fallback idiom, different consumer (shift email) — out of scope, candidate for its own ticket"
+    },
+    {
+      "file": "app/Clickhouse/Queries/KitScanPathsQuery.php",
+      "symbol": "sc_positions/kit_scan_paths",
+      "referenced_at": "line 76/104",
+      "assessment": "safe — reads the scan-derived MV directly, and is the precedent for the new query's FINAL usage"
+    },
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutTripsController.php",
+      "symbol": "kit_trips/tupleElement",
+      "referenced_at": "line 123/535",
+      "assessment": "safe — trips surface, not the live dot"
+    },
+    {
+      "file": "app/Clickhouse/Models/KitTrip.php",
+      "symbol": "kit_trips",
+      "referenced_at": "line 11/58",
+      "assessment": "safe — model only"
+    },
+    {
+      "file": "resources/js/clarity-scout/components/ScannerMap.vue",
+      "symbol": "driverPositions/kitPosition",
+      "referenced_at": "line 67/336/691-735",
+      "assessment": "safe — renders uniformly; relevant only to Q1"
+    },
+    {
+      "file": "resources/js/clarity-scout/App.vue",
+      "symbol": "driverPositions/noKitsReporting",
+      "referenced_at": "line 329/339-345",
+      "assessment": "DIRECTLY IMPLICATED — the DEV-2197 banner condition, see Q2"
+    },
+    {
+      "file": "resources/js/clarity-scout/lib/adminScope.js",
+      "symbol": "driver-positions",
+      "referenced_at": "line 5",
+      "assessment": "safe — admin BASE_URL scoping"
+    },
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeDispositionController.php",
+      "symbol": "withShared",
+      "referenced_at": "line 28",
+      "assessment": "noted — shared-kit handling exists on the disposition controller but orgScoutKits() never merges shared kits; only relevant if the affected orgs use SHARED_KITS, unconfirmed and not the measured cause"
+    }
+  ],
+  "data_impact": {
+    "pg_tables": [
+      "zod.kits (read-only, roster + kit_mapping)",
+      "platform.kit_settings (read-only, labels/vehicle_type only)"
+    ],
+    "ch_tables": [
+      "clarity.sc_positions (tier 1, unchanged)",
+      "clarity.kit_scan_paths (tier 2, NEW read, FINAL required, 90-day TTL)"
+    ],
+    "mv_or_cdc_implications": "kit_scan_paths is a <=15-min ReplacingMergeTree materialized view fed from scan events (NOT from sc_positions) — which is exactly why it is populated for kits whose GPS is dark. Read-only addition: no schema change, no new MV, no CDC change, no writes.",
+    "indexes_relied_on": [
+      "clarity.kit_scan_paths ORDER BY (org_id, kit_id, timestamp) — the new query's WHERE aligns directly with this sort key",
+      "clarity.sc_positions ORDER BY (kit_mapping, timestamp_utc) — unchanged; the pre-existing lower() wrap on the mapping predicate is untouched by this ticket"
+    ]
+  },
+  "derivation_log": "See docs/investigations/DEV-2253/derivation-log.json (entries d1-d4: query shapes, parameter classes, aggregate results only — no raw rows, per non-negotiable 3).",
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "Fallback renders a dot",
+        "kind": "agent",
+        "intent": "Seed a kit with a kit_scan_paths bucket and NO sc_positions row; assert /map/driver-positions currently omits it (red) and includes it after the fix, at the bucket's last point."
+      },
+      {
+        "ac": "Tier precedence",
+        "kind": "agent",
+        "intent": "Seed both sources for one kit; assert the sc_positions coordinates win."
+      },
+      {
+        "ac": "No phantom dots",
+        "kind": "agent",
+        "intent": "Kit with neither source stays absent — no null-coordinate row, no 500."
+      },
+      {
+        "ac": "Mapping-less kit",
+        "kind": "agent",
+        "intent": "Kit with kit_mapping = null but a kit_scan_paths bucket is rescued via kit_id."
+      },
+      {
+        "ac": "One query, not N",
+        "kind": "agent",
+        "intent": "Enable the clarity_clickhouse query log; assert the fallback issues exactly one statement regardless of how many kits are missing."
+      },
+      {
+        "ac": "Q1/Q2 outcomes on a real map",
+        "kind": "human",
+        "intent": "On the Bird's Eye map, confirm rescued dots appear for the affected-shaped fixtures and that whatever the human decides for the DEV-2197 banner behaves correctly — this is the judgment call the guide must foreground."
+      }
+    ],
+    "seed_scenario": "One org with four Scout kits: (A) valid recent sc_positions row — renders as a true GPS dot; (B) no sc_positions but a kit_scan_paths bucket 5 minutes old — currently vanishes, must render after the fix; (C) both sources present with different coordinates — must render A-style GPS coordinates, proving tier precedence; (D) neither source — must stay absent. Optionally (E) kit_mapping = null with a bucket, to pin the mapping-less rescue. All fixtures anchored to now().",
+    "personas": [
+      "Org admin viewing Scout Bird's Eye (the reporter's role)",
+      "InsightLPR staff impersonating the org (admin_impersonator — 3s cache TTLs)"
+    ],
+    "pg_tables": [
+      "zod.kits",
+      "platform.kit_settings"
+    ],
+    "ch_tables": [
+      "clarity.sc_positions",
+      "clarity.kit_scan_paths"
+    ]
+  },
+  "tests": [
+    {
+      "file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php",
+      "what_it_pins": "driverPositions(): tier-1 happy path (currently untested); kit_scan_paths fallback (RED before fix); tier-1 precedence; kit with neither source omitted; mapping-less kit rescued; single fallback query for the whole missing set."
+    },
+    {
+      "file": "tests/Unit/Clickhouse/Queries/OrgScanPathPositionsQueryTest.php",
+      "what_it_pins": "The new query in isolation: FINAL dedup by _version, org_id scoping, empty kit_ids short-circuit."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:48 — LIVE_CUTOFF_HOURS = 24",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:78-129 — driverPositions(): THE BUG (single-source, no fallback, uncached)",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:108 — the inert (0,0) discard",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:140-211 — driverPaths(): identical idiom, DEV-2228's gap, OUT OF SCOPE",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:703-734 — orgScoutKits(): DEV-2182 confirmed shipped, no enrollment gate",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:742-757 — kitsByMapping(): drops mapping-less kits",
+      "app/Http/Controllers/Api/ClarityScoutMapController.php:473-608 — kitPosition(): the 3-tier exemplar to mirror; :489 the 'kits not reporting to sc_positions' comment; :526-538 the do-not-fallback-on-throw reasoning; :543-569 the tier-2 read",
+      "app/Clickhouse/Queries/OrgLivePositionsQuery.php:20-78 — tier-1 org-wide reader (argMax per lower(kit_mapping))",
+      "app/Clickhouse/Queries/KitScanPathsQuery.php:76 — DB::clickhouse('kit_scan_paths', final: true) precedent",
+      "app/Providers/AppServiceProvider.php:69-82 — FINAL is a no-op under the pgsql bridge",
+      "resources/js/clarity-scout/App.vue:339-345 — noKitsReporting: the DEV-2197 banner condition this fix would defeat (Q2)",
+      "resources/js/clarity-scout/components/ScannerMap.vue:691-735 — updateDriverMarkers(): uniform rendering, never reads `source`",
+      "resources/js/clarity-scout/composables/useBirdsEyePolling.js — the ~10s org-wide poll",
+      "database/schema/clickhouse-schema.sql:143 — kit_scan_paths DDL: ReplacingMergeTree(_version), ORDER BY (org_id, kit_id, timestamp), 90-day TTL, NO kit_mapping column",
+      "database/schema/clickhouse-schema.sql:149 — sc_positions DDL: keyed (kit_mapping, timestamp_utc), no org_id/kit_id",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php:1311-1434 — kitPosition() fallback tests, the template"
+    ],
+    "code_flow": "useBirdsEyePolling.js (~10s) -> GET /scout/org-map/api/map/driver-positions -> ClarityScoutBirdsEyeController::driverPositions() -> scopedKits()/kitsByMapping() build the roster from Postgres (orgScoutKits cached 10s/3s) -> OrgLivePositionsQuery against clarity.sc_positions, argMax per lower(kit_mapping), 24h cutoff -> [PROPOSED tier 2] for kits with no tier-1 row, one OrgScanPathPositionsQuery against clarity.kit_scan_paths FINAL keyed by kit_id -> merged JSON data[] -> Pinia map.js -> ScannerMap.vue plots one marker per entry (no source-based styling) and App.vue's noKitsReporting decides the DEV-2197 banner from the dot COUNT.",
+    "tables": [
+      "clarity.sc_positions",
+      "clarity.kit_scan_paths",
+      "clarity.kit_trips (deliberately not used)",
+      "zod.kits",
+      "platform.kit_settings"
+    ],
+    "related_components": [
+      "OrgLivePositionsQuery",
+      "OrgLivePathsQuery (DEV-2228)",
+      "KitScanPathsQuery",
+      "KitHistoricPositionsQuery (DEV-2228)",
+      "ClickhouseQuery base class",
+      "useBirdsEyePolling.js",
+      "ScannerMap.vue updateDriverMarkers",
+      "App.vue noKitsReporting (DEV-2197 banner)",
+      "HistoricPathBuilder (trails only, unaffected)"
+    ]
+  }
+}

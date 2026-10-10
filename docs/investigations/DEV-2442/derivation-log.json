@@ -1,0 +1,168 @@
+{
+  "note": "Read-only aggregates against production ClickHouse Cloud via the readonly_user account. NO RAW ROWS — counts and distinct-cardinality only, per /ticket non-negotiable 3.",
+  "measured_at_utc": "2026-10-07",
+  "entries": [
+    {
+      "query_shape": "SELECT count(), countIf(JSONHas(json,'branch_id')), countIf(JSONExtractInt(json,'branch_id') != 0) FROM zod.public_hotlist_json WHERE _peerdb_is_deleted = 0",
+      "param_classes": "none (whole-table aggregate over the CDC mirror of zod.public.hotlist_json)",
+      "aggregate_result": "total_rows=95542923; rows_with_branch_id_key=0; rows_with_nonzero_branch_id=0",
+      "why": "PRIMARY EVIDENCE. hotlist_json.json['branch_id'] is the single source that feeds every downstream branch_id column. Zero of 95.5M live rows carry the key at all, proving GetOrgHotlistCaseInfo (its only writer) has never run in production."
+    },
+    {
+      "query_shape": "SELECT count(), countIf(branch_id != 0), uniqExact(branch_id) FROM zod.hotlist_json_denormalized",
+      "param_classes": "none (whole-table aggregate)",
+      "aggregate_result": "total=95853139; nonzero_branch_id=0; distinct_branch_id=1",
+      "why": "Confirms the denormalizing MV faithfully propagates the empty source — the MV is not implicated."
+    },
+    {
+      "query_shape": "SELECT count(), countIf(branch_id != 0), uniqExact(branch_id) FROM <table>  -- repeated per consumer table",
+      "param_classes": "table in {clarity.hotlist_status_aggregate, clarity.missed_opportunities, clarity.recoveries, clarity.hotlist, clarity.client_historical_hits_hourly, clarity.client_days_to_repo_all}",
+      "aggregate_result": "hotlist_status_aggregate: 62922188 rows / 0 nonzero / 1 distinct; missed_opportunities: 605570 / 0 / 1; recoveries: 16993990 / 0 / 1; hotlist: 65363753 / 0 / 1; client_historical_hits_hourly: 632285 / 0 / 1; client_days_to_repo_all: 6844336 / 0 / 1",
+      "why": "Every table the Client Analytics widgets filter on carries branch_id=0 universally. Therefore ANY nonzero branch filter matches zero rows, for every org — not just Action Towing."
+    },
+    {
+      "query_shape": "SELECT database, table FROM system.columns WHERE name='branch_id' AND database IN ('clarity','zod')",
+      "param_classes": "none (schema introspection)",
+      "aggregate_result": "28 clarity tables/MVs + 2 zod tables carry a branch_id column",
+      "why": "Bounded the exhaustiveness sweep to the real consumer set."
+    },
+    {
+      "query_shape": "SELECT name FROM system.columns WHERE database='zod' AND table='public_hotlist_json'",
+      "param_classes": "none (schema introspection)",
+      "aggregate_result": "columns = hotlist_id, json, created_at, updated_at, _peerdb_* — NO top-level branch_id column",
+      "why": "Confirms branch_id lives inside the json blob, so the correct source measurement is JSONHas(json,'branch_id') rather than a column null-check."
+    },
+    {
+      "query_shape": "prod-cardinality.sh --app clarity --table hotlist:org_id (run by the prep candidate)",
+      "param_classes": "table=hotlist, group_col=org_id",
+      "aggregate_result": "total_rows=135302386; largest_single_org_group=17302199",
+      "why": "Sizes the blast radius of any naive backfill: the largest single org alone would enqueue 17.3M RDN SOAP-call jobs."
+    },
+    {
+      "query_shape": "SELECT count(), countIf(JSONHas(properties,'rdn_rate_limit')) FROM zod.public_org_meta_latest",
+      "param_classes": "none (whole-table aggregate)",
+      "aggregate_result": "org_meta_rows=23029; with_rate_limit=345; without=22684 (98.5%). Only ONE distinct configured value exists: 100.",
+      "why": "Answers whether excluding unthrottled orgs is viable. It is not, as a coverage strategy: 98.5% of orgs have no configured limit."
+    },
+    {
+      "query_shape": "SELECT bucket(org has rdn_rate_limit?), count(), uniqExact(org_id) FROM zod.public_hotlist WHERE _peerdb_is_deleted=0 GROUP BY bucket",
+      "param_classes": "none; bucket derived from a semi-join against org_meta keys",
+      "aggregate_result": "UNTHROTTLED: 139,807,840 rows across 3,148 orgs. has_rate_limit: 6,753,882 rows across 345 orgs.",
+      "why": "Sizes the exposure of a backfill. 95.4% of the backlog belongs to orgs that would run under Limit::none()."
+    },
+    {
+      "query_shape": "SELECT create_table_query FROM system.tables WHERE database IN ('clarity','zod') AND name LIKE '%_mv'",
+      "param_classes": "schema introspection only",
+      "aggregate_result": "branch_id propagation chain verified end-to-end: hotlist_json.json['branch_id'] -> zod.hotlist_json_denormalized_mv (JSONExtract) -> clarity.hotlist_incremental_mv (changed-set UNIONs hotlist_json_denormalized on its OWN watermark) -> clarity.hotlist -> recoveries_mv / missed_opportunities_mv (read h.branch_id from clarity.hotlist) -> client_days_to_repo_mv (reads r.branch_id from clarity.recoveries).",
+      "why": "Answers Q5 (cross-repo propagation). The chain EXISTS and is correctly wired for branch_id - the MV layer is not implicated in the bug."
+    },
+    {
+      "query_shape": "SELECT create_table_query FROM system.tables WHERE database='clarity' AND name='hotlist_status_aggregate_mv'",
+      "param_classes": "schema introspection only",
+      "aggregate_result": "REFRESH EVERY 15 MINUTE APPEND TO clarity.hotlist_status_aggregate. Its changed-set is driven SOLELY by zod.public_hotlist_status_log WHERE _peerdb_synced_at >= watermark; hj_deduped (the branch_id join) is itself restricted to hotlist_ids appearing in that same status-log window.",
+      "why": "CRITICAL CONSTRAINT ON OPTION A: backfilling hotlist_json.branch_id will NOT retroactively populate clarity.hotlist_status_aggregate. Only hotlists whose STATUS LOG rows sync after the backfill pick up the new branch_id, and because the MV is APPEND TO, historical aggregate rows keep branch_id=0 permanently. The stat cards backed by this table would still read 0 for historical data after a successful platform-side backfill."
+    },
+    {
+      "query_shape": "SELECT k, count() FROM zod.public_hotlist_json ARRAY JOIN JSONExtractKeys(json) AS k WHERE _peerdb_is_deleted=0 GROUP BY k ORDER BY count() DESC",
+      "param_classes": "none (whole-table key histogram)",
+      "aggregate_result": "21 distinct keys. case_number=91,209,893; vehicle_color=87,573,754; description=81,546,891; entering_agency=57,322,782; expires_at=12,025,695; plate_type/file_type_decode/plate_expired_at/title_number=2,776,976 each; vin=88,188; vehicle_type=71,588; vehicle_year/model/make=18,675 each; long tail to 1.",
+      "why": "BLAST RADIUS OF A LATENT DATA-DESTRUCTION BUG. GetOrgHotlistCaseInfo.php:88-91 rebuilds the whole blob via HotlistJsonData::from(), and that DTO declares ONLY ?int $branch_id - so Spatie discards every undeclared key and save() writes back {branch_id} alone. Restoring the dispatch without fixing this first would irreversibly wipe all 21 keys from every row it touched. Verified in code + quantified here."
+    },
+    {
+      "query_shape": "SELECT count(), countIf(first_open_at IS NOT NULL), countIf(first_repossessed_at IS NOT NULL), countIf(branch_id>0) FROM clarity.hotlist FINAL WHERE _peerdb_is_deleted=0 AND created_at >= now()-90d; + same GROUP BY toYear(created_at)",
+      "param_classes": "relative 90-day window; all years",
+      "aggregate_result": "90d: 4,812,060 rows, first_open_at 4,255,274 (88%, NULLs are never-Open statuses 90/99/5), first_repossessed_at 681,997, branch_id>0 = 0. Backfilled to 2022 (2023: 5.44M/6.05M have first_open_at).",
+      "why": "2026-09-30 re-scope: clarity.hotlist gained first_*_at (chlocal migration 116, SCHEMA-DRIFT-2657) on the same row as branch_id. Confirms backfill + that enrichment is still absent (branch_id 0)."
+    },
+    {
+      "query_shape": "per org_id: uniqMergeIf(unique_hotlists, new_status=1 [AND old_status IN (0,90)] | new_status=3) FROM clarity.hotlist_status_aggregate over a month  vs  uniqExactIf(id, first_open_at|first_repossessed_at in month) FROM clarity.hotlist FINAL; FULL/LEFT JOIN on org_id",
+      "param_classes": "window 2026-08-01..2026-09-01; restricted to org_id IN clarity.orgs for the final figure",
+      "aggregate_result": "Clarity orgs (2,046): first_open_at 1,823,838 vs Accepted 1,791,172 (1.018) vs all Open transitions 1,902,910 (0.958); 207 orgs differ >5%. Repossessions 339,952 vs 340,154 (0.9994), per-org quantiles [1,1,1]. Unrestricted fleet ratio 0.35 was entirely 6 non-Clarity orgs (~10M hotlists each, absent from clarity.orgs, excluded by hotlist_incremental_mv's WHERE h.org_id IN clarity.orgs).",
+      "why": "Tests whether first_*_at can replace the transition aggregate for branch-filtered headline cards without a chlocal change. Semantic delta = first-transition-only (reopens not recounted)."
+    },
+    {
+      "query_shape": "SELECT uniqExact(id) FROM clarity.hotlist FINAL WHERE org_id=? AND _peerdb_is_deleted=0 AND created_at < ? AND [branch_id=?] AND first_open_at in 12-month window",
+      "param_classes": "one large org (top-10 by volume), 12-month window",
+      "aggregate_result": "2,016,392 rows read / 55.4 MB / 63 ms / 51 MB memory (vs 4.6-4.7 GB for the status-log route measured 2026-09-02)",
+      "why": "Cost of the first_*_at route at production scale for a headline card."
+    },
+    {
+      "query_shape": "SELECT multiIf(old_status IN (0,90),'from_0_or_90','from_other') src, multiIf(first_open_at < s,'before', first_open_at < e,'in_window','other') fo, uniqExact(hotlist_id) FROM zod.public_hotlist_status_log sl INNER JOIN (SELECT id, first_open_at FROM clarity.hotlist FINAL WHERE _peerdb_is_deleted=0 AND first_open_at IS NOT NULL) h ON h.id=sl.hotlist_id WHERE new_status=1 AND sl.created_at in window GROUP BY src, fo",
+      "param_classes": "window 2026-08-01..2026-09-01; Clarity orgs only (via clarity.hotlist)",
+      "aggregate_result": "from_0_or_90 & first-opened-in-Aug 1,790,261; from_0_or_90 & first-opened-before-Aug 1,902; from_other & first-opened-before-Aug 79,242; from_other & first-opened-in-Aug 79,577. One-off diagnostic: 501.8M rows / 7.6 GB / 2.5s.",
+      "why": "Explains the first_open_at vs aggregate drift exactly: ~81k reopens (first opened before the window) are counted by the aggregate's any-Open count but not by first_open_at (the ~4% low); first opens arriving from a non-0/90 status are counted by first_open_at but excluded by scopeAccepted (the ~2% high)."
+    },
+    {
+      "query_shape": "org profile: count(), uniqExact(integration_id), countIf(remote_order_id set), countIf(branch_id>0) FROM clarity.hotlist FINAL WHERE org_id=? [AND created_at >= 6mo]",
+      "param_classes": "org 14 (Brad Webb / Premier Adjusters, the ticket's reference org)",
+      "aggregate_result": "in clarity.orgs; 224,386 hotlists total, 34,160 in 6mo, 1 integration, 100% have remote_order_id, branch_id>0 = 0",
+      "why": "User-requested real-org check of the first_*_at route (2026-09-30)."
+    },
+    {
+      "query_shape": "per month: uniqMergeIf(unique_hotlists, new_status=1 | new_status=1 AND old_status IN (0,90) | new_status=3) FROM hotlist_status_aggregate WHERE org_id=?  vs  count by toStartOfMonth(first_open_at | first_repossessed_at) FROM clarity.hotlist FINAL WHERE org_id=?",
+      "param_classes": "org 14, 2026-03 .. 2026-09 (Sep partial)",
+      "aggregate_result": "Assignments (any-Open): first_open_at -1.7% .. -5.1% per month. Repossessions: exact (+/-1 per month). Recovery rate: +0.5 .. +1.6 pts (e.g. Aug 29.4% -> 29.9%). Accepted: first_open_at +8.4% .. +26.1% per month (Aug 3,812 vs 4,180).",
+      "why": "Real numbers the branch-filtered cards would show vs today's cards for the ticket's reference org."
+    },
+    {
+      "query_shape": "old_status of the FIRST Open transition: status_log sl INNER JOIN clarity.hotlist h ON h.id=sl.hotlist_id AND sl.created_at=h.first_open_at WHERE new_status=1, org 14, GROUP BY old_status",
+      "param_classes": "org 14, Aug 2026",
+      "aggregate_result": "0 -> 2,819; 90 -> 989 (sum 3,808 ~ aggregate Accepted 3,812); 99 (Invalid) -> 367 (8.8%); 2 (Hold) -> 5",
+      "why": "Explains org 14's Accepted gap: Invalid->Open first opens, which scopeAccepted excludes."
+    },
+    {
+      "query_shape": "Accepted approximation: countIf(first_open_at in month AND NOT any of first_invalid/hold/repossessed/declined/closed_at < first_open_at)",
+      "param_classes": "org 14 by month; fleet Clarity orgs Aug 2026",
+      "aggregate_result": "org 14: -7.3% .. -12.4% per month (overshoots: many hotlists go 99 -> 90 -> Open, so an earlier Invalid does not mean the first Open came from Invalid). Fleet 0.9886, 194 orgs off >5%.",
+      "why": "Shows first_*_at cannot reproduce scopeAccepted exactly; exact Accepted needs the old_status of the first Open transition, which clarity.hotlist does not store."
+    },
+    {
+      "query_shape": "per_hotlist: groupArrayIf((created_at, old_status), new_status=1), groupArrayIf(created_at, new_status=3) FROM zod.public_hotlist_status_log WHERE hotlist_id IN (org's clarity.hotlist ids) GROUP BY hotlist_id; then per month countIf(arrayExists(x -> toStartOfMonth(x.1)=m [AND x.2 IN (0,90)], opens)), countIf(arrayExists(... repos))",
+      "param_classes": "org 14, 2026-03 .. 2026-09",
+      "aggregate_result": "Mar-Aug: Assignments, Accepted, Repossessions EXACTLY equal the aggregate's uniqMerge every month (0 difference). Sep (in progress): +2 / +2 / +1 (15-min aggregate refresh). One-off cost 395.6M rows / 5.4 GB.",
+      "why": "Proves a per-hotlist status-transition array reproduces hotlist_status_aggregate exactly; basis for DEV-2892 (chlocal column on clarity.hotlist). Request-time status-log reads are unaffordable, hence materialize."
+    },
+    {
+      "query_shape": "SHOW CREATE / system.tables for clarity.hotlist_status_transitions(+_mv); count(), uniqExact(org_id), min/max(created_at), max(inserted_at), rows by toStartOfMonth(created_at)",
+      "param_classes": "none",
+      "aggregate_result": "DEV-2892 live: ReplacingMergeTree ORDER BY (org_id, created_at, id), PARTITION toYYYYMM(created_at); MV REFRESH EVERY 15 MINUTE APPEND, Clarity orgs only, all transitions incl. INSERT-synthesised, org from public_hotlist argMax. Backfill IN PROGRESS at 2026-10-07 14:10 UTC: 32.2M -> 42.1M rows in ~2 min, oldest-first, reached 2024-05; 2026-07 (canary) and 2026-10 (live) present; 2026-08/09 not yet.",
+      "why": "Establish what DEV-2892 shipped before re-scoping DEV-2442."
+    },
+    {
+      "query_shape": "per org: uniqMergeIf(...) FROM hotlist_status_aggregate vs uniqExactIf(hotlist_id, new_status=1 | +old_status IN (0,90) | new_status=3) FROM hotlist_status_transitions, Clarity orgs",
+      "param_classes": "July 2026 (the only fully backfilled recent month); org 14 by month",
+      "aggregate_result": "org 14 July: 4,872/4,222/1,358 = aggregate exactly. Fleet July: 2,270 of 2,273 orgs identical on all 3 metrics; the other 3 are the largest orgs (123, 165, 170; 140k-212k hotlists/mo), off <=0.42% in both directions = the aggregate's uniq estimation error. Repossessions 371,568 = 371,568.",
+      "why": "Exactness of the DEV-2892 table vs today's cards."
+    },
+    {
+      "query_shape": "uniqExactIf(...) FROM hotlist_status_transitions WHERE org_id=? AND created_at in window AND hotlist_id IN (SELECT id FROM clarity.hotlist FINAL WHERE org_id=? AND _peerdb_is_deleted=0 AND created_at < window_end AND ifNull(branch_id,0)=?)",
+      "param_classes": "orgs 14 and 165 (largest), July 2026; branch = all-unbranched (worst-case selectivity, no real branch exists yet)",
+      "aggregate_result": "org 14: 4,872/4,222/1,358 (identical; no deleted-hotlist drop-out), 1.6M rows / 52 MB / 69 ms. org 165: 211,505/171,183/0, 16.0M rows / 508 MB / 556 ms / 226 MB mem - dominated by the clarity.hotlist FINAL subquery. branch_id is NULL (6.07M) or 0 (553k) in orgs 14+165 - predicate must be NULL-safe.",
+      "why": "Cost + correctness of the branch-join read path the cards will use."
+    },
+    {
+      "query_shape": "per month 2025-01..2026-10: fleet uniqMergeIf(new_status=1|3) on hotlist_status_aggregate (Clarity orgs) vs uniqExactIf(hotlist_id, ...) on hotlist_status_transitions",
+      "param_classes": "all Clarity orgs, monthly",
+      "aggregate_result": "DEV-2892 backfill COMPLETE (113.6M rows, 48 months, 2022-11..today); every month within +/-1% of the aggregate (fleet-wide uniq estimation error). Sep 2026 is ~1/3 of normal in BOTH sources (opens 636,712 vs ~1.9-2.2M; repos 72,447 vs ~340k).",
+      "why": "Backfill completeness; surfaced the September anomaly as upstream of ClickHouse."
+    },
+    {
+      "query_shape": "daily count()/countIf(new_status) on zod.public_hotlist_status_log; per-org Aug vs Sep transitions; clarity.hotlist repo_date by month and by integration_id; new hotlists per day for integration_id=1; zod.public_integrations names",
+      "param_classes": "2026-08-27 .. 2026-10-07",
+      "aggregate_result": "Status log is synced (last sync today) - not a CDC lag. Integration 1 = RDN: new hotlists/day fell from ~60-78k across ~1,360 orgs (Aug 27-Sep 1) to ~11-15k across ~330 orgs from 2026-09-02, still low in Oct. RDN repo_date Aug 334,754 -> Sep 59,104 (0.177). Other integrations flat (MCRC 8: 1.008; integ 44: 0.978; VRM 2 new hotlists 164,748 -> 134,165). 554 fewer orgs had any transition in Sep; 35 orgs with >50 Aug transitions went silent.",
+      "why": "OUT OF SCOPE production finding: RDN hotlist ingestion collapsed ~80% on 2026-09-02 and has not recovered. Not caused by DEV-2442 (PR undeployed). Directly affects Client Analytics numbers and DEV-2442's RDN-only enrichment candidate pool. Surfaced to human; no ticket created (ask first)."
+    },
+    {
+      "query_shape": "hourly count()/uniqExact(org_id) of zod.public_hotlist WHERE integration_id=1 around 2026-09-01; per-org before/after split by org having rdn_api_key AND enable_genetech_hotlist AND type=1 (the API-pull set)",
+      "param_classes": "2026-08-18..2026-09-16",
+      "aggregate_result": "Drop between 18:00 and 19:00 UTC 2026-09-01 (6,142 -> 1,264 new RDN hotlists/hr; 718 -> 310 orgs). Orgs WITH an API key (pulled by import_opens_from_api): 330/340 still active, 178,489 -> 164,753 per 2 wks (normal). Orgs WITHOUT a key (RDN push feed only): 28/1,455 still active, 763,091 -> 11,025 (-98.6%).",
+      "why": "Isolates the failure to the RDN push feed (insight_app sqs/rdn_batch.py), not the API pull."
+    },
+    {
+      "query_shape": "zod.public_integrations: versions + FINAL row for id=1; max(_peerdb_synced_at) and rows synced since 2026-09-02 for the whole table",
+      "param_classes": "integration 1 (RDN), 8 (MCRC/RDN)",
+      "aggregate_result": "Table syncs normally (469 rows since Sep 2, last today 13:25 UTC). Integration 1 last written 2026-09-01 18:59:50.875 UTC, status=run, batch_id=156982286 - never since. sqs/rdn_batch.py writes this row (status/batch_id) on every batch, including the no-cases path.",
+      "why": "ROOT CAUSE (out of scope for DEV-2442): insight_app's RDN batch consumer has not completed one batch since 2026-09-01 18:59:50 UTC. Its loop re-raises every exception without deleting the SQS message (poison-message crash loop) and fails before any DB write on a non-200 from RDN. Cannot distinguish crash-loop vs dead process vs RDN non-200 vs SQS creds without insight_app logs / prod rdn_batch_data. Recovery: replay batches 156982287..current (SQS retention has expired; un-keyed orgs cannot be recovered via the API pull)."
+    }
+  ]
+}

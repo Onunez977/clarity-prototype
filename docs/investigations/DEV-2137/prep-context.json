@@ -1,0 +1,117 @@
+{
+  "key": "DEV-2137",
+  "mode": "normal",
+  "route": "feature",
+  "gate": "CLEAN",
+  "confidence": 92,
+  "escalated": true,
+  "escalation_triggers": ["one answered:false question (Q4 — data semantics)", "prep confidence < 80 (62)", "escalate.recommend=true", "ClickHouse data-correctness on a dispatch-facing surface", "ticket premise stale — recentHits endpoint already exists"],
+  "deep_path": "skipped-with-reason: single prep candidate was unusually thorough (48 tool uses, git-blame-grounded); driver independently verified all pivotal claims against current main (recentHits exists at BirdsEyeController:494 + routed web.php:135; the 3 gaps — liveValid Direct-only / frozen forStatus(Open) / no range — confirmed; sibling hits():258 current-status pattern + stats():433 range pattern + scopedKits():578 selector confirmed; MapShell:24-34 already renders the label). Remaining uncertainty is a single human data-semantics decision (Q4) that a blind N=3 merge cannot resolve. Deep path would only re-confirm verified code, contrary to the efficiency contract.",
+  "synthesis": "The ticket's core premise is stale. ClarityScoutBirdsEyeController@recentHits already exists (added DEV-2130, PR #247, at line 494) and is routed at GET scout/org-map/api/dashboard/recent-hits (web.php:135); the same Pinia dashboard store + fetchRecentHits() the driver uses already consumes it via an automatic admin/driver BASE_URL swap. So this is NOT a new-endpoint build. The real work is 4 targeted changes to one surface: (1) un-hide the Live Hits Pending Repossession list in admin mode (remove the !mapStore.adminMode guards in DashboardOverlay.vue lines 38/56 — the expanded panel already carries admin-aware copy at 73-75); (2) correct the existing recentHits() to (a) include Staging Live (currently liveValid() = Direct-only) and (b) reflect CURRENT hotlist status via the FINAL semi-join (currently frozen forStatus(Open)) — both are exactly what the sibling hits() on the same controller already does; (3) swap {{ hit.status }} at DashboardOverlay.vue:89 for a Direct/Staging Live pill reusing MapShell's HIT_TYPE_LABELS ({L:'Direct Live',S:'Staging Live'}, hit_type==='S'? amber : blue); (4) add a ?range param end-to-end (dashboard.js fetchRecentHits(range) + setRange() call site, and recentHits() range filter via getDateRange()). AC #4 (label in the hit detail view) is ALREADY satisfied — MapShell.vue (the shared bottom sheet opened via mapStore.focusHit()) renders the Direct/Staging pill and never renders .status.",
+  "scope": {
+    "summary": "Un-hide the existing Live Hits list for admin mode, correct the existing BirdsEyeController@recentHits (include Staging Live + current-status FINAL semi-join + range param), swap the status text for a Direct/Staging pill (reuse existing pattern), and wire the list to the active date-range filter. Driver view untouched.",
+    "proposed_changes": [
+      {"file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php", "change": "recentHits() (494-535): replace ->liveValid()->forStatus(Open) with the sibling hits() pattern — forHitTypes([Live, Staging_Live])->validDisposition() + the CURRENT-status FINAL semi-join against ClickhouseHotlist (open hotlist_ids); add optional ?range (default 'today') via getDateRange()+forCreatedBetween(); keep limitBy(1,'ocr')+limit(20) plate-dedup. (Q4 resolved by Dalton: adopt current-status.)", "reason": "Include Staging Live (ticket ask), match sibling map hits() correctness (DEV-2113/2117), add date-filter scoping (AC 5).", "ref": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:494-535"},
+      {"file": "resources/js/clarity-scout/stores/dashboard.js", "change": "fetchRecentHits(targetRange) accepts a range and calls buildUrl('/dashboard/recent-hits',{range}); setRange() calls fetchRecentHits(newRange) alongside fetchStats(newRange) (both prefetch/immediate branches); fetchAll passes current range.", "reason": "setRange() currently refetches only stats — the list ignores the filter (AC 5 root cause).", "ref": "resources/js/clarity-scout/stores/dashboard.js:27-54"},
+      {"file": "resources/js/clarity-scout/components/DashboardOverlay.vue", "change": "Relax the !mapStore.adminMode guards on the collapsed pill (line 38) and expanded panel (line 56) so the list renders in admin mode too (keep driver behavior byte-identical). Replace {{ hit.status }} (line 89) with a Direct/Staging Live pill: hit_type==='S' ? amber : blue, labels {L:'Direct Live',S:'Staging Live'}.", "reason": "The guards are the only thing hiding the list from admins; line 89 is the only .status render site in the whole clarity-scout tree.", "ref": "resources/js/clarity-scout/components/DashboardOverlay.vue:38,56,89"},
+      {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php", "change": "Add recentHits() coverage: includes both Direct + Staging Live; respects ?range; scoped by kit_org_id + the org's Scout kits (org-wide default) and narrows under a kit_ids selector; (if Q4=current) a hit whose hotlist current status is Repossessed is excluded though its frozen column says Open.", "reason": "No existing coverage of recentHits behavior; primary regression risk.", "ref": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php"}
+    ],
+    "target_files": [
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+      "resources/js/clarity-scout/stores/dashboard.js",
+      "resources/js/clarity-scout/components/DashboardOverlay.vue",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php"
+    ],
+    "out_of_scope": [
+      "New route/endpoint — already exists (DEV-2130)",
+      "MapShell.vue / DayOverlay.vue / TripOverlay.vue detail label — already correct (AC #4 satisfied, no change)",
+      "Driver ClarityScoutDashboardController@recentHits + driver UI path — AC 6 requires it stay unchanged",
+      "Extracting a shared hitType helper — repo convention already inlines the pattern in 3 files; add a 4th copy, don't refactor"
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "List renders in Admin/Org Map view, org-wide", "source": "ticket", "decision": "implement", "reason": "Remove adminMode guards; endpoint already returns org-scoped data via scopedKits()."},
+    {"item": "Collapsible/expandable, collapses cleanly when long", "source": "ticket", "decision": "implement", "reason": "Reuse existing liveHitsExpanded/toggleLiveHits + max-h-[40vh] overflow-y-auto already built for the driver list."},
+    {"item": "Direct/Staging Live label replaces Open pill in list (Direct=blue, Staging=amber)", "source": "ticket", "decision": "implement", "reason": "Replace {{ hit.status }} with MapShell's HIT_TYPE_LABELS pattern; payload already includes hit_type."},
+    {"item": "Same label replaces Open in the hit detail view", "source": "ticket", "decision": "defer", "reason": "ALREADY SATISFIED — MapShell.vue renders the pill and never renders .status. Verify as regression only, no code change."},
+    {"item": "List respects date filter; changing filter refreshes list; count agrees with stats for same range", "source": "ticket", "decision": "implement", "reason": "Add range param end-to-end. NOTE (Q7 interpretation): 'agrees' = same range basis / moves together, not literal count equality — stats direct_hits+staging_hits count ALL valid hits in range while the list is open-only, plate-deduped, capped at 20."},
+    {"item": "Regular driver Scout view unchanged", "source": "ticket", "decision": "implement", "reason": "No driver-controller/route/UI changes; DashboardOverlay guard edits must preserve the driver branch identically."}
+  ],
+  "questions": [
+    {"q": "Does the ticket premise 'BirdsEyeController has NO recentHits endpoint' still hold?", "answered": true, "answer": "No — recentHits() exists (BirdsEyeController:494) and is routed (web.php:135), added in DEV-2130/PR #247. Work is correcting it, not building it.", "source": "code"},
+    {"q": "Should the admin list include Staging Live hits (current liveValid() is Direct-only)?", "answered": true, "answer": "Yes — ticket asks Direct AND Staging with distinct labels; sibling hits()/stats() already include both via forHitTypes([Live, Staging_Live]).", "source": "code"},
+    {"q": "Where is 'Open' rendered in the hit detail view (ticket open-question #2)?", "answered": true, "answer": "Nowhere — MapShell.vue (shared detail bottom sheet via mapStore.focusHit()) already shows the Direct/Staging pill and never renders .status. AC #4 needs no code change.", "source": "code"},
+    {"q": "Q4 (MATERIAL): Should admin recentHits reflect CURRENT hotlist status (FINAL semi-join, matching sibling hits()) rather than the frozen per-hit column it uses today?", "answered": true, "answer": "Yes — adopt CURRENT status via the FINAL semi-join against clarity.hotlist, exactly like sibling hits(). Already-repossessed vehicles drop off the pending-repo list and it agrees with the map pins; closes the DEV-2117 gap for this surface.", "source": "human:Dalton 2026-07-01"},
+    {"q": "Q7: AC-5 'count agrees with stats' — literal equality or moves-together?", "answered": true, "answer": "Moves-together: list and stats both scope to the same date range and refresh together on filter change; no literal numeric equality (stats counts all valid hits; list is open-only, plate-deduped, capped 20).", "source": "human:Dalton 2026-07-01"},
+    {"q": "Q5: 'Org-wide (all drivers)' — override the driver-selector, or is org-wide just the default (no selection) with the kit_ids selector still honored like every other Bird's Eye endpoint?", "answered": true, "answer": "Org-wide is the default; honor the driver selector exactly like sibling hits()/stats()/scanPaths() (scopedKits() intersects an optional kit_ids against the org's kits). No divergence.", "source": "code"},
+    {"q": "Q6: Should the driver recentHits also gain a range param?", "answered": true, "answer": "No — AC 6 requires the driver view stay unchanged. Range param is admin-only.", "source": "ticket"}
+  ],
+  "blockers": [],
+  "missed_caller_candidates": [],
+  "data_impact": {
+    "pg_tables": ["zod.kits", "platform.kit_settings"],
+    "ch_tables": ["clarity.hits_hot (ClickhouseHit::hot)", "clarity.hotlist (ClickhouseHotlist, FINAL — current status semi-join)"],
+    "mv_or_cdc_implications": "hits_hot is CDC-fed; FINAL already applied. hotlist_status on the hit row is frozen-at-write; the (Q4) fix routes around it via a live lookup against clarity.hotlist FINAL, exactly as sibling hits() does. No schema/MV changes.",
+    "indexes_relied_on": "hits_hot ordered by (kit_org_id/kit_id, hit_created_at); no new index."
+  },
+  "derivation_log": [
+    "git log / read confirmed recentHits() added in DEV-2130 (PR #247) at BirdsEyeController:494 and routed web.php:135 — code read only, no data queried.",
+    "Read BirdsEyeController hits():258-339 (current-status FINAL semi-join pattern), stats():433-487 (range + getDateRange + scopedKits + cache-key pattern), recentHits():494-535 (the 3 gaps), scopedKits():578 (selector) — static reads.",
+    "grep confirmed dashboard.js setRange() refetches only fetchStats(newRange), never fetchRecentHits — AC-5 root cause; single .status render site is DashboardOverlay.vue:89; MapShell:134 HIT_TYPE_LABELS is the reuse target."
+  ],
+  "tests": [
+    {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php", "what_it_pins": "recentHits() includes Direct + Staging Live (regression vs Direct-only liveValid())"},
+    {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php", "what_it_pins": "recentHits() respects ?range and is scoped by kit_org_id + org Scout kits (org-wide default; narrows under kit_ids)"},
+    {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php", "what_it_pins": "(if Q4=current) recentHits() reflects CURRENT hotlist status via FINAL semi-join — repossessed-now hit excluded despite frozen Open column"},
+    {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php", "what_it_pins": "existing driver recentHits behavior unchanged (AC 6 guard)"}
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:494-535 (recentHits — target)",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:258-339 (hits — current-status pattern to copy)",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:433-487 (stats — range/cache/scopedKits pattern)",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:578-591 (scopedKits — org-wide default + kit_ids narrowing)",
+      "resources/js/clarity-scout/stores/dashboard.js:27-54 (fetchRecentHits/setRange — range wiring)",
+      "resources/js/clarity-scout/components/DashboardOverlay.vue:38,56,89 (guards + status render)",
+      "resources/js/clarity-scout/components/MapShell.vue:24-34,134 (HIT_TYPE_LABELS reuse target; AC #4 already satisfied)",
+      "routes/web.php:135 (dashboard/recent-hits route)"
+    ],
+    "code_flow": "DateRangeControl → dashboard.setRange(range) [add fetchRecentHits(range)] → buildUrl('/dashboard/recent-hits',{range}) (auto kit_ids scope + admin BASE_URL) → GET scout/org-map/api/dashboard/recent-hits → BirdsEyeController@recentHits [add range + Staging + (Q4) current-status] → ClickhouseHit hot/FINAL scoped by kit_org_id/kit_ids/hit_type/disposition → payload (already carries hit_type) → dashboard.recentHits → DashboardOverlay list [remove adminMode guard + status→hit-type pill] → row tap → mapStore.focusHit → MapShell (already correct).",
+    "tables": ["clarity.hits_hot", "clarity.hotlist (FINAL)", "zod.kits", "platform.kit_settings"],
+    "related_components": ["ScoutMapHelpers trait (getDateRange, mapCacheTtl)", "Pinia dashboard store (fetchStats/fetchRecentHits/setRange/fetchAll)", "Pinia map store (focusHit/selectedHit)", "adminScope.js (selectedKitIds)", "buildUrl (fetch.js — auto kit_ids + admin/driver BASE_URL)"]
+  },
+  "exhaustiveness": {
+    "grep_patterns_used": ["grep -rn 'recentHits|recent-hits|birds-eye|BirdsEye' routes/", "grep -rln '.status' resources/js/clarity-scout --include=*.vue", "grep -rn 'hit_type|HIT_TYPE_LABELS|Direct Live|Staging Live' resources/js/clarity-scout", "grep -rn 'adminMode' resources/js/clarity-scout/components", "grep -rn 'fetchRecentHits|recentHits|recent-hits' resources/js/clarity-scout"],
+    "sites": [
+      {"site": "DashboardOverlay.vue:38,56 (adminMode guards)", "status": "buggy", "reason": "Hide the list from admins — the exact bug."},
+      {"site": "DashboardOverlay.vue:89 ({{ hit.status }})", "status": "buggy", "reason": "Only .status render site in clarity-scout; becomes the Direct/Staging pill."},
+      {"site": "BirdsEyeController@recentHits:494-535", "status": "buggy", "reason": "Direct-only liveValid(), frozen forStatus(Open), no range — 3 gaps vs the ask and vs sibling hits()."},
+      {"site": "dashboard.js:27,34 (setRange refetches only stats)", "status": "buggy", "reason": "Confirmed AC-5 root cause."},
+      {"site": "BirdsEyeController@hits:258-339", "status": "safe", "reason": "Reference pattern (Direct+Staging + current-status + range) — no change."},
+      {"site": "MapShell.vue:24-34,134 (detail label)", "status": "safe", "reason": "AC #4 already satisfied — no .status, renders the pill."},
+      {"site": "ClarityScoutDashboardController@recentHits", "status": "safe (out of scope)", "reason": "Driver view unchanged per AC 6."}
+    ]
+  },
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "AC-1 list org-wide in admin", "kind": "agent", "intent": "Org admin opens Org Map; Live Hits card appears with hits from multiple kits/drivers."},
+      {"ac": "AC-2 collapsible", "kind": "agent", "intent": "Seed a long list; collapse/expand cleanly; persisted state."},
+      {"ac": "AC-3 label in list", "kind": "agent", "intent": "Seed one Direct + one Staging hit; list shows Direct Live (blue) / Staging Live (amber) not 'Open', same position."},
+      {"ac": "AC-4 label in detail (regression)", "kind": "agent", "intent": "Tap a row; MapShell shows the same pill (no change expected)."},
+      {"ac": "AC-5 date-filter scoping", "kind": "agent", "intent": "Seed hits across today/7/30; switch filter; list refetches and moves with the stats for the same range."},
+      {"ac": "AC-6 driver unchanged", "kind": "human", "intent": "Driver PWA still shows its own Live Hits list, no range param on the driver call, no admin leakage."}
+    ],
+    "seed_scenario": "Org with Scout enabled and 2+ enrolled kits. Seed clarity.hits_hot: >=1 Direct Live (L) and >=1 Staging Live (S) per kit, validDisposition, frozen hotlist_status=Open, with paired clarity.hotlist rows mixing CURRENT status Open vs Repossessed (to exercise Q4), spread across today / ~5d / ~20d buckets for the range filter.",
+    "personas": ["org admin (Bird's Eye / Org Map, Scout grant)", "Scout driver (regression)"],
+    "pg_tables": ["zod.kits", "platform.kit_settings"],
+    "ch_tables": ["clarity.hits_hot", "clarity.hotlist"]
+  },
+  "notes": [
+    "Ticket grounding is stale (pre-DEV-2130): the 'new org-scoped endpoint' is already built + routed. Effort profile is much smaller than the ticket implies.",
+    "Reuse, don't refactor: HIT_TYPE_LABELS + amber/blue classes are already inlined in MapShell/DayOverlay/TripOverlay; add a 4th inline copy in DashboardOverlay per existing convention.",
+    "hit.type vs hit_type: payload/template field is hit_type (ticket says hit.type). Payload already includes it (recentHits:520).",
+    "Cache: recentHits() is currently uncached (unlike stats/hits). If adding caching, the range MUST be in the cache key or results leak across range switches. Simplest correct path: mirror stats() cache-key+TTL, or leave uncached — decide during build (not material).",
+    "No JS test runner in this repo (platform memory) — Vue changes rely on PHP feature tests + agent/human QA. platform commits built assets: npm run build + commit public/build.",
+    "Pint: run vendor/bin/pint --dirty --format agent before finalizing."
+  ]
+}

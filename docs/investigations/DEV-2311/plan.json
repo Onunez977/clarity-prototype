@@ -1,0 +1,28 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Gate the 'No Kits Reporting GPS' notice behind a positionsLoaded flag + show a bare centered spinner during initial load",
+      "approach": "In stores/map.js add `const positionsLoaded = ref(false)`; set it true inside fetchDriverPositions() after the try/catch (before the return) so it flips on the first attempt whether the fetch succeeds or its error is caught; export it in the store return object. In App.vue add `&& mapStore.positionsLoaded` to the noKitsReporting computed so neither the centered card nor the bottom pill can render before the first positions fetch resolves; add a v-if spinner block gated on `mapStore.adminMode && mapStore.liveMode && !mapStore.positionsLoaded`, rendered as a bare centered animate-spin inline-SVG (no card, no text) in the same fixed centered overlay position as the notice card. No timeout.",
+      "target_files": [
+        "resources/js/clarity-scout/stores/map.js",
+        "resources/js/clarity-scout/App.vue"
+      ],
+      "intended_diffs": "map.js: +positionsLoaded ref (~160); +positionsLoaded.value=true in fetchDriverPositions before return (~959); +positionsLoaded in return object (~1072). App.vue: noKitsReporting computed gains `&& mapStore.positionsLoaded` (~351-357); +spinner overlay block (bare centered animate-spin SVG) gated on adminMode && liveMode && !positionsLoaded.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    "resources/js/clarity-scout/components/DashboardOverlay.vue:91 ('No live hits pending repossession.') — same premature-empty-state class but a distinct element not named in this ticket; intentionally not touched."
+  ],
+  "notes": [
+    "Single-node fast path (1 subtask): no worktree fan-out; worker runs on the ticket branch in REPO_PATH.",
+    "No JS unit-test runner in clarity-scout — verification is `npm run build` (assets committed) + Phase 5 review + Phase 6/7 browser QA. test_filter is null (full PHP suite runs post-implement as a regression backstop, though this diff touches no PHP).",
+    "public/build is committed — worker must `npm run build` and commit rebuilt assets alongside the source diff."
+  ]
+}

@@ -1,0 +1,119 @@
+{
+  "key": "DEV-2184",
+  "mode": "normal",
+  "route": "bug",
+  "reconcile": "4 candidates (1 fast-pass + 3 blind deep) + 1 grep backstop; all 4 converged on the same root cause and fix shape. Disagreements resolved below (grounded beats confident).",
+  "gate": "CLEAN",
+  "gate_note": "BLOCKED at prep; resolved via Phase 2 interview with Dalton (2026-07-13). Q1/Q2 → verify-in-QA (proceed with fix); Q3 → NO explicit panel gate (rely on JSON-404 backstop). ScoutHome.vue conditional change dropped from scope.",
+  "synthesis": "The 'HTML instead of JSON' failure in Scout's admin Bird's Eye org-map is a FRONTEND ROUTING LEAK, not a backend 500. Bird's Eye (DEV-2116) reuses the driver Vue SPA + Pinia stores via a client-side adminMode flag; in admin mode lib/fetch.js buildUrl() targets BASE_URL=/scout/org-map/api. That admin route group (routes/web.php) registers only a subset of the driver endpoints and ends with a Vue-Router SPA catch-all `Route::get('{any?}', fn () => view('clarity-scout-birds-eye'))`. Any driver-only fetch NOT gated on !mapStore.adminMode targets a path with no admin mirror (/shift/status, /notifications, /me, /trips/*), matches the catch-all, and gets a legitimate 200 text/html shell — so response.ok is true and response.json() throws `SyntaxError: Unexpected token '<'`. Laravel's Accept:application/json header only affects EXCEPTION rendering, not a successful view-route match, which is why the reporter thought 'Filament ignores the Accept header'. The literal sink named by the ticket's console text (fetchKitPosition/fetchLivePath via useKitPositionPolling→LiveTracking) is ALREADY FIXED on current main (DEV-2164 added MapShell's !mapStore.adminMode gate; DEV-2179 re-confirmed it; commit 3c52ff50 is an ancestor of HEAD). The actual all-driver positions path (driverPositions/driverPaths via useBirdsEyePolling + ScannerMap's adminMode ternary) is correctly gated and its controllers already try/catch every ClickHouse read to return JSON on failure. The STILL-LIVE instance of the same bug class is App.vue's `watch(() => auth.isAuthenticated, {immediate:true})`, which unconditionally calls shift.fetchStatus()+notifications.fetch(); auth.isAuthenticated is true in admin mode (isAuthenticated = !!token || adminMode; enterAdminMode() runs before mount), so both fetch driver-only paths with no admin mirror on every Bird's Eye load. Today these errors are swallowed silently (call sites .catch without console.error), so they do not reproduce the LITERAL 'Failed to fetch kit position' message, but they ARE a real, current AC1 violation (HTML served for a JSON call).",
+  "scope": {
+    "summary": "Close the still-live admin-mode fetch leak and make AC1 durable: (1) gate App.vue's shift/notifications watch on !mapStore.adminMode; (2) add a JSON-404 catch-all inside the /scout/org-map/api route group so ANY unmatched admin-api path returns JSON instead of the SPA HTML shell; (3) add PHPUnit feature tests pinning the JSON-404 fallback and (new) driverPositions() coverage. Frontend build assets must be rebuilt+committed (public/build is tracked).",
+    "proposed_changes": [
+      {"file": "resources/js/clarity-scout/App.vue", "change": "Gate shift.fetchStatus() + notifications.fetch() inside the watch(() => auth.isAuthenticated) handler on !mapStore.adminMode.", "reason": "The only currently-live, auto-firing ungated driver-only fetch that leaks to the SPA catch-all on every Bird's Eye load.", "ref": "resources/js/clarity-scout/App.vue:300-313"},
+      {"file": "routes/web.php", "change": "Register a JSON-404 catch-all inside the scout/org-map `Route::prefix('api')` group, AFTER the explicit admin routes and BEFORE the group's `{any?}` SPA view catch-all: e.g. `Route::get('{any}', fn () => response()->json(['message' => 'Not Found.'], 404))->where('any', '.*');` (verify exact placement so it neither shadows real routes nor is shadowed by the SPA catch-all).", "reason": "Durable AC1 invariant: any current/future ungated admin-mode fetch degrades to parseable JSON, not the 200 HTML shell. This is the structural fix for a bug class independently rediscovered 3-4x (DEV-2164, DEV-2179, this).", "ref": "routes/web.php:112-141"},
+      {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php", "change": "Add: (a) GET an unmatched admin-api path (/scout/org-map/api/shift/status) as an authed Scout admin returns JSON 404 (not the HTML view); (b) a legit SPA deep link (/scout/org-map/some-route) still returns the Blade shell; (c) GET /scout/org-map/api/map/driver-positions returns 200 JSON with the expected shape (currently ZERO coverage for driverPositions).", "reason": "Pins the route-level AC1 fix + the endpoint named in the ticket title. NOTE: this class is gated by RequiresClickhouse — verify it actually runs under the CH-gated local/CI setup.", "ref": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php (mirror driver_paths sibling tests)"}
+    ],
+    "conditional_changes": [
+      {"file": "resources/js/clarity-scout/views/ScoutHome.vue", "change": "DROPPED (Q3=no). Would have gated the panel computed for ProfilePanel/NotificationsPanel; Dalton chose to rely on the JSON-404 backstop instead. Not in scope.", "ref": "resources/js/clarity-scout/views/ScoutHome.vue:68-74", "status": "dropped"}
+    ],
+    "target_files": ["resources/js/clarity-scout/App.vue", "routes/web.php", "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php"],
+    "out_of_scope": [
+      "Re-fixing fetchKitPosition/live-path (LiveTracking/MapShell/ScannerMap) — already fixed on main by DEV-2164 + DEV-2179.",
+      "Wrapping ClarityScoutBirdsEyeController::scopedKits()/orgScoutKits() (called outside each method's try/catch) — a genuine unhandled exception there is rendered as JSON by Laravel's default handler (no custom exception override in bootstrap/app.php), so it does NOT produce the HTML fallback this ticket is about; conflating it in-scope mixes two risk classes. Optional follow-up hardening ticket. (fast-pass wanted this in; deep candidates 2/3 grounded it out — grounded wins.)",
+      "OrgLivePositionsQuery/OrgLivePathsQuery correctness (sc_positions) — traced, no defect found.",
+      "Building admin mirrors for /shift, /notifications, /me — those driver features are not part of Bird's Eye's intended surface (DEV-2116); the fix is to NOT call them in admin mode.",
+      "Service worker (public/clarity-scout-sw.js) — scoped to /api/scout/* (driver), not the admin BASE_URL; not registered on the birds-eye blade."
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "The endpoint returns JSON (including on error) — no HTML page fallback.", "source": "ticket", "decision": "implement", "reason": "App.vue gate removes the live leak; JSON-404 route backstop makes it a durable invariant across all admin-api paths."},
+    {"item": "The underlying server-side error causing the HTML fallback is identified and fixed.", "source": "ticket", "decision": "implement", "reason": "Root cause identified as a client-side routing leak (ungated admin-mode fetch → SPA catch-all view), NOT a thrown server-side exception. AC2's literal 'Filament server-side error' framing is a misdiagnosis; the fix addresses the real mechanism. NEEDS reporter sign-off on the reframing (Q1)."},
+    {"item": "All-driver positions render on the map.", "source": "ticket", "decision": "verify", "reason": "No code change identified — driverPositions/driverPaths + ScannerMap rendering are structurally sound on main. The 'fails to draw' symptom is likely the console-error noise from the leak being mistaken for a render failure. Needs live/QA confirmation whether AC3 is independently broken (Q2)."}
+  ],
+  "questions": [
+    {"q": "Does the HTML-instead-of-JSON failure still reproduce on current main? (the literal kit-position sink was already fixed by DEV-2164 + DEV-2179)", "answered": true, "answer": "Not sure — proceed with the App.vue gate + JSON-404 backstop and confirm reproduction/fix during QA against a live Bird's Eye session.", "source": "human:Dalton 2026-07-13"},
+    {"q": "Is AC3 (all-driver positions render) actually still broken today, or was it console-error noise from the leak?", "answered": true, "answer": "Not sure — verify visually in QA with seeded sc_positions. No code change scoped for AC3 unless QA shows dots genuinely don't render.", "source": "human:Dalton 2026-07-13"},
+    {"q": "Also explicitly gate the latent query-param-only ProfilePanel/NotificationsPanel leaks (ScoutHome panel computed), or rely on the JSON-404 backstop alone?", "answered": true, "answer": "NO explicit gate — rely on the JSON-404 route backstop. ScoutHome.vue conditional change dropped from scope; keep the diff minimal.", "source": "human:Dalton 2026-07-13"}
+  ],
+  "settled_questions": [
+    {"q": "Is there a real unhandled backend exception (matching AC2's literal framing)?", "answer": "No. All position/path controllers try/catch their ClickHouse reads and return JSON on failure; the HTML comes from a successful match on the SPA view catch-all, not an error path. Settled from code by all 4 passes.", "source": "code"},
+    {"q": "Is the kit-position sink still leaking?", "answer": "No — fixed on main by DEV-2164 (MapShell !adminMode gate) + DEV-2179 (commit 3c52ff50, ancestor of HEAD).", "source": "code"},
+    {"q": "Are there other auto-firing ungated driver-only fetches beyond shift/notifications?", "answer": "No auto-firing ones. App.vue's shift/notifications is the only mount/watch-triggered live leak. ProfilePanel/NotificationsPanel are query-param-reachable only (see Q3). dashboard/stats, dashboard/recent-hits, map/scan-paths, map/hits, map/heatmap/*, map/zones, drivers, map/driver-positions, map/driver-paths all have admin mirrors; trips is force-disabled in admin mode.", "source": "code"}
+  ],
+  "blockers": [],
+  "missed_caller_candidates": [
+    {"file": "resources/js/clarity-scout/App.vue", "line": 306, "symbol": "shift.fetchStatus()", "verdict": "buggy — live leak (primary fix)"},
+    {"file": "resources/js/clarity-scout/App.vue", "line": 307, "symbol": "notifications.fetch()", "verdict": "buggy — live leak (primary fix)"},
+    {"file": "resources/js/clarity-scout/views/ScoutHome.vue", "line": 68, "symbol": "panel computed", "verdict": "buggy but latent — query-param-only reachability for ProfilePanel/NotificationsPanel (Q3)"},
+    {"file": "resources/js/clarity-scout/stores/auth.js", "line": 109, "symbol": "fetchUser() /me", "verdict": "buggy but latent — only via ProfilePanel query-param path"}
+  ],
+  "notes": [
+    "Repo convention: gate driver-only fetches with `!mapStore.adminMode` (ScannerMap.vue:279 ternary, MapShell.vue:12 v-if, useBirdsEyePolling self-gate). App.vue's watch is the one call site bypassing both patterns because it lives at the App root.",
+    "public/build is committed — the App.vue change requires `npm run build` + committing rebuilt assets or the fix won't ship.",
+    "No JS test runner in this repo — the frontend gate cannot be pinned by an automated test; only the routes/web.php JSON-404 fallback is PHPUnit-testable. Frontend gating verified via QA Network tab (no 200 text/html under /scout/org-map/api/*).",
+    "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php is gated by RequiresClickhouse (whole class skipped unless CLICKHOUSE_DRIVER=clickhouse) — new tests may not run in a default CI pass; verify under CH-gated local setup before handoff.",
+    "This is instance #3-4 of the recurring adminMode-fetch-leak class; the JSON-404 backstop is the structural fix that stops discovering these one at a time."
+  ],
+  "tests": [
+    {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php", "what_it_pins": "GET /scout/org-map/api/shift/status (unmatched admin path) as an authed Scout admin returns JSON 404, not the HTML shell."},
+    {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php", "what_it_pins": "A legit SPA deep link under /scout/org-map returns the Blade shell (fallback doesn't shadow Vue Router paths)."},
+    {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php", "what_it_pins": "GET /scout/org-map/api/map/driver-positions returns 200 JSON with expected shape (was zero coverage)."}
+  ],
+  "grounding": {
+    "key_files": [
+      "resources/js/clarity-scout/App.vue:300-313 (live leak: ungated shift/notifications watch)",
+      "resources/js/clarity-scout/lib/fetch.js:7-9,62-82 (ADMIN_MODE BASE_URL split + buildUrl)",
+      "resources/js/clarity-scout/stores/auth.js:25-27,104-121,151-158 (isAuthenticated includes adminMode; enterAdminMode)",
+      "resources/js/clarity-scout/components/MapShell.vue:8-12 (already-fixed LiveTracking !adminMode gate)",
+      "resources/js/clarity-scout/components/ScannerMap.vue:278-282 (adminMode ternary — correct)",
+      "resources/js/clarity-scout/composables/useBirdsEyePolling.js:39-48 (self-gates)",
+      "resources/js/clarity-scout/views/ScoutHome.vue:68-74 (panel computed — not adminMode-gated)",
+      "resources/js/clarity-scout/components/ProfilePanel.vue:221-227, NotificationsPanel.vue:69 (latent leaks)",
+      "routes/web.php:112-141 (admin org-map group + SPA {any?} catch-all under same prefix as api group)",
+      "routes/api.php:27-64 (driver scout routes — the superset)",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:78-211 (driverPositions/driverPaths — JSON-safe on CH error; scopedKits() called outside try/catch)",
+      "app/Http/Controllers/Api/ClarityScoutMapController.php:366-499 (kitPosition — JSON-safe)"
+    ],
+    "code_flow": "birds-eye blade sets window.__CLARITY_SCOUT_CONFIG__.birdsEye=true → birdseye.js enterAdminMode() (adminMode=true) before app.mount() → App.vue mounts, watch(isAuthenticated,{immediate:true}) fires (isAuthenticated true via adminMode) → shift.fetchStatus()+notifications.fetch() → buildUrl() prefixes /scout/org-map/api → GET /scout/org-map/api/shift/status & /notifications → no admin route → falls through to the group's {any?} view catch-all → 200 text/html → response.json() throws SyntaxError.",
+    "tables": [],
+    "related_components": ["ClarityScoutAdminMiddleware", "useKitPositionPolling (fixed)", "useBirdsEyePolling (self-gated)", "ScoutControlsWidget (UI-level admin gating hides profile/notification triggers)"]
+  },
+  "exhaustiveness": {
+    "grep_patterns": ["buildUrl(", "fetch(buildUrl", "adminMode", "mapStore.adminMode", "auth.isAuthenticated", "useKitPositionPolling", "useBirdsEyePolling", "onMounted(", "watch("],
+    "sites": [
+      {"file": "map.js fetchKitPosition/fetchLivePath + useKitPositionPolling (LiveTracking)", "status": "safe", "reason": "gated by MapShell !adminMode (DEV-2164/2179) + ScannerMap adminMode ternary"},
+      {"file": "map.js fetchDrivers/fetchDriverPositions/fetchDriverPaths + useBirdsEyePolling", "status": "safe", "reason": "admin-only, self-gated, real admin routes registered"},
+      {"file": "map.js fetchScanPaths/fetchRangeHits/fetchHitsHeatmap/fetchOrdersHeatmap/fetchZones", "status": "safe", "reason": "admin mirrors exist"},
+      {"file": "dashboard.js fetchStats/fetchRecentHits", "status": "safe", "reason": "admin mirrors exist"},
+      {"file": "App.vue watch(auth.isAuthenticated) → shift.fetchStatus/notifications.fetch", "status": "buggy", "reason": "auto-fires, ungated, no admin mirror — THE LIVE LEAK"},
+      {"file": "ScoutHome.vue panel computed → ProfilePanel/NotificationsPanel", "status": "buggy-latent", "reason": "query-param reachable only; UI triggers gated; neutralized by JSON-404 backstop (Q3)"},
+      {"file": "auth.js fetchUser /me", "status": "buggy-latent", "reason": "only via ProfilePanel query-param path"},
+      {"file": "trips.js fetchAll/browse/etc", "status": "safe", "reason": "tripsEnabled forced false in admin mode"},
+      {"file": "useShift.js endShift", "status": "safe", "reason": "End-Shift button gated !adminMode"}
+    ]
+  },
+  "data_impact": {
+    "pg_tables": ["kits", "kit_settings"],
+    "ch_tables": ["clarity.sc_positions (read-only, via OrgLivePositionsQuery/OrgLivePathsQuery — unchanged)"],
+    "mv_or_cdc_implications": "None — routing + frontend gating only; no query or schema change.",
+    "indexes_relied_on": []
+  },
+  "derivation_log": [
+    {"query_shape": "git merge-base --is-ancestor <DEV-2179 commit 3c52ff50> HEAD", "param_classes": ["commit sha"], "aggregate_result": "true (ancestor)", "why": "Confirm the kit-position adminMode gate is already on this branch's base."},
+    {"query_shape": "grep buildUrl()/fetch() call sites across resources/js/clarity-scout/**", "param_classes": ["source-tree path"], "aggregate_result": "21 buildUrl sites + a few raw fetches classified buggy|safe", "why": "Exhaustiveness sweep for ungated admin-mode leaks."},
+    {"query_shape": "diff admin route group (routes/web.php scout/org-map/api) vs driver routes (routes/api.php scout)", "param_classes": ["route path list"], "aggregate_result": "missing admin mirrors: /shift/status,/shift/end,/notifications*,/trips/*,/me,/map/kit-position,/map/live-path", "why": "Identify which driver-only paths leak to the catch-all in admin mode."}
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "AC-1", "kind": "agent", "intent": "GET unmatched admin-api paths (/scout/org-map/api/shift/status, /notifications) as an authed Scout admin; assert JSON (not text/html)."},
+      {"ac": "AC-2", "kind": "human", "intent": "Confirm the reframed root cause (client-side routing leak, no server exception) is accepted; live Network tab shows no 200 text/html under /scout/org-map/api/*."},
+      {"ac": "AC-3", "kind": "human", "intent": "Load /scout/org-map with 2+ seeded kits reporting recent sc_positions; confirm driver dots render + no console errors."}
+    ],
+    "seed_scenario": "Org with CLARITY_SCOUT enabled; one admin user (RoleEnum::ADMIN + clarity-scout permission); 2+ Scout-enrolled kits (kit_settings + assigned driver) each with a recent (<24h) clarity.sc_positions row with distinct lat/lng.",
+    "personas": ["Org admin viewing Bird's Eye org map (reporter's role)", "Scout driver (regression guard — App.vue gate must not break driver shift/notifications)"],
+    "pg_tables": ["kits", "kit_settings"],
+    "ch_tables": ["clarity.sc_positions"]
+  },
+  "confidence": 82,
+  "escalate": {"recommend": false, "reason": "Reconciled; all 4 passes agree on root cause + fix. Remaining uncertainty is empirical (does the reported symptom still reproduce / is AC3 independently broken) — resolvable only by the human/live QA, which is the gate below, not more prep."}
+}

@@ -1,0 +1,1975 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Portal Wireframes — Landscape Tablet &amp; Laptop</title>
+  <style>
+    :root {
+      --color-bg: #eef2ff;
+      --color-surface: #ffffff;
+      --color-surface-alt: #f8fafc;
+      --color-ink: #0f172a;
+      --color-muted: #475569;
+      --color-border: #cbd5e1;
+      --color-nav: hsl(227, 100%, 22%);
+      --color-info: #002dd3;
+      --color-primary: #ff6666;
+      --color-success: #166534;
+      --color-warning: #9a3412;
+      --color-danger: #b91c1c;
+      --radius-sm: 10px;
+      --radius-md: 14px;
+      --radius-lg: 18px;
+      --space-1: 8px;
+      --space-2: 16px;
+      --space-3: 24px;
+      --space-4: 32px;
+      --shadow-soft: 0 4px 14px rgba(15, 23, 42, 0.12);
+      --shadow-panel: 0 8px 24px rgba(2, 6, 23, 0.10);
+      --font-ui: "Inter", "Avenir Next", "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: var(--font-ui);
+      color: var(--color-ink);
+      background:
+        radial-gradient(circle at 10% 10%, #dbeafe 0%, transparent 35%),
+        radial-gradient(circle at 90% 0%, #fde68a 0%, transparent 28%),
+        linear-gradient(180deg, #e2e8f0 0%, #f8fafc 100%);
+      min-height: 100vh;
+      padding: var(--space-3);
+    }
+
+    .prototype {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: grid;
+      gap: var(--space-3);
+    }
+
+    .panel {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-soft);
+      padding: var(--space-3);
+    }
+
+    .header {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-1);
+    }
+
+    .header h1 {
+      margin: 0;
+      font-size: 1.5rem;
+      line-height: 1.3;
+    }
+
+    .header p {
+      margin: 0;
+      color: var(--color-muted);
+      font-size: 1rem;
+      line-height: 1.5;
+    }
+
+    .quick-nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-1);
+      margin-top: var(--space-1);
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    /* Touch targets: 48px minimum for iPad / laptop touch screens */
+    .chip-btn,
+    .primary-btn,
+    .secondary-btn,
+    .ghost-btn,
+    .metric-card,
+    .nav-tab {
+      min-height: 48px;
+    }
+
+    .chip-btn,
+    .primary-btn,
+    .secondary-btn,
+    .ghost-btn,
+    .nav-tab {
+      border-radius: var(--radius-sm);
+      border: 1px solid transparent;
+      padding: 0 18px;
+      cursor: pointer;
+      font-size: 0.95rem;
+      transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease;
+    }
+
+    .chip-btn {
+      background: #f1f5f9;
+      border-color: #dbe2ea;
+      color: #1e293b;
+      text-align: left;
+    }
+
+    .chip-btn:hover {
+      background: #e2e8f0;
+    }
+
+    .chip-btn.active {
+      background: #dbeafe;
+      border-color: #93c5fd;
+      color: #1d4ed8;
+      font-weight: 600;
+    }
+
+    .primary-btn {
+      background: var(--color-info);
+      color: #ffffff;
+      border-color: #001ea3;
+      font-weight: 600;
+    }
+
+    .primary-btn:hover {
+      background: #001ea3;
+    }
+
+    .secondary-btn {
+      background: #ffffff;
+      border-color: #94a3b8;
+      color: #1e293b;
+      font-weight: 600;
+    }
+
+    .secondary-btn:hover {
+      background: #f1f5f9;
+    }
+
+    .ghost-btn {
+      background: transparent;
+      border-color: #94a3b8;
+      color: #334155;
+    }
+
+    .ghost-btn:hover {
+      background: #f8fafc;
+    }
+
+    .chip-btn:focus-visible,
+    .primary-btn:focus-visible,
+    .secondary-btn:focus-visible,
+    .ghost-btn:focus-visible,
+    .nav-tab:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    a:focus-visible {
+      outline: 3px solid #f59e0b;
+      outline-offset: 2px;
+    }
+
+    /* ========================================================
+       Application Shell — flat full-width layout, no bezels
+       ======================================================== */
+    .app-shell {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-panel);
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      min-height: 700px;
+    }
+
+    /* Top bar: branding, tenant context, and status indicators */
+    .app-top-bar {
+      background: var(--color-nav);
+      color: #e2e8f0;
+      padding: var(--space-2) var(--space-3);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-2);
+    }
+
+    .app-title {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+
+    .app-title strong {
+      font-size: 1.15rem;
+      letter-spacing: 0.01em;
+    }
+
+    .tenant-chip {
+      font-size: 0.82rem;
+      background: rgba(255, 255, 255, 0.16);
+      border: 1px solid rgba(255, 255, 255, 0.34);
+      border-radius: 999px;
+      padding: 6px 14px;
+      white-space: nowrap;
+    }
+
+    .top-context-area {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+
+    .delay-badge {
+      font-size: 0.78rem;
+      background: rgba(251, 191, 36, 0.2);
+      border: 1px solid rgba(251, 191, 36, 0.5);
+      border-radius: 999px;
+      padding: 4px 12px;
+      white-space: nowrap;
+      color: #fbbf24;
+      font-weight: 600;
+    }
+
+    .logout-link {
+      font-size: 0.85rem;
+      color: rgba(226, 232, 240, 0.8);
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 6px 4px;
+      font-family: inherit;
+      white-space: nowrap;
+      transition: color 140ms ease;
+    }
+
+    .logout-link:hover {
+      color: #ffffff;
+    }
+
+    .logout-link:focus-visible {
+      outline: 3px solid #f59e0b;
+      outline-offset: 2px;
+    }
+
+    /* Horizontal top navigation bar — replaces bottom nav */
+    .app-nav {
+      background: #f1f5f9;
+      border-bottom: 1px solid var(--color-border);
+      display: flex;
+      gap: 6px;
+      padding: 8px var(--space-3);
+      overflow-x: auto;
+    }
+
+    .nav-tab {
+      background: transparent;
+      border-color: transparent;
+      color: #334155;
+      font-size: 0.92rem;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 20px;
+      white-space: nowrap;
+      border-radius: var(--radius-sm);
+      flex-shrink: 0;
+    }
+
+    .nav-tab:hover {
+      background: #e2e8f0;
+    }
+
+    .nav-tab.active {
+      background: #dbeafe;
+      color: #1d4ed8;
+      border-color: #93c5fd;
+    }
+
+    /* Main content area */
+    .app-content {
+      padding: var(--space-3);
+      display: grid;
+      gap: var(--space-4);
+      align-content: start;
+      overflow-y: auto;
+    }
+
+    .block {
+      background: var(--color-surface);
+      border: 1px solid #dbe2ea;
+      border-radius: var(--radius-md);
+      padding: var(--space-3);
+      display: grid;
+      gap: var(--space-3);
+    }
+
+    .block h2,
+    .block h3 {
+      margin: 0;
+      font-size: 1.1rem;
+      line-height: 1.3;
+    }
+
+    .block p {
+      margin: 0;
+      color: #334155;
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .field label {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: #0f172a;
+    }
+
+    .field input,
+    .field select {
+      border: 1px solid #94a3b8;
+      border-radius: 10px;
+      min-height: 48px;
+      padding: 0 14px;
+      background: #ffffff;
+      color: #0f172a;
+      font-size: 1rem;
+    }
+
+    .inline-actions {
+      display: flex;
+      gap: var(--space-3);
+      flex-wrap: wrap;
+    }
+
+    /* Dashboard: 4-column metric grid for landscape screens */
+    .metric-grid {
+      display: grid;
+      gap: var(--space-3);
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .metric-card {
+      border: 1px solid #cbd5e1;
+      border-radius: 12px;
+      background: #ffffff;
+      padding: 16px 20px;
+      display: grid;
+      gap: 6px;
+      align-content: center;
+    }
+
+    .metric-card .k {
+      font-size: 0.82rem;
+      color: #475569;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .metric-card .v {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #0f172a;
+    }
+
+    .metric-card .delta {
+      font-size: 0.78rem;
+      color: var(--color-success);
+      font-weight: 600;
+    }
+
+    .preset-row,
+    .toggle-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    /* Touch chips: 44px minimum for iPad touch */
+    .small-chip {
+      border: 1px solid #94a3b8;
+      border-radius: 999px;
+      background: #ffffff;
+      min-height: 44px;
+      padding: 0 16px;
+      font-size: 0.88rem;
+      color: #1e293b;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+    }
+
+    .small-chip.active {
+      background: #dbeafe;
+      border-color: #60a5fa;
+      color: #1d4ed8;
+      font-weight: 600;
+    }
+
+    .message {
+      border-radius: 12px;
+      padding: 12px 16px;
+      border: 1px solid;
+      font-size: 0.9rem;
+      line-height: 1.45;
+    }
+
+    .message.info {
+      background: #dbeafe;
+      border-color: #60a5fa;
+      color: #1e3a8a;
+    }
+
+    .message.warning {
+      background: #fef3c7;
+      border-color: #fcd34d;
+      color: #854d0e;
+    }
+
+    .message.error {
+      background: #fee2e2;
+      border-color: #fca5a5;
+      color: #991b1b;
+    }
+
+    /* Map card: street-map wireframe with geohash overlay */
+    .map-card {
+      border: 1px solid #94a3b8;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #f5f5f3;
+      color: #1e293b;
+      display: grid;
+      grid-template-columns: 1fr;
+    }
+
+    .map-legend {
+      display: flex;
+      gap: 16px;
+      padding: 12px 16px;
+      background: rgba(15, 23, 42, 0.88);
+      flex-wrap: wrap;
+    }
+
+    .map-legend {
+      align-items: center;
+    }
+
+    .legend-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.82rem;
+      color: #e2e8f0;
+    }
+
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      flex: 0 0 12px;
+    }
+
+    /* Heatmap toggle pills inside the dark map legend bar */
+    .legend-toggles {
+      display: flex;
+      gap: 8px;
+      margin-left: auto;
+      align-items: center;
+    }
+
+    .legend-toggle-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      padding: 5px 14px;
+      border-radius: 999px;
+      cursor: pointer;
+      border: 1.5px solid;
+      transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+      white-space: nowrap;
+      line-height: 1;
+      min-height: 30px;
+    }
+
+    /* Hits pill — red/coral */
+    .legend-toggle-pill[data-layer="hits"] {
+      color: rgba(252, 165, 165, 0.85);
+      border-color: rgba(239, 68, 68, 0.4);
+      background: transparent;
+    }
+    .legend-toggle-pill[data-layer="hits"].active {
+      color: #ffffff;
+      border-color: rgba(239, 68, 68, 0.8);
+      background: rgba(239, 68, 68, 0.65);
+    }
+
+    /* Hotlist pill — amber/yellow */
+    .legend-toggle-pill[data-layer="hotlist"] {
+      color: rgba(253, 224, 71, 0.85);
+      border-color: rgba(245, 158, 11, 0.4);
+      background: transparent;
+    }
+    .legend-toggle-pill[data-layer="hotlist"].active {
+      color: #ffffff;
+      border-color: rgba(245, 158, 11, 0.8);
+      background: rgba(245, 158, 11, 0.6);
+    }
+
+    /* Staging Hotlist pill — blue/purple */
+    .legend-toggle-pill[data-layer="staging-hotlist"] {
+      color: rgba(196, 181, 253, 0.85);
+      border-color: rgba(139, 92, 246, 0.4);
+      background: transparent;
+    }
+    .legend-toggle-pill[data-layer="staging-hotlist"].active {
+      color: #ffffff;
+      border-color: rgba(139, 92, 246, 0.8);
+      background: rgba(139, 92, 246, 0.6);
+    }
+
+    /* Fullscreen variant pills (same style, used with data-fs-layer) */
+    .legend-toggle-pill[data-fs-layer="hits"] {
+      color: rgba(252, 165, 165, 0.85);
+      border-color: rgba(239, 68, 68, 0.4);
+      background: transparent;
+    }
+    .legend-toggle-pill[data-fs-layer="hits"].active {
+      color: #ffffff;
+      border-color: rgba(239, 68, 68, 0.8);
+      background: rgba(239, 68, 68, 0.65);
+    }
+    .legend-toggle-pill[data-fs-layer="hotlist"] {
+      color: rgba(253, 224, 71, 0.85);
+      border-color: rgba(245, 158, 11, 0.4);
+      background: transparent;
+    }
+    .legend-toggle-pill[data-fs-layer="hotlist"].active {
+      color: #ffffff;
+      border-color: rgba(245, 158, 11, 0.8);
+      background: rgba(245, 158, 11, 0.6);
+    }
+    .legend-toggle-pill[data-fs-layer="staging-hotlist"] {
+      color: rgba(196, 181, 253, 0.85);
+      border-color: rgba(139, 92, 246, 0.4);
+      background: transparent;
+    }
+    .legend-toggle-pill[data-fs-layer="staging-hotlist"].active {
+      color: #ffffff;
+      border-color: rgba(139, 92, 246, 0.8);
+      background: rgba(139, 92, 246, 0.6);
+    }
+
+    /* Street map canvas */
+    .map-canvas {
+      min-height: 560px;
+      position: relative;
+      overflow: hidden;
+      background: #edecea;
+    }
+
+    /* ---- Street grid layers ---- */
+
+    /* Base street grid: minor streets */
+    .street-grid {
+      position: absolute;
+      inset: 0;
+      /* Horizontal minor streets every ~50px, vertical every ~65px */
+      background:
+        repeating-linear-gradient(
+          0deg,
+          transparent,
+          transparent 48px,
+          #d4d0ca 48px,
+          #d4d0ca 50px
+        ),
+        repeating-linear-gradient(
+          90deg,
+          transparent,
+          transparent 63px,
+          #d4d0ca 63px,
+          #d4d0ca 65px
+        );
+    }
+
+    /* Major roads: thicker lines at wider intervals */
+    .street-grid-major {
+      position: absolute;
+      inset: 0;
+      background:
+        repeating-linear-gradient(
+          0deg,
+          transparent,
+          transparent 196px,
+          #bbb7af 196px,
+          #bbb7af 200px
+        ),
+        repeating-linear-gradient(
+          90deg,
+          transparent,
+          transparent 246px,
+          #bbb7af 246px,
+          #bbb7af 250px
+        );
+    }
+
+    /* Collector roads: medium thickness, offset from majors */
+    .street-grid-collector {
+      position: absolute;
+      inset: 0;
+      background:
+        repeating-linear-gradient(
+          0deg,
+          transparent,
+          transparent 118px,
+          #c8c4bc 118px,
+          #c8c4bc 121px
+        ),
+        repeating-linear-gradient(
+          90deg,
+          transparent,
+          transparent 148px,
+          #c8c4bc 148px,
+          #c8c4bc 151px
+        );
+    }
+
+    /* Diagonal highway: I-35 style */
+    .highway-diagonal {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+    }
+
+    .highway-diagonal::before {
+      content: "";
+      position: absolute;
+      top: -40%;
+      left: -10%;
+      width: 160%;
+      height: 8px;
+      background: #c9a84c;
+      transform: rotate(28deg);
+      transform-origin: 0 0;
+      box-shadow:
+        0 -3px 0 #d4bc72,
+        0 3px 0 #d4bc72,
+        0 -12px 0 rgba(201, 168, 76, 0.12),
+        0 12px 0 rgba(201, 168, 76, 0.12);
+    }
+
+    .highway-diagonal::after {
+      content: "";
+      position: absolute;
+      top: 60%;
+      left: -10%;
+      width: 160%;
+      height: 6px;
+      background: #c9a84c;
+      transform: rotate(-18deg);
+      transform-origin: 0 0;
+      box-shadow:
+        0 -2px 0 #d4bc72,
+        0 2px 0 #d4bc72;
+    }
+
+    /* Curved road / boulevard arc */
+    .road-curve {
+      position: absolute;
+      width: 500px;
+      height: 500px;
+      border: 4px solid #bbb7af;
+      border-radius: 50%;
+      top: 55%;
+      left: 60%;
+      border-left-color: transparent;
+      border-bottom-color: transparent;
+    }
+
+    .road-curve-2 {
+      position: absolute;
+      width: 350px;
+      height: 350px;
+      border: 3px solid #c8c4bc;
+      border-radius: 50%;
+      top: -15%;
+      left: -8%;
+      border-right-color: transparent;
+      border-top-color: transparent;
+    }
+
+    /* Park / green space blocks to break up the grid */
+    .map-park {
+      position: absolute;
+      background: #d5e8c8;
+      border: 1px solid #b8d4a2;
+      border-radius: 4px;
+    }
+
+    .map-park-1 {
+      top: 12%;
+      left: 55%;
+      width: 80px;
+      height: 55px;
+    }
+
+    .map-park-2 {
+      top: 62%;
+      left: 18%;
+      width: 60px;
+      height: 70px;
+      border-radius: 20px;
+    }
+
+    /* Water feature */
+    .map-water {
+      position: absolute;
+      top: 78%;
+      left: 60%;
+      width: 200px;
+      height: 50px;
+      background: linear-gradient(135deg, #b8d8e8 0%, #9ec8db 100%);
+      border: 1px solid #89b5cc;
+      border-radius: 40% 60% 55% 45%;
+    }
+
+    /* ---- Street labels ---- */
+    .street-label {
+      position: absolute;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      color: #6b6560;
+      text-transform: uppercase;
+      white-space: nowrap;
+      pointer-events: none;
+      text-shadow: 1px 1px 0 #edecea, -1px -1px 0 #edecea, 1px -1px 0 #edecea, -1px 1px 0 #edecea;
+    }
+
+    .street-label-highway {
+      color: #8a7030;
+      font-weight: 700;
+      font-size: 0.72rem;
+      background: rgba(237, 236, 234, 0.85);
+      padding: 1px 6px;
+      border-radius: 3px;
+      border: 1px solid #d4bc72;
+    }
+
+    /* ---- Geohash-5 overlay cells ---- */
+    .geo-cell {
+      position: absolute;
+      border-radius: 3px;
+      border: 1.5px dashed rgba(0, 0, 0, 0.2);
+      pointer-events: none;
+    }
+
+    /* Hit heatmap: red overlays */
+    .geo-hit-low  { background: rgba(239, 68, 68, 0.18); border-color: rgba(239, 68, 68, 0.3); }
+    .geo-hit-med  { background: rgba(239, 68, 68, 0.38); border-color: rgba(239, 68, 68, 0.5); }
+    .geo-hit-high { background: rgba(239, 68, 68, 0.58); border-color: rgba(239, 68, 68, 0.7); }
+
+
+    /* Kit live position marker */
+    .kit-marker {
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      background: #22c55e;
+      border: 3px solid #ffffff;
+      border-radius: 50%;
+      box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.4), 0 2px 8px rgba(0, 0, 0, 0.25);
+      z-index: 10;
+      animation: kit-pulse 2s ease-in-out infinite;
+    }
+
+    .kit-marker::after {
+      content: "";
+      position: absolute;
+      top: -8px;
+      left: -8px;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      border: 2px solid rgba(34, 197, 94, 0.35);
+      animation: kit-ring 2s ease-in-out infinite;
+    }
+
+    @keyframes kit-pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.15); }
+    }
+
+    @keyframes kit-ring {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.6); opacity: 0; }
+    }
+
+    .trip-list {
+      display: grid;
+      gap: var(--space-3);
+    }
+
+    .trip-item {
+      border: 1px solid #cbd5e1;
+      border-radius: 12px;
+      background: #ffffff;
+      padding: 14px 18px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .trip-item strong {
+      font-size: 1rem;
+    }
+
+    .trip-meta {
+      font-size: 0.88rem;
+      color: #334155;
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .state-preview {
+      display: grid;
+      gap: var(--space-3);
+    }
+
+    .state-card {
+      display: none;
+      border: 1px solid #cbd5e1;
+      border-radius: 12px;
+      background: #ffffff;
+      padding: var(--space-3);
+      gap: 10px;
+    }
+
+    .state-card.active {
+      display: grid;
+    }
+
+    .screen-panel {
+      display: none;
+    }
+
+    .screen-panel.active {
+      display: contents;
+    }
+
+    /* Login: single-column form layout, centered on screen */
+    .screen-panel[data-screen="login"] {
+      display: none;
+      min-height: 100%;
+      place-items: center;
+    }
+
+    .screen-panel[data-screen="login"].active {
+      display: grid;
+    }
+
+    .login-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: var(--space-4);
+      max-width: 540px;
+      width: 100%;
+    }
+
+    /* Dashboard: two-column layout for summary row */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-4);
+    }
+
+    .dashboard-grid .full-width {
+      grid-column: 1 / -1;
+    }
+
+    /* Map: controls row + wide map */
+    .map-controls-row {
+      display: flex;
+      gap: var(--space-3);
+      flex-wrap: wrap;
+      align-items: start;
+    }
+
+    .map-controls-row > * {
+      flex: 1;
+      min-width: 200px;
+    }
+
+    /* Trip today view: spacing between live trip blocks */
+    #trip-today-view,
+    #trip-detail-view {
+      display: grid;
+      gap: var(--space-4);
+    }
+
+    /* Trips: single-column trip list */
+    .trip-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: var(--space-4);
+    }
+
+    /* Live trip header badge */
+    .live-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: #ffffff;
+      background: #16a34a;
+      border-radius: 999px;
+      padding: 4px 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      vertical-align: middle;
+      margin-left: 8px;
+    }
+
+    .live-badge::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ffffff;
+      animation: live-blink 1.5s ease-in-out infinite;
+    }
+
+    @keyframes live-blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    /* Trip view map button */
+    .trip-item .trip-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    .trip-map-btn {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--color-info);
+      background: transparent;
+      border: 1px solid var(--color-info);
+      border-radius: var(--radius-sm);
+      padding: 6px 14px;
+      cursor: pointer;
+      min-height: 36px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background-color 140ms ease;
+    }
+
+    .trip-map-btn:hover {
+      background: #dbeafe;
+    }
+
+    /* Current trip stats row */
+    .trip-stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: var(--space-3);
+    }
+
+    .trip-stat {
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 12px 14px;
+      background: #f8fafc;
+      display: grid;
+      gap: 4px;
+    }
+
+    .trip-stat .k {
+      font-size: 0.78rem;
+      color: #475569;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .trip-stat .v {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #0f172a;
+    }
+
+    /* Collapsible Trip History header */
+    .trip-history-header.block {
+      padding: 0;
+      gap: 0;
+    }
+
+    .trip-history-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 10px;
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      padding: 14px var(--space-3);
+      font: inherit;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--color-ink);
+      width: 100%;
+      text-align: left;
+      min-height: 48px;
+    }
+
+    .trip-history-toggle:hover {
+      background: #f1f5f9;
+    }
+
+    .trip-history-toggle:focus-visible {
+      outline: 3px solid #f59e0b;
+      outline-offset: 2px;
+    }
+
+    .trip-history-toggle .arrow {
+      transition: transform 200ms ease;
+      font-size: 0.7rem;
+      color: var(--color-muted);
+      flex-shrink: 0;
+    }
+
+    .trip-history-toggle.open .arrow {
+      transform: rotate(90deg);
+    }
+
+    .trip-history-preset-label {
+      margin-left: auto;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #1d4ed8;
+      background: #dbeafe;
+      border-radius: 999px;
+      padding: 3px 10px;
+      flex-shrink: 0;
+    }
+
+    .trip-history-body {
+      display: none;
+      padding: 0 var(--space-3) 16px;
+    }
+
+    .trip-history-body.open {
+      display: grid;
+      gap: 12px;
+    }
+
+    /* Wireframe interaction annotation — not real UI */
+    .interaction-note {
+      font-style: italic;
+      color: #94a3b8;
+      font-size: 0.88rem;
+      line-height: 1.5;
+      border: 1.5px dashed #cbd5e1;
+      border-radius: 8px;
+      padding: 10px 14px;
+      background: #f8fafc;
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      border: 0;
+      padding: 0;
+      clip: rect(0 0 0 0);
+      overflow: hidden;
+    }
+
+    /* Collapsible interaction notes */
+    .notes-toggle {
+      display: flex;
+      align-items: center;
+      gap: var(--space-1);
+      cursor: pointer;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      background: var(--color-surface-alt);
+      padding: 12px var(--space-3);
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--color-muted);
+      width: 100%;
+      text-align: left;
+    }
+
+    .notes-toggle:hover {
+      background: #e2e8f0;
+    }
+
+    .notes-toggle .arrow {
+      transition: transform 200ms ease;
+      font-size: 0.75rem;
+    }
+
+    .notes-toggle.open .arrow {
+      transform: rotate(90deg);
+    }
+
+    .notes-body {
+      display: none;
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-top: 0;
+      border-radius: 0 0 var(--radius-md) var(--radius-md);
+      padding: var(--space-2) var(--space-3);
+      margin-top: -4px;
+    }
+
+    .notes-body.open {
+      display: block;
+    }
+
+    .notes-body ul {
+      margin: 0;
+      padding-left: 20px;
+      display: grid;
+      gap: 8px;
+      color: #334155;
+      font-size: 0.92rem;
+      line-height: 1.45;
+    }
+
+    /* ========================================================
+       Map fullscreen overlay mode
+       ======================================================== */
+
+    /* Backdrop overlay when fullscreen is active */
+    .map-fullscreen-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.6);
+      z-index: 999;
+    }
+
+    .map-fullscreen-active .map-fullscreen-backdrop {
+      display: block;
+    }
+
+    /* Fullscreen map card */
+    .map-fullscreen-active .map-card {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      border-radius: 0;
+      border: none;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    .map-fullscreen-active .map-canvas {
+      min-height: 0;
+      height: 100%;
+    }
+
+    /* Floating controls panel over the map in fullscreen */
+    .map-fullscreen-controls {
+      display: none;
+    }
+
+    .map-fullscreen-active .map-fullscreen-controls {
+      display: flex;
+      align-items: center;
+      position: fixed;
+      top: 12px;
+      left: 16px;
+      z-index: 1002;
+      background: rgba(15, 23, 42, 0.88);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 999px;
+      padding: 8px 16px;
+      color: #e2e8f0;
+    }
+
+    /* Exit fullscreen button — top-right corner */
+    .map-fs-exit-btn {
+      display: none;
+    }
+
+    .map-fullscreen-active .map-fs-exit-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      position: fixed;
+      top: 12px;
+      right: 16px;
+      z-index: 1002;
+      min-height: 48px;
+      padding: 0 20px;
+      background: rgba(239, 68, 68, 0.9);
+      color: #ffffff;
+      border: 2px solid rgba(255, 255, 255, 0.4);
+      border-radius: var(--radius-sm);
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background-color 140ms ease;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    }
+
+    .map-fullscreen-active .map-fs-exit-btn:hover {
+      background: rgba(220, 38, 38, 1);
+    }
+
+    .map-fullscreen-active .map-fs-exit-btn:focus-visible {
+      outline: 3px solid #f59e0b;
+      outline-offset: 2px;
+    }
+
+    /* Prevent body scroll when fullscreen map is open */
+    body.map-fs-no-scroll {
+      overflow: hidden;
+    }
+
+    /* Expand Map button styling — compact, fits inside dark .map-legend bar */
+    .map-expand-btn {
+      min-height: 30px;
+      padding: 5px 12px;
+      background: transparent;
+      color: rgba(226, 232, 240, 0.9);
+      border: 1.5px solid rgba(255, 255, 255, 0.3);
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+      line-height: 1;
+      margin-left: 12px;
+      flex-shrink: 0;
+    }
+
+    .map-expand-btn:hover {
+      background: rgba(255, 255, 255, 0.15);
+      border-color: rgba(255, 255, 255, 0.5);
+      color: #ffffff;
+    }
+
+    .map-expand-btn:focus-visible {
+      outline: 3px solid #f59e0b;
+      outline-offset: 2px;
+    }
+
+    /* Responsive: stack on narrower windows (fallback) */
+    @media (max-width: 900px) {
+      .dashboard-grid,
+      .trip-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .metric-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .trip-stats {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .map-canvas {
+        min-height: 400px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="prototype" aria-labelledby="wireframe-title">
+    <!-- Header panel with description and quick-nav tabs -->
+    <section class="panel header" aria-label="Wireframe Context">
+      <h1 id="wireframe-title">Portal PWA Wireframes &mdash; Landscape Tablet &amp; Laptop Optimized</h1>
+      <p>Clickable wireframes designed for iPad landscape (1024&times;768) and laptop (1366&times;768) touch-screen viewports. All controls maintain 44&ndash;48px touch targets. Layouts use side-by-side panels to leverage landscape screen real estate. The portal is a Vue 3 PWA used by field operators with LPR kits. The scan gridding map is integrated into Trip History &mdash; selecting &ldquo;Today&rdquo; shows the current active trip with a live map view.</p>
+      <div class="quick-nav" role="tablist" aria-label="Wireframe Screen Selector">
+        <button class="chip-btn active" data-go="login" role="tab" aria-selected="true">Login + Access States</button>
+        <button class="chip-btn" data-go="dashboard" role="tab" aria-selected="false">Dashboard Metrics</button>
+        <button class="chip-btn" data-go="trips" role="tab" aria-selected="false">Trips + Live Map</button>
+        <button class="chip-btn" data-go="states" role="tab" aria-selected="false">Loading / Empty / Error</button>
+      </div>
+    </section>
+
+    <!-- Collapsible interaction notes (replaces sidebar notes panel) -->
+    <div>
+      <button class="notes-toggle" id="notes-toggle" type="button" aria-expanded="false" aria-controls="notes-body">
+        <span class="arrow">&#9654;</span> Interaction Notes &amp; Design Rationale
+      </button>
+      <div class="notes-body" id="notes-body">
+        <ul>
+          <li>Top-level screen switching via the tab bar above the device and the horizontal nav inside the application shell.</li>
+          <li>Login screen shows a focused sign-in form. Access is validated server-side before granting entry to data-bearing screens.</li>
+          <li>Dashboard uses a <strong>4-column metric row</strong> spanning full width, with summary actions beside operational details.</li>
+          <li>Trip History integrates the scan gridding map directly. <strong>&ldquo;Today&rdquo;</strong> is the default preset and represents the <strong>current active trip</strong>, showing live trip stats, an embedded geohash-5 hit heatmap with fullscreen expansion.</li>
+          <li>Other trip presets (This Week, Last Week, Month) show historical trip list cards with a <strong>&ldquo;View Map&rdquo;</strong> action on each card.</li>
+          <li><strong>Near-real-time indicator</strong>: GPS data has a 1&ndash;3 minute delay, shown as a persistent badge in the top bar on trips and dashboard screens.</li>
+          <li>All chip and button controls are 44&ndash;48px minimum for reliable iPad and laptop touch interaction.</li>
+          <li>No phone-style bottom navigation &mdash; instead, a <strong>horizontal top nav bar</strong> sits below the application header for fast screen switching via touch.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Application shell: flat full-width layout, no device bezels -->
+    <section class="app-shell" aria-label="Portal Application Wireframe">
+      <!-- Top bar: branding, tenant context, status -->
+      <div class="app-top-bar">
+        <div class="app-title">
+          <strong id="screen-heading">Portal Access</strong>
+          <span class="tenant-chip">Apex Recovery &mdash; Jeff</span>
+        </div>
+        <div class="top-context-area">
+          <span class="delay-badge" id="delay-indicator">GPS &asymp; 1&ndash;3 min delay</span>
+          <button class="logout-link" id="logout-link" type="button">Logout</button>
+        </div>
+      </div>
+
+      <!-- Horizontal navigation bar (replaces mobile bottom tab bar) -->
+      <nav class="app-nav" aria-label="Screen Navigation">
+        <button class="nav-tab active" type="button" data-go="dashboard">Dashboard</button>
+        <button class="nav-tab" type="button" data-go="trips">Trips</button>
+      </nav>
+
+      <!-- Screen content area -->
+      <div class="app-content">
+        <!-- LOGIN SCREEN -->
+        <section class="screen-panel active" data-screen="login" aria-label="Login and Access States">
+          <div class="login-grid">
+            <div class="block">
+              <h2>Sign In</h2>
+              <p>Two-step entry flow to maintain controlled portal access. Permission and mapped kit are validated before granting entry to data-bearing screens.</p>
+              <form aria-label="Portal Login Form" class="state-preview">
+                <div class="field">
+                  <label for="email">Work Email</label>
+                  <input id="email" name="email" type="email" placeholder="name@agency.com" value="field.user@agency.com" />
+                </div>
+                <div class="field" id="otp-field">
+                  <label for="otp">One-Time Password</label>
+                  <input id="otp" name="otp" type="text" inputmode="numeric" placeholder="Enter 6-digit OTP" value="438902" />
+                </div>
+                <div class="inline-actions">
+                  <button type="button" class="primary-btn">Continue</button>
+                  <button type="button" class="secondary-btn">Resend OTP</button>
+                </div>
+              </form>
+
+              <!-- Login error alert -->
+              <div class="message error" role="alert" style="display:flex;align-items:flex-start;gap:10px;">
+                <strong style="flex-shrink:0;">Error</strong>
+                <span>Unable to sign in. Please check your credentials or contact your administrator.</span>
+              </div>
+
+              <div class="interaction-note">
+                &rarr; Shown when login fails (invalid credentials, no portal access, or no mapped kit)
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+        <!-- DASHBOARD SCREEN -->
+        <section class="screen-panel" data-screen="dashboard" aria-label="Dashboard">
+          <div class="dashboard-grid">
+            <div class="block full-width">
+              <h2>Performance Dashboard</h2>
+              <div class="preset-row" role="group" aria-label="Dashboard Date Presets">
+                <button class="small-chip active" type="button" data-preset="Today">Today</button>
+                <button class="small-chip" type="button" data-preset="This Week">This Week</button>
+                <button class="small-chip" type="button" data-preset="Last Week">Last Week</button>
+                <button class="small-chip" type="button" data-preset="Month">Month</button>
+              </div>
+              <div class="metric-grid" aria-label="Key Metrics">
+                <article class="metric-card">
+                  <span class="k">Scan Volume</span>
+                  <span class="v">1,284</span>
+                  <span class="delta">+11% vs last week</span>
+                </article>
+                <article class="metric-card">
+                  <span class="k">Hit Count</span>
+                  <span class="v">74</span>
+                  <span class="delta">Org-scoped</span>
+                </article>
+                <article class="metric-card">
+                  <span class="k">Repos Affected</span>
+                  <span class="v">18</span>
+                  <span class="delta">12 active today</span>
+                </article>
+                <article class="metric-card">
+                  <span class="k">Route Completion</span>
+                  <span class="v">82%</span>
+                  <span class="delta">3 zones gained coverage</span>
+                </article>
+              </div>
+            </div>
+
+            <div class="block">
+              <h3>Operational Summary</h3>
+              <p>Hits and repos reflect only records associated to kits in this tenant organization. Metrics refresh within 60 seconds.</p>
+              <div class="inline-actions">
+                <button type="button" class="secondary-btn" data-go="trips">Open Trips &amp; Map</button>
+              </div>
+            </div>
+            <div class="block">
+              <h3>Kit Status</h3>
+              <p>Kit 07 is active and last reported GPS at 10:42 AM. Hot geohashes refreshed 54 seconds ago.</p>
+              <div class="message info">Near-real-time GPS tracking. Data may be delayed 1&ndash;3 minutes from live position.</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TRIP HISTORY SCREEN (with integrated map) -->
+        <section class="screen-panel" data-screen="trips" aria-label="Trips and Live Map">
+          <div class="block trip-history-header">
+            <button class="trip-history-toggle" type="button" id="trip-history-toggle" aria-expanded="false" aria-controls="trip-history-body">
+              <span class="arrow">&#9654;</span>
+              <span style="font-size:1.05rem;font-weight:700;">Trip History</span>
+              <span class="trip-history-preset-label" id="trip-active-preset">Today</span>
+            </button>
+            <div class="trip-history-body" id="trip-history-body">
+              <p style="margin:0;color:#334155;font-size:0.92rem;line-height:1.5;">Each trip is a map. Select &ldquo;Today&rdquo; to see the current active trip with a live scan gridding map, or choose another preset for historical trip summaries.</p>
+              <div class="preset-row" role="group" aria-label="Trip Date Presets">
+                <button class="small-chip active" type="button" data-trip-preset="Today">Today</button>
+                <button class="small-chip" type="button" data-trip-preset="This Week">This Week</button>
+                <button class="small-chip" type="button" data-trip-preset="Last Week">Last Week</button>
+                <button class="small-chip" type="button" data-trip-preset="Month">Month</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- TODAY: Current Active Trip with Live Map -->
+          <div id="trip-today-view">
+            <div class="block">
+              <h3>Current Trip <span class="live-badge">LIVE</span></h3>
+              <div class="trip-stats" aria-label="Current Trip Stats">
+                <div class="trip-stat">
+                  <span class="k">Scans</span>
+                  <span class="v">423</span>
+                </div>
+                <div class="trip-stat">
+                  <span class="k">Hits</span>
+                  <span class="v">23</span>
+                </div>
+                <div class="trip-stat">
+                  <span class="k">Distance</span>
+                  <span class="v">60.2 mi</span>
+                </div>
+                <div class="trip-stat">
+                  <span class="k">Started</span>
+                  <span class="v">08:10 AM</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Fullscreen overlay elements (hidden until toggled) -->
+            <div class="map-fullscreen-backdrop" id="map-fs-backdrop"></div>
+            <div class="map-fullscreen-controls" id="map-fs-controls">
+              <div class="legend-toggles" role="group" aria-label="Fullscreen Heatmap Toggles" style="margin-left:0;">
+                <button class="legend-toggle-pill active" type="button" data-fs-layer="hits">Hits</button>
+                <button class="legend-toggle-pill" type="button" data-fs-layer="hotlist">Hotlist</button>
+                <button class="legend-toggle-pill" type="button" data-fs-layer="staging-hotlist">Staging Hotlist</button>
+              </div>
+            </div>
+            <button class="map-fs-exit-btn" type="button" id="map-fs-exit-btn" aria-label="Exit fullscreen map">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2 2l12 12"/><path d="M14 2L2 14"/></svg>
+              Exit Fullscreen
+            </button>
+            <div class="map-card" id="map-card" aria-label="Live Trip Map">
+              <div class="map-legend">
+                <span class="legend-chip"><span class="dot" style="background:#22c55e"></span>Kit live position (&plusmn;3 min)</span>
+                <div class="legend-toggles" role="group" aria-label="Heatmap Toggles">
+                  <button class="legend-toggle-pill active" type="button" data-layer="hits">Hits</button>
+                  <button class="legend-toggle-pill" type="button" data-layer="hotlist">Hotlist</button>
+                  <button class="legend-toggle-pill" type="button" data-layer="staging-hotlist">Staging Hotlist</button>
+                </div>
+                <button class="map-expand-btn" type="button" id="map-expand-btn" aria-label="Expand map to fullscreen">
+                  <svg width="14" height="14" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6V2h4"/><path d="M16 6V2h-4"/><path d="M2 12v4h4"/><path d="M16 12v4h-4"/></svg>
+                  Expand
+                </button>
+              </div>
+              <div class="map-canvas" aria-hidden="true">
+                <!-- Street grid layers -->
+                <div class="street-grid"></div>
+                <div class="street-grid-collector"></div>
+                <div class="street-grid-major"></div>
+
+                <!-- Diagonal highways -->
+                <div class="highway-diagonal"></div>
+
+                <!-- Curved roads -->
+                <div class="road-curve"></div>
+                <div class="road-curve-2"></div>
+
+                <!-- Park / green space blocks -->
+                <div class="map-park map-park-1"></div>
+                <div class="map-park map-park-2"></div>
+
+                <!-- Water feature -->
+                <div class="map-water"></div>
+
+                <!-- Street labels -->
+                <span class="street-label" style="top:34.5%;left:3%;transform:rotate(0deg);">E Main St</span>
+                <span class="street-label" style="top:7%;left:36%;transform:rotate(90deg);transform-origin:left bottom;">N Oak Ave</span>
+                <span class="street-label" style="top:69.5%;left:52%;">Industrial Blvd</span>
+                <span class="street-label" style="top:51%;left:72%;transform:rotate(90deg);transform-origin:left bottom;">Commerce Dr</span>
+                <span class="street-label" style="top:17%;left:68%;">W Park Ln</span>
+                <span class="street-label street-label-highway" style="top:22%;left:14%;transform:rotate(28deg);">I-35</span>
+                <span class="street-label street-label-highway" style="top:68%;left:28%;transform:rotate(-18deg);">US-290</span>
+                <span class="street-label" style="top:86%;left:8%;">S 1st St</span>
+                <span class="street-label" style="top:52%;left:4%;transform:rotate(90deg);transform-origin:left bottom;">Lamar Blvd</span>
+
+                <!-- Geohash-5 overlay cells: hit heatmap (red) -->
+                <div class="geo-cell geo-hit-low" style="top:5%;left:3%;width:22%;height:20%;"></div>
+                <div class="geo-cell geo-hit-med" style="top:5%;left:26%;width:22%;height:20%;"></div>
+                <div class="geo-cell geo-hit-high" style="top:28%;left:26%;width:22%;height:22%;"></div>
+                <div class="geo-cell geo-hit-low" style="top:28%;left:49%;width:24%;height:22%;"></div>
+                <div class="geo-cell geo-hit-med" style="top:53%;left:3%;width:22%;height:22%;"></div>
+                <div class="geo-cell geo-hit-high" style="top:53%;left:49%;width:24%;height:22%;"></div>
+
+                <!-- Additional hit heatmap cells -->
+                <div class="geo-cell geo-hit-low" style="top:28%;left:3%;width:22%;height:22%;"></div>
+                <div class="geo-cell geo-hit-med" style="top:77%;left:26%;width:22%;height:20%;"></div>
+
+                <!-- Kit live GPS position marker -->
+                <div class="kit-marker" style="top:42%;left:58%;"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- OTHER PRESETS: Trip list with View Map buttons -->
+          <div id="trip-list-view" style="display:none;">
+            <div class="trip-grid">
+              <div class="trip-list" id="trip-list">
+                <article class="trip-item">
+                  <strong>North Route Cluster</strong>
+                  <div class="trip-meta"><span>4 trips</span><span>688 scans</span><span>23 hits</span><span>94.2 mi</span></div>
+                  <div class="trip-actions"><button class="trip-map-btn" type="button">View Map</button></div>
+                </article>
+                <article class="trip-item">
+                  <strong>Industrial Ring</strong>
+                  <div class="trip-meta"><span>3 trips</span><span>503 scans</span><span>17 hits</span><span>68.1 mi</span></div>
+                  <div class="trip-actions"><button class="trip-map-btn" type="button">View Map</button></div>
+                </article>
+              </div>
+            </div>
+          </div>
+
+          <!-- TRIP DETAIL: Map view for a selected historical trip -->
+          <div id="trip-detail-view" style="display:none;">
+            <div class="block">
+              <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                <button class="ghost-btn" type="button" id="trip-back-btn" style="min-height:40px;padding:0 14px;font-size:0.88rem;">&#8592; Back to Trips</button>
+                <h3 style="margin:0;" id="trip-detail-name">North Route Cluster</h3>
+              </div>
+              <div class="trip-stats" aria-label="Trip Stats">
+                <div class="trip-stat">
+                  <span class="k">Scans</span>
+                  <span class="v" id="trip-detail-scans">688</span>
+                </div>
+                <div class="trip-stat">
+                  <span class="k">Hits</span>
+                  <span class="v" id="trip-detail-hits">23</span>
+                </div>
+                <div class="trip-stat">
+                  <span class="k">Distance</span>
+                  <span class="v" id="trip-detail-distance">94.2 mi</span>
+                </div>
+                <div class="trip-stat">
+                  <span class="k">Trips</span>
+                  <span class="v" id="trip-detail-trips">4</span>
+                </div>
+              </div>
+            </div>
+            <div class="map-card" aria-label="Trip Map">
+              <div class="map-legend">
+                <span class="legend-chip"><span class="dot" style="background:#22c55e"></span>Route trace</span>
+                <div class="legend-toggles" role="group" aria-label="Heatmap Toggles">
+                  <button class="legend-toggle-pill active" type="button" data-layer="hits">Hits</button>
+                  <button class="legend-toggle-pill" type="button" data-layer="hotlist">Hotlist</button>
+                  <button class="legend-toggle-pill" type="button" data-layer="staging-hotlist">Staging Hotlist</button>
+                </div>
+                <button class="map-expand-btn" type="button" onclick="enterMapFullscreen()" aria-label="Expand map to fullscreen">
+                  <svg width="14" height="14" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6V2h4"/><path d="M16 6V2h-4"/><path d="M2 12v4h4"/><path d="M16 12v4h-4"/></svg>
+                  Expand
+                </button>
+              </div>
+              <div class="map-canvas" aria-hidden="true">
+                <div class="street-grid"></div>
+                <div class="street-grid-collector"></div>
+                <div class="street-grid-major"></div>
+                <div class="highway-diagonal"></div>
+                <div class="road-curve"></div>
+                <div class="road-curve-2"></div>
+                <div class="map-park map-park-1"></div>
+                <div class="map-park map-park-2"></div>
+                <div class="map-water"></div>
+                <span class="street-label" style="top:34.5%;left:3%;transform:rotate(0deg);">E Main St</span>
+                <span class="street-label" style="top:7%;left:36%;transform:rotate(90deg);transform-origin:left bottom;">N Oak Ave</span>
+                <span class="street-label" style="top:69.5%;left:52%;">Industrial Blvd</span>
+                <span class="street-label" style="top:51%;left:72%;transform:rotate(90deg);transform-origin:left bottom;">Commerce Dr</span>
+                <span class="street-label street-label-highway" style="top:22%;left:14%;transform:rotate(28deg);">I-35</span>
+                <span class="street-label street-label-highway" style="top:68%;left:28%;transform:rotate(-18deg);">US-290</span>
+                <div class="geo-cell geo-hit-low" style="top:5%;left:3%;width:22%;height:20%;"></div>
+                <div class="geo-cell geo-hit-med" style="top:28%;left:26%;width:22%;height:22%;"></div>
+                <div class="geo-cell geo-hit-high" style="top:53%;left:49%;width:24%;height:22%;"></div>
+                <div class="geo-cell geo-hit-low" style="top:28%;left:49%;width:24%;height:22%;"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SYSTEM STATES SCREEN -->
+        <section class="screen-panel" data-screen="states" aria-label="System States">
+          <div class="block">
+            <h2>Shared Async States</h2>
+            <p>Reusable loading, empty, and error treatments applied consistently across all screens. Each state preserves navigability and provides actionable next steps.</p>
+            <div class="toggle-row" role="group" aria-label="System State Toggle">
+              <button class="small-chip active" type="button" data-system-state="loading">Loading</button>
+              <button class="small-chip" type="button" data-system-state="empty">Empty</button>
+              <button class="small-chip" type="button" data-system-state="error">Error</button>
+            </div>
+            <div class="state-preview">
+              <div class="state-card active" data-system-card="loading">
+                <strong>Loading state</strong>
+                <p>Fetching tenant metrics, map layers, and trip summary records. Progress indicator remains visible with concise status text.</p>
+                <div class="message info">Layout structure is preserved during load. Navigation remains available so the operator can switch screens.</div>
+              </div>
+              <div class="state-card" data-system-card="empty">
+                <strong>Empty state</strong>
+                <p>No trips or scans found for the selected preset. Prompt user to switch presets or expand date window. Metric labels remain visible for comprehension.</p>
+                <button type="button" class="secondary-btn">Switch to This Week</button>
+              </div>
+              <div class="state-card" data-system-card="error">
+                <strong>Error state</strong>
+                <p>Map service timeout or partial data import. Preserve existing filters and offer explicit retry action. States the age of incomplete data explicitly.</p>
+                <button type="button" class="primary-btn">Retry Data Fetch</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    /* ========================================================
+       Title and context mapping for each screen
+       ======================================================== */
+    const titleMap = {
+      login: "Portal Access",
+      dashboard: "Portal Dashboard",
+      trips: "Trips & Live Map",
+      states: "System States"
+    };
+
+    // Show delay badge on trips and dashboard screens
+    const delayScreens = new Set(["trips", "dashboard"]);
+    const delayIndicator = document.getElementById("delay-indicator");
+
+    const screenButtons = Array.from(document.querySelectorAll("[data-go]"));
+    const quickTabs = Array.from(document.querySelectorAll(".quick-nav .chip-btn"));
+    const navTabs = Array.from(document.querySelectorAll(".app-nav .nav-tab"));
+    const appNav = document.querySelector(".app-nav");
+    const panels = Array.from(document.querySelectorAll(".screen-panel"));
+    const heading = document.getElementById("screen-heading");
+    const logoutLink = document.getElementById("logout-link");
+
+    function setActiveScreen(screen) {
+      panels.forEach((panel) => {
+        panel.classList.toggle("active", panel.dataset.screen === screen);
+      });
+
+      quickTabs.forEach((btn) => {
+        const active = btn.dataset.go === screen;
+        btn.classList.toggle("active", active);
+        btn.setAttribute("aria-selected", String(active));
+      });
+
+      navTabs.forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.go === screen);
+      });
+
+      heading.textContent = titleMap[screen] || "Portal";
+
+      // Hide app-nav on login screen (pre-auth), show on all other screens
+      appNav.style.display = screen === "login" ? "none" : "";
+
+      // Hide logout link on login screen, show on all other screens
+      logoutLink.style.display = screen === "login" ? "none" : "";
+
+      // Toggle delay badge visibility
+      delayIndicator.style.display = delayScreens.has(screen) ? "" : "none";
+    }
+
+    screenButtons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        setActiveScreen(btn.dataset.go);
+      });
+    });
+
+    // Logout navigates back to login screen
+    logoutLink.addEventListener("click", () => {
+      setActiveScreen("login");
+    });
+
+    /* ========================================================
+       System state toggles (Loading / Empty / Error)
+       ======================================================== */
+    const systemStateButtons = Array.from(document.querySelectorAll("[data-system-state]"));
+    const systemCards = Array.from(document.querySelectorAll("[data-system-card]"));
+
+    systemStateButtons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const state = btn.dataset.systemState;
+        systemStateButtons.forEach((b) => b.classList.toggle("active", b === btn));
+        systemCards.forEach((card) => card.classList.toggle("active", card.dataset.systemCard === state));
+      });
+    });
+
+    /* ========================================================
+       Map layer toggles
+       ======================================================== */
+    const mapLayerButtons = Array.from(document.querySelectorAll("[data-layer]"));
+
+    mapLayerButtons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        btn.classList.toggle("active");
+      });
+    });
+
+    /* ========================================================
+       Map fullscreen toggle
+       ======================================================== */
+    const mapCard = document.getElementById("map-card");
+    const mapExpandBtn = document.getElementById("map-expand-btn");
+    const mapFsExitBtn = document.getElementById("map-fs-exit-btn");
+    const mapFsBackdrop = document.getElementById("map-fs-backdrop");
+    const mapFsControls = document.getElementById("map-fs-controls");
+    const mapScreenPanel = document.querySelector('[data-screen="trips"]');
+
+    function enterMapFullscreen() {
+      mapScreenPanel.classList.add("map-fullscreen-active");
+      document.body.classList.add("map-fs-no-scroll");
+      mapExpandBtn.style.display = "none";
+
+      // Sync fullscreen controls state with inline controls
+      syncFsControlsFromInline();
+    }
+
+    function exitMapFullscreen() {
+      mapScreenPanel.classList.remove("map-fullscreen-active");
+      document.body.classList.remove("map-fs-no-scroll");
+      mapExpandBtn.style.display = "";
+
+      // Sync inline controls state back from fullscreen controls
+      syncInlineControlsFromFs();
+    }
+
+    // Sync fullscreen control states from inline controls
+    function syncFsControlsFromInline() {
+      ["hits", "hotlist", "staging-hotlist"].forEach((layer) => {
+        const inlineBtn = document.querySelector('[data-layer="' + layer + '"]');
+        const fsBtn = document.querySelector('[data-fs-layer="' + layer + '"]');
+        if (inlineBtn && fsBtn) fsBtn.classList.toggle("active", inlineBtn.classList.contains("active"));
+      });
+    }
+
+    // Sync inline control states from fullscreen controls
+    function syncInlineControlsFromFs() {
+      ["hits", "hotlist", "staging-hotlist"].forEach((layer) => {
+        const fsBtn = document.querySelector('[data-fs-layer="' + layer + '"]');
+        const inlineBtn = document.querySelector('[data-layer="' + layer + '"]');
+        if (fsBtn && inlineBtn) inlineBtn.classList.toggle("active", fsBtn.classList.contains("active"));
+      });
+    }
+
+    mapExpandBtn.addEventListener("click", enterMapFullscreen);
+    mapFsExitBtn.addEventListener("click", exitMapFullscreen);
+    mapFsBackdrop.addEventListener("click", exitMapFullscreen);
+
+    // Fullscreen layer toggles
+    document.querySelectorAll("[data-fs-layer]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        btn.classList.toggle("active");
+      });
+    });
+
+    // Escape key to exit fullscreen
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && mapScreenPanel.classList.contains("map-fullscreen-active")) {
+        exitMapFullscreen();
+      }
+    });
+
+    /* ========================================================
+       Dashboard date preset toggles
+       ======================================================== */
+    function setOnlyActive(buttons, clicked) {
+      buttons.forEach((button) => button.classList.toggle("active", button === clicked));
+    }
+
+    document.querySelectorAll("[data-preset]").forEach((btn) => {
+      btn.addEventListener("click", () => setOnlyActive(Array.from(document.querySelectorAll("[data-preset]")), btn));
+    });
+
+    /* ========================================================
+       Trip preset switching: Today shows live map, others show trip list
+       ======================================================== */
+    const tripTodayView = document.getElementById("trip-today-view");
+    const tripListView = document.getElementById("trip-list-view");
+    const tripDetailView = document.getElementById("trip-detail-view");
+    const tripDetailName = document.getElementById("trip-detail-name");
+    const tripDetailScans = document.getElementById("trip-detail-scans");
+    const tripDetailHits = document.getElementById("trip-detail-hits");
+    const tripDetailDistance = document.getElementById("trip-detail-distance");
+    const tripDetailTrips = document.getElementById("trip-detail-trips");
+    const tripBackBtn = document.getElementById("trip-back-btn");
+    const tripHistoryToggle = document.getElementById("trip-history-toggle");
+    const tripHistoryBody = document.getElementById("trip-history-body");
+    const tripActivePreset = document.getElementById("trip-active-preset");
+
+    function showTripView(preset) {
+      tripDetailView.style.display = "none";
+      if (preset === "Today") {
+        tripTodayView.style.display = "";
+        tripListView.style.display = "none";
+      } else {
+        tripTodayView.style.display = "none";
+        tripListView.style.display = "";
+
+        const list = document.getElementById("trip-list");
+        if (preset === "This Week") {
+          list.innerHTML = '\
+            <article class="trip-item"><strong>North Route Cluster</strong><div class="trip-meta"><span>4 trips</span><span>688 scans</span><span>23 hits</span><span>94.2 mi</span></div><div class="trip-actions"><button class="trip-map-btn" type="button">View Map</button></div></article>\
+            <article class="trip-item"><strong>Industrial Ring</strong><div class="trip-meta"><span>3 trips</span><span>503 scans</span><span>17 hits</span><span>68.1 mi</span></div><div class="trip-actions"><button class="trip-map-btn" type="button">View Map</button></div></article>\
+          ';
+        } else if (preset === "Last Week") {
+          list.innerHTML = '\
+            <article class="trip-item"><strong>Last Week Summary</strong><div class="trip-meta"><span>9 trips</span><span>1,432 scans</span><span>44 hits</span><span>214.8 mi</span></div><div class="trip-actions"><button class="trip-map-btn" type="button">View Map</button></div></article>\
+          ';
+        } else {
+          list.innerHTML = '\
+            <article class="trip-item"><strong>Month Rollup</strong><div class="trip-meta"><span>31 trips</span><span>5,991 scans</span><span>188 hits</span><span>842.3 mi</span></div><div class="trip-actions"><button class="trip-map-btn" type="button">View Map</button></div></article>\
+            <article class="trip-item"><strong>Top Path: East Corridors</strong><div class="trip-meta"><span>12.8 hrs tracked</span><span>31% of monthly scans</span></div><div class="trip-actions"><button class="trip-map-btn" type="button">View Map</button></div></article>\
+          ';
+        }
+      }
+    }
+
+    document.querySelectorAll("[data-trip-preset]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        setOnlyActive(Array.from(document.querySelectorAll("[data-trip-preset]")), btn);
+        showTripView(btn.dataset.tripPreset);
+        // Update preset label and auto-collapse
+        tripActivePreset.textContent = btn.dataset.tripPreset;
+        tripHistoryBody.classList.remove("open");
+        tripHistoryToggle.classList.remove("open");
+        tripHistoryToggle.setAttribute("aria-expanded", "false");
+      });
+    });
+
+    /* ========================================================
+       Trip detail: View Map click handler (event delegation)
+       ======================================================== */
+    document.addEventListener("click", (e) => {
+      const mapBtn = e.target.closest(".trip-map-btn");
+      if (!mapBtn) return;
+
+      const tripItem = mapBtn.closest(".trip-item");
+      if (!tripItem) return;
+
+      const name = tripItem.querySelector("strong")?.textContent || "Trip";
+      const metaSpans = tripItem.querySelectorAll(".trip-meta span");
+
+      let scans = "\u2014", hits = "\u2014", distance = "\u2014", trips = "\u2014";
+      metaSpans.forEach((span) => {
+        const text = span.textContent;
+        if (text.includes("scan")) scans = text.replace(" scans", "");
+        if (text.includes("hit")) hits = text.replace(" hits", "");
+        if (text.includes("mi")) distance = text;
+        if (text.includes("trip")) trips = text.replace(" trips", "");
+      });
+
+      tripDetailName.textContent = name;
+      tripDetailScans.textContent = scans;
+      tripDetailHits.textContent = hits;
+      tripDetailDistance.textContent = distance;
+      tripDetailTrips.textContent = trips;
+
+      tripListView.style.display = "none";
+      tripDetailView.style.display = "";
+    });
+
+    tripBackBtn.addEventListener("click", () => {
+      tripDetailView.style.display = "none";
+      tripListView.style.display = "";
+    });
+
+    /* ========================================================
+       Collapsible Trip History header
+       ======================================================== */
+    tripHistoryToggle.addEventListener("click", () => {
+      const isOpen = tripHistoryBody.classList.toggle("open");
+      tripHistoryToggle.classList.toggle("open", isOpen);
+      tripHistoryToggle.setAttribute("aria-expanded", String(isOpen));
+    });
+
+    /* ========================================================
+       Collapsible notes panel
+       ======================================================== */
+    const notesToggle = document.getElementById("notes-toggle");
+    const notesBody = document.getElementById("notes-body");
+
+    notesToggle.addEventListener("click", () => {
+      const isOpen = notesBody.classList.toggle("open");
+      notesToggle.classList.toggle("open", isOpen);
+      notesToggle.setAttribute("aria-expanded", String(isOpen));
+    });
+
+    /* ========================================================
+       Initialize default screen
+       ======================================================== */
+    setActiveScreen("login");
+  </script>
+</body>
+</html>

@@ -1,0 +1,259 @@
+{
+  "key": "DEV-2325",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2325",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "backstop:1",
+      "model": "haiku",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 161
+    },
+    {
+      "slot": "prep-candidate:1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 583
+    },
+    {
+      "slot": "prep-candidate:2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 785
+    },
+    {
+      "slot": "prep-candidate:3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 965
+    },
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 1112
+    },
+    {
+      "slot": "review",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 1142
+    },
+    {
+      "slot": "agent-qa",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "verify",
+      "dur_s": 540
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "knowledge/clarity/analytics.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "confidence<80 (70)",
+    "escalate.recommend=true",
+    "3 answered:false material questions (AC-3 alerting scope, skip-reason label, CTE-fix effectiveness at scale)"
+  ],
+  "best_of_n": true,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [],
+  "perf_validation": {
+    "required": true,
+    "ch_tables": [],
+    "approach": "MATERIALIZED CTE on buildZoneSummaries (Postgres public.scans, ~5.5B rows)",
+    "measurement": "EXPLAIN(ANALYZE,BUFFERS) NEW query, real params (kit 14928/org 2575, 2026-08-03..2026-08-10): 127318 scans; Execution 38896ms; CTE Index Scan on (kit_id,scanned_at) 33.5s (I/O read 33.3s, 55671 blocks); zones_geom_gist probe 0.04ms/row×127318; Sort 127293 rows/11MB. Bounds the plan, not the volume.",
+    "verdict": "no-go-standalone (CTE insufficient for a 7-day shift; root fixed upstream by DEV-2309 per Dalton)",
+    "measured_at": "2026-08-11 (prod read-replica)"
+  },
+  "diff_base": "35dc67a811c8bbe2acd549db1549d558af274033",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "REPO_PATH (single-node fast path)",
+      "branch": null,
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 2,
+  "pr": {
+    "number": 317,
+    "url": "https://github.com/insight-lpr/platform/pull/317",
+    "draft": false
+  },
+  "pr_urls": {
+    "main": "https://github.com/insight-lpr/platform/pull/317"
+  },
+  "jira_in_progress_by": "pipeline-mcp @ 2026-08-11 (In Progress)",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "MCP transition to In Code Review @ 2026-08-11 (undraft did not trigger a GH-action transition)",
+  "assumed": [],
+  "comment_ids": {
+    "status": "38154",
+    "build_record": "38157"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "provisioned_early": true,
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "n/a",
+      "ch_container": "n/a",
+      "frontend_build": "n/a",
+      "postgres_db": "zod_claude_dev_2325_08373f (test: zod_testing_claude_dev_2325_08373f)",
+      "ch_strategy": "docker (shared clarity-qa-clickhouse, literal clarity/zod)",
+      "herd_site": "clarity-claude_dev_2325_08373f.test"
+    }
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact --filter=BuildShiftSummaryTest|SendEndOfShiftSummaryTest",
+        "passed": 13,
+        "failed": 0
+      }
+    ],
+    "deviations": [
+      {
+        "source": "implement",
+        "edit": "Test-only helper insertPgScan() wraps the raw public.scans INSERT in ALTER TABLE ... DISABLE/ENABLE TRIGGER ALL to avoid a tiger.state AccessExclusiveLock deadlock in the RefreshDatabase harness (HasZodDatabase adds a tiger.state column on the zod conn, holding a lock the scans BEFORE-INSERT trigger would block on). Fixture-only; no triggers needed for this fixture; no change to code under test.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "review",
+        "edit": "RN2 fix: relabel discriminator TransportExceptionInterface->mail_failed else build_failed (+2 tests). Fixes lane1 Medium.",
+        "ac_ref": "AC-3",
+        "ac_delta": null
+      },
+      {
+        "source": "review-at-scale",
+        "edit": "Prod-scale EXPLAIN(ANALYZE) showed the MATERIALIZED-CTE alone is ~38.9s for shift 22 (127,318 scans over a 7-day window) — still over the ~30s prod timeout; dominant cost is reading 127k scan geometries, not the plan or the spatial join. Root cause reframed as shift-lifecycle (no max-shift-duration cap). Dalton chose: keep the CTE (defensive; fast for normal shifts + prevents the zones-driven bad plan) and rely on DEV-2309 upstream to restore timely shift closing. No additional DEV-2325 code.",
+        "ac_ref": "AC-1",
+        "ac_delta": "SATISFIED → PARTIAL/upstream-dependent (AC-1 now satisfied for normal shifts by the CTE + for the pathological case by DEV-2309, not by DEV-2325 alone)"
+      }
+    ],
+    "review": {
+      "rounds": [
+        {
+          "rn": 1,
+          "lanes": 3,
+          "scores": [
+            94,
+            100,
+            100
+          ],
+          "min": 94
+        },
+        {
+          "rn": 2,
+          "lanes": 1,
+          "scores": [
+            96
+          ],
+          "min": 96
+        }
+      ],
+      "scores": [
+        94,
+        100,
+        100,
+        96
+      ],
+      "findings_fixed": [
+        "Medium (AC-3, lane1@RN1): SendEndOfShiftSummary::failed() keyed the skip reason on QueryException, mislabeling ClickHouse-origin build failures (miles/scans/hits reads before Mail::send) as mail_failed. Fixed: label mail_failed only for a Symfony TransportExceptionInterface, build_failed otherwise (PG 57014 + CH outages -> build_failed). Added tests: non-mail/CH build failure -> build_failed; and a hidden (is_visible=false) in-zone scan pinning that the raw-SQL breakdown counts hidden scans (no ShowVisibleScan filter)."
+      ],
+      "findings_residual": [
+        "Non-scoring, PRE-EXISTING (not worsened by this diff), candidate follow-up: EndOfShiftSummary implements ShouldQueue, so Mail::to(...)->send() enqueues a separate SendQueuedMailable job; the actual SMTP transport (and any TransportExceptionInterface) happens in THAT job, so a true delivery failure never reaches SendEndOfShiftSummary::failed(), and summary_sent_at is stamped at enqueue time. mail_failed is largely unreachable in prod; build failures (the DEV-2325 incident) are the reachable path and are now correctly labeled.",
+        "Non-scoring, pre-existing: handle() holds the kit_shifts lockForUpdate across the whole build (CH reads + PG query + mail enqueue); long lock-hold, now harmless since the query is fast. Optional follow-up (needs a claim/CAS to narrow safely — idempotency).",
+        "Out of scope (follow-up ticket candidate): app/Filament/Client/Resources/ClientSearchScansResource.php:92 has the same-family unfenced Scan::query()->forOrg() carrying the ScanTimezoneScope join; no prod evidence in DEV-2325."
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "claude2",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "claude3",
+          "source": "in-session-agent"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "0cc0d3ef19dbb437a77a43e2acce46b572c319c6",
+      "rework_pivot": false
+    },
+    "ac": [
+      {
+        "item": "AC-1: SendEndOfShiftSummary completes without SQLSTATE[57014] (verify post-deploy in laravel.log)",
+        "status": "PARTIAL / upstream-dependent",
+        "evidence": "Confirmed from the prod log: the 57014 statement was an EXACT match for buildZoneSummaries (scans⋈zones ST_Contains), stack-traced through SendEndOfShiftSummary:87→forShift(); shift 22 spanned Aug 3→Aug 10 (~7 days). Prod-scale EXPLAIN(ANALYZE) of the MATERIALIZED-CTE fix on the real params (kit 14928/org 2575, 7-day window, 127,318 scans): ~38.9s exec, ~33s of it I/O reading the 127k scan geometries (zones GiST probe only 0.04ms/row) — so the CTE bounds the PLAN but NOT the VOLUME; it would STILL 57014 (~30s prod timeout) for this shift. DECISION (Dalton): the 7-day shift is a shift-lifecycle problem (no max-duration cap; CloseInactiveShiftsCommand closes only on ≥3h inactivity), whose root fix is upstream DEV-2309 (restores timely closing → normal hours-long shifts → the CTE query is fast). So AC-1 holds for NORMAL shifts via the CTE, and for the pathological case via DEV-2309 — NOT by DEV-2325 alone. Residual edge: a genuinely always-on kit (never a ≥3h gap) still lacks a hard cap; accepted."
+      },
+      {
+        "item": "AC-2: the timing-out query in the summary path is bounded/optimized",
+        "status": "SATISFIED",
+        "evidence": "Full agent-qa backend lane (dev env + real Docker CH + PostGIS): seeded shift+zone+3 scans, ran forShift() live → zones=1 (outside excluded), 2 scans counted incl. the hidden one (ShowVisibleScan bypass holds), runtime SQL carries the shift_scans MATERIALIZED CTE; clean log tail. Also pinned by 14 tests + EXPLAIN."
+      },
+      {
+        "item": "AC-3: retry-exhaustion no longer silently drops a summary — records a skip reason",
+        "status": "SATISFIED",
+        "evidence": "failed() records build_failed for a Postgres QueryException and for a non-mail (ClickHouse) throwable, mail_failed only for a mail-transport failure; all 3 verified live + pinned by 3 job tests; Log::error retained (Nightwatch-ingested)."
+      }
+    ]
+  }
+}

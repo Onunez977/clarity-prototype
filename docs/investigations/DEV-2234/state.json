@@ -1,0 +1,220 @@
+{
+  "key": "DEV-2234",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2234",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 706
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 379
+    },
+    {
+      "slot": "agent-qa",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "verify",
+      "dur_s": 213
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "knowledge/clarity/scout.md"
+  ],
+  "escalated": false,
+  "escalation_triggers": [
+    "confidence<80 (60)",
+    "escalate.recommend=true",
+    "A/B scope fork (competing options)",
+    "blast-radius: config flag + 2 controllers + shared trait"
+  ],
+  "best_of_n": false,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "b735eeb09479d66c428cbfd31638b9c4612574dd",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 1,
+  "pr": {
+    "number": 292,
+    "url": "https://github.com/insight-lpr/platform/pull/292",
+    "draft": false
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": null,
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "In Code Review via Atlassian MCP (undraft did not auto-transition); Dalton @ 2026-07-24",
+  "assumed": [],
+  "comment_ids": {
+    "status": "37606",
+    "build_record": "37677"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "provisioning": {
+      "bootstrap": "ran",
+      "deps": "via-bootstrap",
+      "migrations": "ran",
+      "docker_daemon": "n/a",
+      "ch_container": "reused",
+      "frontend_build": "n/a",
+      "postgres_db": "zod_claude_dev_2234",
+      "ch_strategy": "docker",
+      "herd_site": "clarity-claude_dev_2234.test"
+    },
+    "provisioned_early": true
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact ClarityScoutMapControllerTest + ClarityScoutBirdsEyeControllerTest + ClarityScoutShellViewTest",
+        "passed": 88,
+        "failed": 0
+      }
+    ],
+    "deviations": [
+      {
+        "source": "implement",
+        "edit": "Added seedDirectHotspotHit() helper in ClarityScoutBirdsEyeControllerTest (seedHit() writes hits_hot; the heatmap-hits query reads hits_cold JOIN open hotlist) to avoid a false-green precision-7 test",
+        "ac_ref": "AC-3",
+        "ac_delta": null
+      },
+      {
+        "source": "implement",
+        "edit": "Comment-only: updated 2 stale doc-comments (map.js above colorMapEnabled, ScannerMap.vue) + ScoutMapHelpers class docblock that referenced the removed mapType/debug-precision toggle",
+        "ac_ref": null,
+        "ac_delta": null
+      }
+    ],
+    "review": {
+      "lanes": 3,
+      "scores": [
+        100,
+        100,
+        100
+      ],
+      "findings_fixed": [],
+      "findings_residual": [
+        "regression-guard-only precision-7 tests (acceptable)",
+        "seedDirectHotspotHit inlines hotlist insert (minor dup)",
+        "validateHeatmapRequest trait/class duplication (pre-existing)",
+        "Bird's Eye blade debugMapEnabled removal not directly shell-asserted"
+      ],
+      "lane_sources": [
+        {
+          "lane": "lane1",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "lane2",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "lane3",
+          "source": "in-session-agent"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "da2886310b9f86592874cd38b771424c5969a155",
+      "rework_pivot": false
+    },
+    "ac": [
+      {
+        "item": "The Debug control no longer renders on the Scout map under any flag/config.",
+        "status": "SATISFIED",
+        "evidence": "live /scout shell (flag ON) no longer injects debugMapEnabled; built bundle clean; browser: no Debug control on /scout or /scout/org-map"
+      },
+      {
+        "item": "No dead references remain (Option B; scanner_debug_map_enabled retained for scanPaths).",
+        "status": "SATISFIED",
+        "evidence": "repo grep + 3x100 review sweeps clean; console clean; npm build clean"
+      },
+      {
+        "item": "Non-debug map behavior unchanged \u2014 default roadmap basemap, geohash precision-7 heatmaps.",
+        "status": "SATISFIED",
+        "evidence": "browser: roadmap basemap both maps; precision-7 hardcoded at all 4 call sites, pinned by tests on both controllers (88 green)"
+      }
+    ]
+  },
+  "precedents": [
+    {
+      "key": "DEV-2112",
+      "relevance": "set geohash precision default in resolveDebugPrecision() + map.js guards + DebugMapControls; the control this ticket removes",
+      "applicable": "yes \u2014 direct source of the code being removed"
+    },
+    {
+      "key": "DEV-2116",
+      "relevance": "Scout Bird's Eye reuses real App.vue via adminMode; birds-eye blade config injection",
+      "applicable": "yes \u2014 birds-eye blade is in scope"
+    },
+    {
+      "key": "DEV-2059",
+      "relevance": "recent Scout map disposition work touching map stores/overlay",
+      "applicable": "context only \u2014 not overlapping code"
+    }
+  ]
+}

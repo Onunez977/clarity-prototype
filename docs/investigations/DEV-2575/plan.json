@@ -1,0 +1,143 @@
+{
+  "ticket": "DEV-2575",
+  "chosen_path": "password-reset",
+  "summary": "Keep Scout password auth. Add self-serve Forgot Password + admin Reset Password, both emailing a 7-day relative signed reset link. New reset controller allows verified users; onboarding one-shot guard stays.",
+  "sizing": {
+    "file_count_estimate": 12,
+    "concerns": [
+      "signed reset backend",
+      "admin Filament action",
+      "self-serve Login.vue + API",
+      "tests"
+    ],
+    "recommendation": "do_not_split",
+    "split_option": {
+      "A": "Backend: ScoutResetPasswordController + notification + routes + admin ScoutUsersResource action + tests",
+      "B": "Self-serve: ClarityScoutAuthController forgot endpoint + Login.vue + auth.js + API tests"
+    },
+    "reason_keep_together": "ACs require both self-serve and admin assist; shared notification/controller. Splitting leaves half the lockout path unshipped.",
+    "awaiting_human": false,
+    "human_answer": "keep_together"
+  },
+  "excluded_sites": [
+    {
+      "site": "app/Filament/Auth/OneTimePassword.php",
+      "reason": "OTP conversion deferred (Q2=B)"
+    },
+    {
+      "site": "app/Filament/Auth/CustomLoginPage.php",
+      "reason": "Clarity panel OTP unchanged"
+    },
+    {
+      "site": "app/Support/Scout/ScoutForceTokens.php",
+      "reason": "Impersonation tokens not for recovery"
+    },
+    {
+      "site": "app/Http/Controllers/ClarityScoutForceLoginController.php",
+      "reason": "Force-login is admin impersonation, not recovery"
+    },
+    {
+      "site": "User.password nullable migration",
+      "reason": "Passwords kept"
+    }
+  ],
+  "human_approvals_required": [
+    {
+      "id": "auth-blast",
+      "reason": "Scout auth signed reset \u2014 approved via gate Q2=B + sizing keep-together",
+      "status": "approved",
+      "source": "human:dalton"
+    }
+  ],
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Signed reset backend (notification + controller + routes + blade)",
+      "approach": "Add ScoutPasswordResetNotification mirroring ScoutOnboardingNotification (7-day relative signed URL to scout.reset-password). Add ScoutResetPasswordController mirroring ScoutSetPasswordController but WITHOUT rejecting verified users; after successful reset, optionally revoke clarity-scout-token tokens. Reuse set-password blade or thin reset blade. Register GET/POST under ValidateScoutSignedUrl. Do not change ScoutSetPasswordController one-shot guard.",
+      "target_files": [
+        "app/Notifications/ScoutPasswordResetNotification.php",
+        "app/Http/Controllers/Auth/ScoutResetPasswordController.php",
+        "routes/web.php",
+        "resources/views/auth/scout/set-password.blade.php"
+      ],
+      "intended_diffs": "NEW notification+controller; web.php routes sibling to set-password; blade may accept title/copy prop or shared view",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "ScoutResetPasswordControllerTest",
+      "ui_impact": true,
+      "blast_radius": [
+        "auth"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "t2",
+      "title": "Admin Reset Password action on ScoutUsersResource",
+      "approach": "Add Action sibling to resend_onboarding, visible when assigned user has email_verified_at set. Sends ScoutPasswordResetNotification. Analytics + activity_log like resend. Org-scoped via existing resource query; setPermissionsTeamId before permission checks.",
+      "target_files": [
+        "app/Filament/Resources/ScoutUsersResource.php",
+        "tests/Filament/Resources/ScoutUsersResourceTest.php"
+      ],
+      "intended_diffs": "New record Action password_reset; tests for visibility verified vs unverified",
+      "depends_on": [
+        "t1"
+      ],
+      "parallelizable": false,
+      "test_filter": "ScoutUsersResourceTest",
+      "ui_impact": true,
+      "blast_radius": [
+        "auth"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "t3",
+      "title": "Self-serve Forgot Password API + Login.vue",
+      "approach": "Add throttled POST /api/scout/forgot-password accepting email; if user exists with clarity-scout + kit, send ScoutPasswordResetNotification; always return generic success (no email enumeration). Login.vue: Forgot Password link toggles email-only form calling the endpoint. Update ClarityScoutAuthControllerTest.",
+      "target_files": [
+        "app/Http/Controllers/Api/ClarityScoutAuthController.php",
+        "routes/api.php",
+        "resources/js/clarity-scout/views/Login.vue",
+        "resources/js/clarity-scout/stores/auth.js",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutAuthControllerTest.php"
+      ],
+      "intended_diffs": "forgotPassword method; route; UI link+form; auth.forgotPassword(); tests for throttle + generic response",
+      "depends_on": [
+        "t1"
+      ],
+      "parallelizable": true,
+      "test_filter": "ClarityScoutAuthControllerTest",
+      "ui_impact": true,
+      "blast_radius": [
+        "auth"
+      ],
+      "complexity": "complex",
+      "note": "parallelizable with t2 only after t1; t2 and t3 have disjoint files"
+    },
+    {
+      "id": "t4",
+      "title": "Regression: onboarding one-shot + set-password tests still pass",
+      "approach": "Ensure ScoutSetPasswordControllerTest still green; add assertion that verified-user onboarding link still rejects; reset link accepts verified.",
+      "target_files": [
+        "tests/Feature/Http/Controllers/Auth/ScoutSetPasswordControllerTest.php",
+        "tests/Feature/Http/Controllers/Auth/ScoutResetPasswordControllerTest.php"
+      ],
+      "intended_diffs": "NEW ScoutResetPasswordControllerTest; no production change unless gaps found",
+      "depends_on": [
+        "t1"
+      ],
+      "parallelizable": true,
+      "test_filter": "ScoutSetPasswordControllerTest|ScoutResetPasswordControllerTest",
+      "ui_impact": false,
+      "blast_radius": [
+        "auth"
+      ],
+      "complexity": "simple"
+    }
+  ],
+  "perf_validation": {
+    "required": false,
+    "reason": "No ClickHouse; auth/UI only"
+  },
+  "created_at": "2026-09-17T17:05:34.036535+00:00"
+}

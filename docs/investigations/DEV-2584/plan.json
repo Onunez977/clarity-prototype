@@ -1,0 +1,59 @@
+{
+  "key": "DEV-2584",
+  "authored_by": "driver, inline at TICKET_PLAN_ARBITER_MODEL (opus)",
+  "authoring_note": "The plan arbiter is normally a fresh opus dispatch reading only prep-context.json, so it does not re-explore. The driver already held the full picture (it ran the exhaustiveness sweep and the grep backstop itself and conducted the gate interview), so a fresh dispatch would have re-derived known ground at full cost. Authored inline instead; same model, same input.",
+  "sizing_gate": {
+    "file_count": 9,
+    "threshold": 6,
+    "verdict": "proceed — split NOT recommended",
+    "reason": "The count exceeds the threshold but the gate exists to catch multi-concern tickets, and this is one concern: a single card's metric. Six of the nine files are that card's own test files, which cannot ship separately from the behavior they pin (splitting them breaks TDD and lands a red suite). Two more are one-line docblock corrections in sibling classes. The actual production-code surface is ONE class. Surfaced rather than silently skipped."
+  },
+  "blast_radius_check": {
+    "globs_checked": ["database/migrations/**", "billing jobs/resources", "Shield/Policies/auth config", "Clickhouse*Purge|Cleanup", "PruneScans"],
+    "matches": [],
+    "verdict": "no blast-radius tag; no human approval line required",
+    "note": "The card READS zod.public_billing_events through an existing query class, but no billing job or resource file is touched and the query class itself is not modified."
+  },
+  "clickhouse_gate": {
+    "phase_4_needs_ch": false,
+    "reason": "Every PHP test for this card stubs the fetch seams via subclasses (CountingUniqueScansToCaseClaims / StubbingUniqueScansToCaseClaims at UniqueScansToCaseClaimsTest.php:255,277); none uses RequiresClickhouse. Phase 4 therefore leaves the Docker ClickHouse down and the CH host neutralised to 127.0.0.1, so a stray CH read fails loud and local.",
+    "phase_6_needs_ch": true,
+    "reason_6": "agent-qa renders the real card in a browser against seeded data, so QA provisions CH with QA_PROVISION_CH=yes."
+  },
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Change Unique Scans to Case Claims from a rate to a ratio",
+      "approach": "Mirror UniqueScansToRepo (the in-family reference at lines 271-317). Replace the single-leg pre-claim fetch with two legs: numerator from ScanPlateStatsBatchQuery (the shared unique-scans cache namespace UniqueScanCounts/UniqueScansToRepo/UniqueScansToLprRepossession already populate), denominator from UniqueLprCaseClaimsQuery::window()/monthlySeries() (the plain deduped funnel, WITHOUT the *WithPreClaimScans hits_cold join). Rename rate()->ratio(), getCardRate()->getCardRatio(), windowRate()->windowRatio(); ratio() = unique_scans / deduped with a zero-denominator guard returning 0.0. Render number_format($ratio, 1) with NO '%' in toStat() and in all four getDescription() branches. Rewrite getTooltipDescription() and the getCardQueryStatements() note string off the percentage wording. Rewrite the class docblock: it currently documents the percentage as load-bearing intent and must record the new metric plus the DEV-2584 decision. Keep the cold-path herd guard (heldFlexible, the lock constants, the viewer-day+timezone cache-key segment) working; keep the float seam off the int-typed base totals. Update the two sibling docblocks that describe this card as a percentage, and the two test files the grep backstop surfaced. TDD: adjust each test to the new expectation first, watch it fail, then make it pass.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php",
+        "app/Filament/Widgets/Dashboard/UniqueScansToRepo.php",
+        "app/Filament/Widgets/Dashboard/UniqueScansToLprRepossession.php",
+        "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsTest.php",
+        "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsWindowSeamTest.php",
+        "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsHerdGuardTest.php",
+        "tests/Filament/Widgets/Dashboard/UniqueScansToLprRepossessionTest.php",
+        "tests/Filament/Pages/DashboardCardExpansionTest.php",
+        "tests/e2e/unique-scans-to-case-claims.spec.ts"
+      ],
+      "intended_diffs": "UniqueScansToCaseClaims.php — docblock 19-33 rewritten; toStat() 116 drops .'%'; getCardRate() 128-139 becomes getCardRatio(); windowRate() 154-186 becomes windowRatio() fetching two legs; getMonthlyData() 226-256 zips two series by month key like UniqueScansToRepo:271-293; rate() 324-333 becomes ratio() = unique_scans/deduped with the 0.0 guard; getDescription() 363-381 drops '%' on all four branches and adopts the siblings' 'scans per case claim' wording; getCardQueryStatements() 415-441 note string rewritten and the denominator SQL switched to the non-pre-claim variant; new/changed fetch seams replacing fetchWindowTotal()/fetchMonthlySeries(). UniqueScansToRepo.php — docblock 41-47 contrast table corrected. UniqueScansToLprRepossession.php — same if it carries the contrast. Tests — assertions moved off '%' and off the {deduped, pre_claim} shape.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "UniqueScansToCaseClaims",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "app/Filament/Widgets/Dashboard/HotlistCount.php:211,246,249", "reason": "'Missing Plates Percentage' is a genuine percentage and is named as one — the exhaustiveness sweep graded it safe."},
+    {"site": "app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php windowWithPreClaimScans()/monthlySeriesWithPreClaimScans()", "reason": "Become uncalled by this card but stay in place and stay tested, per the gate's Q3 answer — the dropped rate can be revived cheaply. Removing them is outside the smallest coherent change."},
+    {"site": "tests/Feature/Clickhouse/UniqueScansToCaseClaimsQueryTest.php", "reason": "Still valid regression coverage for the query methods above, which are not being removed."},
+    {"site": "tests/Filament/Widgets/Dashboard/Concerns/CardQuerySqlFidelityTest.php", "reason": "Asserts SQL fidelity for methods that are kept; stays green untouched."},
+    {"site": "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php", "reason": "Registry entry only; the card is not being renamed."},
+    {"site": "COLD_BLOCK_SECONDS / COLD_LOCK_SECONDS / MIN_TTL_SECONDS", "reason": "Sized against the heavier hits_cold-joined shape this change removes. They over-provision for a cheaper query, which is safe; re-measuring is out of scope. The docblock must stop claiming the old figures justify them."},
+    {"site": "okf/concepts/company-metrics-dashboard.md", "reason": "The ticket defers the wiki write to after the fix lands, and CLAUDE.md forbids in-flight wiki writes."}
+  ],
+  "single_node_fast_path": true,
+  "fast_path_reason": "One node, so no worktree fan-out. The work is one behavior change and the tests that pin it; TDD requires them in the same node (a split would land a red suite between nodes)."
+}

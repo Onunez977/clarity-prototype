@@ -1,0 +1,220 @@
+{
+  "key": "DEV-2469",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2469",
+  "phase": "handoff",
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "eli5": true,
+    "jira_mirror_note": "Set true at handoff on the operator's explicit instruction, overriding the intake default."
+  },
+  "escalated": false,
+  "best_of_n": false,
+  "needs_human_interview": true,
+  "notes": "Gate answered live in-session by the operator; see decisions.md. Jira mirror + AC correction deliberately NOT posted (operator decision).",
+  "diff_base": "d85d327e5",
+  "review_number": 3,
+  "pr": {
+    "number": 400,
+    "url": "https://github.com/insight-lpr/platform/pull/400",
+    "draft": false
+  },
+  "comment_ids": {},
+  "qa": {
+    "ledger": "",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS (functional + browser; scale NOT validated)",
+    "torn_down": true,
+    "env": "local docker clickhouse 25.8 :18123, literal clarity/zod",
+    "seed": ".context/qa-ch-seed.sql",
+    "env_defect_found": "`.env` pointed CH at PRODUCTION Cloud with a nonexistent per-worktree db name; repointed to the local container before any seed ran. Backup at /tmp/claude-501/env.backup.*",
+    "resource_envelope": {
+      "verdict": "not-measured",
+      "basis": "n/a - local seed is 229 rows vs 60.7M production; functional QA only"
+    },
+    "round_trips": {
+      "cold": 2,
+      "warm": 0,
+      "source": "system.query_log"
+    },
+    "browser_pass": "agent-browser, all 4 filter arms verified live: 6.0 / 40.0 / 5.0 / 0.0; no cross-card corruption; 0 log errors today",
+    "screenshots": "docs/investigations/DEV-2469/qa-screenshots/",
+    "qa_prep_skipped": "deliberate - .context held DEV-2486's stale plan; re-provisioning would break the literal clarity/zod CH wiring",
+    "post_rn4_reverify": "today 6.0 / last_7d 40.0 / this_month 5.0 / last_month 0.0; browser renders 5.0; no cross-card corruption; both cards = 4 round trips cold on today",
+    "teardown": {
+      "method": "BY HAND - qa-complete's automated down.sh path was deliberately NOT used.",
+      "why": "The qa clickhouse container is SHARED: alongside the literal clarity/zod databases this ticket used, it holds clarity_claude_dev_2409, zod_claude_dev_2409, clarity_claude_dev_2426 and zod_claude_dev_2426. An automated drop/down here risks other tickets' data.",
+      "removed": "Only the rows this ticket seeded, by the id ranges in qa-ch-seed.sql (scans_cold 700000-799999, public_hotlist 830000-839999, public_hotlist_status_log 930000-939999, public_billing_events 940001). Verified 0 remaining.",
+      "left_in_place": [
+        "The shared CH container and the literal clarity/zod databases (pre-existed this ticket; other worktrees rely on the container).",
+        "Postgres DBs zod_claude_dev_2469 + zod_testing_claude_dev_2469 - the ticket is UNMERGED and the review gate has not passed, so dropping them would force a re-provision on resume.",
+        "Orphan Postgres DBs zod_claude_dev_2469_3fa76a + zod_testing_claude_dev_2469_3fa76a, left from this session's branch rename.",
+        "Both Herd site symlinks (clarity-claude_dev_2469 and the orphaned _3fa76a)."
+      ],
+      "env_restored": "`.env` restored from backup - production ClickHouse Cloud host + readonly credential are back. All temp copies of .env shredded from /tmp.",
+      "env_caveat": "The restored .env carries CLICKHOUSE_DATABASE_CLARITY=zod_claude_dev_2469, a per-worktree name that does NOT exist on Cloud. That is the PRE-EXISTING state found at QA start, restored faithfully rather than silently changed - but it is misconfigured and will not resolve against Cloud."
+    }
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact tests/Filament/Widgets/Dashboard/UniqueScansToLprRepossessionTest.php",
+        "passed": 23,
+        "failed": 0
+      },
+      {
+        "cmd": "php artisan test --compact <new + 5 sibling suites>",
+        "passed": 108,
+        "failed": 0
+      }
+    ],
+    "deviations": [],
+    "review": {
+      "lanes": [
+        "claude1",
+        "claude2",
+        "claude3"
+      ],
+      "scores": [
+        72,
+        70,
+        72
+      ],
+      "min_score_gate": 90,
+      "gate": "FAIL",
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "claude2",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "claude3",
+          "source": "in-session-agent"
+        }
+      ],
+      "harness_failure": "review.sh RN1: all 3 lanes returned 'Not logged in - Please run /login'; fail-closed error manifest. Re-run in-session at RN2 per the blessed fallback.",
+      "rerun_required": true,
+      "reviewed_sha": null,
+      "findings_residual": [
+        "HIGH (3/3 lanes): denominator duplicates LprRepossessions' identical LprRepossessionsQuery::monthlySeries/window calls; class_basename-prefixed keys never collide. 584M rows / 2.79 GB peak / 33.7s tail, run twice per render. Reverses LprRepossessions' recorded round-13 decision.",
+        "HIGH (lane3): monthly key is ONE 13-month entry at [3600,86400], so 12 immutable months are re-scanned hourly (~900 GB/day across 29 orgs). sharedMonthCacheKey() takes a timezone param, so 'UTC' + per-month 1-year TTL was available -- decisions.md's 'UTC forces a private key' premise is FALSE.",
+        "HIGH (lane3): fifth synchronous guarded card on a non-lazy grid already measured at ~26s cold vs kamal-proxy's 30s budget.",
+        "MEDIUM (3/3): fetchUniqueScansRange bypasses sharedRangeCacheKey() while passing byte-identical args.",
+        "MEDIUM (lane3): COLD_LOCK/REFRESH_LOCK=90s copied from single-query cards; this closure runs TWO queries, ceiling ~120s, so the lock expires mid-holder.",
+        "MEDIUM (lane2): COLD_BLOCK_SECONDS docblock derivation wrong (value 12 right by coincidence: 24 budget / 2 guarded keys).",
+        "MEDIUM (3/3): tests -- round-trip count unpinned, today/last_7d arm entirely uncovered, 'Y-m'/'Y-m-01' zip only exercised with empty legs.",
+        "LOW: $orgId ?? 0 means 'no org' to the numerator but 'platform-wide' to the denominator.",
+        "LOW: getDescription() docblock says the window is the repossession date; it is the case-claim date.",
+        "LOW: DashboardCardVisibilityTest prose still says SEVEN gated cards; now eight."
+      ],
+      "fix_cycle": {
+        "applied": "RN2 scoring findings: 3 HIGH, 4 MEDIUM, 3 LOW",
+        "files_touched_beyond_the_card": [
+          "app/Clickhouse/Queries/LprRepossessionsQuery.php (new shared cache-key seams)",
+          "app/Filament/Widgets/Dashboard/LprRepossessions.php (repointed onto the shared keys)"
+        ],
+        "residual": "H3 (additional synchronous guarded card on a non-lazy grid) is reduced, not eliminated; out-of-band warming is the real remedy and is out of scope."
+      },
+      "rn3": {
+        "scores": [
+          62,
+          65,
+          62
+        ],
+        "lane3": "complete",
+        "gate": "FAIL",
+        "min_score_gate": 90,
+        "lane_sources": [
+          {
+            "lane": "claude1",
+            "source": "in-session-agent"
+          },
+          {
+            "lane": "claude2",
+            "source": "in-session-agent"
+          }
+        ],
+        "regression_introduced_by_fix_cycle": "sharedWindowCacheKey is written with TWO payload shapes: LprRepossessions writes int, UniqueScansToLprRepossession writes array{deduped,db_repos}. Byte-identical keys. Verified: 17['db_repos'] ?? 0 === 0 (silent) and (int)['deduped'=>5,'db_repos'=>7] === 1. Normal render order makes this card read 0.0 on today/last_7d forever; reverse order makes the SHIPPED LprRepossessions card render 1. The series key is unaffected (both writers agree on shape).",
+        "other_confirmed": [
+          "MIN_TTL_SECONDS=60 overrides UniqueScanCounts' documented 10-minute impersonation floor on ITS keys.",
+          "Deploy-time key migration orphans all warm LprRepossessions entries (~81 GB cold across 29 orgs), undocumented.",
+          "today/last_7d arm still has zero test coverage -- which is exactly why the regression shipped."
+        ],
+        "regression_fixed": "Window key sharing REMOVED (sharedWindowCacheKey deleted); series key retained with an explicit payload contract. Cross-card test added and PROVEN to fail when the bug is re-introduced (the first version was vacuous via the class_basename trap).",
+        "residual_unfixed": [
+          "Numerator's UTC scans_cold pass does not share with UniqueScanCounts for non-UTC viewers (default America/Chicago) -- ~2x the unguarded scans_cold axis.",
+          "Numerator leg is unguarded (no cold mutex) -- concurrency is per-tab.",
+          "No failure marker; a CH outage 500s the whole grid and ignores UniqueScanCounts' backoff.",
+          "LprRepossessions' series key namespace move orphans warm entries fleet-wide (~81 GB cold) -- needs a deploy note.",
+          "Window query runs once per card (accepted cost of un-sharing)."
+        ]
+      },
+      "rn4": {
+        "scores": [
+          92,
+          76,
+          72
+        ],
+        "gate": "FAIL",
+        "min_score_gate": 90,
+        "lane_sources": [
+          {
+            "lane": "claude1",
+            "source": "in-session-agent"
+          },
+          {
+            "lane": "claude2",
+            "source": "in-session-agent"
+          },
+          {
+            "lane": "claude3",
+            "source": "in-session-agent"
+          }
+        ],
+        "converged_findings": [
+          "HIGH (lane1): commit 25bf951f9 swept in the boost:install docs drift -- okf-lint exited 1 on HEAD, the anti-inline guard lines were DELETED from AGENTS.md, and PG-021 was reversed (.junie says php 8.4.23; production runs 8.3). FIXED in this commit.",
+          "HIGH (lanes 2,3): the numerator ignores UniqueScanCounts::monthlySeriesFailureMarkerKey() and has no try/catch -- it re-issues the query that marker just suppressed and 500s all 16 cards. Defeats the owner's backoff BY CLASS, the same way the marker's docblock says not to do BY ZONE.",
+          "HIGH (lane3): the window un-share justification is FALSE. fetchWindowTotal reads ONLY ['db_repos']; 'deduped' is fetched and discarded. The sibling's int key already holds exactly the needed value, so un-sharing doubled the grid's heaviest query (584M rows / 2.79 GB) on today/last_7d for no reason. VERIFIED directly.",
+          "MEDIUM (all 3 lanes): COLD_BLOCK_BUDGET_SECONDS is a per-REQUEST budget; my docblock derives the /2 divisor per-CARD. All 16 cards render in one getStats() request.",
+          "MEDIUM (lane1): the SURVIVING shared series key has no cross-card test -- RN3's lesson was applied to the key that was deleted, not the one that remains.",
+          "MEDIUM (lanes 1,2): sharedRangeCacheKey is still written with this card's 60s-floored TTL -- the RN3 repair was applied to the month key only.",
+          "MEDIUM: stale docblock still names the DELETED sharedWindowCacheKey() as a shared key. VERIFIED."
+        ],
+        "my_qa_report_claims_refuted": [
+          "'cold render = exactly 2' holds only for this_month/last_month. VERIFIED: the today arm is 4.",
+          "The 'non-UTC viewer' framing does not discriminate the UTC axis -- all seeded data is mid-month, so both zones land in the same bucket.",
+          "The report's two sections describe different entitlement states (in-process: not entitled/lockedStat; browser: Pro Plus) without saying the grant was flipped between passes."
+        ],
+        "fixed": [
+          "Window key RE-SHARED carrying an int (RN3's un-share rested on a false premise; verified deduped is never read). Both cards now cost 4 round trips together on today; this card alone cost 4 before.",
+          "Numerator honours the shared ClickHouse backoff marker: reads it first, and on failure reports + marks + writes no bucket. Marker helper + TTL moved to ScanPlateStatsBatchQuery (the namespace owner); UniqueScanCounts delegates.",
+          "Reverted the boost:install docs drift swept in by 25bf951f9 (okf-lint was exiting 1; PG-021 reversed)."
+        ],
+        "still_open": [
+          "Numerator leg unguarded (no cold mutex) - concurrency is per-tab at 2.44 GB/copy. Largest open risk; needs a Cache::add semaphore or a per-query max_memory_usage.",
+          "UTC numerator does not share with UniqueScanCounts for non-UTC viewers (default America/Chicago).",
+          "COLD_BLOCK_BUDGET_SECONDS grid-wide overrun (pre-existing across the card family; docblock derivation corrected).",
+          "sharedRangeCacheKey still written with this card's 60s TTL floor.",
+          "Surviving shared SERIES key has no cross-card round-trip test.",
+          "Deploy note owed for the LprRepossessions series-key namespace move (~81 GB cold across 29 orgs)."
+        ]
+      }
+    },
+    "ac": [],
+    "notes": "DashboardCardExpansionTest's 7 failures are PRE-EXISTING on origin/main in this local environment (baseline measured: 7 failed / 9 passed against main's stub card; trace points at ScanCount.php:51, an unrelated card). Cause is CLICKHOUSE_DRIVER=pgsql here -- CH-backed cards throw on render against the bridge. Net new failures introduced by this change: ZERO."
+  },
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "Undraft did NOT trigger a Jira transition (no GH Action moved it), so the pipeline transitioned In Progress -> In Code Review via MCP. It DID trigger the preview deploy (Deploy PR-400) and a Pint & Tests re-run on ready_for_review.",
+  "handoff_note": "PR undrafted and retitled for HUMAN code review. The AUTOMATED review gate still has not passed (RN4 92/76/72 vs 90) and rerun_required stays true, so `done` remains unreachable. Undrafting was a visibility decision, not a merge-readiness claim."
+}

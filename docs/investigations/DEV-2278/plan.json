@@ -1,0 +1,31 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Direct Orders zero-zone fallback (+ tests + Help copy)",
+      "approach": "In ClarityScoutMapController::heatmapOrders(), compute $hasAssignedZones = $user->zones()->exists() ONCE before the layer loop. Inside the loop, apply clipRowsToAssignedZones() to Staging ALWAYS, and to Direct only when $hasAssignedZones is true — i.e. guard the clip with `if ($staging || $hasAssignedZones)`. With zero assigned zones, Direct passes through unclipped and falls back to the org-wide run-area/bbox density (the query already clips to run-area+viewport). Staging behavior is unchanged (still empty when no zones — the AC#4 nudge). Update the heatmapOrders() docblock (:417-419) and clipRowsToAssignedZones() docblock (:624-628) to describe the Direct zero-zone fallback. TDD: invert the one test that pins the old behavior, confirm red→green. Then reword the HelpPanel.vue Direct copy and rebuild committed assets.",
+      "intended_diffs": "app/Http/Controllers/Api/ClarityScoutMapController.php: (1) before `foreach ($layers as $layer)` at ~:449 add `$hasAssignedZones = $user->zones()->exists();` with a comment; (2) change `$rows = $this->clipRowsToAssignedZones($rows, $user);` at :452 to `if ($staging || $hasAssignedZones) { $rows = $this->clipRowsToAssignedZones($rows, $user); }`; (3) rewrite docblock :417-419 and :624-628 to state Staging is always zone-clipped while Direct is clipped only when the driver has zones (org-wide fallback otherwise, DEV-2278).\ntests/.../ClarityScoutMapControllerTest.php: (1) invert test_heatmap_orders_direct_is_empty_without_assigned_zones (:1154) → rename to test_heatmap_orders_direct_renders_org_wide_without_assigned_zones and assert the seeded in-run-area Direct cell IS present (not `features:[]`); (2) fix the stale comment at :1104 ('Direct ignores zones either way') to reflect that with a zone assigned Direct is clipped to the zone (the zone covers the shared cell). Leave test_heatmap_orders_direct_clips_to_assigned_zones (:1130), the staging tests, and the plate-length tests unchanged — they remain correct.\nresources/js/clarity-scout/components/HelpPanel.vue: reword :158 and :346 so Direct is described as clipped to your zone(s) when you have any, org-wide when you have none; Staging always clipped; Live Hit Density always org-wide. Then `npm run build`, revert boost-doc regen (CLAUDE.md, AGENTS.md, .junie/guidelines.md), and commit the rebuilt public/build assets.",
+      "target_files": [
+        "app/Http/Controllers/Api/ClarityScoutMapController.php",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php",
+        "resources/js/clarity-scout/components/HelpPanel.vue"
+      ],
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "ClarityScoutMapControllerTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "ClarityScoutBirdsEyeController::heatmapOrders", "reason": "Bird's Eye org-map clips by org run-area, not per-user assigned zones; not implicated by this bug. (Its heatmap endpoints lack test coverage — separate follow-up, not this ticket.)"},
+    {"site": "ClarityScoutMapController::heatmapHits", "reason": "Zone clip already opt-in (org-wide fallback); working layer, unchanged."},
+    {"site": "clipRowsToAssignedZones internals", "reason": "Method body unchanged; only its call-site gating for Direct changes. Its empty-on-no-zones behavior is still correct for Staging and for Direct-with-zones."}
+  ],
+  "notes": [
+    "test_filter ClarityScoutMapControllerTest is a RequiresClickhouse class → Phase 4 must ensure the local ClickHouse container (data_impact.ch_tables non-empty).",
+    "No blast-radius globs touched (no migrations/billing/auth/CH-purge). No human pre-approval node required.",
+    "No new perf risk: the ClickHouse query is unchanged; only PHP-side post-filtering for the Direct/zero-zone case changes, and it stays bounded by run-area + viewport bbox. perf_validation not required."
+  ]
+}

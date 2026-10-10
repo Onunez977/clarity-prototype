@@ -1,0 +1,61 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Geo-dedup the check-in matcher and rollup, electing one canonical address per (geo, hour)",
+      "approach": "Two-stage restructure in ScoutCheckInMatchQuery: carry addr_lng/addr_lat through the `matches` CTE, keep today's per-address aggregate VERBATIM as a new `address_hour` CTE (argMin(hotlist_id,(toUInt8(is_staged),hotlist_id)), min(is_staged), the single-tuple argMin coords, min(timestamp_utc)) but GROUP BY (address_id, addr_lng, addr_lat, hour_bucket), then a `ranked` CTE adding ROW_NUMBER() OVER (PARTITION BY addr_lng, addr_lat, hour_bucket, out_is_staged ORDER BY address_id ASC), and select WHERE rn = 1 projecting the SAME out_* names/shape as today. In ScoutCheckInRollupQuery: carry addr_lng/addr_lat into `matches`, add a `ranked` CTE with ROW_NUMBER() OVER (PARTITION BY is_staged, addr_lng, addr_lat, hour_bucket ORDER BY address_id ASC), and count countIf(is_staged=false AND rn=1) / countIf(is_staged=true AND rn=1). is_staged goes IN the rollup partition key so Direct and Staging never compete and a shared location still counts once in EACH bucket. Update both class docblocks to the geo grain + priority rule, and add ONE line to the matcher docblock recording the deploy-boundary grain discontinuity. Both classes move in ONE node because ScoutCheckInMatchQueryParityTest spans them and cannot pass with only half the change landed.",
+      "target_files": [
+        "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php",
+        "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php",
+        "tests/Unit/Clickhouse/Queries/ScoutCheckInMatchQueryParityTest.php",
+        "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php"
+      ],
+      "intended_diffs": {
+        "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php": "matches CTE: add `a.addr_lng AS addr_lng, a.addr_lat AS addr_lat`. Replace the final `SELECT ... FROM matches GROUP BY address_id, hour_bucket` with: address_hour CTE (same aggregate expressions, GROUP BY address_id, addr_lng, addr_lat, hour_bucket) -> ranked CTE (ROW_NUMBER partition by addr_lng, addr_lat, hour_bucket order by toUInt8(is_staged) ASC, address_id ASC AS rn) -> SELECT the out_* columns FROM ranked WHERE rn = 1. PHP return-mapping block and array shape UNCHANGED. Docblock: geo grain + two-level priority + one line on the deploy-boundary grain discontinuity.",
+        "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php": "matches CTE: replace `SELECT DISTINCT a.address_id, a.is_staged, s.hour_bucket` with a projection carrying a.address_id, a.is_staged, a.addr_lng, a.addr_lat, s.hour_bucket. Add ranked CTE (ROW_NUMBER partition by is_staged, addr_lng, addr_lat, hour_bucket order by address_id ASC AS rn). Final SELECT: countIf(is_staged = false AND rn = 1) / countIf(is_staged = true AND rn = 1) FROM ranked. `addresses` CTE untouched. Return shape UNCHANGED. Docblock: geo grain + per-bucket-independent dedup.",
+        "tests/Unit/Clickhouse/Queries/ScoutCheckInMatchQueryParityTest.php": "ADD: distinct address_ids at identical coordinates -> 1 match, lowest address_id wins. ADD priority: co-located Direct+Staging where Staging holds the LOWER address_id -> Direct persists (isolates Direct-wins from address_id order). ADD: co-located Directs seeded so hotlist_id order would elect the WRONG winner -> address_id decides. ADD rollup-side: 2 Direct address_ids at one geo -> direct_bucket == 1. Existing tests untouched.",
+        "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php": "ADD end-to-end volume test: N>=3 co-located Direct addresses + one GPS fix -> exactly 1 persisted row. RENAME it_records_multiple_in_radius_addresses_in_one_cycle -> it_records_multiple_distinct_geo_addresses_in_one_cycle, ASSERTION STAYS 3."
+      },
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex",
+      "superseded_note": "The originally-planned election was per (geo, hour) with Direct-wins ACROSS buckets. Superseded 2026-08-25 by the DEV-1756 resolution: the partition now includes out_is_staged, so both sides are kept at a shared geo. Measured cost +0.27% of rows. See docs/investigations/DEV-2414/dev1756-conflict.md."
+    }
+  ],
+  "excluded_sites": [
+    {
+      "site": "app/Console/Commands/ScoutRecordCheckIns.php",
+      "reason": "caller only; already satisfies AC7 (::handle() at :271) and its '(kit, address, hour)' docblock still accurately describes the unchanged STORAGE identity"
+    },
+    {
+      "site": "app/Http/Controllers/Api/ClarityScoutDashboardController.php",
+      "reason": "rollup return shape {direct_bucket, staging_bucket} is unchanged"
+    },
+    {
+      "site": "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php `addresses` CTE DISTINCT on address_id",
+      "reason": "dedups duplicate BOOK SNAPSHOT rows for one address_id \u2014 a different, pre-existing concern"
+    },
+    {
+      "site": "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php argMin(hotlist_id, ...)",
+      "reason": "RETAINED deliberately as stage 1; removing it regresses the within-address hotlist decider"
+    },
+    {
+      "site": "app/Clickhouse/Queries/LprVisitCountQuery.php, HotlistAddressGeohashQuery.php, KitRangePathsQuery.php, RecoveryLeaderQuery.php",
+      "reason": "graded safe in the exhaustiveness sweep \u2014 no address_id-vs-geo grouping on a check-in path"
+    },
+    {
+      "site": "database/migrations/**, routes/console.php",
+      "reason": "hard out-of-scope per AC8"
+    },
+    {
+      "site": "okf/concepts/{check-in,scout-check-in-recorder,platform-gotchas}.md",
+      "reason": "repo WRITE rule \u2014 wiki edits land after merge; two pages are already stale on the schedule state and get corrected in that pass"
+    }
+  ],
+  "sizing_gate": "PASS \u2014 4 files, one coherent concern (the check-in geo grain). Under the 6-file threshold.",
+  "blast_radius_gate": "PASS \u2014 no target file matches the sensitive globs (database/migrations/**, billing, Shield/Policies/auth, Clickhouse*Purge|Cleanup, PruneScans).",
+  "perf_gate": "NOT REQUIRED \u2014 the change does not defer perf on a >1B-row ClickHouse surface. The scan-side access path (bbox + geoDistance against scans_hot/scans_cold) is byte-for-byte unchanged; the only added work is a ROW_NUMBER evaluated server-side over the already bbox-and-radius-narrowed `matches` CTE. Geo-dedup can only shrink the result set, never grow it."
+}

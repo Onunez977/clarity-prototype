@@ -1,0 +1,35 @@
+{
+  "key": "DEV-2179",
+  "base_branch": "main",
+  "single_node": true,
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Auto-refresh Live Hits Pending list on driver + admin; cache admin endpoint; fix driver poller leaking into admin",
+      "approach": "One cohesive change (frontend polling wiring is coupled). (1) MapShell.vue: add `!mapStore.adminMode` to the LiveTracking v-if so useKitPositionPolling mounts only on the driver [Q3 / knowledge scout M3]. (2) useKitPositionPolling.js: in the existing `if (mapStore.liveMode)` tick block, add `dashboardStore.fetchRecentHits('today')` alongside the existing `fetchStats('today')` [driver surface, Q1]. (3) useBirdsEyePolling.js: in the existing tick Promise.all (gated on visibility + liveMode + adminMode), add `dashboard.fetchRecentHits('today')` alongside `dashboard.fetchStats('today')` [admin surface, Q1/AC3]. (4) ClarityScoutBirdsEyeController@recentHits: wrap the query body in Cache::remember with a cache key mirroring the sibling hits() shape and a short TTL (~10s) matched to the poll cadence [AC2] — reuse the controller's existing helper style; do NOT invent a new pattern. (5) Add a cache-existence feature test mirroring the driver-side test_recent_hits_response_is_cached. TDD the backend cache change red->green; the frontend wiring has no JS test harness (verify via agent-QA/manual).",
+      "target_files": [
+        "resources/js/clarity-scout/components/MapShell.vue",
+        "resources/js/clarity-scout/composables/useKitPositionPolling.js",
+        "resources/js/clarity-scout/composables/useBirdsEyePolling.js",
+        "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php"
+      ],
+      "intended_diffs": "MapShell.vue: `v-if=\"mapStore.liveMode && mapStore.viewMode === 'dashboard'\"` → add `&& !mapStore.adminMode`. useKitPositionPolling.js:~49-54: add `dashboardStore.fetchRecentHits('today')` inside the liveMode block next to fetchStats. useBirdsEyePolling.js:~19-33: add `dashboard.fetchRecentHits('today')` to the Promise.all next to fetchStats. BirdsEyeController@recentHits:510-577: wrap body in Cache::remember($cacheKey, $ttl, fn() => ...); $cacheKey mirrors hits() ('scanner:birds-eye-recent-hits:'.$orgId.':'.implode('-',$kitIds).\":{$range}\"); $ttl short (~10s) for the live 'today' feed. Test: assert Cache::has($cacheKey) after a request to /scout/org-map/api/dashboard/recent-hits.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "ClarityScoutBirdsEyeControllerTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "app/Http/Controllers/Api/ClarityScoutDashboardController@recentHits (driver)", "reason": "Already cached (90s TTL); Q2 resolved to leave the driver TTL unchanged (driver poll rides the same ~10s tick; 'today' tolerates ~10-20s staleness). No edit."},
+    {"site": "resources/js/clarity-scout/components/DashboardOverlay.vue", "reason": "Reactive consumer of dashboard.recentHits — re-renders automatically when the store ref updates; no code change needed."},
+    {"site": "resources/js/clarity-scout/stores/dashboard.js fetchRecentHits", "reason": "Existing store method already routes per-adminMode via lib/fetch.js buildUrl(); reused as-is, no change."}
+  ],
+  "verification": {
+    "automated": "php artisan test --compact --filter=ClarityScoutBirdsEyeControllerTest (backend cache behavior).",
+    "manual_agent_qa": "Open driver dashboard and admin Bird's Eye in Live/Today mode; insert a new live hit; confirm the Live Hits Pending Repossession card updates within one poll cycle without a manual reload; confirm no admin-mode kit-position/live-path 200-text/html console errors after the MapShell guard; confirm request cadence stays ~10s and coalesces via the admin cache."
+  }
+}

@@ -1,0 +1,95 @@
+{
+  "synthesis": "Scout (/scout) is a full-bleed Google Maps Vue 3 SPA where floating chrome blankets the map on phones. The driver app's top-left controls (280px), top-right Map Layers (280px), Live Hits / Hit-markers key (280px), and bottom stat bar (min-width 380px) overlap and overflow below ~430px. Make these driver-app surfaces map-first on small screens: auto-collapse to compact chips below the Tailwind lg breakpoint (1024px) so the map is unobstructed on first paint, expand on tap, persist the user's explicit choice, desktop unchanged. Admin Org Map / Bird's Eye (mapStore.adminMode) is out of scope and must not regress.",
+  "scope": {
+    "summary": "Two new composables (useViewport, useCollapsible) + apply map-first collapse + viewport-clamped widths to four driver-app surfaces; shared BottomSheet width fix.",
+    "proposed_changes": [
+      {"file": "resources/js/clarity-scout/composables/useViewport.js", "change": "NEW — reactive isCompact via matchMedia('(min-width:1024px)')", "reason": "single source of truth for the lg breakpoint, mirroring useServiceWorkerUpdate matchMedia idiom", "ref": "useServiceWorkerUpdate.js"},
+      {"file": "resources/js/clarity-scout/composables/useCollapsible.js", "change": "NEW — per-widget {expanded, toggle}; explicit stored choice wins else collapsed when isCompact", "reason": "reusable collapse state, mirroring DashboardOverlay layersExpanded persistence", "ref": "DashboardOverlay.vue:298"},
+      {"file": "resources/js/clarity-scout/components/ScoutControlsWidget.vue", "change": "collapsible chip on compact; w-[280px] -> clamped; keep --scout-controls-h via existing ResizeObserver", "reason": "AC1/2/4/5", "ref": "ScoutControlsWidget.vue:8,184"},
+      {"file": "resources/js/clarity-scout/components/DashboardOverlay.vue", "change": "Live Hits collapsible chip; hide Hit-markers key on compact; Map Layers full-chip on compact (reuse scanner_map_layers_expanded); Legend default-collapsed on compact; responsive error-toast offset; clamp 4x w-[280px]", "reason": "AC1/2/4/5", "ref": "DashboardOverlay.vue:8,29,58,72,161,298"},
+      {"file": "resources/js/clarity-scout/App.vue", "change": "bottom stat bar collapsible handle/pill (tap-only); remove min-width:380px -> clamped; leave adminMode branches (46/50/73/171) untouched", "reason": "AC1/2/4/5/6/8", "ref": "App.vue:42-90,66"},
+      {"file": "resources/js/clarity-scout/components/BottomSheet.vue", "change": "min-width:380px -> min(380px,calc(100vw-2rem)); no behavior change", "reason": "AC5 shared width fix", "ref": "BottomSheet.vue:21"},
+      {"file": "resources/js/clarity-scout/components/MapStatsBar.vue", "change": "verify/adjust shrink-wrap <=375px (only if QA shows overflow)", "reason": "AC6", "ref": "MapStatsBar.vue"},
+      {"file": "resources/js/clarity-scout/components/DateRangeControl.vue", "change": "verify/adjust shrink-wrap <=375px (only if QA shows overflow)", "reason": "AC6", "ref": "DateRangeControl.vue"}
+    ],
+    "target_files": [
+      "resources/js/clarity-scout/composables/useViewport.js",
+      "resources/js/clarity-scout/composables/useCollapsible.js",
+      "resources/js/clarity-scout/components/ScoutControlsWidget.vue",
+      "resources/js/clarity-scout/components/DashboardOverlay.vue",
+      "resources/js/clarity-scout/App.vue",
+      "resources/js/clarity-scout/components/BottomSheet.vue",
+      "resources/js/clarity-scout/components/MapStatsBar.vue",
+      "resources/js/clarity-scout/components/DateRangeControl.vue"
+    ],
+    "out_of_scope": ["DriverSelector.vue (admin)", "App.vue adminMode branches", "DayOverlay.vue / TripOverlay.vue FloatingStatCard", "BottomSheet drag behavior", "FloatingStatCard.vue width"]
+  },
+  "acceptance_criteria": [
+    {"item": "AC1: below lg the controls/Live Hits/Map Layers+Legend/bottom bar open auto-collapsed to chips; map unobstructed on first paint", "source": "ticket", "decision": "implement", "reason": "core goal"},
+    {"item": "AC2: each chip expands to full card on tap (clear affordance) and collapses again", "source": "ticket", "decision": "implement", "reason": "core goal"},
+    {"item": "AC3: on lg+ widgets/bar open expanded — no regression", "source": "ticket", "decision": "implement", "reason": "useCollapsible default expanded when not compact"},
+    {"item": "AC4: manual collapse/expand on every breakpoint; explicit choice persists and overrides breakpoint default", "source": "ticket", "decision": "implement", "reason": "useCollapsible localStorage"},
+    {"item": "AC5: no overflow 320-1440px; clamped widths; error toast still clears Map Layers", "source": "ticket", "decision": "implement", "reason": "width clamp convention + responsive toast offset"},
+    {"item": "AC6: expanded bottom bar usable at 375px (controls shrink/wrap)", "source": "ticket", "decision": "implement", "reason": "remove min-width:380px; verify MapStatsBar/DateRangeControl"},
+    {"item": "AC7: map pan/zoom interactive behind collapsed chips (pointer-events pass-through); safe-area insets respected", "source": "ticket", "decision": "implement", "reason": "preserve pointer-events-none wrappers"},
+    {"item": "AC8: no regression to Org Map / Bird's Eye admin mode", "source": "ticket", "decision": "implement", "reason": "adminMode branches untouched"}
+  ],
+  "questions": [
+    {"q": "Hit-markers key card behavior on compact", "answered": true, "answer": "hide on compact (reappears at lg+)", "source": "human:Dalton 2026-06-30"},
+    {"q": "Bottom stat bar collapse interaction", "answered": true, "answer": "tap handle only, no swipe gesture", "source": "human:Dalton 2026-06-30"},
+    {"q": "Execution flow", "answered": true, "answer": "full /ticket pipeline", "source": "human:Dalton 2026-06-30"}
+  ],
+  "blockers": [],
+  "notes": [
+    "Design pre-approved by reporter (Dalton) — the ticket description IS the design and was confirmed via plan-mode approval.",
+    "--scout-controls-h is published continuously via ResizeObserver on the controls root, so a collapsed chip republishes automatically with no extra wiring.",
+    "lg threshold (1024px) is a single tunable constant per ticket note."
+  ],
+  "tests": [
+    {"file": "resources/js/clarity-scout/composables/__tests__/useViewport (or repo convention)", "what_it_pins": "isCompact true <1024 / false >=1024; reacts to matchMedia change; listener removed on unmount"},
+    {"file": "resources/js/clarity-scout/composables/__tests__/useCollapsible", "what_it_pins": "stored '1'/'0' honored; no stored value -> collapsed iff isCompact; toggle persists+flips; private-mode setItem throw swallowed"}
+  ],
+  "grounding": {
+    "key_files": ["DashboardOverlay.vue:298 (layersExpanded persistence)", "DriverSelector.vue:105 (expanded pattern)", "useServiceWorkerUpdate.js (matchMedia + onUnmounted cleanup)", "SidePanel.vue:17 (maxWidth clamp)", "ScoutControlsWidget.vue:184 (ResizeObserver --scout-controls-h)"],
+    "code_flow": "useViewport.isCompact -> useCollapsible(key,{isCompact}) -> per-widget expanded ref -> v-show/chevron + clamped width classes; map stays draggable via pointer-events-none wrappers / pointer-events-auto cards",
+    "tables": [],
+    "related_components": ["DayOverlay.vue / TripOverlay.vue (read --scout-controls-h, out of scope)", "BottomSheet.vue (shared width fix)"]
+  },
+  "exhaustiveness": {
+    "grep_patterns": ["w-\\[280px\\]", "min-width: ?380px", "calc(1.25rem + 292px)"],
+    "sites": [
+      {"site": "DashboardOverlay.vue:29 Live Hits w-[280px]", "verdict": "buggy", "reason": "in-scope driver overlay — clamp"},
+      {"site": "DashboardOverlay.vue:58 Hit-markers key w-[280px]", "verdict": "buggy", "reason": "in-scope — hidden on compact + clamp when shown"},
+      {"site": "DashboardOverlay.vue:72 Map Layers w-[280px]", "verdict": "buggy", "reason": "in-scope — clamp + full-chip on compact"},
+      {"site": "DashboardOverlay.vue:161 Legend w-[280px]", "verdict": "buggy", "reason": "in-scope — clamp + default-collapsed on compact"},
+      {"site": "DashboardOverlay.vue:8 error-toast right calc(1.25rem + 292px)", "verdict": "buggy", "reason": "in-scope — make responsive"},
+      {"site": "ScoutControlsWidget.vue:8 w-[280px]", "verdict": "buggy", "reason": "in-scope — clamp + chip"},
+      {"site": "App.vue:66 min-width:380px", "verdict": "buggy", "reason": "in-scope — remove + clamp"},
+      {"site": "BottomSheet.vue:21 min-width:380px", "verdict": "buggy", "reason": "in-scope shared width fix"},
+      {"site": "DriverSelector.vue:3 w-[280px]", "verdict": "safe", "reason": "admin Org Map — out of scope"},
+      {"site": "DayOverlay.vue:13/14/15/40 w-[280px], :77 min-width:380px", "verdict": "safe", "reason": "Day FloatingStatCard — out of scope follow-up"},
+      {"site": "TripOverlay.vue:13/14/15/38 w-[280px], :75 min-width:380px", "verdict": "safe", "reason": "Trip FloatingStatCard — out of scope follow-up"},
+      {"site": "FloatingStatCard.vue:5 w-[280px]", "verdict": "safe", "reason": "shared by Day/Trip overlays — out of scope"}
+    ]
+  },
+  "data_impact": {"pg_tables": [], "ch_tables": [], "mv_or_cdc_implications": "none", "indexes_relied_on": []},
+  "derivation_log": [],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "AC1-2-7", "kind": "human", "intent": "device-emulate matrix (375/430/932/810/1080/1440); confirm chips on load below lg, tap-expand, map draggable behind"},
+      {"ac": "AC3", "kind": "agent", "intent": "desktop /scout driver — widgets+bar expanded, no console errors"},
+      {"ac": "AC4", "kind": "human", "intent": "toggle + reload persists explicit choice; clear localStorage -> breakpoint default"},
+      {"ac": "AC5-6", "kind": "human", "intent": "no horizontal scroll 320-1440; expanded bottom bar usable at 375; toast clears Map Layers"},
+      {"ac": "AC8", "kind": "human", "intent": "Org Map admin spot-check desktop + phone width — no regression"}
+    ],
+    "seed_scenario": "Driver Scout session with a handful of live hits + a date range producing scans/hits stats so Live Hits, Hit-markers key, and the bottom stat bar all render with content.",
+    "personas": ["driver (Scout-enrolled kit) — primary surface", "admin/impersonator — Org Map regression spot-check"],
+    "pg_tables": [],
+    "ch_tables": []
+  },
+  "confidence": 92,
+  "escalate": {"recommend": false, "reason": "Frontend-only layout; design pre-approved; no data/auth/migration surface; all questions answered."},
+  "gate": "CLEAN",
+  "mode": "normal",
+  "missed_caller_candidates": []
+}

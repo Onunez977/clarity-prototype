@@ -1,0 +1,55 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Historical BirdsEye scanPaths via KitRangePathsQuery",
+      "approach": "Branch scanPaths: today stays KitScanPathsQuery; yesterday/last_* use KitRangePathsQuery + kitsByMapping, UTC window, KUP dedup ladder, bbox post-filter, same JSON wire shape.",
+      "target_files": [
+        "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php"
+      ],
+      "intended_diffs": "Import KitRangePathsQuery; historical branch; helpers for dedup + segment→row mapping + bbox filter.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "ClarityScoutBirdsEyeControllerTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t2",
+      "title": "Chunk historical scan-path fetches by kit groups",
+      "approach": "Admin historical fetchScanPaths batches kit ids (25); buildUrl respects explicit kit_ids.",
+      "target_files": [
+        "resources/js/clarity-scout/stores/map.js",
+        "resources/js/clarity-scout/lib/fetch.js"
+      ],
+      "intended_diffs": "Chunk+merge in fetchScanPaths; buildUrl only auto-appends kit_ids when absent.",
+      "depends_on": ["t1"],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "simple"
+    },
+    {
+      "id": "t3",
+      "title": "Update BirdsEye scan-paths tests for continuous GPS",
+      "approach": "Seed sc_positions for last_30 tests; keep today on kit_scan_paths; assert path shape.",
+      "target_files": [
+        "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php"
+      ],
+      "intended_diffs": "Rewrite last_30 fixtures to insertScPositionFor; add continuous-path assertion.",
+      "depends_on": ["t1"],
+      "parallelizable": false,
+      "test_filter": "ClarityScoutBirdsEyeControllerTest::test_scan_paths",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "driverPositions / driverPaths", "reason": "Live out of scope"},
+    {"site": "KitUserPathController", "reason": "KUP unchanged"},
+    {"site": "DEV-2228", "reason": "live trail fallback not in this ticket"}
+  ]
+}

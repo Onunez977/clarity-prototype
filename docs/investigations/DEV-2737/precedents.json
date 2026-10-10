@@ -1,0 +1,43 @@
+{
+  "key": "DEV-2737",
+  "generated_at": "2026-09-28T14:19:42Z",
+  "precedents": [
+    {
+      "id": "prior-lpr-repossessions-coverage",
+      "status": "QA Complete",
+      "sha": "1bc1a0cc00f971b76c15632155ed92f10846c35f",
+      "use": "Landed the claims and repos billing leg on clarity.billing_claim_events_v with is_internal = 0. Deleted the in-query clarity.orgs CTE. Ancestor of origin/main 76d4f5fcfdb37a9cb3b7b667c9e34a0d2f4f3266. This ticket verifies that path. It does not reopen that coverage work.",
+      "artifacts": "docs/investigations/ for the prior LPR Repossessions coverage work"
+    },
+    {
+      "id": "lpr-repossessions-db-repos-stage",
+      "use": "Defined the LPR Repossessions card as the db_repos stage: billed case-claim, then a status-3 hotlist transition within claim_date - 7. Headline is not the deduped claims count.",
+      "ref": "app/Filament/Widgets/Dashboard/LprRepossessions.php"
+    },
+    {
+      "id": "funnel-either-side-rule",
+      "use": "Oscar re-affirmed the funnel: a claim is recorded, then the same company marks it repossessed. The shipped predicate counts the org on either the forwarder or the agent side. That either-side rule is in the SQL. It is not a measured verdict on the demo number.",
+      "ref": "app/Clickhouse/Queries/LprRepossessionsQuery.php"
+    },
+    {
+      "id": "grid-slot-lpr-repossessions",
+      "use": "Grid slot. cards() key lpr-repossessions is LprRepossessions. Heading on the overview docblock is LPR Repossessions. The absorbed unique-scans-to-lpr-repossession card is gone. The ratio survives as the description line.",
+      "ref": "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php"
+    },
+    {
+      "id": "status-log-retirement",
+      "status": "In Progress",
+      "use": "Soft collision. Later work retires the zod.public_hotlist_status_log join inside LprRepossessionsQuery. The path on main still uses that join. This verify measures main. The ticket-description Hold until Cloud Phase B is stale (First Glance 42082)."
+    },
+    {
+      "id": "hits-distance-same-demo-day",
+      "status": "To Do",
+      "use": "Same demo day, same company name, different surface (Hits distance N/A). Description also omits an organization id. Not an org-id source for this ticket."
+    },
+    {
+      "id": "PG-030",
+      "use": "join_use_nulls default 0. Sentinel guards d.agent_org_id != 0 and h.id != 0 stay on the repos joins. Do not drop them while verifying.",
+      "ref": "okf/concepts/platform-gotchas.md"
+    }
+  ]
+}

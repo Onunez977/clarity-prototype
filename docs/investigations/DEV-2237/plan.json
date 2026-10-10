@@ -1,0 +1,33 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Add gated Scout provisioning (permission + kit + onboarding) to Clarity Create/Edit User form",
+      "approach": "In UsersResource, add a Scout section rendered only for Scout-enabled orgs to admins (mirror ScoutUsersResource::canAccess() gate: Feature::active(FeatureEnum::CLARITY_SCOUT->slug()) || session admin_impersonator, AND auth user hasRole ADMIN). The section holds a Toggle 'scout_access' (Scout Access) and a Select 'scout_kit_id' (available kits = KitSettings.user_id null OR the current user's kit) — both virtual (dehydrated, not User columns), hydrated on edit from the user's current clarity-scout permission + KitSettings row. Extract the grant/kit/onboarding reconcile into ONE shared helper (a Concern e.g. app/Filament/Concerns/ProvisionsScoutUser.php, or a method on the pages) so CreateUsers and EditUsers do not duplicate it and cannot drift from EditScoutUser's proven logic. The helper: setPermissionsTeamId($orgId); if enabling and !hasPermissionTo -> assignRole(USER) if roleless, givePermissionTo('clarity-scout'), and notify(new ScoutOnboardingNotification) when !email_verified_at; if disabling and hasPermissionTo -> revokePermissionTo('clarity-scout'); reconcile the kit via KitSettings::updateOrCreate(['kit_id'=>$kitId],['user_id'=>$user->id]) with the 1:1 detach (null out this user on other kits), or clear the tie when access/kit removed. Wire it in CreateUsers::afterCreate (record is the new User) and EditUsers save hook. Add a Scout Access icon column to the table (gated) for AC3. TDD: write pinning tests first.",
+      "target_files": [
+        "app/Filament/Resources/UsersResource.php",
+        "app/Filament/Resources/UsersResource/Pages/CreateUsers.php",
+        "app/Filament/Resources/UsersResource/Pages/EditUsers.php",
+        "app/Filament/Concerns/ProvisionsScoutUser.php",
+        "tests/Filament/Resources/UsersResourceTest.php"
+      ],
+      "intended_diffs": "UsersResource.php: +gated Scout Section (Toggle scout_access + Select scout_kit_id with unassigned-kit options + afterStateHydrated for edit) and +gated Scout Access IconColumn. CreateUsers.php: +afterCreate calling the shared provisioner with form state. EditUsers.php: +mutateFormDataBeforeSave/afterSave (or afterSave) calling the shared provisioner; +fill the virtual fields on hydrate. ProvisionsScoutUser.php: shared reconcile method. UsersResourceTest.php: +Scout section gating (visible Scout org / hidden non-Scout), +create-with-Scout grants permission+kit+queues onboarding, +edit add/remove flips permission+kit, +existing role flows stay green.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "UsersResource",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "vendor/insight-lpr/black-adam RoleEnum", "reason": "No Scout role created — out of repo, out of scope."},
+    {"site": "app/Console/Commands/SeedRolesAndPermissions.php", "reason": "clarity-scout permission already seeded; no new role/permission needed."},
+    {"site": "app/Filament/Resources/ScoutUsersResource.php + EditScoutUser.php", "reason": "Existing Scout Users workflow unchanged; the new helper reuses its proven logic but does not modify it. Zones/vehicle/force-login stay here."}
+  ],
+  "notes": [
+    "test_filter 'UsersResource' matches BOTH UsersResourceTest and ScoutUsersResourceTest (substring), so a single filtered run also confirms the existing Scout Users grant/revoke stays correct.",
+    "No ClickHouse (data_impact.ch_tables empty) -> Phase 4/6 skip CH provisioning; no perf gate.",
+    "No sensitive-glob files touched -> no pre-Phase-4 human approval node. Permission-granting logic is still security-relevant -> Phase 5 escalates to 3 review lanes (semantic-correctness/auth territory)."
+  ]
+}

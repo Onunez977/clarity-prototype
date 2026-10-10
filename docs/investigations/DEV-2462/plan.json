@@ -1,0 +1,60 @@
+{
+  "key": "DEV-2462",
+  "_meta": {
+    "authored_by": "driver in-session at opus (= TICKET_PLAN_ARBITER_MODEL default). Not delegated: the driver holds the verified ground truth (driver-verified.json V1-V8) plus the operator's three gate answers, and 2 of 3 prep candidates had already reasoned wrongly about one settled fact. Same model tier, so no downgrade.",
+    "inputs": ["prep-context.json (gate CLEAN, confidence 88)", "knowledge cards clarity/testing.md + clickhouse/core.md"],
+    "sizing_gate": "8 files is above the nominal 6-file threshold, so recording explicitly why NO ticket split is recommended: 4 of the 8 are test files; 3 of the 4 production changes are one-liners (a registry insertion, a match arm, an aggregate expression); the only substantial new artifact is a ~30-line widget modelled on RecoveryCounts (28 lines). The two nominal concerns (add the card / fix the graph grain) are bundled by the ticket's own justification ('same widget family, same query owner') and the operator re-affirmed that bundle when answering Q2. Splitting now would re-litigate a decision already made."
+  },
+  "excluded_sites": [
+    {"site": "the 5 hardcoded-'clarity.'-prefix query classes named in the ticket, plus CohortClosedQuery, CohortDeclinedQuery, AffiliateStatsHourly, LprAssist, ScanVehicleController, NearestGivenAddressController", "reason": "pre-existing and explicitly out of scope per the ticket; none touches clarity.missed_opportunities"},
+    {"site": "app/Filament/Pages/Dashboard.php", "reason": "explicitly ruled out by the operator's Q2 answer (FIX IN PLACE, no graph wiring). Eight sibling card tickets depend on it."},
+    {"site": "MissedOpportunityClientGraph::canView() (unguarded Feature::active())", "reason": "proven guest-safe (S13/S18) and only reachable via its own unreachable mount(). Currently correct; harmonising it would be touching an unrelated path."},
+    {"site": "the graph's hardcoded year-to-date window", "reason": "explicitly ruled out by the operator's Q2 answer"},
+    {"site": "already-correct countDistinct consumers (ClientRankedMetricsBatch, BatchMonthlySparklineData, HasStatDrillDown, client MissedOpportunitiesWidget, LifetimeMissedOpportunitiesWidget)", "reason": "verified already on the correct grain"}
+  ],
+  "review_plan": {
+    "lanes": 3,
+    "why": "Two independent escalation triggers fire. (1) semantic-correctness territory: the change is literally a counting/dedup grain fix (raw count vs countDistinct). (2) auth/permission territory: it is the FIRST genuinely Pro-gated card and it edits the Company Metrics foundation's gating regression tests. Diff size alone is not a trigger and is not being counted."
+  },
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Missed Opportunities card at mockup row 3 col 3, plus the MissedOpportunityClientGraph grain fix",
+      "approach": "Single node, no fan-out. The whole change is one widget family with one query owner, and the two nominal halves total ~35 lines of production code across 4 files; worktree fan-out overhead would dwarf the work. TDD throughout: write the pinning test, confirm RED, then implement to GREEN.\n\nSTEP 1 (new widget). Create app/Filament/Widgets/Dashboard/MissedOpportunities.php modelled on RecoveryCounts.php (28 lines) -- extends Concerns\\DashboardWidget, sets $heading = 'Missed Opportunities', getDatasetLabel(), getRgbColor(), and implements ONLY getModelQueryForDates(), which returns (int) MissedOpportunity::query()->forOrg(auth()->user()->org_id)->notNicb()->between($start, $end, auth()->user()->timezone ?? 'UTC')->selectTotal()->value('total'). Use the model's EXISTING scopes -- do not restate the countDistinct SQL inline, and do not add ->final(). Override canViewCardData() to auth()->check() && (Feature::active(FeatureEnum::MISSED_OPPORTUNITY->slug()) || session()->has('admin_impersonator')) per the operator's Q1 answer, and canView() to parent::canView() && static::canViewCardData() for the direct-mount path. One-line 'why' comment on canViewCardData() only; otherwise minimal comments.\n\nSTEP 2 (registry). Insert 'missed-opportunities' => MissedOpportunities::class into CompanyMetricsOverview::cards() BETWEEN 'recovery-counts' and 'recovery-leader'. Do NOT append. Un-bracket [Missed Opportunities] in the mockup docblock table.\n\nSTEP 3 (colour). Add 'missed-opportunities' => 'primary' as an explicit arm to DashboardWidget::getStatColor(), before default => 'gray'. Never 'gray'.\n\nSTEP 4 (grain fix). In MissedOpportunityClientGraph::clients(): change selectRaw('client_org_name, count() as total') to selectRaw('client_org_name, countDistinct(hotlist_id) as total'), and add a ':v2' version segment to the cache key 'missed-opportunity:client-graph:org=...:tz=...'. Change NOTHING else in that file -- not canView(), not the YTD window.\n\nSTEP 5 (fix the two broken test files). DashboardCardExpansionTest: bump the count 7->8 and insert the key into the exact-order assertSame array at the same position. Leave test_all_four_hit_cards_are_contiguous() untouched. DashboardCardVisibilityTest: bump assertCount(7, cards()) -> 8 at :144; update test_every_real_card_is_ungated_and_therefore_expandable() to record this deliberate first gated card (the prior ticket's comment authorises exactly this); and update test_can_view_card_data_is_total_with_no_authenticated_user() to preserve its stated purpose (expandableCards() is callable with no authenticated user and does not error) while relaxing the incidental cards()==expandableCards() key-equality assertion, which no longer holds now that a real gate drops the key via array_filter.\n\nSTEP 6 (new tests). Two new files per prep-context.tests.\n\nSTEP 7. composer format (Pint).",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/MissedOpportunities.php",
+        "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php",
+        "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+        "app/Filament/Widgets/Dashboard/MissedOpportunityClientGraph.php",
+        "tests/Filament/Pages/DashboardCardExpansionTest.php",
+        "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php",
+        "tests/Filament/Widgets/Dashboard/MissedOpportunitiesTest.php",
+        "tests/Filament/Widgets/Dashboard/MissedOpportunityClientGraphTest.php"
+      ],
+      "intended_diffs": {
+        "app/Filament/Widgets/Dashboard/MissedOpportunities.php": "NEW, ~30 lines. Mirror of RecoveryCounts plus the canViewCardData()/canView() Pro-gate overrides.",
+        "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php": "+1 array line between 'recovery-counts' and 'recovery-leader'; +1 import; docblock mockup row 3 un-bracketed.",
+        "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php": "+1 match arm 'missed-opportunities' => 'primary'.",
+        "app/Filament/Widgets/Dashboard/MissedOpportunityClientGraph.php": "1 line changed (count() -> countDistinct(hotlist_id)); 1 line changed (cache key +':v2'). Nothing else.",
+        "tests/Filament/Pages/DashboardCardExpansionTest.php": "7->8; +1 expected array entry.",
+        "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php": "7->8; the ungated-loop tripwire updated; the guest-parity assertion relaxed while keeping its no-error purpose.",
+        "tests/Filament/Widgets/Dashboard/MissedOpportunitiesTest.php": "NEW.",
+        "tests/Filament/Widgets/Dashboard/MissedOpportunityClientGraphTest.php": "NEW."
+      },
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "DashboardCard|MissedOpportunit",
+      "ui_impact": true,
+      "blast_radius": [],
+      "blast_radius_note": "No changed file matches the sensitive globs (no migration, no billing, no Shield/Policy/auth config, no Clickhouse purge/cleanup, no PruneScans), so no formal tag. Recording one soft note for the reviewer: DashboardWidget.php is a SHARED base class inherited by 6 sibling cards. The change there is a single additive match arm that cannot alter any existing arm, and the operator explicitly approved that arm when answering Q3.",
+      "complexity": "complex",
+      "complexity_reason": "Touches 8 files, spans two nominal concerns, and modifies a shared base class plus the Company Metrics foundation's Pro-gate regression tests. Forces the complex worker tier and keeps the classification honest for Phase 5 lane escalation."
+    }
+  ],
+  "test_notes": [
+    "FILTERED runs only during implementation: `php artisan test --filter='DashboardCard|MissedOpportunit'` is fine at the default memory limit.",
+    "For the post-merge FULL suite use `php -d memory_limit=2G vendor/bin/phpunit`. NEVER `php artisan test` for the full suite -- it OOMs during discovery and STILL EXITS 0, reporting a false pass. Expect ~1668 tests and ~8 PRE-EXISTING failures; verify any suspected regression by running the class alone and against the base commit before believing it.",
+    "This worktree's .env.testing currently has CLICKHOUSE_DRIVER=pgsql, which makes RequiresClickhouse skip EVERY ClickHouse test while reporting all-green. The MissedOpportunityClientGraph grain test is CH-backed, so Phase 4 must bring ClickHouse up (the change touches ch_tables) and the driver must be `clickhouse` with the LITERAL database names clarity and zod -- a per-worktree CH database name silently truncates the wrong database.",
+    "Those literal clarity/zod ClickHouse databases are SHARED across worktrees. Teardown must never DROP them."
+  ]
+}

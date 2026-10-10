@@ -1,0 +1,343 @@
+{
+  "key": "DEV-2528",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "CLARITY_MAIN_BRANCH=main (configured). base-resolve.sh listed 10 candidates; none carry Scout-shift-test or timezone work (otto chat, dependabot nanoid, recovery-probability). Pending haiku confirmation.",
+  "branch": "claude/dev-2528-70ab0c",
+  "repo_path_note": "Reused this session's harness worktree (Phase 0 step 6 reuse path). Worktree dir is dev-2528-70ab0c, NOT DEV-2528; branch deliberately NOT renamed to claude/DEV-2528 because .env/.env.testing are already bootstrap-keyed to zod_claude_dev_2528_70ab0c / zod_testing_claude_dev_2528_70ab0c and a rename triggers the documented env re-key trap.",
+  "main_checkout": "/Users/daltonmccleery/Herd/platform",
+  "run_root": "/Users/daltonmccleery/Herd/platform/.claude/worktrees/dev-2528-70ab0c",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "prep-candidate:1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 587,
+      "tokens_total": 125573
+    },
+    {
+      "slot": "prep-candidate:0-fastpass",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 0,
+      "tokens_total": 165867
+    },
+    {
+      "slot": "prep-candidate:2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 2164,
+      "tokens_total": 179884
+    },
+    {
+      "slot": "prep-candidate:3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 2164,
+      "tokens_total": 174045
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "no_spawn": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false,
+    "eli5": true
+  },
+  "knowledge_cards_loaded": [],
+  "escalated": true,
+  "escalation_triggers": [
+    "fast-pass confidence 32",
+    "escalate.recommend",
+    "open questions",
+    "ticket hypothesis falsified",
+    "uncited prior finding DEV-2467"
+  ],
+  "best_of_n": true,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "2d8edc47483a27e15765375a3e4fb6e6d075c1b1",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "claude/dev-2528-70ab0c",
+      "complexity": "complex",
+      "model": "opus (driver, single-node fast path)"
+    }
+  ],
+  "review_number": 3,
+  "pr": {
+    "number": 407,
+    "url": "https://github.com/insight-lpr/platform/pull/407",
+    "draft": false
+  },
+  "pr_urls": {
+    "main": "https://github.com/insight-lpr/platform/pull/407"
+  },
+  "spawned_sessions": [],
+  "jira_in_progress_by": "n/a - ticket was already In Progress at intake",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "In Code Review via Atlassian MCP transition id 4, 2026-09-14. No draft-aware GH Action performed it.",
+  "assumed": [],
+  "comment_ids": {
+    "status": "39857",
+    "build_record": "39876"
+  },
+  "qa": {
+    "ledger": "",
+    "agent_report": "",
+    "ac_results": "",
+    "verdict": "PASS",
+    "torn_down": true,
+    "resource_envelope": {
+      "verdict": "not-measured",
+      "basis": "n/a - no production code changed; scale_relevant is false"
+    },
+    "provisioning": {
+      "browser_qa": "NOT RUN - deliberate. The diff is phpunit.xml + one new test file. Zero application code, no route, no UI, no data path, so agent-qa/human-qa browser lanes would exercise nothing related to this change. The acceptance criteria are entirely test-based and were verified directly, with A/B controls.",
+      "postgres_db": "zod_testing_claude_dev_2528_70ab0c (pre-existing worktree DB; dropped and recreated mid-run to clear a lock held by an orphaned phpunit process, then re-migrated by the suite)",
+      "ch_strategy": "docker clarity-qa-clickhouse (image 25.8.11.66) on :18123, literal clarity/zod databases. .env.testing was repointed from the pgsql bridge to real ClickHouse so the 12 CH-gated CloseInactiveShiftsCommandTest cases would RUN rather than self-skip - without that the ticket's 2 reported failures cannot reproduce at all.",
+      "env_restored": "pending - .env.testing to be returned to its committed pgsql-bridge state at teardown"
+    }
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test tests/Feature/Database/PostgresConnectionTimezoneTest.php (RED, before fix)",
+        "passed": 0,
+        "failed": 3,
+        "note": "Failed asserting that 18000 is identical to 0 - the ticket's exact signature, reproduced at its source."
+      },
+      {
+        "cmd": "php artisan test tests/Feature/Database/PostgresConnectionTimezoneTest.php (GREEN, after fix)",
+        "passed": 3,
+        "failed": 0
+      },
+      {
+        "cmd": "php artisan test CloseInactiveShiftsCommandTest (real CH, WITHOUT fix)",
+        "passed": 12,
+        "failed": 2,
+        "note": "1789425161 vs 1789421561 (delta 3600) and 1789439562 vs 1789421562 (delta 18000). Matches the ticket's '2 failures'."
+      },
+      {
+        "cmd": "php artisan test CloseInactiveShiftsCommandTest (real CH, WITH fix)",
+        "passed": 14,
+        "failed": 0
+      },
+      {
+        "cmd": "php artisan test EnsureOpenShiftTest (WITHOUT fix)",
+        "passed": 10,
+        "failed": 1,
+        "note": "Matches the ticket's '1 failure'."
+      },
+      {
+        "cmd": "php artisan test EnsureOpenShiftTest (WITH fix)",
+        "passed": 11,
+        "failed": 0
+      },
+      {
+        "cmd": "composer format (pint)",
+        "passed": 1,
+        "failed": 0,
+        "note": "result: passed"
+      },
+      {
+        "cmd": "php artisan test PostgresConnectionTimezoneTest (RED, PGTZ removed, final test)",
+        "passed": 0,
+        "failed": 2,
+        "note": "offset assertion: 'Failed asserting that -18000 is identical to 0' (Chicago = UTC-5); round-trip assertion: 'Failed asserting that 18000 is identical to 0'."
+      },
+      {
+        "cmd": "php artisan test PostgresConnectionTimezoneTest (GREEN, final test)",
+        "passed": 2,
+        "failed": 0,
+        "note": "5 assertions."
+      },
+      {
+        "cmd": "PHPRC=<2G ini> php artisan test --compact (full suite, real CH) - RN1 code",
+        "passed": 2012,
+        "failed": 6,
+        "note": "All 6 ClickhouseException. Superseded; see the final run below."
+      },
+      {
+        "cmd": "PHPRC=<2G ini> php artisan test --compact (full suite, real CH) - RN2 code",
+        "passed": 2005,
+        "failed": 12,
+        "note": "CORRECTION to the earlier record, per review RN2/M1: this run had 12 failures, 6 of them ordinary assertion failures rather than ClickhouseException, and the earlier 'A/B-proven unrelated' sentence was inherited from the RN1 run and did not describe the reviewed code. Re-established below."
+      },
+      {
+        "cmd": "A/B variance probe: HasStatDrillDownTest + HotlistsResourceTest, same code, 4 runs",
+        "passed": 0,
+        "failed": 0,
+        "note": "WITH fix: 10, 8, 9, 8 failures across four runs. WITHOUT fix: 9. The count is non-deterministic and swings 8-10 regardless of the change, driven by the local ClickHouse container exhausting its 5.21 GiB ceiling (image 25.8.11.66; CI uses 26.2). The fix's range brackets the control, so it is not implicated."
+      },
+      {
+        "cmd": "A/B the timezone-crossing test the reviewer flagged: ClarityScoutTripsControllerTest --filter=utc_time_lands_in_the_local_evening, 3 runs each way",
+        "passed": 6,
+        "failed": 0,
+        "note": "Review RN2/M1 correctly noted this test asserts a 04:00 UTC scan against the PREVIOUS local date under user tz America/Chicago - exactly the shape a session-timezone change could move. Run 3x with the fix and 3x without: passes all 6. The fix does not move it; its full-suite failures are the CH-memory flakiness above."
+      },
+      {
+        "cmd": "PHPRC=<2G ini> php artisan test --compact (full suite, real CH) - FINAL code",
+        "passed": 2009,
+        "failed": 8,
+        "note": "2009 passed / 8 failed / 1 risky / 1 incomplete / 4 skipped, 428s. CORRECTION per review RN3/M1: my earlier 'all 8 are ClickhouseException' was produced by `grep -c` counting string occurrences anywhere in the log, not failure classes. 4 of the 8 are ordinary assertion failures (HasStatDrillDownTest 'Client A' vs 'Client B' and 124 vs 6; GlKitsResourceTest 85 vs 105 and an assertSeeHtml miss). All three DEV-2528 target tests pass."
+      },
+      {
+        "cmd": "A/B failing-SET diff on HasStatDrillDownTest + GlKitsResourceTest, 2 paired runs + a 4x4 single-test probe",
+        "passed": 0,
+        "failed": 0,
+        "note": "Answers RN3/M1 properly rather than by inference. Pair 1: identical 8-test failing set with and without the fix, zero tests unique to either side. Pair 2: 9 vs 9, differing by one test in EACH direction - the flakiness signature, not causation. The single test that appeared unique to the fix across samples ('avg recovery rate org drilldown excludes zero activity') was then run alone 4x each way: 4/4 PASS with the fix, 3/4 pass (1 failure) without it. The change does not make any test fail; the local CH container's memory ceiling does."
+      },
+      {
+        "cmd": "CI 'Pint & Tests' (8.4) on PR #407, 3 shards",
+        "passed": 3,
+        "failed": 0,
+        "note": "All 3 shards pass (5m25s / 6m21s / 6m19s), plus the preview deploy. This is the decisive confirmation of the RN2/H1 repair: the earlier version of the test would have errored in CI with 'database \"graphql\" does not exist'. Run 34923869206."
+      },
+      {
+        "cmd": "php artisan test PostgresConnectionTimezoneTest (leaner, 1 test) - RED then GREEN",
+        "passed": 1,
+        "failed": 1,
+        "note": "Without PGTZ: 'Failed asserting that 18000 is identical to 0' plus the message naming the cause and the remedy. With PGTZ: 1 passed. Pint passed."
+      },
+      {
+        "cmd": "CI Pint & Tests (8.4) on the trimmed test, 3 shards",
+        "passed": 3,
+        "failed": 0,
+        "note": "All 3 shards pass (5m8s / 6m39s / 5m40s) plus the preview deploy. Run 34973863364. This is the authoritative full-suite verification; the local ClickHouse container is too memory-flaky to serve as one."
+      }
+    ],
+    "deviations": [
+      {
+        "source": "post-review-request",
+        "edit": "Trimmed PostgresConnectionTimezoneTest from two test methods to one (84 -> 49 lines, 41 -> 25 code lines) at the operator's request. Dropped the session-offset assertion; kept the round-trip assertion, which reproduces the actual bug and carries the diagnostic message.",
+        "ac_ref": null,
+        "ac_delta": null
+      }
+    ],
+    "review": {
+      "lanes": [],
+      "scores": [
+        92,
+        80,
+        94
+      ],
+      "findings_fixed": [
+        "RN2/H1 (High) - CI-breaking regression introduced by the RN1 L1 fix: runtime enumeration of every pgsql connection pulled in `graphql`, whose database is hardcoded and which neither CI workflow provisions. Assertion set now scoped to connectionsToTransact().",
+        "RN2/M3 (Medium) - test name/docblock over-claimed coverage and the subject set moved with CLICKHOUSE_DRIVER. Same repair.",
+        "RN2/L3 (Low) - literal 'UTC' string match replaced with a UTC-offset-is-zero assertion.",
+        "RN1/L1 (Low) - original data provider certified more than it checked (superseded by the H1 repair).",
+        "RN2/M1 + RN3/M1 (Medium) - stale and misclassified full-suite records in state.json, corrected and re-established empirically.",
+        "RN3/L1 (Low) - the clock-dependent extract(timezone from now()) assertion was removed entirely in the post-review trim, so the seasonal-pass hole it described no longer exists."
+      ],
+      "findings_residual": [
+        "RN3/L2 + RN2/M2 (Medium) - incomplete by class: every production writer of a timestamptz column still sends naive literals, and the `pg` connection (RefreshRecoveryViews, GeocodeRecoveryAddresses) is unpinned. Operator declined this scope twice, on the record, on two distinct variants.",
+        "RN3/L3 (Low) - the queued wiki update names only platform-gotchas.md; testing-conventions.md:19 also goes stale on land.",
+        "RN3/L4 (Low) - the docblock's PGTZ-is-process-wide coverage argument is an inference rather than an asserted property."
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "harness-claude-p"
+        }
+      ],
+      "gate_score": 94,
+      "gate_score_src": "lane-min",
+      "rounds": [
+        {
+          "rn": 1,
+          "reason": "gate",
+          "at": "2026-09-14T20:50:00Z"
+        },
+        {
+          "rn": 2,
+          "reason": "scope",
+          "at": "2026-09-14T21:20:00Z"
+        },
+        {
+          "rn": 3,
+          "reason": "gate",
+          "at": "2026-09-14T21:45:00Z"
+        }
+      ],
+      "unresolved_premises": [
+        {
+          "claim": "This change is a production no-op.",
+          "premise": "phpunit.xml is not read by any production process.",
+          "verify_by": "Confirmed: the diff touches only phpunit.xml and a new test file; neither is loaded outside PHPUnit."
+        },
+        {
+          "claim": "Production Postgres stores these 10 timestamptz columns correctly.",
+          "premise": "Production's Postgres TimeZone GUC is UTC.",
+          "verify_by": "SHOW TimeZone on the production Postgres. NOT RUN - the operator scoped this ticket away from production. Recorded as an open risk."
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "0f0b55b9e40ed4068e6b111ff79454931cd63cec",
+      "rework_pivot": false
+    },
+    "ac": [
+      {
+        "item": "Root cause identified and stated (not just made green).",
+        "status": "SATISFIED",
+        "evidence": "Local Postgres server TimeZone = America/Chicago (source='configuration file'); no 'timezone' key on any connection in config/database.php, so PostgresConnector never issues SET TIME ZONE and every PDO session inherits it; Eloquent writes naive 'Y-m-d H:i:s' literals; Postgres resolves a naive literal against the SESSION zone when storing into timestamptz; platform.kit_shifts.started_at/ended_at are timestamptz. Driver probe through the real app: wrote 2026-09-14T12:00:00+00:00, read back '2026-09-14 12:00:00-05', delta 18000s; a naive `timestamp` column in the same probe had delta 0. CI passes because its Postgres is stock postgis/postgis:16-3.5 (UTC). The ticket's own stated hypothesis (User::timezone) was falsified by three independent passes, and DEV-2467's 'local ClickHouse container artifacts' call was right in instinct but wrong in subsystem."
+      },
+      {
+        "item": "The three tests pass both in isolation and in a full-suite run.",
+        "status": "SATISFIED",
+        "evidence": "ISOLATION, final code, real ClickHouse: CloseInactiveShiftsCommandTest 14 passed (52 assertions); EnsureOpenShiftTest 11 passed (16); PostgresConnectionTimezoneTest 2 passed (5). A/B control WITHOUT the fix reproduces the ticket exactly: CloseInactiveShiftsCommandTest 2 failed (deltas 3600 and 18000), EnsureOpenShiftTest 1 failed. FULL SUITE, final code: 2009 passed / 8 failed / 428s, with all three target files passing. The 8 failures are pre-existing local flakiness driven by the ClickHouse container's 5.21 GiB ceiling - proven by a failing-SET diff (identical sets with and without the fix, zero tests unique to either) and a 4x4 single-test probe on the only candidate, which passed 4/4 WITH the fix and 3/4 without. NOTE the ticket's 'full-suite only' premise is wrong: these fail in isolation too, as DEV-2309's PR #309 note had recorded."
+      },
+      {
+        "item": "If the bug is in the command rather than the test, that fix ships too - a 5-hour window error in shift closing would be a real production bug.",
+        "status": "N/A",
+        "evidence": "The bug is in neither the command nor the test. CloseInactiveShiftsCommand and EnsureOpenShift are both correct - every ->utc() is ->copy()->utc(), every Carbon::parse passes an explicit 'UTC', and the diffInMinutes calls are abs()-guarded. The defect is that the application never pins the Postgres session timezone, which is configuration. The operator scoped this ticket to test-only (twice, on two distinct variants, the second a verified production no-op), so no production fix ships. OPEN RISK, recorded not resolved: production's TimeZone GUC was never checked. If it is not UTC, 10 timestamptz columns across kit_shifts, scout_check_ins, org_run_areas and scout_org_settings are being stored shifted in production."
+      }
+    ]
+  },
+  "spawn_skip_reason": "Two-file change on a single node; the 3-session split costs more than it saves, and the operator is actively in this conversation."
+}

@@ -1,0 +1,201 @@
+{
+  "key": "DEV-2314",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2314",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "review-lane:claude1",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 169
+    },
+    {
+      "slot": "agent-qa",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "verify",
+      "dur_s": 403
+    },
+    {
+      "slot": "review-lane:claude1",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 285
+    },
+    {
+      "slot": "review-lane:claude1-rn2final",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 167
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "clarity/scout.md"
+  ],
+  "escalated": false,
+  "escalation_triggers": [
+    "fast-pass: answered:false etc-scope question",
+    "fast-pass confidence 72<80",
+    "fast-pass escalate.recommend=true \u2014 routed to Phase 2 human gate, not best-of-N (uncertainty is human intent, not code coverage)"
+  ],
+  "best_of_n": false,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "de85d46efd89e8112b5e02c0ae4853720d3c5ddc",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "simple",
+      "model": "opus (driver-inline, simple node \u2014 2-constant edit)"
+    }
+  ],
+  "review_number": 2,
+  "pr": {
+    "number": 315,
+    "url": "https://github.com/insight-lpr/platform/pull/315",
+    "draft": false
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": null,
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "transition id 4 (In Code Review) via Atlassian MCP; undraft did not auto-transition (clarity)",
+  "assumed": [],
+  "comment_ids": {
+    "status": "38135",
+    "build_record": "38137"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "provisioned_early": true,
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "n/a",
+      "ch_container": "reused",
+      "frontend_build": "ran",
+      "postgres_db": "zod_claude_dev_2314_17ee51",
+      "ch_strategy": "docker (literal clarity/zod DBs)",
+      "herd_site": "clarity-claude_dev_2314_17ee51.test"
+    }
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "n/a \u2014 JS-only change, no JS test runner; CLAUDE.md forbids auto PHP test runs (change touches 0 PHP). pint --dirty: passed (no-op). CI + agent/human QA cover verification.",
+        "passed": 0,
+        "failed": 0
+      }
+    ],
+    "deviations": [
+      {
+        "source": "qa-loop",
+        "edit": "Moved the 'Zoom in to view path history' hint out of the ScannerMap map overlay into the bottom cluster (App.vue) as a floating pill just above the stat sheet \u2014 over the map, NOT inside the date-range widget \u2014 via a new mapStore.showZoomHint getter. Users were missing it in the old top-center overlay.",
+        "ac_ref": null,
+        "ac_delta": null
+      }
+    ],
+    "review": {
+      "lanes": [
+        "claude1"
+      ],
+      "scores": [
+        100,
+        100
+      ],
+      "findings_fixed": [],
+      "findings_residual": [
+        {
+          "class": "perf-informational",
+          "note": "PATH_LAYERS_MIN_ZOOM widens uncapped scan-path fetch ~4x (pre-existing at 12); QA 60-day @ zoom 11; server-side row cap = separate ticket"
+        }
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "in-session-agent"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "d659e175c9c088f6c5379a62a077cb0e55d8c31f",
+      "rework_pivot": false
+    },
+    "ac": [
+      {
+        "item": "PATH_LAYERS_MIN_ZOOM lowered 12->11 (path/density layers appear one zoom level further out).",
+        "status": "SATISFIED",
+        "evidence": "Bundle Ji=11; both Scout surfaces boot/render path layers with seeded data, all fetches 200. Precise zoom-10-vs-11 visual deferred to human QA."
+      },
+      {
+        "item": "RANGE_HIT_MARKERS_MIN_ZOOM lowered 12->11 (hit-icon markers appear one zoom level further out).",
+        "status": "SATISFIED",
+        "evidence": "Bundle zm=11; hit-icon markers/clusters render on driver map + Bird's Eye from 4 seeded Live hits. Precise zoom boundary deferred to human QA."
+      },
+      {
+        "item": "public/build rebuilt + committed.",
+        "status": "SATISFIED",
+        "evidence": "clarity-scout-CkbGZj6s.js served 200, matches manifest.json; committed in implement checkpoint."
+      },
+      {
+        "item": "Scope of 'etc' = only the 2 named gates.",
+        "status": "SATISFIED",
+        "evidence": "Diff changes only the 2 constants; bundle confirms Um=11/Dl=14/un=16 (siblings) unchanged."
+      }
+    ]
+  }
+}

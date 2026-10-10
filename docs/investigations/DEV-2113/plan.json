@@ -1,0 +1,31 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Filter Scout historical map markers by CURRENT hotlist status",
+      "approach": "In ClarityScoutMapController@hits, replace the frozen per-row `->where('hotlist_status', HotlistStatusEnum::Open->value)` with a constraint on the order's CURRENT status sourced from clarity.hotlist (CDC-synced, FINAL). Recommended shape (keeps the cap correct = applied to currently-open hits, and avoids a global open-hotlist scan): (1) query the scoped hit set's candidate hotlist_ids (forKitOrg+kit_id+forHitTypes([L,S])+forCreatedBetween+validDisposition, distinct hotlist_id); (2) resolve which are currently Open via the Hotlist model (it applies ApplyFinal globally) — Hotlist::query()->whereIntegerInRaw('id', $candidateIds)->where('status', HotlistStatusEnum::Open->value)->pluck('id'); (3) constrain the marker query to whereIntegerInRaw('hotlist_id', $openIds) BEFORE orderByDesc+limit(MAX+1). Keep ->validDisposition() (per-hit, correct) and all existing scoping. If $candidateIds is empty, short-circuit to an empty payload (no marker query). The cache key/TTL is unchanged. Per-hit marker granularity is preserved (NO plate dedup).",
+      "target_files": [
+        "app/Http/Controllers/Api/ClarityScoutMapController.php",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php"
+      ],
+      "intended_diffs": "Controller: swap one status filter for the current-status semi-join (plus a small candidate/open-id resolution block + empty short-circuit). Tests: (a) update EVERY existing test_map_hits_* that seeds hits_hot to ALSO seed a matching clarity.hotlist row with the intended CURRENT status (the existing tests seed bare hits with hotlist_id=1 and no hotlist row — they will now return 0 without it; follow the seedHit() helper pattern at line ~1141 which inserts an open clarity.hotlist row keyed on hotlist_id). (b) Rework test_map_hits_only_returns_open_status_hits so the EXCLUSION is driven by the hotlist's current status, not the hit row's frozen status — seed a hit row whose own hotlist_status is stale-Open but whose clarity.hotlist.status is Repossessed → assert excluded. (c) ADD test_map_hits_excludes_repossessed_staging_live_hits: a Staging Live ('S') hit with stale-Open hit-row status + clarity.hotlist.status=Repossessed → EXCLUDED; a Staging Live with hotlist Open → INCLUDED. (d) ADD/extend a Direct case proving a stale-Open Direct hit whose hotlist is now Repossessed is EXCLUDED. Carry #[Group('controllers')] #[Group('clarity-scout')].",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "ClarityScoutMapControllerTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "ScannerMap.vue addRangeHitMarkers", "reason": "No client-side filtering; renders server payload verbatim. Fix is server-side; no JS change."},
+    {"site": "ClarityScoutDashboardController@recentHits (left pane)", "reason": "Direct-only by design, not the leaking surface; AC-2 = same rule, not record parity."},
+    {"site": "HitDirectHotspotQuery (heatmap)", "reason": "Direct-only + org-scoped; not leaking. Could be aligned later, not requested."},
+    {"site": "chlocal CDC / ingestion of hotlist_status", "reason": "Cross-repo; fixing the denormalization at source is out of scope for this platform ticket."}
+  ],
+  "notes": [
+    "No blast-radius tags: change touches a read-only CH query + tests; no migrations/billing/auth/CH-purge globs.",
+    "Sizing: 2 files, single concern — well under the 6-file split gate. Single-node DAG.",
+    "Perf: the candidate-id resolution scopes the hotlist lookup to the kit's in-window hotlist_ids (small set), avoiding a global open-hotlist scan. Endpoint is cached (mapCacheTtl 2-15min)."
+  ]
+}

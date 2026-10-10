@@ -1,0 +1,26 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Make TableMapComponent CH-safe: guard the relationship hop + add CH Hit map accessors",
+      "approach": "In app/Livewire/TableMapComponent.php::formatRecords(), stop unconditionally resolving `$this->relationship` on every record. Resolve it only when the record actually defines that relationship (guard via Model::isRelation()/relationLoaded/method_exists on the resolved model); otherwise map pins directly from the record. This removes the RelationNotFoundException thrown when the model is App\\Clickhouse\\Models\\Hit (which has no `scans` relationship). Then add read-only accessors to app/Clickhouse/Models/Hit.php so a raw CH hit exposes the same fields the map pin reads: `us_state` (from scan_us_state), `vehicleImage` (scan_img from scan_guid, Plate type), and `vehicle` (year/make/model). (`ocr` and `address` already exist as raw columns; `latitude`/`longitude` accessors already exist.) TDD: pin the regression with a TableMapComponentTest case that dispatches load-records-for-map against a CH Hit model + relationship='scans' and asserts no throw + updateMapData dispatched with mapped pin data; keep the existing Scan/default-path cases green.",
+      "target_files": [
+        "app/Livewire/TableMapComponent.php",
+        "app/Clickhouse/Models/Hit.php",
+        "tests/Feature/Livewire/TableMapComponentTest.php"
+      ],
+      "intended_diffs": "TableMapComponent::formatRecords -> conditionally map relationship: `->map(fn ($record) => ($this->relationship && $record->isRelation($this->relationship)) ? $record->{$this->relationship} : $record)`. CH Hit: add usState()/vehicleImage()/vehicle() Attribute accessors mirroring how HitsResource/blade derive them. Test: add clickhouse-hit map case.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "TableMapComponentTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "resources/views/components/hits/cluster-group.blade.php:187 (button dispatch)", "reason": "the dispatch payload (recordIds + center) is correct; the failure is server-side in formatRecords, not in the button markup"},
+    {"site": "app/Filament/Resources/HitsResource.php:250 BulkMapAction->setRelationship('scans')", "reason": "correct for the Postgres path; the fix makes the hop conditional rather than removing the relationship declaration"},
+    {"site": "/geocode/reverse (502) + /nearest-given-address (500)", "reason": "scoped out by Dalton to a separate follow-up ticket; independent init-time HTTP endpoints"}
+  ]
+}

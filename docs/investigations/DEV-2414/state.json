@@ -1,0 +1,510 @@
+{
+  "key": "DEV-2414",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "base-resolve sub-agent: main (confidence 95) \u2014 Scout check-in dedup is unrelated to the otto/* and cursor/* candidate stacks; linked/precedent tickets all shipped to main",
+  "branch": "claude/DEV-2414",
+  "repo_path_note": "REPO_PATH is the harness worktree /Users/daltonmccleery/Herd/platform/.claude/worktrees/dev-2414-b4229e (branch renamed from claude/dev-2414-b4229e to claude/DEV-2414). Worktree was exactly at origin/main; reverted pre-existing laravel-boost regeneration drift in CLAUDE.md/AGENTS.md/.junie/guidelines.md before starting.",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "prep-candidate:2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 676
+    },
+    {
+      "slot": "prep-candidate:1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 719
+    },
+    {
+      "slot": "prep-candidate:3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 902
+    },
+    {
+      "slot": "reconcile",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 173
+    },
+    {
+      "slot": "plan-arbiter",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "plan",
+      "dur_s": 0
+    },
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 606
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 637
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "clickhouse/core.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "fast-pass confidence 78 (<80)",
+    "escalate.recommend=true",
+    "2 answered:false questions in the fast pass",
+    "resource_envelope.unresolved non-empty"
+  ],
+  "best_of_n": true,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [
+    {
+      "file": "app/Console/Commands/ScoutRecordCheckIns.php",
+      "symbol": "ScoutCheckInMatchQuery",
+      "referenced_at": "ScoutRecordCheckIns.php:7,271",
+      "verdict": "no-edit-needed \u2014 caller; matcher return shape is unchanged, only row VOLUME drops. Already satisfies AC7 (::handle)."
+    },
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutDashboardController.php",
+      "symbol": "ScoutCheckInRollupQuery",
+      "referenced_at": "ClarityScoutDashboardController.php:11,236-274",
+      "verdict": "no-edit-needed \u2014 caller; rollup return shape {direct_bucket,staging_bucket} unchanged."
+    },
+    {
+      "file": "app/Models/ScoutCheckIn.php",
+      "symbol": "ScoutCheckIn",
+      "referenced_at": "ScoutCheckIn.php:32",
+      "verdict": "docblock mentions the grain \u2014 candidate for a docblock touch-up only; no behavior change."
+    },
+    {
+      "file": "app/Seeders/ClarityScoutClickhouseSeeder.php",
+      "symbol": "scout_open_addresses",
+      "referenced_at": "ClarityScoutClickhouseSeeder.php:69",
+      "verdict": "no-edit-needed for the fix, but IS the QA seed surface for co-located fixtures (Phase 6)."
+    },
+    {
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsMemoryTest.php",
+      "symbol": "record-check-ins",
+      "referenced_at": ":106",
+      "verdict": "MUST RUN \u2014 asserts assertSame(1, ScoutCheckIn::count()) plus an RSS budget. Near/far fixtures are at distinct geos so the count is unaffected, but this is the resource-envelope regression guard."
+    },
+    {
+      "file": "tests/Feature/Console/ScoutRecordCheckInsOverrunSignalTest.php",
+      "symbol": "record-check-ins",
+      "referenced_at": ":32",
+      "verdict": "MUST RUN \u2014 overrun signalling; unaffected by the SQL change."
+    },
+    {
+      "file": "tests/Feature/Console/ScoutRecordCheckInsScheduleTest.php",
+      "symbol": "record-check-ins",
+      "referenced_at": ":21",
+      "verdict": "MUST RUN \u2014 asserts lookback_minutes config plumbs into the completed log line; unaffected."
+    },
+    {
+      "file": "database/schema/clickhouse-schema.sql / local-clickhouse-schema.sql",
+      "symbol": "scout_open_addresses",
+      "referenced_at": "clickhouse-schema.sql:155",
+      "verdict": "no-edit-needed \u2014 schema dumps; no DDL change in this ticket."
+    },
+    {
+      "file": "routes/api.php",
+      "symbol": "checkInCounts",
+      "referenced_at": "routes/api.php:38",
+      "verdict": "no-edit-needed \u2014 route registration unchanged."
+    },
+    {
+      "file": "okf/concepts/{check-in,scout-check-in-recorder,platform-gotchas}.md",
+      "symbol": "both query classes",
+      "referenced_at": "check-in.md:63,71; scout-check-in-recorder.md:20; platform-gotchas.md:187,205",
+      "verdict": "DEFERRED BY REPO RULE \u2014 okf/ WRITE happens only after merge/approval. Queue, do not edit now."
+    }
+  ],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [
+      "clarity.sc_positions",
+      "clarity.scout_open_addresses",
+      "clarity.scans_hot",
+      "clarity.scans_cold"
+    ],
+    "approach": "two-stage CTE + ROW_NUMBER geo election; scan-side access path unchanged",
+    "measurement": "not required \u2014 scan-side access path unchanged; new work is a ROW_NUMBER over the already bbox-and-radius-narrowed CTE",
+    "verdict": "n/a",
+    "measured_at": null
+  },
+  "diff_base": "d1b37ad39da7c984b2474b871919331ab16aedbb",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "(single-node fast path \u2014 REPO_PATH)",
+      "branch": "claude/DEV-2414",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 11,
+  "pr": {
+    "number": 367,
+    "url": "https://github.com/insight-lpr/platform/pull/367",
+    "draft": false
+  },
+  "pr_urls": {
+    "main": "https://github.com/insight-lpr/platform/pull/367"
+  },
+  "jira_in_progress_by": "pipeline-mcp @ 2026-08-24T13:45:00Z",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "No GH action ran on this branch (gh pr checks: none reported), and In Code Review was still offered as an available transition after undraft \u2014 so the pipeline transitioned via the Atlassian MCP. This is the designed fallback working, not a manual intervention.",
+  "assumed": [],
+  "comment_ids": {
+    "status": "38560",
+    "build_record": "38580"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "resource_envelope": {
+      "path": ".context/qa-resource-envelope.json",
+      "verdict": "PASS",
+      "peak_rss_bytes": 92291072,
+      "wall_clock_seconds": 0.27,
+      "plausible_concurrency": 2,
+      "projected_marginal_gb": 0.088,
+      "headroom_gb": 68,
+      "host_ram_gb": 68,
+      "extrapolation_factor": 906920.2,
+      "basis": "extrapolated"
+    },
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "already-running",
+      "ch_container": "created",
+      "frontend_build": "n/a",
+      "postgres_db": "zod_claude_dev_2414 (dev) + zod_testing_claude_dev_2414 (testing) \u2014 PLUS the pre-rename pair zod_claude_dev_2414_b4229e / zod_testing_claude_dev_2414_b4229e, all four must be torn down",
+      "ch_strategy": "docker \u2014 clarity_claude_dev_2414/zod_claude_dev_2414 (+ _test pair) on clarity-qa-clickhouse:18123",
+      "herd_site": "clarity-claude_dev_2414_b4229e.test",
+      "seed_method": "tinker",
+      "ch_seed_sql": ".context/qa-ch-seed.sql"
+    },
+    "provisioned_early": true,
+    "teardown_note": "Teardown 2 of 2. Dropped ONLY this run's resources: 2 Postgres DBs, 2 ClickHouse DBs, 1 Herd site. The clarity-qa-clickhouse CONTAINER WAS DELIBERATELY KEPT \u2014 it also holds DEV-2409's databases, and worktree ci-unit-test-perf-da092d is wired to its plain  database. Removing it (as the first teardown did, when it was genuinely unshared) would have destroyed another ticket's environment. Verified every drop against psql/docker rather than trusting command output.",
+    "agent_qa_method": "agent plan B:+R: executed directly by the driver (skill not invoked); browser lanes N/A \u2014 no UI surface; log tail clean (0 error lines)",
+    "seeded_scale_metric": "recorded/kits_processed = 2/2 = 1.00 per kit (old grain would be 5/2 = 2.50). NOT the AC-4 production figure.",
+    "env_end_state": "worktree .env is left with CLICKHOUSE_HOST=127.0.0.1 and DATABASE_CLARITY/ZOD naming the now-dropped clarity_claude_dev_2414/zod_claude_dev_2414. This is DELIBERATE, not a leftover: no .env.ch-qa-backup existed (up.sh errored before writing one), so there was nothing to restore from, and re-entering the pre-QA ClickHouse CLOUD credentials by hand would be both credential-handling and the less safe end state. Pointing at a dead LOCAL database means any accidental use of this spent worktree fails loudly and locally rather than reaching production Cloud. Re-running bootstrap/qa-prep rewrites .env into a working state. MAIL_MAILER was restored to smtp."
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact <5 affected files: ScoutCheckInMatchQueryParityTest, ScoutRecordCheckInsCommandTest, ScoutRecordCheckInsMemoryTest, ScoutRecordCheckInsOverrunSignalTest, ScoutRecordCheckInsScheduleTest>",
+        "passed": 37,
+        "failed": 0,
+        "skipped": 0,
+        "assertions": 143
+      },
+      {
+        "cmd": "php artisan test --compact tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php",
+        "passed": 0,
+        "failed": 48,
+        "skipped": 0,
+        "note": "NOT a regression \u2014 fails IDENTICALLY (48) at the base commit d1b37ad. Cause: ~18 unrelated query classes hardcode a literal `clarity.`/`zod.` DB prefix, which cannot resolve against per-worktree CH database names. Pre-existing local-QA env limitation, verified by re-running the file with app/ and tests/ reverted to base."
+      },
+      {
+        "cmd": "php scripts/okf-lint.php",
+        "passed": 106,
+        "failed": 0
+      },
+      {
+        "cmd": "vendor/bin/pint --dirty --format agent",
+        "passed": 1,
+        "failed": 0
+      }
+    ],
+    "deviations": [
+      {
+        "source": "implement",
+        "edit": "ClickHouse 25.8 dialect workaround. Aliasing an aggregate output with the SAME name as its source column (min(is_staged) AS is_staged, alongside argMin(hotlist_id, (toUInt8(is_staged), hotlist_id)) in the same SELECT) throws Code 184 ILLEGAL_AGGREGATION \u2014 the analyzer substitutes the alias definition back into sibling expressions in the same scope. Worker isolated it with a minimal numbers() repro against the local container. Fix: the address_hour CTE's own output aliases are out_hotlist_id / out_is_staged instead of hotlist_id / is_staged. The aggregate EXPRESSIONS are byte-for-byte unchanged; only CTE-local alias names differ. Final projected column names, ordering, and the PHP return mapping are unchanged.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "review",
+        "edit": "Scope extension beyond the planned target_files: app/Console/Commands/ScoutRecordCheckIns.php docblock. Its 'Records one automated check-in per (kit, address, hour)' line became false with this change (the grain is now per geo). One-line correction under CLAUDE.md Change Hygiene (keep docs aligned with behaviour this diff changes).",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "review",
+        "edit": "laravel/boost regenerated its <laravel-boost-guidelines> block into CLAUDE.md/AGENTS.md/.junie/guidelines.md mid-run (an artisan invocation triggers it); checkpoint 952c2f58 swept 676 lines of it into the branch and okf-lint failed. Caught by review round 3 (H1). Reverted to origin/main; okf-lint green. Boost files are now re-checked immediately before every commit rather than once at intake.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "post-review-change",
+        "edit": "DEV-1756 conflict resolution: matcher ROW_NUMBER partition changed from (geo, hour) to (geo, hour, is_staged), mirroring the rollup. Reverses AC-2's stated Direct-wins-across-buckets decision, deliberately and with data: mixed geos are 0.27% of geos (24,378 of 9.1M across 12 Scout-active orgs), so keeping both sides costs ~0.27% of rows while preventing 24,378 staging locations from reading as never-visited under DEV-1756's derived count. Also removes two of the four residual-gap flip mechanisms (cross-bucket displacement is now impossible). Two tests updated to assert 2 rows at a mixed geo.",
+        "ac_ref": "AC-2",
+        "ac_delta": "AC-2 Direct-wins across buckets -> Direct-wins WITHIN the direct bucket; both sides recorded at a shared geo"
+      },
+      {
+        "source": "review",
+        "edit": "RN6 findings fixed: (1) PII \u2014 three committed TSVs contained production kit_mapping values that are real driver names, violating non-negotiable 3; 19 mappings replaced with opaque kit-NN labels. Nothing had reached Jira. (2) Docblock overclaimed that the matcher grain is now identical to the rollup and the tile agrees with what was recorded \u2014 FALSE for a single address_id on both hotlists, and the repo's own parity test asserts that surviving divergence; corrected to state the partial-fix limit precisely. (3) Added the third residual mechanism: an address recorded as Staging that later joins a Direct hotlist strands is_staged=true forever, because insertOrIgnore drops the corrected row. (4) ScoutRecordCheckIns docblock re-corrected for the per-bucket grain. (5) dev1756-conflict.md updated to record that the park was lifted.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "review",
+        "edit": "RN8 caught a statistical error: the \"fleet-wide\" cardinality figures were SUMS over 12 overlapping per-org views (13.9M rows vs a 4.5M book, ~3.1x), because shared staging partners were counted once per agent org. The 0.27% RATIO survives (view-weighted, and check-ins are generated per-org-view, so it is the right basis for the per-bucket decision), but the absolute counts and the 1.52x fan-out must not be quoted as fleet-wide. The AC-4 conclusion drawn from 1.52x is withdrawn; the honest range is ~1.0-1.4.",
+        "ac_ref": "AC-4",
+        "ac_delta": null
+      },
+      {
+        "source": "review",
+        "edit": "RN9 H1: the AC verification record certified the superseded per-geo behaviour and no test run existed against the shipped SQL. Re-ran the full end-to-end scenario against the shipped per-bucket election on the rebuilt env: one row per (geo, hour, is_staged), Staging 8500 now recorded (previously dropped), co-located Directs collapsed, 0 error log lines. qa-agent-report.md and qa-ac-results.json updated.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "review",
+        "edit": "Untracked all five investigation .tsv files. They were per-kit/per-org RAW QUERY ROWS, which non-negotiable 3 keeps out of the repo entirely \u2014 the committed record carries query shapes, parameter classes and aggregates only. The earlier PII fix (anonymising kit_mappings) treated the symptom; removal is the actual rule. Files kept on disk, added to git exclude, and every .md reference rewritten to state the detail is local-only. All headline aggregates were already in the committed .md artifacts.",
+        "ac_ref": null,
+        "ac_delta": null
+      }
+    ],
+    "review": {
+      "lanes": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "scores": [
+        94,
+        94,
+        94,
+        94,
+        85,
+        90,
+        90,
+        94,
+        94,
+        94,
+        94,
+        94,
+        94,
+        94,
+        94,
+        94,
+        94,
+        94,
+        87,
+        94,
+        94
+      ],
+      "findings_fixed": [
+        "RN1: residual-gap line missing from the matcher docblock (required by the plan)",
+        "RN1: geo/address_id functional dependency undocumented despite the fix now leaning on it",
+        "RN2 M1: residual-gap paragraph named 1 of 4 flip mechanisms and claimed unmeasured rarity \u2014 widened to the full mechanism class (book churn), rarity claim dropped",
+        "RN2 L5: e2e volume test asserted only row count \u2014 now seeds address_ids out of order (7002,7000,7001) and pins the elected winner 7000",
+        "RN3 H1: reverted the regenerated laravel-boost block (okf-lint was failing)",
+        "RN3 M1: added test_near_but_not_identical_coordinates_do_not_collapse \u2014 pins the exact-Point (non-clustering) decision",
+        "RN3 M3: corrected the stale ScoutRecordCheckIns docblock grain",
+        "RN4 L1/L2: restored #[Group] attributes displaced onto the new test; flagship AC1/AC2 test had lost its markers",
+        "RN4 L3/L4: added test_colocated_distinct_addresses_still_count_once_in_each_rollup_bucket \u2014 AC6 under the scenario this change creates"
+      ],
+      "findings_residual": [
+        "M1 (RN4): the geo/address_id functional dependency is asserted in the docblock, not enforced in code. REFUTED as live by reading chlocal migration 111 \u2014 its `parsed` CTE joins public_address to a per-id latest-version CTE, emitting exactly one (lng,lat) per address id, so the shape is impossible by construction. Documented, not defended by a runtime guard.",
+        "M2/L-class (RN4): two rows for one (address_id, hour) reachable only if that dependency breaks; insertOrIgnore would then pick nondeterministically. Contingent on the refuted precondition.",
+        "M1 (RN4, claude3): the geo election zeroes DEV-1756's per-address running count (COUNT(*) WHERE address_id = ?) for non-elected co-located addresses. This IS AC1 as specified, not a defect against spec \u2014 but it is a real downstream consequence worth a follow-up.",
+        "L: rollup swaps a streaming countIf for a full sort (window ORDER BY) on a cached, currently-unsurfaced tile.",
+        "L: docblock says 'a single tuple argMin'; the SQL calls argMin twice on the same tuple expression \u2014 the semantic claim (lng/lat cannot blend) still holds.",
+        "AC4 volume figure: post-merge manual production measurement, per the operator's q5 decision."
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "harness-claude-p"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "aba25d48bbfbd92fc149103610704c7699f315aa",
+      "rework_pivot": false,
+      "scores_by_round": {
+        "rn1": [
+          94,
+          94,
+          94
+        ],
+        "rn2": [
+          94
+        ],
+        "rn3": [
+          85
+        ],
+        "rn4": [
+          90,
+          90,
+          94
+        ],
+        "rn5": [
+          94
+        ],
+        "rn6": [
+          94,
+          94,
+          94
+        ],
+        "rn7": [
+          94,
+          94,
+          94
+        ],
+        "rn8": [
+          94,
+          94,
+          94
+        ],
+        "rn9": [
+          87
+        ],
+        "rn10": [
+          94
+        ],
+        "rn11": [
+          94
+        ]
+      },
+      "ac4_estimate_range": "~1.0-1.4 per kit. Four bases disagree (book-distinct 1.91x -> 1.08; view-weighted 1.52x -> 1.36; bbox sample A 1.54x -> 1.35; bbox sample B 2.14x -> 0.97) and none is bbox-and-traffic-weighted the way real check-ins are. Estimate revised three times, each over-confident; stating the range and stopping. Post-deploy measurement is the only decider.",
+      "residual_measured": "The DEV-1756 partial-fix limit (one address_id on both a Direct and a Staging hotlist) measured 0 of 68,966 Direct addresses across all 12 Scout-active orgs \u2014 structurally real, empirically empty today."
+    },
+    "ac": [
+      {
+        "item": "AC-1 one check-in per (kit, address geo, hour_bucket)",
+        "status": "SATISFIED",
+        "evidence": "SHIPPED-SQL RUN: Geo A carried 3 co-located Directs (9002/9000/9001) + 1 co-located Staging (8500), Geo B 1 Direct. Persisted grain is one row per (geo, hour, is_staged): per hour bucket Geo A -> 2 rows (Direct 9000 + Staging 8500), Geo B -> 1. Co-located same-side duplicates 9001/9002 collapsed, which is what AC-1 asserts.",
+        "verified_against": "shipped per-bucket SQL (2026-08-25)"
+      },
+      {
+        "item": "AC-2 Direct-wins then lowest address_id winner persisted",
+        "status": "SATISFIED",
+        "evidence": "SHIPPED-SQL RUN: election is lowest address_id WITHIN each is_staged bucket. Direct bucket elected 9000 even though the co-located Staging 8500 is numerically lower \u2014 they rank in separate partitions, so per-address Direct-wins is intact. AMENDED from the ticket's Direct-wins-ACROSS-buckets rule; see dev1756-conflict.md.",
+        "verified_against": "shipped per-bucket SQL (2026-08-25)"
+      },
+      {
+        "item": "AC-3 distinct locations still one check-in each",
+        "status": "SATISFIED",
+        "evidence": "SHIPPED-SQL RUN: Geo B (>1km away) produced its own row 9100. Unit test pins ~1m-apart non-collapse.",
+        "verified_against": "shipped per-bucket SQL (2026-08-25)"
+      },
+      {
+        "item": "AC-4 volume ~1/kit/15min vs the 2.07 baseline",
+        "status": "N/A",
+        "evidence": "Deferred post-merge by operator decision (q5). Mechanism proven; production figure outstanding. Method + interpretation in human plan hp-2."
+      },
+      {
+        "item": "AC-5 dashboard consistent; parity test green",
+        "status": "SATISFIED",
+        "evidence": "37 passed / 144 assertions / 0 skipped against real local ClickHouse, all re-run after the per-bucket change.",
+        "verified_against": "shipped per-bucket SQL (2026-08-25)"
+      },
+      {
+        "item": "AC-6 shared Direct+Staging counts once in EACH rollup bucket",
+        "status": "SATISFIED",
+        "evidence": "SHIPPED-SQL RUN: the matcher now ALSO keeps both sides at a shared geo (Staging 8500 recorded alongside Direct 9000) \u2014 previously it was dropped entirely. Production invariant I2 (bucket-aware) found 0 lost (geo,hour,bucket) over 14 kits. Residual divergence remains only for a single address_id on both hotlists.",
+        "verified_against": "shipped per-bucket SQL (2026-08-25)"
+      },
+      {
+        "item": "AC-7 recorder calls ::handle() never ::query()",
+        "status": "SATISFIED",
+        "evidence": "ScoutRecordCheckIns.php:274"
+      },
+      {
+        "item": "AC-8 no migration; schedule stays commented",
+        "status": "SATISFIED",
+        "evidence": "0 migration files in diff; routes/console.php:59 commented; okf-lint 106 files pass"
+      }
+    ],
+    "ac_note": "Re-baselined against the SHIPPED per-bucket SQL. NOTE: .context/ is gitignored, so the .context/qa-ac-results.json copy is NOT the durable record \u2014 this state.record.ac block is. RN10 M1 caught that the first re-baseline only touched the gitignored copy."
+  },
+  "parked_decisions": [
+    {
+      "topic": "DEV-2414 vs DEV-1756 co-located Direct+Staging conflict",
+      "decision": "PARKED by operator 2026-08-25 \u2014 merge DEV-2414 unchanged; settle after AC-4 post-deploy volume data",
+      "trigger": "the post-deploy recorded/kits_processed measurement",
+      "artifact": "docs/investigations/DEV-2414/dev1756-conflict.md",
+      "risk": "a consumer may build the DEV-1756 per-address count against the current wiki contract before the decision; the queued okf/ pass must NOT silently resolve check-in.md:46 either way",
+      "measured": "per-bucket variant costs +5.7% rows (87->92 over 14 kits) and resolves all three conflicting claims",
+      "data_now_available": "Mixed geos = 0.27% of geos (24,378 across 12 Scout-active orgs). Variant costs +0.27%, not +5.7%. Shipped zeroes 24,378 staging locations permanently."
+    }
+  ],
+  "follow_ups": [
+    {
+      "key": "DEV-2426",
+      "type": "Bug",
+      "summary": "geo-aware uniqueness key so a re-run cannot double-write one visit",
+      "why": "the remaining over-count after DEV-2414; the likely reason a post-deploy figure sits above ~1.0"
+    },
+    {
+      "key": "DEV-2427",
+      "type": "Task (chlocal)",
+      "summary": "exclude geocoder-fallback coordinates from scout_open_addresses_mv",
+      "why": "20,402 addresses across 32 orgs on one coordinate; 6,482 across 49 orgs in American Samoa"
+    }
+  ]
+}

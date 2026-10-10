@@ -1,0 +1,203 @@
+{
+  "synthesis": "Admin 'Login as Scout user' intermittently fails with NO error during consecutive impersonations. Demo 2026-09-16 showed force-login working, then stopping for 3 different Scout users consecutively. Ticket filed day after PR #410 merge (2026-09-15), which fixed duplicate-GET token revocation but introduced a session-tracking mechanism that accumulates token IDs across DIFFERENT drivers without scoping. Root cause: Session::push() appends each driver's token ID to a single session array; when revokeTracked() fires (on impersonation exit/entry), it deletes ALL accumulated tokens including still-open tabs. Silent failure occurs because revocation happens AFTER admin closes force-login modal/flow, so 401s hit when admin isn't watching.",
+
+  "scope": {
+    "summary": "Fix cross-driver token revocation in ScoutForceTokens session tracking. Scope session array to per-driver tracking OR clear array between consecutive force-logins. Add client-side validation for missing/malformed forceAuth payload. Preserve PR #410 fixes (duplicate GET tolerance, 3-token retention, service worker exclusion).",
+    "proposed_changes": [
+      {
+        "file": "app/Support/Scout/ScoutForceTokens.php",
+        "change": "Scope session tracking to driver ID: change SESSION_KEY from flat array to keyed structure ['driver_123' => [token_ids]]. mintFor() pushes to driver-specific sub-array; revokeTracked() accepts optional User param to revoke single driver, or revokes ALL if no param. OR: clear entire session array on each mintFor() call (simpler but loses multi-tab support for SAME driver).",
+        "reason": "Current Session::push appends all drivers' token IDs to one array; revokeTracked() deletes ALL, causing cross-driver revocation. Driver-scoped tracking prevents Driver A's token being revoked when admin force-logins Driver B.",
+        "ref": "lines 39-69"
+      },
+      {
+        "file": "app/Http/Controllers/ClarityScoutForceLoginController.php",
+        "change": "Add validation: abort_if(empty($token), 500, 'Failed to mint force token'); log warning if driver has stale tokens (indicates session state issue); ensure activity log fires even on edge-case failures.",
+        "reason": "Ticket reports NO error message; if mintFor() returns empty string or null (unlikely but defensive), controller would embed malformed payload and PWA would boot broken.",
+        "ref": "line 24"
+      },
+      {
+        "file": "resources/js/clarity-scout/main.js",
+        "change": "Add validation before forceAuthenticate(): if window.__CLARITY_SCOUT_FORCE_AUTH__ exists but .token/.user/.kit are missing/null/empty, navigate to /scout/login with explicit sessionStorage reason 'Force-login payload invalid' instead of silently booting broken state.",
+        "reason": "If controller returns 200 with malformed payload, PWA boots but auth fails silently; matches ticket's 'NO error message' symptom.",
+        "ref": "lines 17-20 (no validation present)"
+      },
+      {
+        "file": "app/Http/Controllers/ImpersonateController.php",
+        "change": "OPTIONAL: Move revokeTracked() call to AFTER session()->invalidate() OR add explicit Session::forget(SESSION_KEY) before invalidate() to ensure stale array doesn't persist in memory if admin re-impersonates in same browser. (Low priority if primary fix is driver-scoped tracking.)",
+        "reason": "Line 32 revokeTracked() reads session array, line 35 invalidates session; if admin re-impersonates without full browser refresh, old array might persist. Defensive fix but primary issue is accumulation, not ordering.",
+        "ref": "lines 31-36"
+      },
+      {
+        "file": "tests/Feature/Http/Controllers/ClarityScoutForceLoginControllerTest.php",
+        "change": "Add test: test_consecutive_force_logins_of_different_drivers_within_one_admin_session - force-login 3 different drivers with admin_impersonator session, verify all 3 tokens remain valid and no cross-driver revocation occurs. Covers the exact failure scenario from ticket.",
+        "reason": "Existing tests only cover duplicate GET of SAME driver or single-driver scenarios; MISSING test for consecutive DIFFERENT drivers - the reported bug.",
+        "ref": "lines 87-104 test same driver twice; need test for Driver A, B, C"
+      }
+    ],
+    "target_files": [
+      "app/Support/Scout/ScoutForceTokens.php",
+      "app/Http/Controllers/ClarityScoutForceLoginController.php",
+      "app/Http/Controllers/ImpersonateController.php",
+      "resources/js/clarity-scout/main.js",
+      "resources/js/clarity-scout/stores/auth.js",
+      "tests/Feature/Http/Controllers/ClarityScoutForceLoginControllerTest.php",
+      "tests/Feature/Http/Controllers/ImpersonateControllerTest.php"
+    ],
+    "out_of_scope": [
+      "Normal driver login flow (ClarityScoutAuthController) - only force-login affected",
+      "Scout Bird's Eye admin mode - uses web session auth, not force tokens",
+      "Token expiration after 60 min - working as designed per TTL_MINUTES constant",
+      "Service worker caching - already fixed in PR #410",
+      "Single-login enforcement (one session per driver) - product decision required per AC5"
+    ]
+  },
+
+  "acceptance_criteria": [
+    {"item": "Reproduce intermittent failure including consecutive impersonations of different users", "source": "ticket", "decision": "implement", "reason": "Core requirement - must reproduce the exact 3-user consecutive failure from demo"},
+    {"item": "Reproduce with active driver session to determine if single-login is enforced", "source": "ticket", "decision": "defer", "reason": "Product decision required (AC5) - current code allows coexistence but unclear if intended"},
+    {"item": "Root cause identified — session/token handling vs single-login enforcement", "source": "ticket", "decision": "implement", "reason": "Diagnostic requirement - root cause is Session::push accumulation without driver scoping"},
+    {"item": "Consecutive admin impersonations of different Scout users work reliably", "source": "ticket", "decision": "implement", "reason": "Core fix - session tracking must be driver-scoped to prevent cross-driver revocation"},
+    {"item": "Where impersonation is intentionally blocked, UI shows explicit reason (not silent fail)", "source": "ticket", "decision": "implement", "reason": "Silent failure is the defect - all blocks must surface to admin; add client-side payload validation"},
+    {"item": "Confirm with product whether force-login should kick active driver session", "source": "ticket AC5", "decision": "defer", "reason": "Product decision beyond implementation scope - currently both token types coexist safely"},
+    {"item": "PR #410 fixes remain intact - duplicate GET doesn't revoke, 3-token retention, service worker exclusion", "source": "derived", "decision": "implement", "reason": "Must not regress prior fix; tests already cover this"},
+    {"item": "Session tracking array is driver-scoped to prevent cross-driver token accumulation", "source": "derived", "decision": "implement", "reason": "Root fix - change SESSION_KEY structure from flat array to driver-keyed map"},
+    {"item": "Activity log fires for every force-login attempt even on edge-case failures", "source": "derived", "decision": "implement", "reason": "Audit trail must be complete for security/debugging"}
+  ],
+
+  "questions": [
+    {"q": "Was Premier Adjusters demo environment running PR #410 deploy (merged 2026-09-15) at time of incident (2026-09-16)?", "answered": false, "answer": null, "source": "needs-human"},
+    {"q": "Did admin re-impersonate (new /auth/impersonate) between working force-login and 3 failures, or all within one continuous impersonation session?", "answered": false, "answer": null, "source": "needs-human"},
+    {"q": "Were the 3 Scout users in same org or different orgs? (Different orgs require re-impersonation)", "answered": false, "answer": null, "source": "needs-human"},
+    {"q": "Did admin keep prior force-login tabs open while trying subsequent users, or close each before opening next?", "answered": false, "answer": null, "source": "needs-human"},
+    {"q": "What exactly does 'stopped loading' mean - 403/404 response OR 200 with view that failed to boot PWA?", "answered": false, "answer": null, "source": "needs-human"},
+    {"q": "Were any of the 3 target Scout users actively logged in on own devices when admin tried to force-login?", "answered": false, "answer": null, "source": "needs-human"},
+    {"q": "Product decision: Should force-login kick out active driver's normal session, or coexist? Current code allows both.", "answered": false, "answer": null, "source": "needs-human"},
+    {"q": "Does Session::push() create cumulative array across consecutive force-logins of different drivers?", "answered": true, "answer": "YES - line 49 Session::push(SESSION_KEY, token_id) appends to single array without driver scoping; consecutive Driver A→B→C accumulates [A_token, B_token, C_token]; revokeTracked() deletes ALL", "source": "code"},
+    {"q": "When does revokeTracked() fire - only on impersonation entry/exit or elsewhere?", "answered": true, "answer": "Three call sites only: ImpersonateController@impersonate line 32 (new impersonation), @leave line 83, @exitAdminMode line 94; NOT called during normal force-login flow", "source": "code"},
+    {"q": "Does normal driver login token deletion interfere with force tokens?", "answered": true, "answer": "NO - ClarityScoutAuthController line 64 deletes where('name', 'clarity-scout-token') which does NOT match 'clarity-scout-force-token'; intentionally different names for safe coexistence", "source": "code"},
+    {"q": "Does PR #410 service worker change prevent original issue from recurring?", "answered": true, "answer": "YES - clarity-scout-sw.js lines exclude /scout/force-login from caching; CLEAR_API_CACHE also purges API responses; original bug fixed", "source": "code"},
+    {"q": "Is there any payload validation in Scout PWA main.js for forceAuth?", "answered": true, "answer": "NO - lines 17-20 check window.__CLARITY_SCOUT_FORCE_AUTH__ existence but no validation of token/user/kit fields; if controller returns 200 with null token, PWA boots broken silently", "source": "code"}
+  ],
+
+  "blockers": [],
+
+  "notes": [
+    "PR #410 commit 83fb68d24 merged 2026-09-15, ticket filed 2026-09-16 - timeline suggests regression or edge case not covered by PR #410 tests",
+    "ROOT CAUSE IDENTIFIED: ScoutForceTokens uses Session::push(SESSION_KEY, token_id) which appends to flat array without driver scoping; consecutive force-logins accumulate ALL drivers' token IDs; when revokeTracked() fires (on impersonation exit/entry), Session::pull deletes ALL tokens including still-open tabs",
+    "Session tracking mechanism (PR #410 fix) is correct approach but implementation flaw: should be driver-scoped map ['driver_123'=>[ids]] not flat array",
+    "Existing tests cover duplicate GET of SAME driver (lines 87-104) but MISSING test for consecutive DIFFERENT drivers - exact failure scenario",
+    "Force tokens kept to KEEP_PER_DRIVER=3 per driver (line 37) handles duplicate GET; prune() is correctly scoped to $driver->tokens() so no cross-driver interference there",
+    "ImpersonateController line 32 calls revokeTracked() BEFORE line 35 session()->invalidate() - order matters if admin re-impersonates in same browser, but primary issue is accumulation not ordering",
+    "Normal driver login deletes 'clarity-scout-token' only (ClarityScoutAuthController line 64), force tokens use different name 'clarity-scout-force-token' - intentional separation, no conflict",
+    "ClarityScoutForceLoginController line 16 abort_unless(session()->has('admin_impersonator'), 403) - if session expired would return 403; ticket says NO error so 403 path unlikely",
+    "Scout PWA main.js lines 17-20 check window.__CLARITY_SCOUT_FORCE_AUTH__ but no validation - if token/user/kit null, PWA boots broken silently; matches 'NO error message' symptom",
+    "handleUnauthorized() in fetch.js lines 54-81 should catch 401 and display reason on Login.vue lines 8-14; if admin already closed modal when revocation hits, appears as silent failure",
+    "Scout knowledge card warns rapid iteration causes stale assumptions; earlier work already handled shift pollution on force-login; existing isScoutForceImpersonator() pattern documents API-side guards",
+    "Service worker PR #410 fix lines 89-90 exclude /scout/force-login from caching - prevents original duplicate-GET bug from recurring",
+    "Force token TTL is 60 minutes (line 28); expiry is an intentional F1 backstop; not part of this ticket's scope",
+    "Scout Bird's Eye admin mode uses web session auth (not force tokens) so unaffected by this bug",
+    "Activity log at line 26-34 logs every force-login with impersonator/driver/kit - verify it fires even on edge-case failures"
+  ],
+
+  "tests": [
+    {"file": "tests/Feature/Http/Controllers/ClarityScoutForceLoginControllerTest.php", "what_it_pins": "Force token minting, pruning to KEEP_PER_DRIVER=3, session tracking, expiry, activity log, teammate overlay, no-user 404 - covers PR #410 duplicate GET fix"},
+    {"file": "tests/Feature/Http/Controllers/ImpersonateControllerTest.php", "what_it_pins": "Impersonation entry/exit, admin_impersonator session key, force token revocation on leave/exitAdminMode - covers correct-account revocation from PR #410"},
+    {"file": "MISSING: test_consecutive_force_logins_of_different_drivers_within_one_admin_session", "what_it_pins": "Would catch reported bug - force-login Driver A, B, C consecutively with same admin session, verify all 3 tokens valid, no cross-driver revocation, session array scoped correctly"},
+    {"file": "tests/Feature/Http/Middleware/ClarityScoutMiddlewareTest.php (if exists)", "what_it_pins": "Force token ability check 'clarity-scout-force', permission enforcement, 401 vs 403 response codes"}
+  ],
+
+  "grounding": {
+    "key_files": {
+      "app/Support/Scout/ScoutForceTokens.php:39-54": "mintFor() - creates token for DRIVER, Session::push() APPENDS token ID to flat session array (no driver scoping), calls prune()",
+      "app/Support/Scout/ScoutForceTokens.php:59-69": "revokeTracked() - Session::pull() retrieves ALL token IDs from session array, deletes ALL PersonalAccessTokens - BUG: no driver filtering",
+      "app/Support/Scout/ScoutForceTokens.php:75-92": "prune() - keeps 3 most recent per driver, drops expired; correctly scoped to $driver->tokens() so no cross-driver issue here",
+      "app/Http/Controllers/ClarityScoutForceLoginController.php:14-54": "Force-login route - checks admin_impersonator, mints token, renders view with forceAuth payload; NO validation that token is non-empty",
+      "app/Http/Controllers/ImpersonateController.php:31-36": "impersonate() entry - line 32 revokeTracked() THEN line 35 session()->invalidate(); triggers cross-driver revocation if session array accumulated",
+      "app/Http/Controllers/ImpersonateController.php:83": "leave() - calls revokeTracked(); triggers cross-driver revocation",
+      "app/Http/Controllers/ImpersonateController.php:94": "exitAdminMode() - calls revokeTracked(); triggers cross-driver revocation",
+      "app/Http/Controllers/Api/ClarityScoutAuthController.php:64-66": "Normal driver login - deletes 'clarity-scout-token' only, not force tokens; safe coexistence",
+      "resources/js/clarity-scout/main.js:17-20": "PWA boot - checks window.__CLARITY_SCOUT_FORCE_AUTH__ and calls forceAuthenticate(); NO validation for null/missing token/user/kit",
+      "resources/js/clarity-scout/stores/auth.js:195-212": "forceAuthenticate() - sets token/user/kit in store and localStorage, connects Echo",
+      "resources/js/clarity-scout/lib/fetch.js:54-81": "handleUnauthorized() - on 401/403 records reason to sessionStorage, bounces to login; should catch revoked tokens IF admin still watching",
+      "resources/js/clarity-scout/views/Login.vue:8-14": "Login screen - displays signedOut reason from sessionStorage if present",
+      "app/Filament/Resources/ScoutUsersResource.php:346-354": "'Login to Scout' action - visible when admin_impersonator present, opens force-login route in new tab",
+      "public/clarity-scout-sw.js:89-90": "Service worker - excludes /scout/force-login from caching (PR #410 fix)",
+      "app/Http/Middleware/ClarityScoutAdminMiddleware.php:34": "Admin Bird's Eye gate - checks Feature CLARITY_SCOUT OR admin_impersonator session"
+    },
+    "code_flow": "Admin clicks 'Login to Scout' in Filament Scout Users Resource → GET /scout/force-login/{kit} (new tab) → ClarityScoutForceLoginController checks admin_impersonator session (line 16) → ScoutForceTokens::mintFor(driver) creates token + Session::push(SESSION_KEY, token_id) APPENDS to flat array (line 49) → prune(driver) keeps 3 most recent per driver (line 51) → blade renders clarity-scout view with window.__CLARITY_SCOUT_FORCE_AUTH__ → PWA main.js reads payload (NO validation), calls auth.forceAuthenticate() → store sets token, connects Echo → app boots. CROSS-DRIVER ACCUMULATION: Admin force-logins Driver A, B, C consecutively → session array accumulates [A_token, B_token, C_token] → Admin exits impersonation or starts new impersonation → ImpersonateController calls revokeTracked() → Session::pull(SESSION_KEY) retrieves ALL IDs → PersonalAccessToken::query()->whereIn('id', ALL_IDS)->delete() → ALL THREE tokens deleted → All three tabs 401 on next poll. SILENT FAILURE: If admin already closed force-login modal, 401s hit when admin not watching; Login.vue would show reason but admin never sees it.",
+    "tables": ["personal_access_tokens - Sanctum bearer tokens, 1 row per mint, deleted on revoke/prune", "users - driver accounts, no schema change", "kits - assigned to drivers, no schema change", "activity_log - 1 row per force-login with impersonator/driver/kit properties"],
+    "related_components": ["Laravel Sanctum (bearer tokens)", "Laravel Session (admin_impersonator + force token ID tracking)", "Filament Scout Users Resource", "Scout PWA (Vue/Pinia)", "Service Worker (offline caching)", "ImpersonateController (entry/exit revocation triggers)"]
+  },
+
+  "exhaustiveness": {
+    "patterns_searched": [
+      "Session::push - found ScoutForceTokens line 49 only; appends token IDs to flat array",
+      "Session::pull - found ScoutForceTokens line 62 only; retrieves ALL token IDs for deletion",
+      "revokeTracked() - 3 call sites: ImpersonateController@impersonate line 32, @leave line 83, @exitAdminMode line 94",
+      "admin_impersonator - set in ImpersonateController line 57, checked in ClarityScoutForceLoginController line 16 and ScoutUsersResource line 353",
+      "createToken - ScoutForceTokens line 43 (force), ClarityScoutAuthController line 66 (normal), ScoutSetPasswordController line 44 (onboarding)",
+      "tokens()->where('name', 'clarity-scout-token')->delete() - ClarityScoutAuthController line 64 only, does NOT match force tokens",
+      "PersonalAccessToken::query() - ScoutForceTokens::revokeTracked line 68 for bulk delete",
+      "session()->invalidate() - ImpersonateController@impersonate line 35 and @leave line 86, both AFTER revokeTracked()",
+      "window.__CLARITY_SCOUT_FORCE_AUTH__ - set in clarity-scout.blade, read in main.js line 17, NO validation",
+      "handleUnauthorized - fetch.js line 54, called on 401/403, records reason and redirects"
+    ],
+    "sites_checked": [
+      {"location": "app/Support/Scout/ScoutForceTokens.php:49", "pattern": "Session::push token tracking", "verdict": "BUGGY", "reason": "Appends to flat session array without driver scoping; consecutive Driver A→B→C accumulate all token IDs; revokeTracked() deletes ALL including still-open tabs"},
+      {"location": "app/Support/Scout/ScoutForceTokens.php:62", "pattern": "Session::pull all IDs", "verdict": "BUGGY", "reason": "Retrieves ALL token IDs from session array and deletes; no driver filtering; cross-driver revocation when called after multiple force-logins"},
+      {"location": "app/Support/Scout/ScoutForceTokens.php:75-92", "pattern": "prune per driver", "verdict": "safe", "reason": "Correctly scoped to $driver->tokens(); keeps 3 most recent, drops expired; no cross-driver interference"},
+      {"location": "app/Http/Controllers/ClarityScoutForceLoginController.php:24", "pattern": "mintFor return value", "verdict": "assumed-safe but unvalidated", "reason": "No check that token is non-empty before embedding in view; if mintFor() returns empty string (unlikely), payload would be malformed"},
+      {"location": "app/Http/Controllers/ImpersonateController.php:32-35", "pattern": "revokeTracked then invalidate", "verdict": "suspicious timing but secondary", "reason": "Line 32 revokeTracked() reads session, line 35 invalidates; if admin re-impersonates same browser, old array might persist; but primary issue is accumulation not ordering"},
+      {"location": "resources/js/clarity-scout/main.js:17-20", "pattern": "forceAuth payload handling", "verdict": "BUGGY", "reason": "NO validation that payload.token/user/kit are present and non-null; if controller returns 200 with malformed payload, PWA boots broken silently - matches ticket 'NO error'"},
+      {"location": "app/Http/Controllers/Api/ClarityScoutAuthController.php:64", "pattern": "Normal driver login token deletion", "verdict": "safe", "reason": "Deletes only 'clarity-scout-token', not 'clarity-scout-force-token'; intentional separation for coexistence"},
+      {"location": "resources/js/clarity-scout/lib/fetch.js:54-81", "pattern": "401 handling", "verdict": "safe but victim of timing", "reason": "Records status/path/message, redirects to login; Login.vue displays reason; works correctly but if admin closed modal before revocation, never sees it"},
+      {"location": "public/clarity-scout-sw.js:89-90", "pattern": "Service worker caching exclusion", "verdict": "safe", "reason": "PR #410 excludes /scout/force-login from cache; prevents original duplicate-GET bug"},
+      {"location": "app/Filament/Resources/ScoutUsersResource.php:353", "pattern": "Action visibility", "verdict": "safe", "reason": "Requires admin_impersonator session AND assigned_user not null; if either missing, button hidden"}
+    ]
+  },
+
+  "data_impact": {
+    "pg_tables": ["personal_access_tokens - Sanctum tokens, 1 row per mint, deleted on revoke/prune; bug causes premature deletion of valid tokens", "users - driver accounts, no schema change", "kits - no schema change", "activity_log - 1 row per force-login; should fire even on edge cases"],
+    "ch_tables": [],
+    "mv_or_cdc_implications": "None - auth/session logic only, no analytical data affected",
+    "indexes_relied_on": ["personal_access_tokens(tokenable_id, name) - used by $driver->tokens()->where('name', ...) in prune/mint; also whereIn('id', ...) for bulk delete in revokeTracked"]
+  },
+
+  "resource_envelope": {
+    "scale_relevant": false,
+    "trigger": "N/A",
+    "reason": "Auth/session bug, no data iteration or bulk ops; force-login is 1:1 admin:driver request, not batched; session array accumulates at most ~10 IDs (unusual to force-login >3 drivers before exiting impersonation)"
+  },
+
+  "derivation_log": [
+    {"step": "Read ticket + precedents.json", "finding": "Silent failure on consecutive force-logins during Premier demo 2026-09-16, day after PR #410 merge"},
+    {"step": "Read PR #410 commit message + stat", "finding": "Introduced ScoutForceTokens with session tracking, fixed duplicate GET revoking live token, excluded service worker caching"},
+    {"step": "Read ScoutForceTokens class", "finding": "CRITICAL: Session::push(SESSION_KEY, token_id) line 49 appends to flat array; revokeTracked() line 62 Session::pull() retrieves ALL and deletes ALL; no driver scoping"},
+    {"step": "Read ImpersonateController", "finding": "revokeTracked() called at 3 sites: @impersonate line 32, @leave line 83, @exitAdminMode line 94; triggers cross-driver revocation if session array accumulated"},
+    {"step": "Read ClarityScoutForceLoginController", "finding": "Line 16 checks admin_impersonator session; line 24 mints token but no validation it's non-empty; embeds in view as forceAuth payload"},
+    {"step": "Read Scout PWA main.js", "finding": "Lines 17-20 check window.__CLARITY_SCOUT_FORCE_AUTH__ but NO validation of token/user/kit fields; if null, boots broken state silently - matches 'NO error' symptom"},
+    {"step": "Read ClarityScoutAuthController", "finding": "Normal driver login line 64 deletes 'clarity-scout-token' only, not force tokens; intentional separation, no conflict"},
+    {"step": "Read existing tests", "finding": "Cover duplicate GET of SAME driver (lines 87-104), pruning, expiry, revocation; MISSING: consecutive force-logins of DIFFERENT drivers - exact failure scenario"},
+    {"step": "Read ScoutUsersResource", "finding": "Line 353 'Login to Scout' action visible when admin_impersonator present; opens force-login route in new tab"},
+    {"step": "Read service worker", "finding": "PR #410 lines 89-90 exclude /scout/force-login from caching - correct fix, prevents original bug"},
+    {"step": "Grep exhaustively for Session::push/pull", "finding": "Only 2 sites: ScoutForceTokens lines 49 and 62; confirms session tracking is isolated to this class"},
+    {"step": "Check middleware and auth flow", "finding": "ClarityScoutAdminMiddleware line 34 checks admin_impersonator; ClarityScoutMiddleware checks force ability; no issues in auth gates"},
+    {"step": "Analyze failure timeline", "finding": "Ticket filed day after PR #410 merge; session tracking is correct approach but implementation flaw (no driver scoping) causes new bug"}
+  ],
+
+  "qa_hint": {
+    "plan_sketch": "1. REPRODUCE: Admin impersonates Org, force-login Driver A (keep tab open), force-login Driver B (keep tab open), force-login Driver C (keep tab open). Check all 3 tabs working. Admin clicks 'Exit Admin Mode' or starts new impersonation. Check if all 3 tabs 401. EXPECTED PRE-FIX: all 3 fail; EXPECTED POST-FIX: all 3 stay live. 2. VARIANT: Admin force-login Driver A, close tab, force-login Driver B, verify B works (no cross-contamination). 3. VARIANT: Driver A actively logged in on own device, admin force-login Driver A, verify both sessions coexist (or get product decision if should kick). 4. REGRESSION: Verify PR #410 fixes intact (duplicate GET of same driver keeps prior token, pruning to 3, service worker doesn't cache). 5. PAYLOAD: Manually test malformed forceAuth (hard to trigger naturally but defensive fix should be tested).",
+    "seed_scenario": "3 Kits with assigned Scout drivers in same org (org must have Clarity Scout feature enabled). Admin user with admin_impersonator privileges (use __qa/login route locally or hardcoded allowlist). Seed each driver with 0 initial force tokens. Admin session must stay active across all 3 force-logins (don't re-impersonate between them).",
+    "personas": ["Admin with admin_impersonator session", "3 Scout drivers (A, B, C) assigned to different kits in same org", "Optional: Driver A actively logged in on separate device"],
+    "pg_tables": ["users (admin + 3 drivers)", "kits (3 kits, org-scoped, each assigned to a driver)", "personal_access_tokens (will accumulate 3 force tokens during test, should NOT all be deleted until admin exits)", "activity_log (will log each of 3 force-logins)"],
+    "ch_tables": []
+  },
+
+  "confidence": 85,
+
+  "escalate": {
+    "recommend": true,
+    "reason": "High confidence on root cause (Session::push accumulation without driver scoping) but auth/session is blast-radius sensitive - a bug here locks users out or leaks tokens. Timeline (ticket day after PR #410 merge) and demo context (Premier Adjusters) suggest production impact. AC5 requires product decision (single-login enforcement). Fix is straightforward (driver-scoped session map) but needs human review to choose between: (1) driver-scoped map ['driver_123'=>[ids]], (2) clear session array on each mint (loses multi-tab for SAME driver), (3) accept accumulation and only revoke on explicit leave (changes revocation timing). Recommend pairing with PR #410 author (Dalton per commit 83fb68d24) to ensure no regression and alignment on session lifecycle. Also need confirmation from user/PM on demo state (was PR #410 deployed? exact failure sequence?)."
+  }
+}

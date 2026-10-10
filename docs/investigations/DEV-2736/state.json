@@ -1,0 +1,311 @@
+{
+  "key": "DEV-2736",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_sha": "b999329615174f5e3c6bfe7f77e5c592f01c021a",
+  "base_branch_reason": "First Glance comment 41855 sets the branch path main into main. origin/main is b999329615174f5e3c6bfe7f77e5c592f01c021a on 2026-09-25.",
+  "branch": "cursor/dev-2736-recovery-leaderboard-2a57",
+  "phase": "reviewed",
+  "gate": "CLEAN",
+  "gate_reason": "Dalton 2026-09-25. Q1 B Scans chrome. Q2 Distinct Recoveries, Top 10 kits by recoveries, Distinct recoveries. Q3 A keep the monthly top-10 sum. No second query.",
+  "next": "Undraft / CI / Jeff re-FREEZE",
+  "plan_written": true,
+  "product_code_changed": true,
+  "tip_sha": "b4bd97fb9a487bd97e6847ee691d76c5438ca333",
+  "tip_sha_note": "Tip-fix code commit. Case B: nested page date on newly mounted RecoveryLeader. A docs stamp may be the branch head that records this sha.",
+  "provision_head": "93d7791e1cf4e62512037d2d538fcd97363ef7f6",
+  "provisioned": true,
+  "ledger_path": "docs/investigations/DEV-2736/qa-prep-ledger.json",
+  "jira": {
+    "key": "DEV-2736",
+    "id": "31244",
+    "url": "https://insightlpr-team.atlassian.net/browse/DEV-2736",
+    "type": "Story",
+    "status": "In Progress",
+    "priority": "Medium",
+    "sprint": "Sprint 41",
+    "application": "Clarity",
+    "assignee": "Dalton McCleery",
+    "assignee_changed": false,
+    "summary": "Company Metrics, reshape LPR Recovery leaderboard to match Scans and Staging Live Hits",
+    "relates": [
+      "DEV-2654"
+    ],
+    "first_glance_comment": "41855",
+    "reget_at": "2026-09-25T15:24:00Z"
+  },
+  "flags": {
+    "companion": false,
+    "jira_mirror": false,
+    "no_spawn": true,
+    "start_at": "intake",
+    "stop_at": "done",
+    "implement": true,
+    "qa": true,
+    "review": true,
+    "cloud_ch_writes": false,
+    "mac_herd_refused": true,
+    "cloud_touched": false
+  },
+  "preflight": {
+    "24": "getData list matches StagingLiveHitLeader. Chrome copies UniqueScansLeaderboard with the Dalton strings. No new leaderboard class.",
+    "25": "does_not_fire",
+    "25_reason": "Q3 keeps BuildsDateFilterChartSeries. No second query. handleSql stays fractional kit credit on recovery_scans FINAL.",
+    "18": "Fleet Docker ClickHouse is 127.0.0.1:18127 database clarity_dev_2736. recovery_scans is present. table_count is 31. Site is http://127.0.0.1:18084. Postgres is 127.0.0.1:15436 database zod_dev_2736. Mac Herd is refused. Cross-key ports are refused.",
+    "18_verify": "PASS \u2014 Agent QA real Docker CH CLICKHOUSE_DRIVER=clickhouse @ 127.0.0.1:18127 clarity_testing_dev_2736 cloud_touched=false"
+  },
+  "open_questions": [],
+  "answers": {
+    "source": "Dalton 2026-09-25",
+    "Q1": "B Scans chrome",
+    "Q2": "Distinct Recoveries / Top 10 kits by recoveries / Distinct recoveries",
+    "Q3": "A sum of monthly top-10 maps"
+  },
+  "models": {
+    "prep": "grok-4.7",
+    "plan": "grok-4.7"
+  },
+  "artifacts": [
+    "docs/investigations/DEV-2736/state.json",
+    "docs/investigations/DEV-2736/journal.md",
+    "docs/investigations/DEV-2736/precedents.json",
+    "docs/investigations/DEV-2736/prep-context.json",
+    "docs/investigations/DEV-2736/question-gate.md",
+    "docs/investigations/DEV-2736/plan.json",
+    "docs/investigations/DEV-2736/plan.md",
+    "docs/investigations/DEV-2736/qa-prep-ledger.json"
+  ],
+  "cli_provision": {
+    "status": "live",
+    "at": "2026-09-25T15:43:19Z",
+    "ledger_path": "docs/investigations/DEV-2736/qa-prep-ledger.json",
+    "site": "http://127.0.0.1:18084",
+    "login_probe": "GET /app/login 200",
+    "postgres": {
+      "host": "127.0.0.1",
+      "port": 15436,
+      "dev_db": "zod_dev_2736",
+      "testing_db": "zod_testing_dev_2736"
+    },
+    "clickhouse": {
+      "strategy": "docker",
+      "host": "127.0.0.1",
+      "http_port": 18127,
+      "database": "clarity_dev_2736",
+      "recovery_scans_present": true,
+      "table_count": 31
+    },
+    "cloud_touched": false,
+    "cloud_ch_writes": false,
+    "mac_herd_refused": true,
+    "refused_ports": {
+      "DEV-2738": [
+        18085,
+        15437,
+        18128
+      ],
+      "DEV-2659": [
+        18083,
+        15435,
+        18126
+      ],
+      "SCHEMA-DRIFT-2657": [
+        18125
+      ],
+      "DEV-2654": [
+        18124
+      ]
+    }
+  },
+  "updated_at": "2026-09-25T19:55:59Z",
+  "record": {
+    "tests": [
+      {
+        "cmd": "vendor/bin/pint --dirty --format agent",
+        "passed": true,
+        "note": "Pint reported passed on RecoveryLeader.php and RecoveryLeaderTest.php before the product commit."
+      },
+      {
+        "cmd": "php artisan test --compact --filter=RecoveryLeaderTest",
+        "filter": "RecoveryLeaderTest",
+        "passed": 24,
+        "failed": 0,
+        "assertions": 138,
+        "duration_s": 7.53,
+        "env": "CloudAgent .env.testing. Postgres 127.0.0.1:5432 zod_testing. RecoveryLeaderQuery is stubbed, so ClickHouse is not required. No Cloud ClickHouse writes. Fleet ports were not used. cloud_touched=false."
+      },
+      {
+        "cmd": "vendor/bin/pint --dirty --format agent",
+        "passed": true,
+        "when": "2026-09-25T19:50:31Z",
+        "note": "Pint passed on the tip-fix dirty tree before commit."
+      },
+      {
+        "cmd": "php artisan test --compact --filter=RecoveryLeaderTest",
+        "filter": "RecoveryLeaderTest",
+        "passed": 29,
+        "failed": 0,
+        "assertions": 164,
+        "duration_s": 7.28,
+        "when": "2026-09-25T19:50:31Z",
+        "env": "CloudAgent .env.testing. Postgres 127.0.0.1:5432 zod_testing. RecoveryLeaderQuery is stubbed. No Cloud ClickHouse writes. Fleet ports were not used. cloud_touched=false."
+      },
+      {
+        "cmd": "php artisan test --compact --filter=test_expanded_recovery_leader_receives_the_page_date_toggle|test_card_query_uses_a_nested_page_date_toggle",
+        "filter": "expanded recovery date + nested card query date",
+        "passed": 2,
+        "failed": 0,
+        "assertions": 7,
+        "duration_s": 3.44,
+        "when": "2026-09-25T19:50:31Z",
+        "env": "Same .env.testing. No Cloud ClickHouse writes."
+      }
+    ],
+    "code_diff_vs_provision_head": {
+      "provision_head": "93d7791e1cf4e62512037d2d538fcd97363ef7f6",
+      "product_tip": "dd61b327e3b15691e254b28cb9dd1367fb320fd3",
+      "non_empty": true,
+      "stat": "2 files changed, 229 insertions(+), 118 deletions(-)",
+      "files": [
+        "app/Filament/Widgets/Dashboard/RecoveryLeader.php",
+        "tests/Filament/Widgets/Dashboard/RecoveryLeaderTest.php"
+      ]
+    },
+    "review": {
+      "rn": 1,
+      "reviewed_sha": "1930a8c42699ae63c351f87da153f9886714c6f4",
+      "product_tip": "dd61b327e3b15691e254b28cb9dd1367fb320fd3",
+      "branch_tip": "1930a8c42699ae63c351f87da153f9886714c6f4",
+      "min_score": 92,
+      "scores": [
+        94,
+        92,
+        95
+      ],
+      "lanes": [
+        "correctness",
+        "conventions",
+        "blast-radius"
+      ],
+      "threshold": 85,
+      "rerun_required": false,
+      "act_on": "NONE",
+      "gate": "REVIEW_GATE: pass min=92 threshold=85 lanes=3 rn=1 scores=94/92/95 conventions=92 sources=in-session-review:3 source=lane-min",
+      "next": "Pippin",
+      "pr": 468,
+      "soft_ok_vs": "getOptions intent-copy not byte-identical; Pint not re-run on Review box; live CH :18127 waits Agent QA",
+      "scope": "RecoveryLeader single-series selected-window ranking + Scans chrome Distinct strings; query stay",
+      "reviewed_at": "2026-09-25T12:31:45-05:00"
+    },
+    "product_tip": "dd61b327e3b15691e254b28cb9dd1367fb320fd3",
+    "agent_qa": {
+      "verdict": "PASS",
+      "when": "2026-09-25T12:34:46-05:00",
+      "pint_files": 2,
+      "phpunit_passed": 24,
+      "phpunit_assertions": 138,
+      "clickhouse_driver": "clickhouse",
+      "clickhouse_host": "127.0.0.1",
+      "clickhouse_port": 18127,
+      "database": "clarity_testing_dev_2736",
+      "cloud_touched": false,
+      "report": "docs/investigations/DEV-2736/agent-qa-real-ch.md"
+    },
+    "ac": [
+      {
+        "id": "AC-1",
+        "text": "LPR Recovery leaderboard UI matches Scans / Staging Live Hits (top-10, single-series presentation).",
+        "verdict": "PASS",
+        "evidence": [
+          "RecoveryLeader::getData one dataset from rankingForSelectedRange(); makeDataset/getOptions from UniqueScansLeaderboard",
+          "Agent QA Q1 PASS \u2014 docs/investigations/DEV-2736/agent-qa-real-ch.md",
+          "RecoveryLeaderTest chrome / single-series asserts; PHPUnit 24/138"
+        ]
+      },
+      {
+        "id": "AC-2",
+        "text": "Counts remain accurate vs the recovery source used after DEV-2654 (no silent query regression).",
+        "verdict": "PASS",
+        "evidence": [
+          "app/Clickhouse/Queries/RecoveryLeaderQuery.php 0-line diff vs main at product tip dd61b327",
+          "test_collapsed_summary_preserves_fractional_attribution_shares retained",
+          "preflight #25 does_not_fire / query stay"
+        ]
+      },
+      {
+        "id": "AC-3",
+        "text": "Visual/parity check against Scans and Staging Live Hits on the same org/date window.",
+        "verdict": "PASS",
+        "evidence": [
+          "Scans LEADER_FILL/FIELD chrome + StagingLiveHitLeader getData list shape (plan #24)",
+          "Agent QA q_checks Q1\u2013Q3 PASS; no Unique in new chrome",
+          "Live OTP/Playwright NOT_COVERED \u2014 soft (curl login 200 only)"
+        ]
+      },
+      {
+        "id": "Q1",
+        "text": "Scans chrome (getOptions/makeDataset, nearest, subtitle+axis, leader green).",
+        "verdict": "PASS",
+        "evidence": [
+          "RecoveryLeader.php LEADER_FILL + getOptions; Agent QA Q1; tests"
+        ]
+      },
+      {
+        "id": "Q2",
+        "text": "Distinct Recoveries / Top 10 kits by recoveries / Distinct recoveries.",
+        "verdict": "PASS",
+        "evidence": [
+          "Dataset label + subtitle + axis strings; Agent QA Q2; tests"
+        ]
+      },
+      {
+        "id": "Q3",
+        "text": "Keep monthly top-10 sum via BuildsDateFilterChartSeries; no second query.",
+        "verdict": "PASS",
+        "evidence": [
+          "chartSeries stay; RecoveryLeaderQuery untouched; #25 N/A"
+        ]
+      },
+      {
+        "id": "PF-18",
+        "text": "CH-touching Verify requires Agent QA on real fleet Docker ClickHouse (CLICKHOUSE_DRIVER=clickhouse).",
+        "verdict": "PASS",
+        "evidence": [
+          "BOOT/PROCESS_CLICKHOUSE_DRIVER=clickhouse HOST=127.0.0.1:18127 DB=clarity_testing_dev_2736",
+          "phpunit-real-ch.log OK (24 tests, 138 assertions); cloud_touched=false",
+          "agent-qa-real-ch.md VERDICT PASS"
+        ]
+      },
+      {
+        "id": "PF-25",
+        "text": "Old-vs-new path parity when query/path rewritten.",
+        "verdict": "N/A",
+        "evidence": [
+          "plan/question-gate preflight.25=does_not_fire",
+          "RecoveryLeaderQuery.php unchanged vs main"
+        ]
+      }
+    ]
+  },
+  "comment_ids": {
+    "build_record": "41869",
+    "first_glance": "41855"
+  },
+  "reviewed_sha": "6edf4095e05037252fc46f694baee3341d58082e",
+  "review": {
+    "rn": 2,
+    "pass": true,
+    "min": 93,
+    "scores": [
+      94,
+      93,
+      95
+    ],
+    "act_on": "NONE",
+    "product_tip": "b4bd97fb9a487bd97e6847ee691d76c5438ca333",
+    "reviewed_sha": "6edf4095e05037252fc46f694baee3341d58082e",
+    "jeff_fail": "41882 Case B date sync"
+  }
+}

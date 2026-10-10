@@ -1,0 +1,100 @@
+{
+  "ticket": "DEV-2593",
+  "decisions": {
+    "soft_delete_email": "1A_explain_offer_restore",
+    "resend_invalidation": "2A_nonce",
+    "ac4_disabled": "3B_toggle_plus_scout_users_restore"
+  },
+  "excluded_sites": [
+    {
+      "site": "database/migrations partial unique on users.email",
+      "reason": "Human 1A — no unique-index migration; restore/offer UX only"
+    },
+    {
+      "site": "sibling password-reset / account recovery",
+      "reason": "Sibling ticket; out of scope"
+    }
+  ],
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Add scout_onboarding_nonce column + User bump helper",
+      "approach": "Migration on users; User::bumpScoutOnboardingNonce(); cast as integer. Not fillable.",
+      "target_files": [
+        "database/migrations/2026_09_17_000000_add_scout_onboarding_nonce_to_users_table.php",
+        "app/Models/User.php"
+      ],
+      "intended_diffs": "users.scout_onboarding_nonce unsignedBigInteger default 0; bump method increments+saves",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": false,
+      "blast_radius": ["database/migrations/**"],
+      "complexity": "simple"
+    },
+    {
+      "id": "t2",
+      "title": "Wire nonce into onboarding signed URL + middleware",
+      "approach": "Include nonce in temporarySignedRoute params; ValidateScoutSignedUrl rejects mismatched nonce after signature check. Bump before every ScoutOnboardingNotification send.",
+      "target_files": [
+        "app/Notifications/ScoutOnboardingNotification.php",
+        "app/Http/Middleware/ValidateScoutSignedUrl.php"
+      ],
+      "intended_diffs": "signed URL carries nonce; middleware compares to user.scout_onboarding_nonce",
+      "depends_on": ["t1"],
+      "parallelizable": false,
+      "test_filter": "ScoutOnboardingNotificationTest|ScoutSetPasswordControllerTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple"
+    },
+    {
+      "id": "t3",
+      "title": "Scout Users: collision messaging, restore action, resend bumps nonce",
+      "approach": "Replace generic unique with withTrashed collision messages naming user + action. Add restore_scout_user table action for trashed assigned users. resend_onboarding + first-grant notify bump nonce first. Eager-load settings.user withTrashed.",
+      "target_files": [
+        "app/Filament/Resources/ScoutUsersResource.php",
+        "app/Filament/Resources/ScoutUsersResource/Pages/EditScoutUser.php"
+      ],
+      "intended_diffs": "custom email rules; restore action; bump before notify",
+      "depends_on": ["t2"],
+      "parallelizable": false,
+      "test_filter": "ScoutUsersResourceTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t4",
+      "title": "UsersResource email collision messaging",
+      "approach": "Mirror withTrashed-aware collision messages on Users email field (ignore current record).",
+      "target_files": [
+        "app/Filament/Resources/UsersResource.php"
+      ],
+      "intended_diffs": "custom unique closure with soft-delete aware messages",
+      "depends_on": ["t3"],
+      "parallelizable": false,
+      "test_filter": "UsersResourceTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "simple"
+    },
+    {
+      "id": "t5",
+      "title": "Tests for restore, deleted-email messaging, nonce invalidation",
+      "approach": "Extend ScoutUsersResourceTest + ScoutOnboardingNotificationTest + ScoutSetPasswordControllerTest",
+      "target_files": [
+        "tests/Filament/Resources/ScoutUsersResourceTest.php",
+        "tests/Feature/Notifications/ScoutOnboardingNotificationTest.php",
+        "tests/Feature/Http/Controllers/Auth/ScoutSetPasswordControllerTest.php"
+      ],
+      "intended_diffs": "new tests for AC2/AC3/AC4/AC5 paths",
+      "depends_on": ["t3", "t4"],
+      "parallelizable": false,
+      "test_filter": "ScoutUsersResourceTest|ScoutOnboardingNotificationTest|ScoutSetPasswordControllerTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ]
+}

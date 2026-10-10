@@ -1,0 +1,624 @@
+{
+  "key": "DEV-2253",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "base-resolve.sh returned 2 candidates, both hotfix/DEV-2246-scout-signed-url* (signed-URL hotfix work, unrelated to org-map visibility, 58 commits behind main). Neither carries the Scout org-map feature this ticket targets, so the default main base stands.",
+  "branch": "claude/DEV-2253",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "prep-candidate:1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 948
+    },
+    {
+      "slot": "prep-candidate:2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 948
+    },
+    {
+      "slot": "prep-candidate:3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 948
+    },
+    {
+      "slot": "plan-arbiter",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "plan",
+      "dur_s": 664
+    },
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 235
+    },
+    {
+      "slot": "implement:t2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 660
+    },
+    {
+      "slot": "implement:t3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 328
+    },
+    {
+      "slot": "implement:t4",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 328
+    },
+    {
+      "slot": "implement:t6",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 328
+    },
+    {
+      "slot": "implement:t5",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 372
+    },
+    {
+      "slot": "review-lane:claude1",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 1173
+    },
+    {
+      "slot": "review-lane:claude2",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 1173
+    },
+    {
+      "slot": "review-lane:claude3",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 1173
+    },
+    {
+      "slot": "review-lane-rn2:claude1",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 1279
+    },
+    {
+      "slot": "review-lane-rn2:claude2",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 1279
+    },
+    {
+      "slot": "review-lane-rn2:claude3",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 1279
+    },
+    {
+      "slot": "agent-qa",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "verify",
+      "dur_s": 710
+    },
+    {
+      "slot": "ac-fold-in",
+      "model": "driver-inline (opus)",
+      "effort": "inherit",
+      "phase": "verify",
+      "dur_s": 0,
+      "note": "Run inline as a jq transform rather than dispatched to a TICKET_OFFLOAD_MODEL sub-agent: the input (.context/qa-ac-results.json) was authored by this driver moments earlier, so an agent round-trip would have added cost with no independence. The gate (checking for any NOT SATISFIED) stayed with the driver either way."
+    },
+    {
+      "slot": "review-lane-rn3:claude1",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 553
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "clarity/scout.md",
+    "clickhouse/core.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "unanswered questions present in fast pass",
+    "fast-pass confidence 68 (< 80)",
+    "fast pass escalate.recommend = true",
+    "cross-repo/external dependency (GPS egress loader outside this repo)"
+  ],
+  "best_of_n": true,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [
+    "app/Services/Scout/BuildShiftSummary.php (KitHistoricPositionsQuery — same idiom, shift-email consumer, out of scope)",
+    "resources/js/clarity-scout/App.vue:339-345 (noKitsReporting — DEV-2197 banner, DIRECTLY IMPLICATED, see Q2)",
+    "app/Clickhouse/Queries/KitScanPathsQuery.php:76 (FINAL precedent for the new query)",
+    "app/Http/Controllers/Api/ClarityScoutBirdsEyeDispositionController.php:28 (withShared — orgScoutKits never merges shared kits; unconfirmed, not the measured cause)",
+    "resources/js/clarity-scout/components/ScannerMap.vue:691-735 (uniform marker rendering — relevant to Q1 only)"
+  ],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [
+      "clarity.kit_scan_paths",
+      "clarity.sc_positions"
+    ],
+    "approach": "tier-2 batched argMax over clarity.kit_scan_paths FINAL, keyed (org_id, kit_id)",
+    "measurement": "Not gate-required (no >1B-row surface: sc_positions ~172M/60d under a 90-day TTL; kit_scan_paths is 15-min-bucketed and far smaller; hits_cold is untouched). Measured anyway as prudence for a ~10s-polled endpoint: the exact new query shape over the largest affected org (35 kit_ids in play at Premier) returned 35 rows in 195 ms wall time. In production the fallback fires only for the MISSING subset (4 kits at Premier), so real cost is lower. WHERE aligns with ORDER BY (org_id, kit_id, timestamp).",
+    "verdict": "go",
+    "measured_at": "2026-08-04T14:35:00Z"
+  },
+  "diff_base": "0236f6effe71876b99e0744178b50b58a1ebdf3b",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "jira/DEV-2253-t1",
+      "complexity": "complex",
+      "model": "sonnet"
+    },
+    {
+      "id": "t2",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "jira/DEV-2253-t2",
+      "complexity": "complex",
+      "model": "sonnet"
+    },
+    {
+      "id": "t3",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "jira/DEV-2253-t3",
+      "complexity": "simple",
+      "model": "sonnet"
+    },
+    {
+      "id": "t4",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "jira/DEV-2253-t4",
+      "complexity": "simple",
+      "model": "sonnet"
+    },
+    {
+      "id": "t5",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "jira/DEV-2253-t5",
+      "complexity": "complex",
+      "model": "driver-inline (opus)"
+    },
+    {
+      "id": "t6",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "jira/DEV-2253-t6",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 3,
+  "pr": {
+    "number": 304,
+    "url": "https://github.com/insight-lpr/platform/pull/304",
+    "draft": false
+  },
+  "pr_urls": {
+    "main": "https://github.com/insight-lpr/platform/pull/304"
+  },
+  "jira_in_progress_by": null,
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "Undrafting PR #304 did NOT transition the ticket (status was still In Progress afterwards), so no GH Action is wired for this repo/flow. The pipeline transitioned it itself via the Atlassian MCP (transition id 4, In Progress -> In Code Review) at closeout. This is the designed fallback working, not a manual intervention.",
+  "assumed": [],
+  "comment_ids": {
+    "status": "37991",
+    "build_record": "38073"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "already-running",
+      "ch_container": "reused (shared clarity-qa-clickhouse)",
+      "frontend_build": "ran",
+      "postgres_db": "zod_claude_dev_2253_b09a81 (dev) + zod_testing_claude_dev_2253_b09a81 (testing), both migrated",
+      "ch_strategy": "docker — LITERAL clarity/zod on 127.0.0.1:18123 (required by RequiresClickhouse truncate-by-literal-name + 29 prefix-hardcoding files); up.sh env mis-sets corrected by hand",
+      "herd_site": "clarity-claude_dev_2253_b09a81.test (secured)",
+      "postgis_patch": "applied to BOTH dev and testing DBs (simplified_geom was absent); baseline seed re-run after",
+      "env_keys_set": [
+        "MAIL_MAILER (smtp -> log)",
+        "CLICKHOUSE_HOST (Cloud -> 127.0.0.1)"
+      ]
+    },
+    "provisioned_early": true,
+    "plans": [
+      ".context/qa-plan-agent.md",
+      ".context/qa-plan-human.md"
+    ],
+    "seeded": "Org A id 2: kits 66-70 (GPS/SCAN/BOTH/NONE/NOMAP); Org B id 337: kit 71 foreign; CH sc_positions x2, kit_scan_paths x4, scans_hot x3 today; personas id 2 admin + id 3 driver",
+    "screenshots": ".context/qa-screenshots/manifest.json",
+    "human_guide": ".context/qa-human-guide.html",
+    "parked_at": "handoff — awaiting human QA",
+    "human_qa_judgement_calls": [
+      "hp-4 the 45% dimming value",
+      "hp-7 the no-GPS notice copy over a populated map",
+      "ec-3 full-opacity nameplates above dimmed dots",
+      "ec-4 staleness not surfaced in the tooltip",
+      "adj-2 fixed cameras may now surface as dimmed dots (unverified, no fixed cameras in the seed)",
+      "hp-10 the new Help-panel copy for the faded icon"
+    ],
+    "human_guide_revision": 3,
+    "human_qa": {
+      "completed": true,
+      "signalled_at": "2026-08-04T18:15:00Z",
+      "signal": "Dalton stated \"I've completed QA\".",
+      "defects_reported": "none",
+      "changes_requested_during_qa": [
+        "Add Help copy explaining what the dimmed icons mean — applied (HelpPanel.vue Map Legend entry), then corrected twice after RN3 review caught two factual errors in that copy."
+      ],
+      "judgement_items_outcome": "Dalton signed off without requesting further changes. He did not separately report verdicts on the guide's judgement steps (hp-4 the 45% dimming value, hp-7 the notice copy over a populated map, hp-10 the new Help copy, ec-3/ec-4 the cosmetic gaps, adj-2 fixed cameras), so these are recorded as accepted-as-shipped by absence of a change request — NOT as individually confirmed verdicts.",
+      "environment_incidents": [
+        "The ClickHouse QA seed was found wiped TWICE mid-QA (once with all three tables at zero). Postgres was never affected. Both times it was re-applied from .context/qa-ch-seed.sql and the endpoint was re-verified end-to-end before handing back. Cause: runtime and testing share the LITERAL clarity/zod databases on a container shared across every worktree, and RequiresClickhouse truncates those tables by literal name — so a ClickHouse-backed test run in ANY worktree wipes this seed."
+      ]
+    },
+    "teardown": {
+      "method": "Performed surgically by the driver with explicit shape guards, NOT via qa-complete/down.sh.",
+      "why": "The shared clarity-qa-clickhouse container was in active use by another worktree (clarity_claude_dev_2304 / zod_claude_dev_2304 were present), and this run addressed the LITERAL clarity/zod databases which every worktree on that container shares. down.sh also has a known name-derivation bug (it derives zod_testing_<wt> rather than the ledger's name). Handing shared, in-use resources to that script risked removing the container out from under dev_2304 or dropping the shared literal databases — destructive and hard to reverse. Each target was therefore verified and guarded individually.",
+      "dropped": [
+        "ClickHouse clarity_claude_dev_2253 (guard: ^(clarity|zod)_claude_dev_2253$)",
+        "ClickHouse zod_claude_dev_2253 (same guard)",
+        "Postgres zod_claude_dev_2253_b09a81 (guard: ^zod(_testing)?_claude_dev_2253_b09a81$, plus explicit != zod / != zod_testing)",
+        "Postgres zod_testing_claude_dev_2253_b09a81 (same guard)",
+        "Herd site clarity-claude_dev_2253_b09a81 (herd unlink)"
+      ],
+      "deliberately_preserved": [
+        "The clarity-qa-clickhouse container (shared, still up 25h, in use by dev_2304)",
+        "The LITERAL clarity and zod ClickHouse databases (shared across every worktree)",
+        "clarity_claude_dev_2304 / zod_claude_dev_2304 (another worktree's)",
+        "The shared Postgres zod and zod_testing databases (verified intact after)"
+      ],
+      "verified_after": "0 dev_2253 ClickHouse databases remain; 0 dev_2253 Postgres databases remain; shared clarity/zod (CH) and zod/zod_testing (PG) all confirmed intact; dev_2304's databases intact; container still running.",
+      "env_restore": {
+        "MAIL_MAILER": "reverted to smtp",
+        "CLICKHOUSE_HOST": "DELIBERATELY NOT reverted to the ClickHouse Cloud host that the ledger recorded as its prior value. Two reasons: (1) up.sh had also rewritten USERNAME/PASSWORD/PORT/HTTPS, so restoring only the host would leave a broken half-state (Cloud host with local passwordless credentials); (2) re-introducing a Cloud host plus password into a worktree .env is precisely what the pipeline's own 'never wire ClickHouse Cloud into a worktree' rule guards against. The worktree env is defunct regardless now that its databases are dropped. Left pointing at the local container."
+      },
+      "ledger": "Deleted as the final act, per contract — its content is preserved in the posted Build Record (Jira comment 38073) and in this state.json."
+    }
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact --filter=OrgScanPathPositionsQueryTest",
+        "passed": 6,
+        "failed": 0,
+        "skipped": 0
+      },
+      {
+        "cmd": "php artisan test --compact --filter=ClarityScoutBirdsEyeControllerTest",
+        "passed": 35,
+        "failed": 0,
+        "skipped": 0
+      },
+      {
+        "cmd": "php scripts/okf-lint.php",
+        "passed": 102,
+        "failed": 0,
+        "note": "okf lint — 102 files, 0 warnings, exit 0"
+      },
+      {
+        "cmd": "php artisan test --compact --filter='OrgScanPathPositionsQueryTest|ClarityScoutBirdsEyeControllerTest|ClarityScoutMapControllerTest|ClarityScoutOrgMapRoutingTest'",
+        "passed": 111,
+        "failed": 0,
+        "skipped": 0,
+        "note": "Targeted + sibling regression set, run 3x consecutively all green (515 assertions). The full suite was NOT run locally: it cannot finish under the 128M memory_limit (-d memory_limit does not reach artisan test's child processes), and CI runs it on push. This set covers the changed endpoint, the new query class, the single-driver sibling controller, and the org-map routing backstop."
+      },
+      {
+        "cmd": "vendor/bin/pint --dirty --format agent",
+        "passed": 1,
+        "failed": 0,
+        "note": "result: passed"
+      },
+      {
+        "cmd": "npm run build",
+        "passed": 1,
+        "failed": 0,
+        "note": "exit 0; only the 5 clarity-scout entrypoints re-hashed + manifest.json (13 lines, clarity-scout entries only) + clarity-scout-sw.js (1 line, APP_VERSION timestamp). The boost-doc regeneration trap did NOT fire this run — CLAUDE.md, AGENTS.md, boost.json, .junie/guidelines.md and .cursor/rules/laravel-boost.mdc were all left untouched, so nothing needed reverting."
+      },
+      {
+        "cmd": "php artisan test --compact --filter=(OrgScanPathPositions|ClarityScoutBirdsEyeController|ClarityScoutMapController|ClarityScoutOrgMapRouting)",
+        "passed": 116,
+        "failed": 0,
+        "skipped": 0,
+        "note": "post-review-fix state; 536 assertions; executed not skipped"
+      },
+      {
+        "cmd": "php scripts/okf-lint.php",
+        "passed": 102,
+        "failed": 0,
+        "note": "102 files, 0 warnings"
+      },
+      {
+        "cmd": "agent-qa (2 browser lanes + backend lane)",
+        "passed": 17,
+        "failed": 0,
+        "skipped": 1,
+        "note": "VERDICT PASS; 0 red, 0 confirmed-broken; 11 screenshots; 0 new Laravel log bytes"
+      }
+    ],
+    "deviations": [
+      {
+        "source": "implement",
+        "edit": "Ran all 6 DAG nodes serialized on the ticket branch in REPO_PATH instead of the prescribed worktree-per-node fan-out.",
+        "ac_ref": null,
+        "ac_delta": null,
+        "reason": "The DAG is t1 -> t2 -> {t3,t4,t6} -> t5. t1/t2 are strictly serial; t3/t4/t6 touch disjoint single files; t5 (npm run build) must run against the merged tree in REPO_PATH regardless. Six worktrees would each need a vendor/ + node_modules/ COPY (never symlink) for a 9-file change, and the three frontend/doc nodes need vendor/ not at all. Nothing runs concurrently that cannot be serialized, so the isolation the fan-out buys is zero here while its cost is large. Preserved guarantees: TDD red->green per node, target_files authority (touching a file outside the node is a stop), the per-node unexpected-files check, and the post-merge FORMAT + full-suite + blast-radius re-check."
+      },
+      {
+        "source": "implement-t2",
+        "edit": "zod.kits.kit_mapping is NOT NULL, so the mapping-less fixture uses an empty string instead of null.",
+        "ac_ref": null,
+        "ac_delta": null,
+        "reason": "kitsByMapping() itself checks `$mapping === null || $mapping === ''`, so an empty string exercises the identical branch as a genuinely absent mapping. Modelling it as null would have violated a schema NOT NULL constraint."
+      },
+      {
+        "source": "implement-t2",
+        "edit": "The 'one fallback query, not N' test spies on ClickhouseHttpClient via reflection instead of using DB::enableQueryLog().",
+        "ac_ref": null,
+        "ac_delta": null,
+        "reason": "clickhouse-eloquent's Connection::select() issues raw curl and bypasses Laravel's run()/logQuery() path, so the query log stays empty and cannot observe the call count. The reflection spy counted exactly 1 kit_scan_paths SELECT for 3 missing kits and restored the original client afterwards. No production code was touched."
+      },
+      {
+        "source": "implement-t2",
+        "edit": "Skipped the plan's optional 7th test case (forcing a tier-2 read to throw).",
+        "ac_ref": null,
+        "ac_delta": null,
+        "reason": "ClickhouseQuery::query() swallows every Throwable to [] when app.env is testing (phpunit.xml forces APP_ENV=testing), so the controller's tier-2 catch is genuinely unreachable in this environment. The plan itself instructed skipping the case if it was not cleanly reachable."
+      },
+      {
+        "source": "implement-t5",
+        "edit": "Ran the t5 asset-rebuild node inline on the driver rather than dispatching a worker.",
+        "ac_ref": null,
+        "ac_delta": null,
+        "reason": "The node is three mechanical commands (build, revert-check, manifest verify) whose only risk is a known repo trap the driver holds specific institutional knowledge about. Delegating it would have added a full agent round-trip for no added verification."
+      },
+      {
+        "source": "implement-verify",
+        "edit": "Raised CLICKHOUSE_TIMEOUT_CONNECT from the 2s default to 15s in .env.testing (gitignored, local-only) to stabilise the test run.",
+        "ac_ref": null,
+        "ac_delta": null,
+        "reason": "PRE-EXISTING, NOT CAUSED BY THIS CHANGE. Runs flaked ~1-in-2 with a ClickhouseException thrown from RequiresClickhouse.php:44 — the setup TRUNCATE loop, before any test logic. The failing test differed every run and was always a heatmap/teammate/run-area case that never touches driverPositions. Mechanism: the trait TRUNCATEs 19 tables per test and clickhouse-eloquent opens a fresh connection per statement (no keep-alive), so a 2s connect budget occasionally blows. Proof: at 15s, 3 consecutive runs went 111/111 green on the same filter. .env.testing is gitignored so this ships nowhere; the underlying issue was spun out as its own follow-up task."
+      },
+      {
+        "source": "qa-loop",
+        "edit": "Added a 'Faded Driver (Last Scan Position)' entry to HelpPanel.vue's Map Legend > Markers list (45% opacity swatch matching SCAN_DERIVED_OPACITY, copy scoped 'On the org map only'), rebuilt and committed assets, added human-plan step hp-10, re-rendered the guide at revision 3.",
+        "ac_ref": "AC-9",
+        "ac_delta": null,
+        "reason": "Dalton asked during the human-QA park whether the Help copy should explain the dimmed icons. I investigated and recommended the DashboardOverlay legend instead, because ScoutControlsWidget is gated v-if=\"!mapStore.adminMode\" so admins have no Help entry point on Bird's Eye at all; Dalton chose Help copy only, so that is what shipped. Light path per the flow: 1 source file, no sensitive globs, no architecture pivot, so no re-review was triggered. NOTE FOR CLOSEOUT: HelpPanel.vue was NOT part of the reviewed diff, so rework-gate.sh may flag it. It is logic-free markup/copy and a single fresh review lane would clear it."
+      }
+    ],
+    "review": {
+      "lanes": [
+        "claude1",
+        "claude2",
+        "claude3"
+      ],
+      "rounds": [
+        {
+          "rn": 1,
+          "scores": [
+            90,
+            88,
+            94
+          ],
+          "min": 88,
+          "gate": "fail",
+          "threshold": 90
+        },
+        {
+          "rn": 2,
+          "scores": [
+            92,
+            90,
+            90
+          ],
+          "min": 90,
+          "gate": "pass",
+          "threshold": 90
+        },
+        {
+          "rn": 3,
+          "scores": [
+            94
+          ],
+          "min": 94,
+          "gate": "pass",
+          "threshold": 90,
+          "scope": "the post-RN2 rework delta only (9 lines in HelpPanel.vue + regenerated assets)",
+          "lanes": 1,
+          "why_one_lane": "Right-sized: logic-free markup, not the semantic-correctness/blast-radius territory that drove RN1/RN2's 3-lane escalation."
+        }
+      ],
+      "scores": [
+        94
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "in-session-agent"
+        }
+      ],
+      "provenance": "review.sh was attempted first at RN 1 and wrote an ERROR manifest (fail-closed, 0/3 lanes, 'no Score: in .result') — the known nested-claude-p failure under the embedded harness; its temp lane dirs were cleaned before the cause could be inspected. Both rounds then ran IN-SESSION via insightlpr:adversarial-reviewer as 3 blind parallel opus lanes, recorded honestly as in-session-agent. No manifest was fabricated at any point.",
+      "findings_fixed": [
+        "F1 — zero-geo guard added to the tier-2 point in OrgScanPathPositionsQuery (all 3 lanes). Prevents a (0,0) dot from re-framing the whole fleet board via fitToDriverPositions().",
+        "F2 — the shared cutoff is now built with now()->utc(), honouring both query classes' documented UTC-mandatory contract (DEV-2164 class). 2 lanes.",
+        "F3 — three negative unit tests moved from query() to handle(), because ClickhouseQuery::query() swallows every Throwable to [] under APP_ENV=testing, making them unfalsifiable. 2 lanes.",
+        "F4 — the FINAL test now asserts a raw non-FINAL count()==2 positive control first, so it cannot pass merely because a background merge already deduped. 1 lane.",
+        "F5 — new two-kit distinct-coordinate tests (unit + feature) pinning that kit A gets A's point; previously every multi-kit test reused a shared default path_points, so a mis-keyed $byId or a dropped GROUP BY kit_id would have passed. 1 lane.",
+        "F6 — both degrade branches now tested via the in-repo recipe (config app.env=local to bypass the swallow, dead port, DB::purge, Log::spy). 1 lane, and that lane CORRECTED the other two, which had both called these branches untestable by construction.",
+        "F7 — both okf pages corrected: they had claimed the org and single-driver surfaces share a not-on-throw rule, which is false in production. 1 lane.",
+        "RN3-M1 — the Help copy claimed a scan-derived dot is 'up to 15 minutes behind'. 15 min is the kit_scan_paths BUCKET granularity; the real bound is LIVE_CUTOFF_HOURS = 24, so a kit that stopped scanning last night renders at last night's position. Aggravated because the org map surfaces no age for a faded dot at all, making that sentence the admin's only guidance — and it contradicted the canonical wiki (scout-real-time-tracking.md:22, which correctly says 24h). Corrected to the 15-min bucket lag PLUS a 24-hour ceiling with the drop behaviour stated.",
+        "RN3-M2 — 'A full-opacity icon is a live GPS fix.' was unscoped and false on the driver's own map, where kitPosition() degrades to kit_scan_paths/kit_trips at full opacity with no position_source, and hydrateKitPosition() can repaint from localStorage up to 24h. With 77.8% of scanning kits GPS-dark this would have misled most drivers — who are exactly the audience that can reach this panel. Re-scoped to 'On the org map, a full-opacity icon is a live GPS fix.'",
+        "RN3 observation 2 — 'faded vehicle icon' became 'faded icon': a kit with no vehicle_type falls back to the crimson DRIVER_RED_DOT, so 'vehicle icon' under-described what an admin may actually be looking at."
+      ],
+      "findings_fixed_post_gate": [
+        "scout-clickhouse-queries.md still asserted that a thrown tier-2 read 'is caught by the controller' — false in production (the base class swallows it first), and it contradicted its own next sentence. Flagged by 2 of 3 RN2 lanes as the residual half of F7's own defect class.",
+        "test_empty_kit_ids_short_circuits was the residual 4th instance of F3's class, still on query(). Flagged by 2 of 3 RN2 lanes. Moved to handle().",
+        "Recorded the three known divergences from kitPosition() in the wiki (zero-geo guard org-side only, UTC cutoff org-side only, KitScanPathsQuery's raw path_points), with the measured 0-prevalence figure. RN2 lane 3's specific objection was that these deferrals existed only in conversation and 'nowhere a maintainer will find it'."
+      ],
+      "findings_residual": [
+        "The tier-1 short-circuit is unreachable in production: ClickhouseQuery::query() swallows the Throwable before the controller's catch, so a CH outage costs ~2 connect timeouts and 2 report() calls per poll instead of 1, and neither Log::warning fires. Scored Medium by 1 lane, Low by another. DEFERRED to its own ticket: the clean fix (call handle() at the two production call sites) changes production error-handling semantics and affects the base class's contract for every ClickhouseQuery caller, so it deserves its own review rather than riding a passing gate. Documented accurately in the wiki.",
+        "ClarityScoutMapController.php:546 keeps the unguarded arrayElement, and :482 keeps an app-local cutoff. Both DEFERRED (they change single-driver behaviour on an out-of-scope surface) but now recorded in the wiki with measured prevalence.",
+        "KitScanPathsQuery.php:81 emits raw path_points with only a length>=2 guard — an undeclared sibling surfaced by RN2 lane 1. Measured prevalence 0; recorded in the wiki.",
+        "Neither tier is cached, so N admins multiply CH load N-fold every 10s. Note a naive cache: true will not work — buildCacheKey folds in the cutoff, which moves every second, so the cutoff must be snapped first.",
+        "Freshness-blind tier precedence: a 23h-old GPS fix beats a 5-minute-old scan point, renders at full brightness and counts as 'gps' for the banner. Pre-existing (mirrors kitPosition()) and not a regression, but it is the residual half of the reported symptom.",
+        "Cosmetic: nameplates not dimmed alongside their dot; minutes_ago not surfaced in the tooltip; the 24h window spelled four times; 'gps'/'scan_path' are bare literals with no shared enum; the :201 comment cites map.js:474 which is the single-driver surface.",
+        "The DEV-2197 centered card now overlays a map that has dimmed dots on it — literally accurate but visually contradicts its own 'blank map' design premise. Product judgement call, flagged for human QA."
+      ],
+      "rerun_required": false,
+      "rework_pivot": false,
+      "reviewed_sha": "09628460f0c1a7676da50fa7714ce2e787306dd7",
+      "reviewed_sha_note": "Points at the RN3-passing tree. RN1/RN2 covered the main change; RN3 re-reviewed the post-review Help-copy delta that rework-gate.sh flagged, and its two findings were fixed before this sha was recorded."
+    },
+    "ac": [
+      {
+        "item": "AC-1",
+        "status": "SATISFIED",
+        "evidence": "Root cause identified and evidenced against production: driverPositions() was single-source on clarity.sc_positions with no fallback tier, while the sibling kitPosition() already degraded to clarity.kit_scan_paths. Measured for the two named accounts — Premier Adjusters 3-4 of 34-35 scanning kits and Accurate 2 of 7 had no GPS row, and 100% of them were renderable from kit_scan_paths. See docs/investigations/DEV-2253/derivation-log.json entries d1-d5.",
+        "note": "Diagnosis criterion — satisfied by documented investigation evidence rather than a browser item. Not deferred."
+      },
+      {
+        "item": "AC-2",
+        "status": "SATISFIED",
+        "evidence": "All three candidates answered. DISPLAY BUG confirmed and fixed (the missing fallback tier). KIT-UPDATE ROLLOUT GAP confirmed as the real upstream trigger but out of this repo (fleet-wide, 77.8% of kits that scanned within 24h had no GPS row at all). SYNC DELAY ruled out — the map's own window is 24h, far beyond DEV-2048's measured 7-56 min lag, and the affected kits had zero rows in 30 days, not late ones. derivation-log.json d1-d4.",
+        "note": "Diagnosis criterion. This also killed the first prep pass's (0,0)-sentinel hypothesis (0 such rows in 172.7M points over 60 days) before any code was written against it."
+      },
+      {
+        "item": "AC-3",
+        "status": "SATISFIED",
+        "evidence": "Cross-referenced and documented: DEV-2228 shares the same upstream fact (a subset of kits stop reporting GPS), and its 'hit icon appeared but the breadcrumb trail did not render' symptom is the IDENTICAL no-fallback idiom on driverPaths()/OrgLivePathsQuery. Recorded in okf/concepts/scout-clickhouse-queries.md and scout-birds-eye.md, with an explicit note that this ticket does NOT fix the trail surfaces.",
+        "note": "Diagnosis criterion — satisfied by the okf wiki update. Dalton chose the dot-only scope cut at gate Q4."
+      },
+      {
+        "item": "AC-4",
+        "status": "SATISFIED",
+        "evidence": "THE CORE FIX, verified live. Kit 67 (no sc_positions row, recent kit_scan_paths bucket) is present in the real /scout/org-map/api/map/driver-positions payload with position_source='scan_path', heading=null, at (-108.42, 43.05) — exactly its newest bucket's last point. Before this change it was absent entirely. Kit 69 (neither source) is correctly absent with no null/zero-coordinate row. Backend B2 returned 3 rescuable kits from one call; B5 proved the zero-geo guard falls back to the older clean bucket rather than emitting (0,0)."
+      },
+      {
+        "item": "AC-5",
+        "status": "SATISFIED",
+        "evidence": "Tier precedence verified live. Kit 66 (GPS only) returned position_source='gps' with heading 90. Kit 68 (BOTH sources — GPS at -108.35/42.98, scan bucket at -108.50/43.10) appears EXACTLY ONCE at the GPS coordinates with position_source='gps'; the scan-path point neither won nor duplicated."
+      },
+      {
+        "item": "AC-6",
+        "status": "SATISFIED",
+        "evidence": "Kit 70, whose kit_mapping is the empty string, IS present with position_source='scan_path' at (-108.46, 42.96), rescued via kit_id. The pre-change code could not surface it for two separate reasons: kitsByMapping() dropped mapping-less kits, and the early return fired when the mapping map came back empty."
+      },
+      {
+        "item": "AC-7",
+        "status": "SATISFIED",
+        "evidence": "The fallback is one batched query. B2 returned all three rescuable kits from a single handle() call and B3 confirmed the empty-kit_ids short-circuit. The feature test test_driver_positions_issues_one_fallback_query_for_the_whole_missing_set asserts exactly 1 kit_scan_paths SELECT for 3 missing kits (via an HTTP-client spy, since clickhouse-eloquent bypasses Laravel's query log). Observed endpoint latency across three round trips: 176/177/184 ms, on a ~10s poll."
+      },
+      {
+        "item": "AC-8",
+        "status": "SATISFIED",
+        "evidence": "The regression this change could have introduced is confirmed NOT present. With kit 66 holding a real GPS fix the notice is absent (scans_today=6, so the other precondition was met). After truncating clarity.sc_positions, the map still showed dimmed scan-derived dots for kits 67/68/70 AND the 'No kits are reporting GPS locations' notice reappeared on BOTH surfaces — the dismissible centered card and the persistent amber pill — with every payload entry reading position_source='scan_path' and none 'gps'. The fixture was then restored and the absent state re-confirmed."
+      },
+      {
+        "item": "AC-9",
+        "status": "SATISFIED",
+        "evidence": "Dimming confirmed visually: kits 66/68 render as full-saturation icons while kits 67/70 render visibly paler (screenshot A-dimming-comparison.png). Tooltips read from the marker title attribute — kit 66 = 'QA — GPS Kit' (name only), kit 67 = 'QA Scan Driver — last scan position (no live GPS)'.",
+        "note": "Mechanically satisfied. The 45% opacity value itself is an aesthetic judgement Dalton explicitly flagged as revertible; human-QA step hp-4 asks for that call. Not an open defect."
+      },
+      {
+        "item": "AC-10",
+        "status": "SATISFIED",
+        "evidence": "No cross-tenant leak. The live payload for the Org A admin contains no entry for kit 71 or any other org's kit. Backend B4 (Org B's org_id with Org A's kit_ids) returned 0 rows, and the B4b negative control confirmed the query DOES return Org B's own kit 71 — so B4's zero is genuine org scoping, not a broken query returning empty."
+      }
+    ],
+    "blast_radius_recheck": "clean — 20 changed files (excluding docs/investigations); none match database/migrations/**, billing, Shield/Policies/auth config, Clickhouse*Purge|Cleanup, or PruneScans."
+  },
+  "ticket": {
+    "summary": "SCOUT: Investigate drivers missing from live org map despite scanning activity",
+    "type": "Bug",
+    "labels": [
+      "User_Reported"
+    ],
+    "jira_status_at_intake": "In Progress",
+    "parent_epic": "DEV-2224 (Clarity Scout- Beta Feedback Improvements)",
+    "related_unlinked": [
+      "DEV-2228 (SCOUT: erratic/missing breadcrumb trail data — To Do; Product confirmed some kits are not reporting GPS)"
+    ],
+    "affected_accounts": [
+      "Premier Adjusters",
+      "Accurate"
+    ],
+    "route_note": "Deliverable is investigation-shaped ('Investigate why...', 'Confirm whether this is a kit-update rollout gap, a sync delay, or a display bug'), but mechanical route detection (Spike > Hotfix > Bug > Feature) finds no spike keyword and issuetype is Bug, so route=bug. Phase 1 prep must determine whether a platform-side code fix exists at all; if the root cause is kit/egress-side, that finding is the deliverable and must be surfaced at the gate, not papered over with a manufactured fix."
+  },
+  "jira_in_progress_detail": "No In Progress transition was posted at Phase 4 entry: the ticket was ALREADY In Progress at intake (set by a human before this run). This workflow exposes isGlobal transitions, so In Progress appears in the available list even when the ticket is already there — the flow spec assumes its presence means the ticket is not yet In Progress, which is false here."
+}

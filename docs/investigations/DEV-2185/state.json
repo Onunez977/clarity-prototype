@@ -1,0 +1,279 @@
+{
+  "key": "DEV-2185",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2185",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "knowledge/clarity/scout.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "confidence<80 (fast-pass=78)",
+    "answered:false design questions in fast-pass"
+  ],
+  "missed_caller_candidates": [
+    {
+      "file": "app/Http/Controllers/KitUserPathController.php",
+      "symbol": "KitScanPathsQuery",
+      "referenced_at": "line 44 (paths() method)",
+      "impact": "BLAST-RADIUS: non-Scout repo heatmap shares KitScanPathsQuery \u2014 bbox params MUST be optional/additive so this caller is unaffected"
+    },
+    {
+      "file": "database/seeders/ClarityScoutClickhouseSeeder.php",
+      "symbol": "kit_scan_paths",
+      "referenced_at": "lines 69,161,203 (seeder)",
+      "impact": "QA seeding reference \u2014 relevant for Phase 6"
+    }
+  ],
+  "diff_base": "0154c5630ac2f3dd5d3a0c02163003d9b95202ba",
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "KitHistoricPositionsQuery optional bbox WHERE (driver)",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "complex",
+      "model": "sonnet",
+      "exec_group": "backend"
+    },
+    {
+      "id": "t2",
+      "title": "KitScanPathsQuery optional arrayExists bbox (admin)",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "complex",
+      "model": "sonnet",
+      "exec_group": "backend",
+      "blast_radius": [
+        "kit-user-path-non-scout-backward-compat"
+      ]
+    },
+    {
+      "id": "t3",
+      "title": "ClarityScoutMapController bbox + cache key (driver)",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "complex",
+      "model": "sonnet",
+      "exec_group": "backend"
+    },
+    {
+      "id": "t4",
+      "title": "ClarityScoutBirdsEyeController bbox (admin org-wide)",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "complex",
+      "model": "sonnet",
+      "exec_group": "backend"
+    },
+    {
+      "id": "t5",
+      "title": "Frontend zoom-gate + bbox fetch + drop prefetch + snap + rebuild",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "complex",
+      "model": "sonnet",
+      "exec_group": "frontend"
+    }
+  ],
+  "exec_strategy": "REPO_PATH single standing env; 2 sequential workers (backend t1-t4, then frontend t5); no nested worktree fan-out (CH-per-worktree cost + contract coupling)",
+  "review_number": 2,
+  "pr": {
+    "number": 270,
+    "url": "https://github.com/insight-lpr/platform/pull/270",
+    "draft": false
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": "daltonmccleery@gmail.com @ 2026-07-14T13:50:55Z",
+  "jira_transitioned_by": "manual-daltonmccleery@gmail.com @ 2026-07-14 (undraft did not auto-transition; In Code Review)",
+  "assumed": [],
+  "comment_ids": {
+    "status": "35675",
+    "build_record": "35754"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "torn_down": true,
+    "provisioned_early": true,
+    "provisioning": {
+      "provision_mode": "full",
+      "ch_strategy": "docker",
+      "postgres_db": "zod_claude_dev_2185_e3abd9 (dev) + zod_testing_claude_dev_2185_e3abd9 (testing) \u2014 already migrated, dev-login uid1 present",
+      "ch_container": "clarity-qa-clickhouse (shared); worktree DBs clarity_claude_dev_2185 + zod_claude_dev_2185 newly provisioned, schema verified 31/31 clarity + 48/48 zod",
+      "tiger_state": "PostGIS patch applied to both PG DBs",
+      "env_testing_ch": "CLICKHOUSE_DRIVER=clickhouse HOST=127.0.0.1 PORT=18123 CLARITY=clarity_claude_dev_2185 ZOD=zod_claude_dev_2185",
+      "tables_confirmed": "clarity.kit_scan_paths + clarity.sc_positions exist locally (0 rows pre-seed)",
+      "env_testing_ch_correction": "provisioning set PREFIXED CH db names (clarity_claude_dev_2185) which BREAKS RequiresClickhouse tests (they hardcode literal clarity./zod. + DB::clickhouse macro reads connection-default db); repointed .env.testing CLICKHOUSE_DATABASE_CLARITY=clarity ZOD=zod (LITERAL). Verified: existing test_scan_paths_range_returns_hourly_segments_from_sc_positions now passes (16 assertions). Literal clarity/zod DBs on shared container carry current schema; intra-run isolation via RequiresClickhouse truncate.",
+      "herd_site": "clarity-claude_dev_2185_e3abd9.test",
+      "runtime_pg_db": "zod_claude_dev_2185 (sub-agent switch; original _e3abd9 also present \u2014 Phase 7 teardown note)",
+      "ch_seed": "clarity_claude_dev_2185: kit_scan_paths~7200 buckets, sc_positions~40500 pts, 30-60d, wide multi-city"
+    }
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact --filter=KitHistoricPositionsQueryTest",
+        "passed": 3,
+        "failed": 0
+      },
+      {
+        "cmd": "php artisan test --compact --filter=KitScanPathsQueryTest",
+        "passed": 3,
+        "failed": 0
+      },
+      {
+        "cmd": "php artisan test --compact --filter=ClarityScoutMapControllerTest",
+        "passed": 58,
+        "failed": 0
+      },
+      {
+        "cmd": "php artisan test --compact --filter=ClarityScoutBirdsEyeControllerTest",
+        "passed": 19,
+        "failed": 0
+      },
+      {
+        "cmd": "php artisan test tests/Filament/Pages/KitUserPathTest.php tests/Feature/Http/Requests/KitUserPathRequestTest.php (blast-radius backward-compat)",
+        "passed": 13,
+        "failed": 0
+      }
+    ],
+    "deviations": [
+      "Full suite not run locally: ran affected suites (KitHistoricPositionsQueryTest, KitScanPathsQueryTest, ClarityScoutMapControllerTest, ClarityScoutBirdsEyeControllerTest) + the blast-radius caller (KitUserPath tests) = 96 tests green. Every caller of the changed query classes/controllers is covered; change is additive/isolated; CLAUDE.md directs minimizing test runs; CI + Phase 6 QA cover the rest. Frontend has no JS test runner (browser QA in Phase 6).",
+      "Frontend deviation (worker): added mapBounds ref+setter + currentRange to the map store's public surface to thread current viewport bounds into ScoutHome/setSelectedKits fetchScanPaths calls (only ScannerMap has the Google Map instance). Necessary for AC2 first-request bbox scoping."
+    ],
+    "review": {
+      "lanes": [
+        "claude1",
+        "claude2",
+        "claude3"
+      ],
+      "scores": [
+        96,
+        94,
+        94
+      ],
+      "gating_score": 94,
+      "min_required": 90,
+      "gate": "PASS (RN1 min 94; RN2 95; both >=90)",
+      "findings_fixed": [
+        "Medium 3-lane race (range-select fetch stale/wide bounds) \u2014 fixed via settled-idle-only eligibility publish + gated imperative callers",
+        "Low null-bounds unbounded mount/deep-link fetch \u2014 fixed via mapBounds!=null gate"
+      ],
+      "findings_residual": [
+        "non-blocking: no cache-differentiation test for BirdsEye scanPaths (driver has one); mechanism verified safe",
+        "non-blocking UX: last_7 path layer is also zoom-gated (shared floor) but has no snap-to-zoom (Dalton scoped snap to 15/30/60) \u2014 picking 7d while zoomed out shows nothing until manual zoom-in",
+        "nit: pathZoomSnapRequest not cleared in trip mode (harmless); nit: redundant updateOverlayLayers repaint per idle (negligible)"
+      ],
+      "findings_to_fix": [
+        "Medium (3-lane consensus): range-select scan-path fetch can fire with stale/wide bounds \u2014 zoom-snap (ScannerMap pathZoomSnapRequest watch) races the range-fetch (ScoutHome dashboard.range watch) in the same flush; Google getBounds() lags setZoom(). Worst case a transient wide-but-finite fetch on range-select-while-zoomed-out (render-gated, self-corrects in 300ms). On the headline AC (crash) path.",
+        "Low (claude2): onMounted fetchScanPaths runs with mapBounds===null \u2192 unbounded request; benign now (boots to today/live) but a deep-link/restored long range before first idle would fetch unbounded."
+      ],
+      "decision": "Gate PASSES at 94, but fixing the 3-lane race + null-bounds now (discretionary): core-AC correctness, clean fix. Then rebuild + re-review at RN=2.",
+      "scores_rn2": [
+        95
+      ],
+      "gating_score_rn2": 95,
+      "findings_verified_safe": [
+        "RN2 Medium (BirdsEye scanPaths cache key) \u2014 VERIFIED SAFE: ClickhouseQuery::buildCacheKey folds every scalar arg (incl. north/south/east/west) into the key; admin viewports don't collide"
+      ]
+    },
+    "ac": [
+      {
+        "item": "AC1 \u2014 15/30/60-day path layers AND direct/staging order layers (+ Direct Hit Density, per design) are zoom-gated: hidden AND fetch-skipped below zoom 12, consistent with hit-icon gating",
+        "status": "SATISFIED",
+        "evidence": "Driver: 30d at z8-9 -> no scan-path lines + network log shows ZERO requests (fetch skipped, not just render). Admin /scout/org-map: 30d at z8 -> no lines + zero /scout/org-map/api requests. Order/hit-density lane: Direct+Staging Orders and Live Hit Density each hidden with NO /map/heatmap/orders|hit"
+      },
+      {
+        "item": "AC2 \u2014 long-window layers fetch only points within the current map bounding box, re-querying on pan/zoom",
+        "status": "SATISFIED",
+        "evidence": "Driver 60d: request GET /api/scout/map/scan-paths?range=last_60&north=..&south=..&east=..&west=.. matching viewport; pan fired a new request with all 4 bbox values changed. Admin: GET /scout/org-map/api/map/scan-paths?range=last_30&north/south/east/west=..; pan -> new bbox request. Bbox params confi"
+      },
+      {
+        "item": "AC3 \u2014 30-day (and 60-day) no longer crashes the browser",
+        "status": "SATISFIED",
+        "evidence": "All 15 kits selected (Select-all default) + 60-day + city-level zoom (z12-13): tab stayed responsive across 5 rapid drag-pans; the 5 pans coalesced to ONE debounced request (300ms), no request storm; scan-paths response ~160KB / 545 segments scoped to the in-view bbox (single in-view kit) \u2014 bbox-bou"
+      },
+      {
+        "item": "DESIGN \u2014 selecting 15/30/60 snaps the map to zoom 12 (fitToScanPaths zoom-out removed)",
+        "status": "SATISFIED",
+        "evidence": "Driver: 60d click snapped z9->12 exactly and fired the bbox request. Admin: 30d click snapped z9->12. No zoom-out-to-fit observed."
+      },
+      {
+        "item": "DESIGN \u2014 7-day path layer is gated by the same floor but does NOT auto-snap zoom",
+        "status": "SATISFIED",
+        "evidence": "7-day click at z9 left zoom unchanged (no snap) and fired only stats/recent-hits/hits/track \u2014 NO /scan-paths request; lines hidden below floor."
+      },
+      {
+        "item": "DESIGN \u2014 the un-bboxed long-range background prefetch (prefetchAllRangePaths) is dropped",
+        "status": "SATISFIED",
+        "evidence": "No background full-payload /scan-paths fetch observed at any point (7-day selection fired only stats/hits/track; below-floor states fired zero scan-paths requests). No un-bboxed whole-range download seen post-mount."
+      },
+      {
+        "item": "NOTE (non-blocking, NOT a DEV-2185 defect) \u2014 order/hit-density layers render EMPTY features in this env",
+        "status": "N/A",
+        "evidence": "Direct/Staging Orders + Live Hit Density fire correctly (200, bbox params) but return empty FeatureCollection because this driver/org (org 2) has zero assigned zones (clipRowsToAssignedZones returns [] with no zones) and no reachable ClickHouse hit rows (dashboard stats direct_hits:0/staging_hits:0 "
+      },
+      {
+        "item": "UX (dev-requested) \u2014 'Zoom in to view path history' hint when historical paths are gated-hidden by zoom",
+        "status": "SATISFIED",
+        "evidence": "agent-browser 5/5 PASS driver+admin: hint at z11, gone at z12+, shown for 7-day zoomed out, hidden for Today/Live, pointer-events-none confirmed, no overlap/errors."
+      }
+    ]
+  },
+  "handoff_parked": "awaiting-human-qa @ 2026-07-14",
+  "qa_driven_changes": [
+    {
+      "change": "Added a 'Zoom in to view path history' hint pill (top-center map surface) shown when a historical range (7/15/30/60) is selected but scan paths are gated-hidden by the zoom floor; reuses pathLayersEligible, display-only.",
+      "requested_by": "Dalton (during human-QA park, 2026-07-14)",
+      "files": [
+        "resources/js/clarity-scout/components/ScannerMap.vue",
+        "public/build/*"
+      ],
+      "verified": "agent-browser lane 5/5 PASS on driver + admin: appears z11 / gone z12-13, shows for 7-day-zoomed-out, never for Today/Live, pointer-events-none (map pans through), no overlap, no console/4xx-5xx, fresh bundle confirmed."
+    }
+  ]
+}

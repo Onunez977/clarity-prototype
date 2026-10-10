@@ -1,0 +1,201 @@
+{
+  "ticket": "DEV-2600",
+  "mode": "normal",
+  "route": "feature",
+  "gate": "CLEAN",
+  "gate_reason": "Q1 locked Option B: split 10+ into 10\u201324 and 25+ on the same unioned Direct+Staging Orders layer.",
+  "confidence": 78,
+  "preflight_24": "Prefer the smallest change: port the Kit User Path independent-toggle behaviour onto the existing Orders legend rows. No new component framework, store abstraction, or query class.",
+  "preflight_25": "does_not_fire",
+  "preflight_25_reason": "Order density is already fetched with every source tier (tier_1 through tier_25_plus) and rebucketed in PHP. A visibility filter does not rewrite HotlistAddressGeohashQuery HAVING and does not change a numeric result. Do not add a tiers predicate to the ClickHouse statement.",
+  "preflight_26": "holding_scout",
+  "holding_branch": "scout",
+  "base_branch": "scout",
+  "base_sha": "f52b5d85afadb3adc7e01d4153d603de9050e08b",
+  "first_glance_comment_id": 42171,
+  "synthesis": {
+    "problem": "On the Scout map the Orders density key is static text. Kit User Path already lets a viewer uncheck address-count bands so those cells drop off the map. The demo need is to hide the single-count band and keep denser bands visible, together with the date, driver, and zone controls that already exist.",
+    "outcome": "Orders legend rows are five Kit-parity bands (1, 2\u20134, 5\u20139, 10\u201324, 25+). Each is a button that toggles on its own. Hidden rows look inactive. The map hides cells of a hidden band. Date range, driver selection, and zone clip keep their current values. Org map and the driver map both get it because they share DashboardOverlay and ScannerMap. Direct and Staging stay on the same unioned Orders layer.",
+    "surface": "Vue 3 + Pinia (resources/js/clarity-scout). The reference control is a Filament 5 Livewire CheckboxList on KitUserPath, bridged to Alpine in resources/js/components/kit-user-path.js. The Scout map is not Livewire."
+  },
+  "code_cites": {
+    "kit_user_path_reference": [
+      {
+        "file": "app/Filament/Pages/KitUserPath.php",
+        "lines": "51-57",
+        "what": "Default tier arrays. Address lists include tier_10_24 and tier_25_plus. Hit-density list is a different scale (hit_tier_1 through hit_tier_51_plus)."
+      },
+      {
+        "file": "app/Filament/Pages/KitUserPath.php",
+        "lines": "121-139",
+        "what": "Repo Heatmap Density CheckboxList. Live, HTML swatches, labels 1 / 2-4 / 5-9 / 10-24 / 25+ addresses. This is the clickable control whose labels match the ticket example."
+      },
+      {
+        "file": "app/Filament/Pages/KitUserPath.php",
+        "lines": "165-183",
+        "what": "Staging Hotlist Density CheckboxList. Same five bands, green swatches, independent of the repo list."
+      },
+      {
+        "file": "app/Filament/Pages/KitUserPath.php",
+        "lines": "209-227",
+        "what": "Hit Density Levels CheckboxList. Bands are 1, 2-5, 6-15, 16-50, 51+ hits. Not the ticket's 5-9 / 10-24 example."
+      },
+      {
+        "file": "app/Filament/Pages/KitUserPath.php",
+        "lines": "352-364",
+        "what": "updatedHeatmapTiers dispatches load-geohash with the current heatmapTiers array when the layer is on. Staging and hit-density have the same shape just below."
+      },
+      {
+        "file": "resources/js/components/kit-user-path.js",
+        "lines": "239-255",
+        "what": "Alpine loadGeohash(tiers) posts the selected tiers with the current bounds. The GeoJsonLayer then draws only the response."
+      },
+      {
+        "file": "resources/js/app.js",
+        "lines": "194-199",
+        "what": "getKitUserGeojson posts bounds, staging, and tiers to /kit-user-path/geojson."
+      },
+      {
+        "file": "app/Http/Requests/KitUserPathGeojsonRequest.php",
+        "lines": "32-33",
+        "what": "tiers.* must be one of tier_1, tier_2_4, tier_5_9, tier_10_24, tier_25_plus."
+      },
+      {
+        "file": "app/Http/Controllers/KitUserPathController.php",
+        "lines": "216-235",
+        "what": "geojson() forwards request tiers into HotlistAddressGeohashQuery. Filtering is server-side HAVING, not a client hide."
+      },
+      {
+        "file": "app/Http/Controllers/KitUserPathController.php",
+        "lines": "264-276",
+        "what": "Each feature property tier is the five-band getTier(), and the label includes '10-24 addresses'."
+      },
+      {
+        "file": "app/Clickhouse/Queries/HotlistAddressGeohashQuery.php",
+        "lines": "172-181",
+        "what": "tierConditions maps each tier id to an address_count predicate. This is the Kit User Path filter. Scout's orderRows does not pass a subset."
+      }
+    ],
+    "org_map_and_direct_orders": [
+      {
+        "file": "resources/js/clarity-scout/components/DashboardOverlay.vue",
+        "lines": "303-354",
+        "what": "Shared legend card. Live Hit Density (310-328) and Orders (331-354) are static divs. Orders labels are 1 address, 2\u20134 addresses, 5\u20139 addresses, 10+ addresses. No @click, no button, no aria-pressed."
+      },
+      {
+        "file": "resources/js/clarity-scout/components/DashboardOverlay.vue",
+        "lines": "478-480",
+        "what": "ordersActive is true when activeHeatmaps contains hotlist (Direct Orders) or staging. One Orders legend covers both layers."
+      },
+      {
+        "file": "resources/js/clarity-scout/components/DashboardOverlay.vue",
+        "lines": "535-553",
+        "what": "Layer toggles. type hotlist is labeled Direct Orders. type staging is Staging Orders. type hits is Live Hit Density. Org map and driver map both render this list (adminMode drops only teammates)."
+      },
+      {
+        "file": "resources/js/clarity-scout/components/ScannerMap.vue",
+        "lines": "1215-1236",
+        "what": "heatmap-orders GeoJsonLayer consumes mapStore.ordersHeatmap with no tier filter. Every returned cell is drawn."
+      },
+      {
+        "file": "resources/js/clarity-scout/stores/map.js",
+        "lines": "802-838",
+        "what": "fetchOrdersHeatmap sends bounds plus layers=direct|staging. It does not send tiers, a date range, or kit ids."
+      },
+      {
+        "file": "app/Http/Controllers/Api/Concerns/ScoutMapHelpers.php",
+        "lines": "121-126",
+        "what": "orderRows always queries tiers tier_1, tier_2_4, tier_5_9, tier_10_24, tier_25_plus. Used by both the driver map and the org map."
+      },
+      {
+        "file": "app/Http/Controllers/Api/Concerns/ScoutMapHelpers.php",
+        "lines": "274-293",
+        "what": "unionToGeoJson stamps getCombinedTier / getCombinedTierColor / getCombinedTierLabel onto each feature. That is the four-band scale, not the five-band Kit User Path scale."
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutMapController.php",
+        "lines": "425-485",
+        "what": "Driver-map heatmapOrders. Validates layers direct|staging only. Sums address_count per geohash across the requested layers, zone-clips staging always and direct when the driver has zones, then returns the combined FeatureCollection."
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+        "lines": "814-859",
+        "what": "Org-map heatmapOrders. Same union. Docblock: kit_ids driver selector is not honored. Clip is the org run area, not driver zones."
+      },
+      {
+        "file": "app/Clickhouse/Queries/HotlistAddressGeohashQuery.php",
+        "lines": "223-256",
+        "what": "getCombinedTier caps at tier_10_plus for count >= 10. getCombinedTierLabel(40) is '10+ addresses'. getTier() on the same class still returns tier_10_24 / tier_25_plus. Tests pin the combined labels in tests/Unit/Clickhouse/Queries/HotlistAddressGeohashQueryTest.php."
+      },
+      {
+        "file": "app/Clickhouse/Queries/HitDirectHotspotQuery.php",
+        "lines": "95-124",
+        "what": "Live Hit Density tiers are hit_tier_1, hit_tier_2_4, hit_tier_5_plus with labels 1 hit, 2-4 hits, 5+ hits. Cited so Plan does not treat this legend as the 5-9 / 10-24 control."
+      }
+    ]
+  },
+  "blast_radius": {
+    "do_not_touch": [
+      "app/Filament/Pages/KitUserPath.php",
+      "app/Http/Controllers/KitUserPathController.php",
+      "app/Clickhouse/Queries/HotlistAddressGeohashQuery.php tierConditions (HAVING shape)",
+      "HitDirectHotspotQuery and the Live Hit Density legend block",
+      "ClarityScoutMapController::heatmapOrders zone clip",
+      "ClarityScoutBirdsEyeController::heatmapOrders run-area clip and kit_ids omission"
+    ],
+    "shared_file_collision": "DEV-2601 (org-map hit list disposition) is the stack mate most likely to edit DashboardOverlay.vue. Land the legend change in a small hunk. DEV-2602, DEV-2603, and DEV-2566 are RDN notes, kit archive, and a fleet report; they do not own this legend.",
+    "filters_alongside": {
+      "date_range": "dashboard.range drives scan paths and range hit markers. fetchOrdersHeatmap does not send it. A band toggle must not call setRange.",
+      "driver": "Org-map driver selector is omitted for /map/heatmap/*. A band toggle must not change the selector.",
+      "zone": "Driver-map zone clip is server-side inside heatmapOrders and refetches ordersHeatmap on pan/bounds. Apply the visibility filter at paint time (or whenever ordersHeatmap is replaced) so a refetch cannot resurrect a hidden band."
+    },
+    "in_play": [
+      "resources/js/clarity-scout/components/DashboardOverlay.vue",
+      "resources/js/clarity-scout/components/ScannerMap.vue",
+      "resources/js/clarity-scout/stores/map.js",
+      "app/Clickhouse/Queries/HotlistAddressGeohashQuery.php",
+      "app/Http/Controllers/Api/Concerns/ScoutMapHelpers.php",
+      "tests/Unit/Clickhouse/Queries/HotlistAddressGeohashQueryTest.php"
+    ]
+  },
+  "okf_cites": [
+    "okf/concepts/scout-clickhouse-queries.md \u2014 HotlistAddressGeohashQuery HAVING and the line 'combined (unioned) = stepped scale capped at 10+ (DEV-2031)'",
+    "okf/concepts/scout-frontend.md \u2014 DashboardOverlay is the shared query-driven overlay for driver and Bird's Eye",
+    "okf/concepts/scout-birds-eye.md \u2014 admin org map is the driver app in adminMode; order density is org-wide",
+    "okf/concepts/scout-dashboard-stats.md \u2014 heatmap tier meanings; do not confuse HitDirectHotspotQuery (Scout, 3 hit tiers) with HitDensityGeohashQuery (Kit User Path hit density)",
+    "okf/concepts/data-architecture.md \u2014 orders layer reads ClickHouse via HotlistAddressGeohashQuery; this ticket should not add a write or a new predicate"
+  ],
+  "open_questions": [],
+  "resolved": [
+    {
+      "id": "which-legend",
+      "answer": "The Orders block in DashboardOverlay, shared by the org map and the driver map whenever Direct Orders or Staging Orders is on. Live Hit Density stays static: its labels are 1 / 2\u20134 / 5+ hits, which cannot be the 5\u20139 and 10\u201324 bands in the ticket."
+    },
+    {
+      "id": "two-maps",
+      "answer": "There is no second direct-orders page. Direct Orders is layer type hotlist. Org map is the same Vue app with adminMode on ClarityScoutBirdsEyeController. One legend edit covers both acceptance surfaces."
+    },
+    {
+      "id": "legend-placement",
+      "answer": "The ticket says the bands sit at the bottom of the map. The only density key is the top-right legend card under Map Layers (collapsed into the layers sheet on compact). No bottom legend component exists."
+    },
+    {
+      "id": "band-set",
+      "answer": "Option B (Dalton via Gandalf): split combined 10+ into Kit 10\u201324 / 25+ on the same unioned Direct+Staging layer. Do not un-union Direct and Staging."
+    }
+  ],
+  "plan_pointer": [
+    "Read this file's code_cites before editing.",
+    "Q1 LOCKED Option B: split getCombinedTier / getCombinedTierColor / getCombinedTierLabel so 10\u201324 and 25+ are separate tiers on the SAME unioned Direct+Staging Orders layer. Do NOT un-union Direct and Staging.",
+    "Add buttons on the Orders legend rows only (five rows: 1, 2\u20134, 5\u20139, 10\u201324, 25+).",
+    "Keep a set of visible tier ids beside activeHeatmaps. Default every band on, so today's map does not change until a click.",
+    "Filter in ScannerMap where heatmap-orders is built, using properties.tier, so pan, zone clip, and layer refetch cannot show a hidden band.",
+    "Inactive row: aria-pressed=false and a muted swatch/label. Active row stays the current swatch. Match that, not a new legend component.",
+    "Do not send tiers to /map/heatmap/orders and do not edit tierConditions.",
+    "Do not edit the Live Hit Density block, Kit User Path, or the zone/run-area clip.",
+    "Tests: update HotlistAddressGeohashQueryTest for the new combined labels; Vue/Playwright check that hiding one Orders row drops only that tier's features and leaves the date pill and layer toggles alone.",
+    "DEV-2601 may touch DashboardOverlay.vue on this same scout stack. Keep the legend hunk separate from the hit-list hunk.",
+    "Preflight #24 smallest change / no new abstractions. #25 does_not_fire. #26 holding_scout (PR base scout)."
+  ],
+  "phase": "planning"
+}

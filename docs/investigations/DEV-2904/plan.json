@@ -1,0 +1,157 @@
+{
+  "key": "DEV-2904",
+  "phase": "ultra-plan",
+  "gate": "CLEAN",
+  "confidence": 90,
+  "verdict": "APPROVE-with-adopted-changes",
+  "branch": "cursor/dev-2904-lpr-repos-vin-export-24e1",
+  "branch_path": "main\u2192main",
+  "base": "main",
+  "base_sha": "b0c06779c6bcc19c78c804c628a183a012a1b701",
+  "pr": {
+    "number": 501,
+    "url": "https://github.com/insight-lpr/platform/pull/501",
+    "draft": true,
+    "base": "main"
+  },
+  "first_glance": {
+    "comment_id": "42732",
+    "verdict": "Ready",
+    "branch_path": "main\u2192main"
+  },
+  "open_questions": [],
+  "changes_adopted": [
+    {
+      "id": 1,
+      "title": "AC-3 columns on rowsSql for ExportCsv find()",
+      "delta": "Project vin/plate/case_number/claimed_by/blank repo_agent_name after GROUP BY/HAVING; drop PHP second round trip"
+    },
+    {
+      "id": 2,
+      "title": "Drop maxRows(10000) as chunking",
+      "delta": "Omit maxRows; choose chunkSize independently"
+    },
+    {
+      "id": 3,
+      "title": "String triple key not cityHash64",
+      "delta": "concat(forwarder|agent|vin) AS id; keyType string; round-trip test"
+    },
+    {
+      "id": 4,
+      "title": "Month window = series bucket",
+      "delta": "UTC start/endOfMonth for this_month/last_month; parity vs monthlySeries bucket; viewerTimezone for filename"
+    }
+  ],
+  "nits_adopted": [
+    {
+      "id": 1,
+      "title": "Fix LprRepossections* misspellings",
+      "delta": "Use real LprRepossessions* paths; edit existing widget test"
+    },
+    {
+      "id": 2,
+      "title": "Exporter column-contract test required",
+      "delta": "Promote LprRepossessionExporterTest from optional"
+    },
+    {
+      "id": 3,
+      "title": "public exportAction(): ExportAction",
+      "delta": "Blade-reachable public method"
+    }
+  ],
+  "nits_rejected": [],
+  "acs": [
+    {
+      "id": "AC-1",
+      "text": "Export button CSV on LPR Repossessions chart",
+      "landing": "HasActions + card-local blade afterHeader; expanded only"
+    },
+    {
+      "id": "AC-2",
+      "text": "One row per VIN making up chart data",
+      "landing": "rowsSql triple HAVING = uniqExactIf grain"
+    },
+    {
+      "id": "AC-3",
+      "text": "VIN Plate RDN Case Claimed By Repo Agent Name",
+      "landing": "Projected on rowsSql; Repo Agent Name literal blank"
+    },
+    {
+      "id": "AC-4",
+      "text": "Respect current chart filters",
+      "landing": "date + org_id; two calendars; no client picker"
+    },
+    {
+      "id": "AC-5",
+      "text": "lpr-repossession-export-YYYY-MM-DD.csv",
+      "landing": "fileName via viewerTimezone; CsvDownloader adds .csv"
+    }
+  ],
+  "files": [
+    {
+      "path": "app/Clickhouse/Queries/LprRepossessionsQuery.php",
+      "action": "modify"
+    },
+    {
+      "path": "app/Filament/Widgets/Dashboard/LprRepossessions.php",
+      "action": "modify"
+    },
+    {
+      "path": "app/Filament/Exports/LprRepossessionExporter.php",
+      "action": "create"
+    },
+    {
+      "path": "app/Clickhouse/Models/LprRepossessionExportRow.php",
+      "action": "create"
+    },
+    {
+      "path": "resources/views/filament/widgets/dashboard/lpr-repossessions.blade.php",
+      "action": "create"
+    },
+    {
+      "path": "tests/Feature/Clickhouse/LprRepossessionsQueryTest.php",
+      "action": "modify"
+    },
+    {
+      "path": "tests/Filament/Widgets/Dashboard/LprRepossessionsTest.php",
+      "action": "modify"
+    },
+    {
+      "path": "tests/Filament/Exports/LprRepossessionExporterTest.php",
+      "action": "create"
+    }
+  ],
+  "hard_stops": [
+    "aggregate_unchanged",
+    "no_shared_cache_writes",
+    "csv_only",
+    "no_client_picker",
+    "no_remote_order_id_as_case",
+    "no_rdn_agents_join",
+    "no_UniqueLprCaseClaims_widen",
+    "no_scout",
+    "cloud_ch_readonly",
+    "no_product_php_in_plan_phase"
+  ],
+  "provision": {
+    "mode": "fleet_docker_ch_twin",
+    "provisioned": false,
+    "needs": [
+      "clarity.billing_claim_events",
+      "clarity.hotlist",
+      "zod.public_hotlist",
+      "zod.public_hotlist_status_log",
+      "zod.hotlist_json_denormalized",
+      "zod.public_orgs"
+    ],
+    "next": "Request Galadriel LIVE fleet ledger then Provision"
+  },
+  "sources": {
+    "draft": "claude-plan-draft.md",
+    "review": "cloud-plan-review.md",
+    "reconcile": "claude-plan-reconcile.md",
+    "cloud_agent": "bc-b5878f84-b171-56d1-8c8a-091510420c10",
+    "review_tip": "46becd0d0",
+    "sealed_after": "reconcile"
+  }
+}

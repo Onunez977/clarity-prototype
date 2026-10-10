@@ -1,0 +1,28 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Write-path CH connect timeout 2->5 + retries 0->1 (env-driven, write-specific keys), documented + pinned by test",
+      "approach": "On the clarity_clickhouse_write connection ONLY: change timeout_connect => env('CLICKHOUSE_WRITE_TIMEOUT_CONNECT', 5) and retries => env('CLICKHOUSE_WRITE_RETRIES', 1). Leave clarity_clickhouse and public_clickhouse on the shared env('CLICKHOUSE_TIMEOUT_CONNECT', 2) / env('CLICKHOUSE_RETRIES', 0) (Dalton's Q1 decision keeps read-path fast-fail). Document the new write keys (plus the previously-undocumented shared read keys) in .env.example near the existing CLICKHOUSE_WRITE_* block. Update the OKF wiki line that calls the 2s timeout 'intentional'. TDD: add a config-resolution test asserting the write connection resolves timeout_connect>=5 and retries>=1; do NOT touch the existing propagation test.",
+      "intended_diffs": {
+        "config/database.php": "In the 'clarity_clickhouse_write' array: 'timeout_connect' => env('CLICKHOUSE_WRITE_TIMEOUT_CONNECT', 5), and 'retries' => env('CLICKHOUSE_WRITE_RETRIES', 1). No other connection touched.",
+        ".env.example": "Add CLICKHOUSE_WRITE_TIMEOUT_CONNECT=5 and CLICKHOUSE_WRITE_RETRIES=1 (and the read-path CLICKHOUSE_TIMEOUT_CONNECT / CLICKHOUSE_RETRIES which were also undocumented) with brief comments, grouped with the existing CLICKHOUSE_WRITE_USERNAME/PASSWORD keys.",
+        "okf/concepts/clickhouse-integration.md": "Reword the 'timeouts are intentionally low (CLICKHOUSE_TIMEOUT_CONNECT=2 ...)' line to note the write path now uses CLICKHOUSE_WRITE_TIMEOUT_CONNECT=5 + CLICKHOUSE_WRITE_RETRIES=1 to absorb CH Cloud TLS/idle-scaling connect latency (DEV-2123), while read paths keep the 2s fast-fail.",
+        "tests/Feature/Jobs/TrackAnalyticsTest.php": "Add test asserting config('database.connections.clarity_clickhouse_write.timeout_connect') >= 5 and config(...'.retries') >= 1. Leave test_propagates_clickhouse_connect_timeout_instead_of_swallowing untouched."
+      },
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "TrackAnalyticsTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "config/database.php clarity_clickhouse (read) timeout_connect/retries", "reason": "intentionally unchanged — Q1 decision scopes the fix to write-specific keys; read path keeps 2s/0 fast-fail."},
+    {"site": "config/database.php public_clickhouse (read) timeout_connect/retries", "reason": "same — read path unchanged."},
+    {"site": "vendor/.../ClickhouseHttpClient.php", "reason": "package defaults (5s/0) + retry loop already correct; no vendor edit."},
+    {"site": "tests/Feature/Jobs/SyncDispositionToClickhouseTest.php & the existing propagation test", "reason": "self-contained config overrides, unaffected by default changes; not modified."},
+    {"site": "Persistent keep-alive / CURLOPT_TCP_KEEPALIVE", "reason": "deeper root cause, out of this ticket's env-driven scope (follow-up)."}
+  ]
+}

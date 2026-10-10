@@ -1,0 +1,54 @@
+{
+  "key": "DEV-2904",
+  "generated_at": "2026-10-02T17:39:45Z",
+  "precedents": [
+    {
+      "id": "DEV-2659",
+      "status": "Done",
+      "use": "Soft dependency. Landed the claims and repossessions billing leg on clarity.billing_claim_events_v with is_internal = 0, and the shared dedup triple in BillingClaimDedup. This export must reuse that filter and that triple. It does not reopen the billing-source migration.",
+      "ref": "app/Clickhouse/Queries/BillingClaimDedup.php"
+    },
+    {
+      "id": "DEV-2660",
+      "status": "Done",
+      "use": "Soft dependency. Replaced the hotlist status-log join with clarity.hotlist.first_repossessed_at. The backyard window is toDate(first_repossessed_at, 'UTC') >= claim_date - 7. The export predicate has to match that window. clarity.hotlist.repo_date stays rejected.",
+      "ref": "app/Clickhouse/Queries/LprRepossessionsQuery.php"
+    },
+    {
+      "id": "DEV-2737",
+      "status": "QA Complete",
+      "use": "Soft dependency. Verified the LPR Repossessions headline is the db_repos stage for the active date toggle and auth()->user()->org_id. This ticket adds an export of that set. It does not re-measure Brad Webb's count.",
+      "ref": "docs/investigations/DEV-2737/"
+    },
+    {
+      "id": "house-csv-exporters",
+      "use": "Five Filament exporters under app/Filament/Exports/ return only ExportFormat::Csv, write to the s3 disk, and queue on {high}. RecoveryLeaderboardExporter is the nearest widget example: ExportAction on a table header, modal off, chunkSize 250. LprRepossessions is a bar ChartWidget and has no exporter today.",
+      "ref": "app/Filament/Exports/RecoveryLeaderboardExporter.php"
+    },
+    {
+      "id": "unique-lpr-case-claims",
+      "use": "Sibling card. UniqueLprCaseClaims reads the deduped stage from UniqueLprCaseClaimsQuery. Out of scope. Do not add an export there and do not change that query.",
+      "ref": "app/Filament/Widgets/Dashboard/UniqueLprCaseClaims.php"
+    },
+    {
+      "id": "client-analytics-drill-down",
+      "use": "HasStatDrillDown on Client Analytics is a different surface. Do not use it as the export pattern for this Company Metrics chart.",
+      "ref": "okf/concepts/client-analytics.md"
+    },
+    {
+      "id": "DEV-2603",
+      "status": "QA Ready",
+      "use": "Queue mate named in First Glance 42732. Live status is QA Ready. Different surface (GL kit archive). No code collision with this card."
+    },
+    {
+      "id": "DEV-2903",
+      "status": "Done",
+      "use": "Queue mate named in First Glance 42732. Live status is Done. Different surface (unique-scans copy). No code collision with this card."
+    },
+    {
+      "id": "PG-030",
+      "use": "clarity_clickhouse leaves join_use_nulls at 0, so an unmatched LEFT JOIN yields type defaults, not NULL. The existing sentinels are d.agent_org_id != 0 and h.id != 0. Any display join added for plate, case number, or org name has to keep the db_repos predicate identical.",
+      "ref": "okf/concepts/platform-gotchas.md"
+    }
+  ]
+}

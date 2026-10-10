@@ -1,0 +1,328 @@
+{
+  "key": "DEV-2236",
+  "generated_at": "2026-09-14T20:55:00Z",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "escalated": false,
+  "escalation_note": "Fast pass returned confidence 92 with escalate.recommend=false, a directly shipped precedent (DEV-2232 on main), no blast-radius file in scope, and no cross-repo dependency. The one open question is a scope question routed to the Phase 2 interview rather than to N blind prep candidates \u2014 candidates cannot answer 'does Dalton want the sibling endpoint in this ticket'.",
+  "synthesis": "DEV-2232 guarded the shift-START side effect (lazy kit_shifts create + ShiftStart analytics/audit) in ClarityScoutShiftController::status() behind an isScoutForceImpersonator() check, and deliberately left end() untouched. end() (POST /api/scout/shift/end) has the mirror-image bug: it fires Analytics::track(ShiftEnd) unconditionally before doing any work, and its idempotent-close logic falls back to EnsureOpenShift::forKit($kit) when no shift exists \u2014 so an impersonating admin who taps End Shift creates a zero-activity kit_shifts row, closes it, dispatches SendEndOfShiftSummary, writes a 'Scout shift ended' audit row, and fires a ShiftEnd analytics event, purely as a side effect of impersonation. Fix: add the same isScoutForceImpersonator() short-circuit to end(), after the '! $kit' 403 check and before any Analytics::track or DB work.",
+  "scope": {
+    "summary": "Add an isScoutForceImpersonator() guard to ClarityScoutShiftController::end() that returns immediately (no KitShift read/write, no Analytics::track, no audit log, no SendEndOfShiftSummary dispatch) for a force-login impersonator, mirroring the shipped status() guard from DEV-2232.",
+    "proposed_changes": [
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutShiftController.php",
+        "change": "In end(), after the `if (! $kit)` 403 block and before `Analytics::track(ScoutAnalyticsEvent::ShiftEnd->value, ...)`, add an `if ($user->isScoutForceImpersonator())` early return of `['data' => ['shift_id' => null, 'open' => false, 'started_at' => null, 'ended_at' => null, 'end_type' => null, 'newly_closed' => false]]`.",
+        "reason": "Mirrors the DEV-2232 precedent in status() and blocks the same side-effect class (lazy KitShift create/close, Analytics::track, activity-log write, summary-job dispatch) for the end-shift path.",
+        "ref": "app/Http/Controllers/Api/ClarityScoutShiftController.php:62-70 (status() precedent)"
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutShiftController.php",
+        "change": "Update the class docblock's 'Both endpoints lazily materialize...' note so the documented contract reflects that BOTH endpoints now carry the impersonator exception.",
+        "reason": "The docblock currently documents only status()'s exception; leaving it would make the class's own contract wrong.",
+        "ref": "app/Http/Controllers/Api/ClarityScoutShiftController.php:20-34"
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutAuthController.php",
+        "change": "In logout(), gate ONLY the Analytics::track(Logout) call behind `! $user->isScoutForceImpersonator()`. Do NOT early-return: `$request->user()->currentAccessToken()->delete()` must still run so the impersonator's force token is revoked and impersonation exits. Resolve `$user = $request->user()` once and evaluate the predicate BEFORE the delete, since isScoutForceImpersonator() reads currentAccessToken().",
+        "reason": "Same defect class as end(): a force-login impersonator exiting impersonation writes a driver-attributed Logout analytics event. Graded `buggy` by the exhaustiveness sweep; scope-expanded into this ticket by Dalton at the Phase 2 gate.",
+        "ref": "app/Http/Controllers/Api/ClarityScoutAuthController.php:86-95"
+      }
+    ],
+    "target_files": [
+      "app/Http/Controllers/Api/ClarityScoutShiftController.php",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutShiftControllerTest.php",
+      "app/Http/Controllers/Api/ClarityScoutAuthController.php",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutAuthControllerTest.php"
+    ],
+    "out_of_scope": [
+      "ClarityScoutNotificationsController::markRead()/markAllRead() and ClarityScoutScanDispositionController \u2014 explicit user-initiated writes, graded `safe`: they are the impersonator deliberately acting as the driver, not an implicit/lazy side effect of merely being logged in.",
+      "CloseInactiveShiftsCommand \u2014 scheduled, not request-scoped, no impersonator context.",
+      "The session('impersonator') vs session('admin_impersonator') key mismatch between ClarityScoutShiftController::logShiftActivity() and the Scout force-login flow \u2014 pre-existing unrelated drift; flagged, not fixed (CLAUDE.md: do not silently fix unrelated drift).",
+      "okf/concepts/scout-shifts-and-trips.md corrections \u2014 queued for the post-approval wiki pass per CLAUDE.md's WRITE rule."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "An impersonating admin hitting POST /api/scout/shift/end creates no kit_shifts row and fires no ShiftEnd analytics/audit events.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Direct guard addition."
+    },
+    {
+      "item": "A normal driver's end-shift behavior is unchanged.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Guard is additive and only short-circuits when isScoutForceImpersonator() is true."
+    },
+    {
+      "item": "The impersonator payload shape does not break the Scout PWA consumer.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "resources/js/clarity-scout/composables/useShift.js:64-94 endShift() reads every field with optional chaining + fallbacks (data?.shift_id ?? shiftId.value, data?.started_at ?? startedAt.value, data?.ended_at ?? new Date().toISOString(), data?.end_type ?? 'confirmed') and never reads newly_closed \u2014 so a fully-null payload carrying the full key set is safe."
+    },
+    {
+      "item": "An impersonating admin hitting POST /api/scout/logout fires no Logout analytics event, but the force token is still revoked (impersonation still exits cleanly).",
+      "source": "derived (scope-expanded by human answer, 2026-09-14)",
+      "decision": "implement",
+      "reason": "Dalton elected to fix the sibling defect in this ticket rather than defer it."
+    }
+  ],
+  "questions": [
+    {
+      "q": "The exhaustiveness sweep graded a sibling site buggy: ClarityScoutAuthController::logout() fires Analytics::track(Logout) unconditionally and is reachable by a force token. Fix it in this ticket, or exclude it (and, if excluded, does Dalton want a follow-up DEV ticket opened for it)?",
+      "answered": true,
+      "answer": "Fix BOTH in this ticket. Dalton chose to guard ClarityScoutAuthController::logout() alongside end(). Note the shapes differ: end() early-returns entirely, whereas logout() must STILL revoke the token (that is how the impersonator exits) and only skip the Analytics::track(Logout) call. The predicate reads currentAccessToken(), so the check must run BEFORE the token delete.",
+      "source": "human:Dalton McCleery 2026-09-14"
+    },
+    {
+      "q": "Should the impersonator branch of end() return status()'s fully-null payload, or end()'s own key set with nulled values plus newly_closed:false?",
+      "answered": true,
+      "answer": "end()'s own key set with nulled values + newly_closed:false. The existing response-shape lock test asserts end() responses carry newly_closed as a structural key, and the PWA consumer (useShift.js:64-94) never reads newly_closed and optional-chains every other field with a fallback.",
+      "source": "code"
+    },
+    {
+      "q": "Does isScoutForceImpersonator() key on anything besides the Sanctum token ability?",
+      "answered": true,
+      "answer": "No. It is a single exact-membership check: in_array('clarity-scout-force', $this->currentAccessToken()?->abilities ?? [], true) at app/Models/User.php:252 \u2014 deliberately not tokenCan(), because a normal token's '*' ability would falsely satisfy that.",
+      "source": "code"
+    },
+    {
+      "q": "Is EnsureOpenShift::forKit() reachable from anywhere besides end()?",
+      "answered": true,
+      "answer": "Not directly \u2014 end() (ClarityScoutShiftController.php:130) is its only external caller. currentOpenForKit() calls it internally, and that path is already impersonator-guarded upstream in status().",
+      "source": "code"
+    },
+    {
+      "q": "Should the audit-log write be suppressed too, not just analytics?",
+      "answered": true,
+      "answer": "Yes \u2014 the ticket's Expected section says 'should not emit ShiftEnd analytics/audit'. Returning before the transaction suppresses both by construction, as status()'s guard does.",
+      "source": "ticket"
+    },
+    {
+      "q": "okf/concepts/scout-shifts-and-trips.md documents the CURRENT end() behavior ('ShiftEnd fires unconditionally', 'the audit row IS written during impersonation'). Does this fix make that page stale, and should it be corrected now?",
+      "answered": true,
+      "answer": "Yes, both lines go stale. The correction is QUEUED, not made now: CLAUDE.md's OKF WRITE rule forbids writing to okf/ while work is in flight \u2014 wiki edits land only after the change is merged or has passed final review/QA. Recorded in notes[] and carried to the Build Record.",
+      "source": "code"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "okf/concepts/scout-shifts-and-trips.md's Observability section documents pre-fix end() behavior on two counts; queue the correction for the post-approval wiki pass.",
+    "logShiftActivity() reads session('impersonator') while the Scout force-login flow sets session('admin_impersonator') \u2014 a pre-existing key mismatch meaning the _impersonator property on the confirmed-end audit row is likely never populated today. Unrelated drift; flagged only.",
+    "status() and end() will each carry a duplicated literal isScoutForceImpersonator() block. Extracting a private helper would DRY it, but the shipped status() precedent did not extract one; matching the precedent is the smaller, more consistent change. Note the duplication is intentional in the PR.",
+    "SCOPE EXPANDED at the Phase 2 gate (human answer): logout() joined end(). The two guards are deliberately DIFFERENT shapes \u2014 end() early-returns; logout() gates only the analytics call and still revokes the token. A reviewer seeing asymmetry should read this note before flagging it."
+  ],
+  "tests": [
+    {
+      "file": "tests/Feature/Http/Controllers/Api/ClarityScoutShiftControllerTest.php",
+      "what_it_pins": "New sibling to the DEV-2232 test status_does_not_open_a_shift_or_track_shift_start_for_a_force_login_impersonator: with a clarity-scout-force token, POST /api/scout/shift/end must assert 200, assertDatabaseCount('kit_shifts', 0), no ShiftEnd Analytics::track call, no 'Scout shift ended' activity_log row, and Queue::assertNotPushed(SendEndOfShiftSummary::class). Plus the impersonator response still carrying the full data.{shift_id,open,started_at,ended_at,end_type,newly_closed} key set. MUST NOT be class-level RequiresClickhouse-gated (that silently skips in normal CI)."
+    },
+    {
+      "file": "tests/Feature/Http/Controllers/Api/ClarityScoutAuthControllerTest.php",
+      "what_it_pins": "With a clarity-scout-force token, POST /api/scout/logout must assert 200, no Logout Analytics::track call, AND that the token IS revoked (the impersonator can still exit) \u2014 the revocation assertion is the load-bearing half, because an early-return implementation would strand the impersonator. Plus a normal-driver logout test proving the Logout event still fires. Existing force-token references live at lines 211, 322, 361."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Http/Controllers/Api/ClarityScoutShiftController.php:105-150 (end() \u2014 guard goes after the :108 `! $kit` block, before the :115 unconditional Analytics::track)",
+      "app/Http/Controllers/Api/ClarityScoutShiftController.php:62-70 (status()'s shipped DEV-2232 guard \u2014 the copy-and-adapt precedent)",
+      "app/Models/User.php:245-253 (isScoutForceImpersonator())",
+      "app/Services/Scout/EnsureOpenShift.php:52-100 (forKit() \u2014 the lazy-create fallback that must never run for an impersonator)",
+      "app/Http/Middleware/ClarityScoutMiddleware.php:22-25 (force tokens bypass the permission/kit/feature checks)",
+      "routes/api.php:59-60 (GET shift/status, POST shift/end, throttle:10,1, behind auth:sanctum + ClarityScoutMiddleware)",
+      "resources/js/clarity-scout/composables/useShift.js:64-94 (endShift() consumer contract)",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutShiftControllerTest.php",
+      "app/Http/Controllers/Api/ClarityScoutAuthController.php:86-95 (logout() \u2014 Analytics::track then currentAccessToken()->delete())"
+    ],
+    "code_flow": "PWA POST /api/scout/shift/end -> auth:sanctum resolves $user from the Bearer token -> ClarityScoutMiddleware lets force tokens through unchecked -> end() resolves $kit from $user->kit_id -> [NEW GUARD] -> (current) Analytics::track(ShiftEnd) fires unconditionally -> DB transaction locks the latest KitShift or creates one via EnsureOpenShift::forKit() -> closes it -> dispatches SendEndOfShiftSummary + writes activity_log if newly closed -> returns JSON.",
+    "tables": [
+      "platform.kit_shifts (PostgreSQL, via KitShift)",
+      "activity_log (Spatie, PostgreSQL)"
+    ],
+    "related_components": [
+      "EnsureOpenShift",
+      "SendEndOfShiftSummary",
+      "ActivityFactory/activity()",
+      "Analytics facade"
+    ]
+  },
+  "exhaustiveness": {
+    "grep_patterns": [
+      "isScoutForceImpersonator",
+      "Analytics::track(ScoutAnalyticsEvent",
+      "ensureOpenShift->forKit|EnsureOpenShift",
+      "session('impersonator')|session('admin_impersonator')",
+      "clarity-scout-force"
+    ],
+    "sites": [
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutShiftController.php",
+        "line": 62,
+        "symbol": "status()",
+        "verdict": "safe",
+        "reason": "Already guarded by the shipped DEV-2232 fix."
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutShiftController.php",
+        "line": 105,
+        "symbol": "end()",
+        "verdict": "buggy",
+        "reason": "This ticket's target."
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutAuthController.php",
+        "line": 91,
+        "symbol": "logout()",
+        "verdict": "buggy",
+        "reason": "Unconditional Analytics::track(Logout) attributed to the driver; reachable by a force token. Same defect class. IN SCOPE as of the Phase 2 gate answer \u2014 token revocation must be preserved, only the analytics call is gated."
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutAuthController.php",
+        "line": 68,
+        "symbol": "login()",
+        "verdict": "safe",
+        "reason": "Not reachable via force-login \u2014 force tokens are minted directly by the force-login controller."
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutAuthController.php",
+        "line": 105,
+        "symbol": "me()",
+        "verdict": "safe",
+        "reason": "Read-only; uses the predicate only to set an is_impersonating response flag."
+      },
+      {
+        "file": "app/Models/ScoutOrgSettings.php",
+        "line": 92,
+        "symbol": "flag resolution",
+        "verdict": "safe",
+        "reason": "Read-only flag surfacing."
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutNotificationsController.php",
+        "line": 46,
+        "symbol": "markRead()",
+        "verdict": "safe",
+        "reason": "Explicit user-triggered write, not an implicit poll side effect."
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutNotificationsController.php",
+        "line": 62,
+        "symbol": "markAllRead()",
+        "verdict": "safe",
+        "reason": "Same as markRead()."
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutScanDispositionController.php",
+        "line": 39,
+        "symbol": "__invoke()",
+        "verdict": "safe",
+        "reason": "Explicit driver disposition action."
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutTripsController.php",
+        "line": 269,
+        "symbol": "view analytics",
+        "verdict": "safe",
+        "reason": "Read-only view events, no mutation."
+      },
+      {
+        "file": "app/Console/Commands/CloseInactiveShiftsCommand.php",
+        "line": null,
+        "symbol": "handle()",
+        "verdict": "safe",
+        "reason": "Scheduled, not request-scoped, no impersonator context."
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [
+      "platform.kit_shifts",
+      "activity_log"
+    ],
+    "ch_tables": [
+      "clarity.analytics (indirect \u2014 the fix SUPPRESSES an Analytics::track -> TrackAnalytics -> CH insert; no read, no schema change)"
+    ],
+    "mv_or_cdc_implications": "None. No materialized views or CDC paths touched. The fix prevents rows from being written; nothing downstream needs backfilling.",
+    "indexes_relied_on": [
+      "kit_shifts one-open-per-kit partial unique index (kit_id WHERE ended_at IS NULL) \u2014 unaffected"
+    ]
+  },
+  "resource_envelope": {
+    "scale_relevant": false,
+    "trigger": "Single request-scoped controller guard on a throttled (10/min) impersonator-only code path \u2014 no command, job, query class, migration, or loop over a data-driven collection.",
+    "driving_tables": [],
+    "growth": null,
+    "schedule": null,
+    "allocation_sketch": null,
+    "oracle_status": "n/a",
+    "unresolved": []
+  },
+  "derivation_log": [],
+  "missed_caller_candidates": [
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutAuthController.php",
+      "symbol": "isScoutForceImpersonator",
+      "referenced_at": "105"
+    },
+    {
+      "file": "app/Models/ScoutOrgSettings.php",
+      "symbol": "isScoutForceImpersonator",
+      "referenced_at": "92"
+    },
+    {
+      "file": "app/Http/Controllers/ClarityScoutForceLoginController.php",
+      "symbol": "clarity-scout-force",
+      "referenced_at": "21,27,29"
+    },
+    {
+      "file": "app/Http/Controllers/ImpersonateController.php",
+      "symbol": "clarity-scout-force",
+      "referenced_at": "82,95"
+    },
+    {
+      "file": "routes/channels.php",
+      "symbol": "clarity-scout-force",
+      "referenced_at": "26,30"
+    }
+  ],
+  "missed_caller_note": "Backstop returned 39 raw candidates; the remainder are the shift subsystem's ordinary users of the KitShift model / ShiftEnd enum / SendEndOfShiftSummary job (CloseInactiveShiftsCommand, BuildShiftSummary, ShiftSummaryDto, the mail view, factories, and their tests) plus the DTO/enum definitions themselves \u2014 none is a caller of the changed method. Distilled above to the five that actually touch the impersonation predicate or the force-token ability. Note the prep pass cited the force-login controller as app/Http/Controllers/Api/ClarityScoutForceLoginController.php; its real path has no Api/ segment.",
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "Impersonator end() creates no kit_shifts row and fires no ShiftEnd analytics/audit",
+        "kind": "agent",
+        "intent": "Force-login token into a kit with no shift history, POST /api/scout/shift/end, assert 200 + null payload, assertDatabaseCount('kit_shifts', 0), no 'Scout shift ended' activity_log row, no ShiftEnd track call, no summary job."
+      },
+      {
+        "ac": "Normal driver end-shift unchanged",
+        "kind": "agent",
+        "intent": "Re-run the existing end() suite unmodified (idempotent close, summary dispatch, audit row, response-shape lock)."
+      },
+      {
+        "ac": "PWA does not break on the impersonator payload",
+        "kind": "human",
+        "intent": "Force-login as an impersonator into a kit's PWA, tap End Shift, confirm no console error and no visible state corruption."
+      },
+      {
+        "ac": "Impersonator logout fires no Logout analytics but still revokes the force token",
+        "kind": "agent",
+        "intent": "Force-login token, POST /api/scout/logout, assert 200, no Logout track call, and the token row is gone from personal_access_tokens."
+      }
+    ],
+    "seed_scenario": "A Kit + a User holding the clarity-scout permission and a kit_settings row, plus a Sanctum token bearing the 'clarity-scout-force' ability \u2014 mirroring the existing DEV-2232 status() impersonator test setup exactly. No ClickHouse data needed.",
+    "personas": [
+      "Scout driver (normal clarity-scout token)",
+      "Force-login impersonator (clarity-scout-force token)"
+    ],
+    "pg_tables": [
+      "kit_shifts",
+      "activity_log"
+    ],
+    "ch_tables": []
+  },
+  "confidence": 92,
+  "escalate": {
+    "recommend": false,
+    "reason": "Narrow, well-precedented single-file guard with a shipped analog on main and a verified frontend consumer contract."
+  }
+}

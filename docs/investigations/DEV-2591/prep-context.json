@@ -1,0 +1,418 @@
+{
+  "key": "DEV-2591",
+  "generated_at": "2026-09-16T21:05:00Z",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "escalated": false,
+  "escalation_note": "Fast-pass escalate.recommend was TRUE (confidence 78, open questions, Pro-tier/capacity blast radius). The driver resolved the DISCOVERY half by direct verification instead of best-of-N: every load-bearing claim was confirmed by executing it (php artisan tinker resolved the real slugs) and by an exhaustive repo grep of all Feature:: call sites. Best-of-N was skipped deliberately because the residual uncertainty is DECISION-shaped (rollout blast radius, is_visible parity, guard placement, retryUntil value) \u2014 all needs-human, all surfaced at the Phase 2 gate, and none answerable by more prep candidates.",
+  "synthesis": "ListScans/ListHits/ScanVehicleController gate the already-built ClickHouse query path on the string literals 'clickhouse:scans' / 'clickhouse:hits'. The only names Pennant ever defines are FeatureEnum::CLICKHOUSE_SCANS->slug() and CLICKHOUSE_HITS->slug(), which resolve (VERIFIED by execution) to 'clickhouse-scans' and 'clickhouse-hits'. Str::slug() cannot emit a colon, so the literals can never match a defined feature. Pennant's DatabaseDriver finds no stored row and no resolver, dispatches UnknownFeatureResolved, and returns false without persisting \u2014 so the ClickHouse path is reachable today only via session()->has('admin_impersonator'). Every Scans OCR search therefore runs the Postgres path, whose leading-wildcard ocr::text LIKE '%NA%' over an ~18-month window is unindexable and times out at 57014. Separately, HasRetryQuery::getTableRecords() logs to db-error and increments clarity.query_timeout unconditionally at the top of its catch block, BEFORE the retryUntil check, so every retry is counted as a distinct failure (measured 5.96x amplification). Outcome wanted: route Scans/Hits through the feature name that is actually defined, without changing the returned row set, and report one failure per search rather than one per retry.",
+  "ticket_corrections": [
+    {
+      "claim_in_ticket": "FeatureEnum::CLICKHOUSE_SCANS->slug() resolves to 'platform-repo-pro-clickhouse-scans' (slug of the enum's backing value platform_repo_pro_clickhouse_scans).",
+      "verified_reality": "It resolves to 'clickhouse-scans'. slug() is Str::slug($this->title()), and title() comes from the ArchTech Metadata #[Title('Clickhouse Scans')] attribute, NOT from the enum's backing value. Confirmed by executing App\\Enums\\FeatureEnum::CLICKHOUSE_SCANS->slug() in tinker. CLICKHOUSE_HITS->slug() === 'clickhouse-hits'.",
+      "why_it_matters": "The ticket's conclusion (colon literal can never match) is CORRECT and unchanged. But the defect is a one-character typo \u2014 ':' where '-' belongs \u2014 not a wholly different naming scheme. It also changes what a prod `features`-table check should look for: rows named 'clickhouse-scans'/'clickhouse-hits' (the defined names) and 'clickhouse:scans'/'clickhouse:hits' (the checked names)."
+    }
+  ],
+  "scope": {
+    "summary": "Hotfix, off deploy, SCOPED TO SCANS ONLY (narrowed 2026-09-17). (1) Take the Scans Postgres/ClickHouse routing decision off Pennant - ListScans and ScanVehicleController read config('app.experimental.clickhouse.scans') directly plus the admin_impersonator escape hatch - so all orgs follow one path governed by one env var, with no tier change and no persisted Pennant rows to purge. (2) Reconcile the ClickHouse scan query's org+kit scoping with the Postgres path. (3) Make HasRetryQuery report one db-error entry + one clarity.query_timeout increment per failed search. No FINAL on scans_cold. is_visible parity and the entire Hits half are out of scope.",
+    "proposed_changes": [
+      {
+        "file": "app/Filament/Resources/ScansResource/Pages/ListScans.php",
+        "change": "shouldUseClickhouse(): replace Feature::active('clickhouse:scans') with config('app.experimental.clickhouse.scans', false); keep the || session()->has('admin_impersonator') escape hatch.",
+        "reason": "Deletes the mismatched literal rather than correcting it, and makes the env var a true instant kill switch. Pennant's store is 'database', so a Feature::active() call persists the resolved value per user - keeping Pennant would mean flipping the env off does not revert anyone until FlushPennant (Feature::purge()) runs.",
+        "ref": "app/Filament/Resources/ScansResource/Pages/ListScans.php:300"
+      },
+      {
+        "file": "app/Http/Controllers/ScanVehicleController.php",
+        "change": "Same, against config('app.experimental.clickhouse.scans', false).",
+        "reason": "Third site with the same literal.",
+        "ref": "app/Http/Controllers/ScanVehicleController.php:25"
+      },
+      {
+        "file": "app/Clickhouse/Models/Scan.php",
+        "change": "Add kit-list scoping mirroring App\\Clickhouse\\Models\\Hit::scopeForKits.",
+        "reason": "scans_cold/scans_hot carry kit_id in the sort key (org_id, scanned_at, kit_id, id), so kit scoping needs no schema change. Hit already has this pattern and ListHits already uses it.",
+        "ref": "app/Clickhouse/Models/Hit.php:41"
+      },
+      {
+        "file": "app/Filament/Resources/ScansResource/Pages/ListScans.php",
+        "change": "buildClickhouseQuery(): scope by the same kit id list buildPostgresQuery() resolves via forOrg($orgId, withSharedKits: ...), instead of org_id alone.",
+        "reason": "Routing all orgs to ClickHouse without this ships a shared-kit row-set divergence.",
+        "ref": "app/Filament/Resources/ScansResource/Pages/ListScans.php:303-321"
+      },
+      {
+        "file": "app/Filament/Concerns/HasRetryQuery.php",
+        "change": "Guard the Log::channel('db-error') + logDatadogCount('clarity.query_timeout') pair on a component property keyed on a hash of the current filter state, so it fires once per distinct failed search; re-arm on filter change.",
+        "reason": "Both calls sit unconditionally at the top of the catch(QueryException) block, before the retryUntil branch - the measured 5.96x amplification source.",
+        "ref": "app/Filament/Concerns/HasRetryQuery.php:29-45"
+      },
+      {
+        "file": "app/Filament/Concerns/HasRetryQuery.php",
+        "change": "retryUntil: 2 -> 1.",
+        "reason": "Retrying an unindexable scan unchanged cannot succeed. Shared by the Scans, Hits, MissedOpportunity and AffiliateStats list pages, so one retry is retained for genuinely transient timeouts elsewhere.",
+        "ref": "app/Filament/Concerns/HasRetryQuery.php:15"
+      }
+    ],
+    "target_files": [
+      "app/Filament/Resources/ScansResource/Pages/ListScans.php",
+      "app/Http/Controllers/ScanVehicleController.php",
+      "app/Clickhouse/Models/Scan.php",
+      "app/Filament/Concerns/HasRetryQuery.php",
+      "tests/Filament/Concerns/HasRetryQueryTest.php",
+      "tests/Filament/Resources/ScansResourceTest.php"
+    ],
+    "out_of_scope": [
+      "THE ENTIRE HITS HALF - split to DEV-2614 (2026-09-17, operator decision). ListHits keeps its 'clickhouse:hits' literal untouched, so this diff does not touch ListHits at all. Reason: its ClickHouse query filters only kit_id, while hits_cold/hits_hot are ordered (hotlist_org_id, toYYYYMM(hit_created_at), hit_created_at, id) - kit_id is not in the sort key and hotlist_org_id is never filtered. The obvious fix (forOrg -> hotlist_org_id) drops Staging Live hits and changes the row set, so it needs its own ticket with the row sets compared. Fixing the name mismatch WITHOUT that would turn an unvalidated query on for every org.",
+      "is_visible parity between the Postgres and ClickHouse scan paths - DEFERRED to a low-tier follow-up ticket next sprint (Dalton, 2026-09-16). clarity.scans_cold has no is_visible column; the ClickHouse path will surface roughly 5.36% more scans (measured: 905,913 hidden of 16,916,753 over the last 2 days). This ships as a known, documented gap for all orgs.",
+      "Any change to ProTierEnum - explicitly rejected as too risky. CLICKHOUSE_SCANS/CLICKHOUSE_HITS stay listed under CLARITY_PRO and CLARITY_PRO_PLUS even though the routing decision no longer consults them.",
+      "Removing the now-dead Feature::define() lines for CLICKHOUSE_SCANS/CLICKHOUSE_HITS in PennantServiceProvider - left in place for the hotfix; worth a follow-up, since an unchecked define is the same dead-code shape that caused this bug.",
+      "Flipping CLICKHOUSE_SCANS_ENABLED / CLICKHOUSE_HITS_ENABLED in production - Dalton is verifying the current value; the flip itself is an ops action.",
+      "Adding FINAL to scans_cold / scans_hot - explicitly forbidden by the ticket.",
+      "Any Postgres-side fallback (bounding the Scans date range, rejecting leading-wildcard OCR input, a trigram index on scans.ocr).",
+      "app/Notifications/Hits/HitNotification.php:77's bare 'ai-notifications' literal - coincidentally correct today, same brittle idiom, unrelated drift. Worth a follow-up.",
+      "Contacting org 2575 - a customer-success action."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "ListScans (and ListHits, ScanVehicleController) check a feature name that is actually defined, verified against the prod features table",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "PARTIAL by explicit decision. Scans (ListScans + ScanVehicleController) are done: the routing decision is taken off Pennant and reads config() directly, so nothing checks a name that no define() can match. ListHits is OUT OF SCOPE - split to DEV-2614 (2026-09-17). The prod features-table verification is moot for the Scans routing path once Pennant is not consulted."
+    },
+    {
+      "item": "Enabling the flag does not change the returned row set (is_visible + kit/org scoping reconciled)",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "PARTIAL by explicit decision. Kit/shared-kit scoping IS reconciled in this ticket. is_visible parity is deferred to a follow-up ticket (Dalton, 2026-09-16) and ships as a documented ~5.36% row-set gap."
+    },
+    {
+      "item": "No FINAL introduced on scans_cold",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "buildClickhouseQuery() has no ->final() today; keep it that way and pin it with a test."
+    },
+    {
+      "item": "The Scans OCR search completes within timeout for org 2575 and for the two largest orgs (469, 1143)",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Follows from the routing fix; the ticket's own 2026-09-16 measurements (0.11-3.12s against a 20s CH timeout) already establish the query itself is comfortable at those orgs' scale. Confirmed post-deploy, not in a local test."
+    },
+    {
+      "item": "One clarity.query_timeout increment + one db-error entry per failed search, not per retry (verified against the measured 5.96x baseline)",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "The guard change is code; the 5.96x-baseline verification is a post-deploy production observation."
+    },
+    {
+      "item": "clarity.query_timeout drops to a level that reflects real distinct failures",
+      "source": "ticket",
+      "decision": "defer",
+      "reason": "A production-metric outcome observed after deploy. Should follow mechanically from the routing fix plus the dedup guard, but cannot be asserted from the repo or from QA."
+    },
+    {
+      "item": "Org 2575 contacted about the automation",
+      "source": "ticket",
+      "decision": "defer",
+      "reason": "A customer-success/support action outside the code change. Named here so it is visibly excluded rather than silently dropped."
+    }
+  ],
+  "questions": [
+    {
+      "id": "Q1",
+      "q": "Rollout blast radius. After the fix, shouldUseClickhouse() becomes config('app.experimental.clickhouse.scans') && (isInsightLpr() || isProEnabled(CLICKHOUSE_SCANS)). The config is a single global boolean (true in this worktree's .env; prod value unverified). So the number of orgs that immediately start routing Scans searches onto ClickHouse equals the number of orgs holding the CLICKHOUSE_SCANS Pro override, plus all InsightLPR staff. The ticket's step 5 assumes a per-org enable for 2575 only. Which is it in prod: is CLICKHOUSE_SCANS an explicit per-org grant, or is it bundled into a Pro tier (in which case this lights up for every Pro org at once, against a 57.6 GiB CH ceiling that was already hit on 2026-09-11)? Also: does a features row literally named 'clickhouse:scans' or 'clickhouse-scans' already exist in prod?",
+      "answered": true,
+      "answer": "No tier change (too risky). CLICKHOUSE_SCANS/HITS are not real Pro features - they are surfaced in no user-facing UI, and tests/TestCase.php:118 already excludes CLICKHOUSE_SCANS from makeOrgPro with the comment 'ClickHouse is opt-in'. ProTierEnum is the outlier. DECISION: remove the Pro/Pennant gating from the routing decision entirely; shouldUseClickhouse() checks config('app.experimental.clickhouse.scans') directly (plus the admin_impersonator escape hatch). All orgs then follow the same path, governed by one env var. ProTierEnum and the Feature::define lines are left untouched. Prod value of CLICKHOUSE_SCANS_ENABLED is being verified by Dalton (expected true).",
+      "source": "human:Dalton 2026-09-16"
+    },
+    {
+      "id": "Q2",
+      "q": "Scope of this ticket. Do you want all four code items in one PR (routing fix + kit-scoping parity + retry-log dedup + retryUntil), or just the routing fix and the log dedup now, with the row-set parity split out? The routing fix alone is 3 lines and stops the timeouts; the parity work is the part with a cross-repo dependency.",
+      "answered": true,
+      "answer": "Hotfix off the deploy branch. All five target files are byte-identical on main and deploy, so the base switch is clean; dual-PR (deploy + main) per the hotfix route.",
+      "source": "human:Dalton 2026-09-16"
+    },
+    {
+      "id": "Q3",
+      "q": "is_visible parity. clarity.scans_cold has no is_visible column (only the raw CDC replica zod.public_scans does). The Postgres path filters is_visible = true via the ShowVisibleScan global scope, so the ClickHouse path would surface scans the Postgres path hides. Options: (a) accept and document the gap for now and open a chlocal ticket to carry is_visible into scans_cold; (b) hold the routing fix until chlocal lands the column. I would take (a) \u2014 the gap is pre-existing in the already-shipped CH path and affects only admin-impersonator sessions today, whereas the timeouts are live and daily. But this changes what customers see, so it is your call.",
+      "answered": true,
+      "answer": "is_visible parity is OUT OF SCOPE for this ticket. It becomes a low-tier Jira follow-up for next sprint. The 5.36% gap (905,913 hidden of 16,916,753 scans over the last 2 days, measured read-only on prod) ships documented, for all orgs. Concern was raised explicitly and reaffirmed.",
+      "source": "human:Dalton 2026-09-16"
+    },
+    {
+      "id": "Q4",
+      "q": "Where the dedup guard lives. HasRetryQuery::$retryCount is a public Livewire property, so it does persist across the poll cycle within one component instance \u2014 meaning a public-property guard would dedupe retries. But that does not explain the ticket's measured 6 events per episode when retryUntil = 2 predicts 2 per search (2 searches = 4). The unexplained excess suggests either concurrent sessions or the component re-instantiating. Do you want (a) a component-property guard keyed on the filter hash (simple, dedupes the retry loop, which is the 5.96x -> ~2x win), or (b) a short-TTL cache key on user+filter hash (also dedupes across instances/sessions, closer to one-per-episode)? I would take (a) unless you already know the automation runs concurrent sessions.",
+      "answered": true,
+      "answer": "Component-property guard keyed on a hash of the filter state (option a). Driver recommendation, stated twice, not overridden.",
+      "source": "ASSUMED:component-property guard keyed on filter hash"
+    },
+    {
+      "id": "Q5",
+      "q": "retryUntil target value. Options: leave at 2, drop to 1 (one retry), or 0 (never retry a timed-out search). The ticket argues retrying an unindexable scan cannot succeed. Note HasRetryQuery is shared \u2014 it is also used by the Hits, MissedOpportunity and AffiliateStats list pages, so this is not a Scans-only change. I would take 1: keeps a single retry for a genuinely transient timeout on the other pages, and halves the load for this one.",
+      "answered": true,
+      "answer": "retryUntil = 1. Keeps a single retry for a genuinely transient timeout on the other three pages that share HasRetryQuery, halves the load for this one. Driver recommendation, stated twice, not overridden.",
+      "source": "ASSUMED:retryUntil=1"
+    },
+    {
+      "id": "Q6",
+      "q": "Is there a test route for the ClickHouse scan path at all? tests run with CLICKHOUSE_DRIVER unset by default, and RequiresClickhouse skips class-level. Confirming this is acceptable: the row-set parity AC would then be pinned by a query-shape assertion (scoping + no FINAL) rather than a live row comparison. Acceptable, or do you want the parity AC verified against a real local ClickHouse in QA?",
+      "answered": true,
+      "answer": "Pin the parity/no-FINAL ACs with query-shape assertions rather than a live local ClickHouse row comparison. Driver recommendation, stated twice, not overridden.",
+      "source": "ASSUMED:query-shape assertions"
+    },
+    {
+      "id": "A1",
+      "q": "Does FeatureEnum::CLICKHOUSE_SCANS->slug() produce 'platform-repo-pro-clickhouse-scans'?",
+      "answered": true,
+      "answer": "No \u2014 it produces 'clickhouse-scans'. slug() is Str::slug(title()), and title() reads the #[Title('Clickhouse Scans')] ArchTech metadata attribute, not the enum backing value. Verified by executing it in tinker.",
+      "source": "code"
+    },
+    {
+      "id": "A2",
+      "q": "Is there a seeder or migration creating a 'clickhouse:scans' feature row?",
+      "answered": true,
+      "answer": "No. Only database/migrations/2025_05_14_140126_create_features_table.php exists (schema only). Nothing in the repo inserts a row under either name. Whether one exists in prod, created ad hoc, is Q1.",
+      "source": "code"
+    },
+    {
+      "id": "A3",
+      "q": "Does buildClickhouseQuery() exist, and what does it scope by?",
+      "answered": true,
+      "answer": "Yes, in both ListScans and ListHits. ListScans's version scopes by org_id only (Clickhouse\\Scan::scopeForOrg) and selects id, ocr, guid, us_state, scanned_at, camera_name, kit_name, org_id as kit_org_id, disposition, lat, lng, address. No is_visible filter, no kit scoping, no FINAL. ListHits's version already scopes by a kit-id list via forKits().",
+      "source": "code"
+    },
+    {
+      "id": "A4",
+      "q": "Where does the retry log/metric fire relative to retryUntil?",
+      "answered": true,
+      "answer": "Both fire unconditionally at the top of the catch(QueryException) block (lines 29-45), before the `if ($this->retryCount >= $this->retryUntil)` branch at line 57. Every catch logs and counts.",
+      "source": "code"
+    },
+    {
+      "id": "A5",
+      "q": "Which call sites carry the bug?",
+      "answered": true,
+      "answer": "Exactly three, all colon literals: ListScans.php:300, ListHits.php:91, ScanVehicleController.php:25. Verified by an exhaustive repo grep of every Feature::active/inactive/for/value call with a bare string. One further bare literal exists (HitNotification.php:77, 'ai-notifications') but is coincidentally correct and out of scope.",
+      "source": "code"
+    }
+  ],
+  "blockers": [
+    "NOT a build blocker: the prod value of CLICKHOUSE_SCANS_ENABLED is unverified from this checkout. Dalton is checking it. The code is correct either way; if it is false in prod the change is inert until it is flipped, and the timeouts continue."
+  ],
+  "notes": [
+    "The defect is a one-character typo: ':' where Str::slug() emits '-'. git log attributes the ListScans literal to commit 248830104 'Scan contract for postgres/clickhouse swapping' \u2014 the path appears never to have worked outside admin impersonation.",
+    "HasRetryQuery is shared by the Scans, Hits, MissedOpportunity and AffiliateStats list pages. Both the dedup guard and any retryUntil change affect all four.",
+    "app/Filament/Tables/Filters/PlateFilter.php enforces minLength(4) in the UI, but the automation's bindings are 2-3 chars ('%NA%', '%N/A%') \u2014 consistent with the ticket's framing that this is a machine driving Livewire filter state, not a person typing.",
+    "ListHits already reconciles kit scoping across both paths; the row-set gap the ticket describes is specific to ListScans.",
+    "Per CLAUDE.md: composer format (Pint) before finishing; never point tests at dev or production data."
+  ],
+  "tests": [
+    {
+      "file": "tests/Filament/Concerns/HasRetryQueryTest.php",
+      "what_it_pins": "Repeated getTableRecords() failures within one component instance and filter state log to db-error and increment clarity.query_timeout exactly once; a filter-state change re-arms the guard and logs again."
+    },
+    {
+      "file": "tests/Filament/Resources/ScansResourceTest.php",
+      "what_it_pins": "shouldUseClickhouse() is true only for the defined feature name (or admin_impersonator) and never for the old 'clickhouse:scans' literal; buildClickhouseQuery() scopes by the same kit id list as buildPostgresQuery(); no ->final() anywhere on the scan CH path."
+    },
+    {
+      "file": "tests/Filament/Resources/HitsResourceTest.php",
+      "what_it_pins": "shouldUseClickhouse() is true only for FeatureEnum::CLICKHOUSE_HITS->slug() (or admin_impersonator)."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Filament/Resources/ScansResource/Pages/ListScans.php:298-321",
+      "app/Filament/Resources/HitsResource/Pages/ListHits.php:89-93",
+      "app/Http/Controllers/ScanVehicleController.php:25",
+      "app/Filament/Concerns/HasRetryQuery.php:15,29-45,57",
+      "app/Providers/PennantServiceProvider.php:30-32",
+      "app/Enums/FeatureEnum.php:54-60,89-92",
+      "app/Clickhouse/Models/Scan.php:43-46",
+      "app/Clickhouse/Models/Hit.php:41",
+      "app/Models/Scopes/ShowVisibleScan.php",
+      "database/schema/clickhouse-schema.sql:40-41",
+      "database/migrations/2025_05_14_140126_create_features_table.php"
+    ],
+    "code_flow": "ListScans/ListHits getTableQuery() -> shouldUseClickhouse() (Pennant Feature::active) -> buildClickhouseQuery() [Clickhouse\\Scan|Hit on the clarity_clickhouse connection] or buildPostgresQuery() [Eloquent on zod, joining kits + scans_metadata] -> HasRetryQuery::getTableRecords() wraps the paginate, catches QueryException on statement_timeout, logs db-error + increments clarity.query_timeout, sets Livewire poll('10s') and retries up to retryUntil.",
+    "tables": [
+      "zod public.scans",
+      "zod public.kits",
+      "zod public.scans_metadata",
+      "zod public.hits",
+      "platform.features",
+      "clarity.scans_cold",
+      "clarity.scans_hot",
+      "clarity.hits_cold",
+      "clarity.hits_hot",
+      "zod.public_scans (CDC replica, carries is_visible)"
+    ],
+    "related_components": [
+      "Laravel Pennant (Feature::define/active, DatabaseDriver, platform.features)",
+      "Org::isProEnabled / proTier",
+      "ShowVisibleScan global scope",
+      "ScanTimezoneScope (withoutGlobalScope'd on the PG path)",
+      "PlateFilter::modifyQuery"
+    ]
+  },
+  "exhaustiveness": {
+    "idiom": "A hardcoded Pennant feature-name string literal that no Feature::define() can ever match (Str::slug() output vs a hand-written literal).",
+    "grep_patterns": [
+      "grep -rnE \"Feature::(active|inactive|for|value)\\(\\s*['\\\"]\" app/ database/ routes/ resources/",
+      "grep -rnE \"\\->(active|inactive)\\(\\s*['\\\"]\" app/",
+      "grep -rnE \"['\\\"](clickhouse[-:](scans|hits))['\\\"]\" app/ tests/ database/"
+    ],
+    "sites": [
+      {
+        "site": "app/Filament/Resources/ScansResource/Pages/ListScans.php:300",
+        "verdict": "buggy",
+        "reason": "'clickhouse:scans' \u2014 colon; defined name is 'clickhouse-scans'."
+      },
+      {
+        "site": "app/Filament/Resources/HitsResource/Pages/ListHits.php:91",
+        "verdict": "buggy",
+        "reason": "'clickhouse:hits' \u2014 colon; defined name is 'clickhouse-hits'."
+      },
+      {
+        "site": "app/Http/Controllers/ScanVehicleController.php:25",
+        "verdict": "buggy",
+        "reason": "'clickhouse:scans' \u2014 same literal as ListScans."
+      },
+      {
+        "site": "app/Notifications/Hits/HitNotification.php:77",
+        "verdict": "safe (fragile)",
+        "reason": "Feature::for($user)->active('ai-notifications') \u2014 happens to equal Str::slug('AI Notifications'). Correct today; breaks silently if the #[Title] is ever reworded. Out of scope, worth a follow-up."
+      },
+      {
+        "site": "all other Feature:: call sites (~30, spanning InviteAction, ResendToClearPlanAction, HasProFeature, AlertSettingsForm, ProFeatureToggle, ClientAnalyticsGuide, ManageZones, ScoutUsersResource, ZoneResource, ClarityScoutAuthController, ClarityScout middleware, Filament/App provider, ScoutUserProvisioner, ZoneIndexController, ZoneZipSearchController, ActivityResource, MissedOpportunity widgets/policy, HitsResource, InviteResource, ListScans:130/179/328, FlexSearchToggle, PlateFilter, SubscribedAlertsWidget, disposition controllers, FlexMatchAlertController, KitUserPathController, LprVisitCountController, NearestGivenAddressController, HitAlertSettings, ProFilterPipeline, AlertSettingPolicy, FlexSearch, ScoutDriverFlags, ScoutRecordCheckIns)",
+        "verdict": "safe",
+        "reason": "All pass FeatureEnum::X->slug() rather than a literal. Confirmed by the grep above returning zero bare-literal hits outside the four named."
+      }
+    ]
+  },
+  "missed_caller_candidates": [],
+  "data_impact": {
+    "pg_tables": [
+      "public.scans",
+      "public.kits",
+      "public.scans_metadata",
+      "public.hits",
+      "platform.features"
+    ],
+    "ch_tables": [
+      "clarity.scans_cold",
+      "clarity.scans_hot",
+      "clarity.hits_cold",
+      "clarity.hits_hot"
+    ],
+    "mv_or_cdc_implications": "The is_visible gap traces to the chlocal-owned denormalization that builds clarity.scans_cold/scans_hot from zod.public_scans. is_visible exists on the raw CDC replica but was never carried into the denormalized table. Closing it in-repo would mean joining the raw replica, which loses the sort-key pruning that makes the CH path fast.",
+    "indexes_relied_on": [
+      "clarity.scans_cold/scans_hot ORDER BY (org_id, scanned_at, kit_id, id) \u2014 the CH query is a backward read of this sort key, which is why it is fast and why kit scoping is cheap to add",
+      "No usable Postgres index exists for a leading-wildcard LIKE on scans.ocr::text \u2014 the root cause of the PG timeout"
+    ]
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "The change alters which orgs' Scans/Hits list searches route onto clarity.scans_cold (2.21B rows, 124 GiB) \u2014 a query-class change over a >1B-row ClickHouse surface.",
+    "driving_tables": [
+      {
+        "table": "clarity.scans_cold",
+        "source": "ticket measurement 2026-09-16, read-only against ClickHouse Cloud",
+        "prod_rows": 2210000000,
+        "group_by": "org_id (sort-key prefix)",
+        "largest_group_rows": 86000000
+      }
+    ],
+    "growth": "Not separately probed. The ticket's measurement is same-day (2026-09-16) and is reused rather than re-derived.",
+    "schedule": null,
+    "allocation_sketch": "Measured 1.1-2.5 GiB peak per query; worst measured wall clock 1.11s warm / 3.12s cold against CLICKHOUSE_TIMEOUT_QUERY=20. Cluster ceiling 57.6 GiB, breached once on 2026-09-11 (ClickHouse error 241, which rejected TrackAnalytics inserts); ~25-30 concurrent searches of this shape reach it. Under the ADOPTED design the routing is config-only and uniform, so the population moving to ClickHouse is ALL orgs, not the 4,102 that the Pro-gated design would have moved. The env var is the mitigation: with Pennant out of the path there are no persisted rows, so flipping CLICKHOUSE_SCANS_ENABLED off reverts every org immediately with no FlushPennant/Feature::purge() step.",
+    "oracle_status": "ok",
+    "unresolved": [
+      "Prod value of CLICKHOUSE_SCANS_ENABLED / CLICKHOUSE_HITS_ENABLED - Dalton is verifying. Determines whether this change moves every org to ClickHouse on deploy or is inert until flipped."
+    ]
+  },
+  "derivation_log": [
+    {
+      "query_shape": "php artisan tinker: FeatureEnum::CLICKHOUSE_SCANS->slug(), CLICKHOUSE_HITS->slug(), AI_NOTIFICATIONS->slug(), FeatureEnum::slugs()",
+      "param_classes": "none (enum metadata only, no DB access)",
+      "aggregate_result": "17 slugs; the three of interest are 'clickhouse-scans', 'clickhouse-hits', 'ai-notifications'",
+      "why": "Settles the ticket's central claim about the defined feature name, and corrects it."
+    },
+    {
+      "query_shape": "config('app.experimental.clickhouse.scans'), config('app.experimental.clickhouse.hits')",
+      "param_classes": "none",
+      "aggregate_result": "both true IN THIS WORKTREE'S LOCAL .env \u2014 not evidence of the production value",
+      "why": "Establishes that the config gate is a single global boolean, which is what makes Q1 material."
+    },
+    {
+      "query_shape": "repo greps for every Feature:: call with a bare string literal (patterns recorded under exhaustiveness.grep_patterns)",
+      "param_classes": "none",
+      "aggregate_result": "4 bare-literal sites total: 3 buggy, 1 coincidentally correct",
+      "why": "Exhaustiveness sweep for the root-cause idiom."
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC-1",
+        "kind": "agent",
+        "intent": "Assert shouldUseClickhouse() on all three sites resolves via the defined feature name, and that the old colon literal resolves nothing."
+      },
+      {
+        "ac": "AC-2",
+        "kind": "agent",
+        "intent": "For an org with a shared kit, assert the CH scan query scopes to the same kit id list the Postgres path resolves."
+      },
+      {
+        "ac": "AC-3",
+        "kind": "agent",
+        "intent": "Assert no ->final() appears anywhere on the scans_cold/scans_hot path in the diff."
+      },
+      {
+        "ac": "AC-4",
+        "kind": "human",
+        "intent": "Needs live ClickHouse Cloud against orgs 2575/469/1143 \u2014 not reproducible locally."
+      },
+      {
+        "ac": "AC-5",
+        "kind": "agent",
+        "intent": "Drive repeated QueryException throws through one component lifecycle; assert exactly one db-error entry and one clarity.query_timeout increment per distinct filter state."
+      },
+      {
+        "ac": "AC-6",
+        "kind": "human",
+        "intent": "Post-deploy Datadog observation."
+      },
+      {
+        "ac": "AC-7",
+        "kind": "human",
+        "intent": "Support/CS confirmation."
+      }
+    ],
+    "seed_scenario": "One org with two kits, one shared from another org, each with a handful of scans whose ocr values contain a short substring like 'NA'; at least one scan with is_visible = false to probe the parity gap; the acting user granted the CLICKHOUSE_SCANS Pro feature.",
+    "personas": [
+      "Clarity admin-panel user in a Pro org searching Scans",
+      "InsightLPR staff via admin_impersonator (the only path that works today \u2014 must keep working)"
+    ],
+    "pg_tables": [
+      "scans",
+      "kits",
+      "scans_metadata",
+      "hits",
+      "org_meta",
+      "features"
+    ],
+    "ch_tables": [
+      "clarity.scans_cold",
+      "clarity.scans_hot",
+      "clarity.hits_cold",
+      "clarity.hits_hot"
+    ]
+  },
+  "confidence": 90,
+  "escalate": {
+    "recommend": false,
+    "reason": "Discovery is settled: every load-bearing claim was verified by execution and the exhaustiveness sweep is complete. What remains is six human decisions, which go to the Phase 2 gate."
+  },
+  "gate_note": "Resolved at the Phase 2 interview 2026-09-16. Q1/Q2/Q3 answered by Dalton; Q4/Q5/Q6 taken as stated driver recommendations after being surfaced twice without objection, recorded as ASSUMED and visible on the PR."
+}

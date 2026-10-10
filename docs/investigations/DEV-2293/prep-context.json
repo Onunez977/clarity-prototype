@@ -1,0 +1,130 @@
+{
+  "key": "DEV-2293",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "synthesis": "The Scout Org Map (admin Bird's Eye) driver picker (DriverSelector.vue, admin-only via mapStore.adminMode, backed by GET /scout/org-map/api/drivers -> ClarityScoutBirdsEyeController::drivers()) currently lists every non-deleted Scout kit in the org with no regard for scan activity — the endpoint is pure Postgres (Kit + KitSettings), never touches ClickHouse, and never receives the admin's selected date-range (today/7d/15d/30d/60d). DEV-2293 wants the picker narrowed to only drivers with >=1 scan inside that same window, refetching when the range changes, with an empty-state message when nobody qualifies, while leaving every other Bird's Eye behavior (kit_ids scoping of stats/hits/paths, the nameplate toggle, driver-side surfaces) untouched.",
+  "scope": {
+    "summary": "Add range-awareness to exactly one endpoint (drivers()): compute the ClickHouse-derived set of kit_ids that scanned in the requested window and ANNOTATE each roster entry with active_in_range (do NOT shrink the roster). Frontend passes the active range + refetches on range change; DriverSelector shows only active drivers by default, reveals inactive matches WITH A NOTE on search, and shows an empty-state when zero active. orgScoutKits()/scopedKits() stay range-agnostic (shared by other endpoints); store.drivers stays the full roster so App.vue followedDriverName/noKitsReporting + AC4 are untouched.",
+    "proposed_changes": [
+      {"file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php", "change": "drivers() reads+whitelists a `range` query param (same ladder + fallback-to-'today' as scanPaths()), resolves [start,end] via getDateRange($range,$tz), computes the set of kit_ids with >=1 scan in-window via a new private helper, and adds an `active_in_range` boolean to each mapped roster entry (kit_id in the active set). It returns the FULL orgScoutKits() roster annotated — it does NOT filter the list server-side. Cache the active-kit-id lookup per org+range with mapCacheTtl($range). Do NOT touch orgScoutKits()'s own cache — scopedKits() reuses it unfiltered.", "reason": "AC1 default-visible filtering + Q1 search-reveal both fall out of the annotated roster; keeps store.drivers whole (AC4 + App.vue consumers untouched)", "ref": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:55-70"},
+      {"file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php", "change": "New private helper activeKitIdsForRange($orgId,$kitIds,$start,$end): array using the ClickhouseScan forWindow()->final()->forOrg() pattern (mirrors stats():481-486) with whereIntegerInRaw('kit_id',$kitIds) + whereBetween(scanned_at) + distinct pluck('kit_id').", "reason": "Reuse proven bounded CH query shape; ranges are <=90d so forWindow stays on scans_hot", "ref": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:481-486"},
+      {"file": "resources/js/clarity-scout/stores/map.js", "change": "fetchDrivers() gains a range param, forwarded via buildUrl('/drivers', range ? {range} : {}) (mirrors fetchRangeHits()). store.drivers still holds the FULL annotated roster (each entry now carries active_in_range).", "reason": "endpoint now needs the active range; roster stays whole", "ref": "resources/js/clarity-scout/stores/map.js:926-936"},
+      {"file": "resources/js/clarity-scout/composables/useBirdsEyePolling.js", "change": "Initial onMounted fetchDrivers() call passes dashboard.range. fetchDrivers stays OUT of the periodic live tick (per Q3).", "reason": "seed picker with range-scoped annotation on first load; no per-tick CH read", "ref": "resources/js/clarity-scout/composables/useBirdsEyePolling.js:61-71"},
+      {"file": "resources/js/clarity-scout/views/ScoutHome.vue", "change": "In the existing dashboard.range watcher, add an admin-gated mapStore.fetchDrivers(newRange).", "reason": "AC2 — reuse the single range-change watcher that already drives every other range-scoped refetch", "ref": "resources/js/clarity-scout/views/ScoutHome.vue:169-183"},
+      {"file": "resources/js/clarity-scout/components/DriverSelector.vue", "change": "(a) Default visible options = entries with active_in_range===true. (b) When search text is present, also include inactive matches, rendered with a distinct note/dim (e.g. 'inactive in this range') — Q1 surface-with-a-note. (c) Add a true-empty-state branch (no active drivers AND no search): 'No drivers have scanned in this time range.', distinct from the existing search-specific 'No drivers match' (line 69). (d) Selected/followed chips resolve from the full roster regardless of active_in_range (Q2 keep-selection-silently).", "reason": "AC1/AC3 + Q1 + Q2 frontend", "ref": "resources/js/clarity-scout/components/DriverSelector.vue:55-90"},
+      {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php", "change": "Update the 3 existing drivers() tests (which assert kits appear with ZERO scan activity — premise the ticket invalidates) to seed a same-day scans_hot row per kit expected to remain visible; update the class doc-comment that calls drivers() 'Postgres-only'. Add new tests for AC1/AC2/AC3 backend (see tests[]).", "reason": "test enforcement — the ticket invalidates their premise", "ref": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php:230-323"}
+    ],
+    "target_files": [
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+      "resources/js/clarity-scout/stores/map.js",
+      "resources/js/clarity-scout/composables/useBirdsEyePolling.js",
+      "resources/js/clarity-scout/views/ScoutHome.vue",
+      "resources/js/clarity-scout/components/DriverSelector.vue",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php"
+    ],
+    "out_of_scope": [
+      "orgScoutKits()/scopedKits() (must stay range-agnostic; back every other Bird's Eye endpoint's kit_ids intersection)",
+      "ClarityScoutMapController.php (driver-side single-kit map)",
+      "the nameplate toggle (driverNameplatesEnabled) — independent state",
+      "driver-side date control / driverRangeOptions"
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "Driver picker list filtered to only drivers with >=1 scan in the currently active time range", "source": "ticket", "decision": "implement", "reason": "backend distinct-kit_id bounded CH read"},
+    {"item": "Changing the time range filter updates the driver list (real time or on apply)", "source": "ticket", "decision": "implement", "reason": "hook the existing ScoutHome.vue dashboard.range watcher"},
+    {"item": "Zero active drivers -> appropriate empty state message", "source": "ticket", "decision": "implement", "reason": "backend returns valid empty data:[]; add distinct frontend string"},
+    {"item": "Driver name plates toggle behavior unaffected", "source": "ticket", "decision": "implement", "reason": "toggle is a separate store field; and under the annotate-not-shrink design store.drivers stays the full roster, so nameplate rendering / App.vue followedDriverName / noKitsReporting are all unchanged. No code touches the toggle."},
+    {"item": "Performance acceptable — driver list loads within normal UI response time", "source": "ticket", "decision": "implement", "reason": "reuses stats()/hits() CH query shape + per-org+range Cache::remember at existing TTLs; ranges <=90d stay on scans_hot"}
+  ],
+  "questions": [
+    {"q": "Search-by-name UX: if a driver has NO scans in the selected range but the admin searches for them by name, should they be surfaced (with a note) or strictly hidden?", "answered": true, "answer": "Surface with a note. DESIGN: drivers() returns the FULL org roster with an added active_in_range boolean per entry (true if kit_id is in the CH distinct-kit_id set for the range) rather than shrinking the list. DriverSelector shows only active_in_range entries by default; when the admin types a search, inactive matches are ALSO shown, visually flagged (e.g. dimmed + 'inactive in this range'). This keeps store.drivers the full roster.", "source": "human:Dalton 2026-08-05"},
+    {"q": "Selected/followed-driver pruning: if the admin is following/selecting a driver and changes the range so that driver becomes inactive, should the picker drop them (and clear the follow), or keep the selection silently?", "answered": true, "answer": "Keep the selection silently. Automatic under the annotated-full-roster design: the selected/followed driver stays in store.drivers (just active_in_range=false), so the chip + followedDriverName banner still resolve normally and no pruning/reconciliation logic is needed.", "source": "human:Dalton 2026-08-05"},
+    {"q": "Mid-session refresh (AC2 scope): should the driver list refresh only on an explicit range change, or also on the ~10s live tick?", "answered": true, "answer": "Only on range change. fetchDrivers() stays OUT of the useBirdsEyePolling live tick — no added per-tick CH read. Satisfies AC2's literal wording.", "source": "human:Dalton 2026-08-05"},
+    {"q": "Feature-route design approval: filter server-side in drivers() via a bounded distinct-kit_id ClickHouse read (reusing the stats() forWindow/final/forOrg pattern) + reuse the existing range-change watcher, honoring the full 5-value range ladder (today/7/15/30/60)?", "answered": true, "answer": "Approved. Honor the full 5-value ladder (default unknown -> today). Refinement from Q1: annotate the roster with active_in_range rather than shrinking store.drivers, so App.vue followedDriverName/noKitsReporting and AC4 stay untouched and the search-reveal is a pure client-side concern over the annotated list.", "source": "human:Dalton 2026-08-05"},
+    {"q": "Does a driver who is live/driving but has ZERO scans yet today count as 'active'?", "answered": true, "answer": "No — AC1 literally says 'at least one scan'; the only activity signal for this endpoint is scans_hot/scans_cold. sc_positions (live GPS) is a separate feed and is not proposed to be unioned in.", "source": "code"}
+  ],
+  "blockers": [],
+  "notes": [
+    "The ticket's range table (Today/7/15/30) omits 'Last 60 Days', which the actual admin UI (rangeOptions) and backend whitelist support. The new range param should honor the same 5-value ladder + default unknown to 'today', for consistency with sibling endpoints.",
+    "drivers() is genuinely Postgres-only today; this ticket introduces the first ClickHouse read into it. Update the class doc-comment that says so.",
+    "No new Clickhouse\\Queries class needed — a plain CH-model query mirrors the existing stats() style.",
+    "scans_hot has a 90-day TTL — anchor any new test fixtures to now()-relative offsets (hardcoded dates rot)."
+  ],
+  "tests": [
+    {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php", "what_it_pins": "AC1: drivers() excludes a kit with zero in-range scans_hot rows and includes one with >=1 in-range scan"},
+    {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php", "what_it_pins": "AC1+AC2 backend: a scan dated 40 days ago is excluded at range=today but included at range=last_60"},
+    {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php", "what_it_pins": "AC3 backend: a zero-active-drivers org returns data:[] (not an error)"},
+    {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php", "what_it_pins": "Existing 3 drivers() tests updated to seed same-day scans_hot rows for kits expected to remain visible; doc-comment updated"}
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:55-70 (drivers() — target)",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:481-509 (stats() — query pattern to reuse)",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:665-734 (scopedKits()/orgScoutKits() — keep unfiltered)",
+      "app/Http/Controllers/Api/Concerns/ScoutMapHelpers.php:29-59 (getDateRange()/mapCacheTtl())",
+      "routes/web.php:119-146 (scout/org-map/api group; drivers route ~125)",
+      "resources/js/clarity-scout/stores/map.js:926-936 (fetchDrivers())",
+      "resources/js/clarity-scout/composables/useBirdsEyePolling.js:61-71 (initial fetchDrivers())",
+      "resources/js/clarity-scout/views/ScoutHome.vue:169-183 (range-change watcher)",
+      "resources/js/clarity-scout/components/DriverSelector.vue:1-172 (picker UI, admin-only)",
+      "resources/js/clarity-scout/components/DashboardOverlay.vue:45 (DriverSelector v-if adminMode — confirms admin-only)",
+      "resources/js/clarity-scout/App.vue:322-345 (followedDriverName + noKitsReporting read store.drivers)",
+      "app/Clickhouse/Models/Scan.php:44-59 (forOrg/between scopes)"
+    ],
+    "code_flow": "Admin loads Bird's Eye -> useBirdsEyePolling onMounted fetchDrivers() (no range today) -> GET /scout/org-map/api/drivers -> drivers() -> orgScoutKits() [Postgres, no CH, no range] -> mapped to {kit_id,name,driver_name,vehicle_type} -> DriverSelector.vue (admin-only) renders store.drivers as the full unfiltered list. Every OTHER Bird's Eye fetch (stats/hits/scanPaths/recentHits) already consumes dashboard.range via the ScoutHome.vue watcher; drivers is the one that doesn't yet.",
+    "tables": ["zod.public_kits", "platform.kit_settings", "zod.kit_metadata", "clarity.scans_hot (new read)", "clarity.scans_cold (fallback, unreachable via current UI ranges)"],
+    "related_components": ["ScoutHome.vue", "dashboard.js (range state)", "DashboardOverlay.vue (mounts DriverSelector, admin-only)", "App.vue (followedDriverName/noKitsReporting)", "useBirdsEyePolling.js", "ScoutMapHelpers trait"]
+  },
+  "exhaustiveness": {
+    "grep_patterns": ["orgScoutKits", "fetchDrivers", "'/drivers'", "store.drivers / .drivers", "DriverSelector", "birds-eye-org-kits"],
+    "sites": [
+      {"file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:55-70 drivers()", "status": "buggy", "reason": "the one true picker source; no range filtering — fix target"},
+      {"file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:665-678 scopedKits()", "status": "safe", "reason": "calls orgScoutKits() for a different purpose (kit_ids intersection for stats/hits/paths) — must NOT be range-filtered"},
+      {"file": "app/Filament/Resources/ScoutUsersResource.php:516", "status": "safe", "reason": "doc-comment cross-reference to orgScoutKits() only"},
+      {"file": "app/Http/Controllers/Api/ClarityScoutMapController.php:125,188", "status": "safe", "reason": "driver-side single-kit map; references orgScoutKits semantics only — unrelated to admin picker (and orgScoutKits is not being modified)"},
+      {"file": "resources/js/clarity-scout/stores/map.js:926-936 fetchDrivers()", "status": "buggy", "reason": "never sends a range param — needs it"},
+      {"file": "resources/js/clarity-scout/composables/useBirdsEyePolling.js:64", "status": "buggy", "reason": "initial fetchDrivers() with no range; also absent from the live poll (see open question 3)"},
+      {"file": "resources/js/clarity-scout/views/ScoutHome.vue:169-183", "status": "buggy", "reason": "range watcher re-fetches every other range surface but not drivers — wiring point for AC2"},
+      {"file": "resources/js/clarity-scout/components/DriverSelector.vue:55-71", "status": "buggy", "reason": "only a search-specific empty message; needs a true-empty-list message (AC3)"},
+      {"file": "resources/js/clarity-scout/components/DriverSelector.vue:74-89 nameplate toggle", "status": "safe", "reason": "independent store field — AC4, no change needed"},
+      {"file": "resources/js/clarity-scout/components/DashboardOverlay.vue:45", "status": "safe", "reason": "mounts DriverSelector v-if=adminMode — confirms picker is admin-only; driver app unaffected"},
+      {"file": "resources/js/clarity-scout/App.vue:322-330 followedDriverName", "status": "safe", "reason": "reads mapStore.drivers.find() for the followed-driver banner; under the annotate-not-shrink design store.drivers keeps the full roster, so the followed driver always resolves regardless of active_in_range (Q2 keep-selection-silently). No change needed."},
+      {"file": "resources/js/clarity-scout/App.vue:339-345 noKitsReporting", "status": "safe", "reason": "gates the DEV-2292 no-GPS notice on mapStore.drivers.length>0; roster stays whole under the annotate design, so this stays identical to today. No change needed."}
+    ]
+  },
+  "data_impact": {
+    "pg_tables": ["zod.public_kits", "zod.kit_metadata", "platform.kit_settings"],
+    "ch_tables": ["clarity.scans_hot (new read; ranges <=90d cover every admin option)", "clarity.scans_cold (forWindow fallback, not reachable via current UI ranges)"],
+    "mv_or_cdc_implications": "No MVs. scans_hot is a CDC-fed ReplacingMergeTree ordered by (kit_id, scanned_at, id) with a 90-day TTL; new test fixtures must anchor timestamps to now()-relative offsets (hardcoded dates rot past TTL).",
+    "indexes_relied_on": ["scans_hot ORDER BY (kit_id, scanned_at, id) + per-org filter — same access pattern stats()/hits() rely on"]
+  },
+  "derivation_log": [
+    {"query_shape": "SELECT DISTINCT kit_id FROM clarity.scans_hot FINAL WHERE org_id = ? AND kit_id IN (...) AND scanned_at BETWEEN ? AND ?", "param_classes": "org_id: single int (auth admin org); kit_ids: bounded list from the org's own roster (never client-widened); date bounds: getDateRange() for a whitelisted range", "aggregate_result": "bounded set of kit_ids (<= org kit count) with >=1 in-window scan", "why": "answers AC1 'at least one scan in range' using the same forWindow/final/forOrg shape stats() already uses, swapping count() for distinct pluck"}
+  ],
+  "missed_caller_candidates": [
+    {"file": "resources/js/clarity-scout/App.vue", "symbol": "store.drivers (followedDriverName)", "referenced_at": "resources/js/clarity-scout/App.vue:322-330", "assessment": "admin Org-Map banner; degrades gracefully via driverPositions fallback; ties to open question 2 (followed-driver pruning)"},
+    {"file": "resources/js/clarity-scout/App.vue", "symbol": "store.drivers (noKitsReporting)", "referenced_at": "resources/js/clarity-scout/App.vue:339-345", "assessment": "DEV-2292 no-GPS notice; liveMode+today-scoped so stays consistent; verify in QA"},
+    {"file": "resources/js/clarity-scout/components/DashboardOverlay.vue", "symbol": "DriverSelector", "referenced_at": "resources/js/clarity-scout/components/DashboardOverlay.vue:45", "assessment": "mount point, admin-only gate — confirms driver app unaffected; no change needed"},
+    {"file": "app/Http/Controllers/Api/ClarityScoutMapController.php", "symbol": "orgScoutKits", "referenced_at": "app/Http/Controllers/Api/ClarityScoutMapController.php:125,188", "assessment": "reason NOT to modify orgScoutKits(); safe"}
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "AC1 filter by activity", "kind": "agent", "intent": "seed two kits in one org — one with a today-dated scans_hot row, one without — hit /scout/org-map/api/drivers as org admin, assert only the scanned kit appears"},
+      {"ac": "AC2 range change updates list", "kind": "agent", "intent": "seed a kit with a scan 20 days ago only; drivers?range=today (absent) vs drivers?range=last_30 (present)"},
+      {"ac": "AC3 empty state", "kind": "human", "intent": "pick a range with zero org scan activity, confirm 'No drivers have scanned in this time range'"},
+      {"ac": "AC4 nameplate toggle unaffected", "kind": "human", "intent": "toggle nameplates before/after a range change that alters the list; confirm toggle + plates untouched"},
+      {"ac": "AC5 performance", "kind": "human", "intent": "with a realistic org roster, switch ranges and eyeball picker load vs sibling panels"}
+    ],
+    "seed_scenario": "One org, 3-5 kits: >=1 with a same-day scans_hot row, one with only an out-of-window historical scan, one with zero scans. An admin user with clarity-scout permission + ADMIN role.",
+    "personas": ["org admin viewing Bird's Eye"],
+    "pg_tables": ["public_kits", "kit_settings", "kit_metadata"],
+    "ch_tables": ["clarity.scans_hot"]
+  },
+  "confidence": 82,
+  "escalate": {"recommend": false, "reason": "single clean backend touchpoint reusing a proven in-controller query pattern + small localized frontend wiring on an existing watcher; remaining unknowns are UX-judgment questions the ticket itself flags as open, not implementation risk. Grep backstop surfaced only admin-Org-Map consumers that degrade gracefully."},
+  "best_of_n": false,
+  "escalated": false,
+  "escalation_note": "answered:false questions present (would normally bias toward best-of-N), but they are pure human-gated UX decisions (not approach/scope uncertainty); confidence 82>=80, escalate.recommend=false, no blast-radius. Ran the deterministic grep backstop instead (precedent: DEV-2123 gate-BLOCKED without best_of_n)."
+}

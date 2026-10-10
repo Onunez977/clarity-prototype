@@ -1,0 +1,34 @@
+{
+  "recall_model": "haiku",
+  "knowledge_cards_matched": [],
+  "knowledge_note": "knowledge/index.json exists; no card's path_globs intersect the Company Metrics dashboard surface (clarity/analytics, clarity/scout, clickhouse/core all miss). No cards loaded.",
+  "precedents": [
+    {"key": "DEV-2324", "status": "Done", "age_days": 3, "relevance": "Direct parent: renamed Dashboard -> Company Metrics, redesigned metric cards to compact cards w/ sparkline + % change, expandable to bar chart. DEV-2406 builds directly on this card structure.", "applicable": true, "why": "Same widgets, same expansion mechanism this ticket must extend to a grouped bar chart."},
+    {"key": "DEV-2077", "status": "Done", "age_days": 55, "relevance": "Scout hit-dedup pattern: collapse same-plate repeats via time-block or limitBy(ocr).", "applicable": true, "why": "Establishes the existing in-repo idiom for 'unique plates' counting; the dedup semantics this ticket needs should match or consciously diverge from it."},
+    {"key": "DEV-1927", "status": "Done", "age_days": 55, "relevance": "Bar chart month-labeling bug on the Dashboard (Feb '26 missing, Mar '26 duplicated).", "applicable": "maybe", "why": "Same chart surface being modified to a grouped/2-series chart; the month-bucketing regression it fixed is a live risk when the series count changes."},
+    {"key": "DEV-2083", "status": "Done", "age_days": 39, "relevance": "Dedup metric by VIN (Recovery Intelligence Case Claims).", "applicable": false, "why": "Backyard app, not Clarity; pattern precedent only."},
+    {"key": "DEV-2170", "status": "Done", "age_days": 19, "relevance": "Backyard Reports audit of dedup + math across report types.", "applicable": false, "why": "Backyard app; findings do not map onto Clarity's ClickHouse hit queries."}
+  ],
+  "surface": {
+    "page": "app/Filament/Pages/Dashboard.php",
+    "grid_widget": "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php",
+    "hit_cards": [
+      "app/Filament/Widgets/Dashboard/LiveHits.php",
+      "app/Filament/Widgets/Dashboard/HistoricalHits.php",
+      "app/Filament/Widgets/Dashboard/StagingLiveHits.php",
+      "app/Filament/Widgets/Dashboard/StagingHistoricalHits.php"
+    ],
+    "concerns": [
+      "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+      "app/Filament/Widgets/Dashboard/Concerns/SharedHitStatsData.php",
+      "app/Filament/Widgets/Dashboard/Concerns/RendersDashboardStat.php",
+      "app/Filament/Widgets/Dashboard/Concerns/DashboardMetricCard.php",
+      "app/Filament/Widgets/Dashboard/DashboardSparkline.php"
+    ],
+    "tests": [
+      "tests/Filament/Pages/DashboardTest.php",
+      "tests/Filament/Pages/DashboardCardExpansionTest.php",
+      "tests/Filament/Widgets/Dashboard/RecoveryLeaderTest.php"
+    ]
+  }
+}

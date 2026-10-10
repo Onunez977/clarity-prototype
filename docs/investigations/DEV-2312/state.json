@@ -1,0 +1,236 @@
+{
+  "key": "DEV-2312",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2312",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 368
+    },
+    {
+      "slot": "review",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 430
+    },
+    {
+      "slot": "review-rn2",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 283
+    },
+    {
+      "slot": "agent-qa",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "verify",
+      "dur_s": 698
+    },
+    {
+      "slot": "review-rn3",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 301
+    },
+    {
+      "slot": "review-rn4",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 189
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [],
+  "escalated": false,
+  "escalation_triggers": [],
+  "best_of_n": false,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "10725e9249076ab7f870c7a806d7f579aba9a82c",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "claude/DEV-2312",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 4,
+  "pr": {
+    "number": 313,
+    "url": "https://github.com/insight-lpr/platform/pull/313",
+    "draft": false
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": null,
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "MCP In Code Review transition (no GH draft-action fired); undraft did not auto-transition",
+  "assumed": [],
+  "comment_ids": {
+    "status": "38097",
+    "build_record": "38132"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "provisioned_early": true,
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "n/a",
+      "ch_container": "created",
+      "frontend_build": "n/a",
+      "postgres_db": "zod_claude_dev_2312_b98c62",
+      "ch_strategy": "docker",
+      "herd_site": "clarity-claude_dev_2312_b98c62.test"
+    },
+    "teardown_note": "Scoped teardown: removed the QA docker ClickHouse container (clarity-qa-clickhouse) + restored MAIL_MAILER. Left the worktree baseline Postgres branch/testing DBs + Herd site intact (reused, not created by this run; active session) and CH host neutralized to 127.0.0.1 (safe local, no Cloud creds re-written)."
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact tests/Feature/Livewire/TableMapComponentTest.php",
+        "passed": 5,
+        "failed": 0
+      }
+    ],
+    "deviations": [
+      {
+        "source": "implement",
+        "edit": "CH Hit vehicleImage() uses VehicleImageTypeEnum::Car (matching Scan::vehicleImage that the Postgres map pin reads), not Plate",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "implement",
+        "edit": "Enum is InsightLPR\\BlackAdam\\Enum\\VehicleImageTypeEnum (App\\Enums variant does not exist)",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "implement",
+        "edit": "Verified mechanism is null-relationship->empty->no dispatch (silent), NOT RelationNotFoundException; fix (map from record) still correct",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "review",
+        "edit": "Added ClickhouseModel::findManyAcrossWindows() + TableMapComponent::fetchRecords() to resolve the hot/cold table gap flagged in review round 1",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "post-review-trim",
+        "edit": "Dalton-requested minor trim: inlined the hot+cold merge into TableMapComponent::fetchRecords and removed ClickhouseModel::findManyAcrossWindows (behaviorally identical; 5 tests still green). Applies equally to the Scans CH map (same code path).",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "post-review-simplify",
+        "edit": "Per Dalton (domain owner): hits_cold/scans_cold are the COMPLETE history (hot = last-90-day subset), so the map queries cold only (with FINAL for ReplacingMergeTree dedup) instead of spanning hot+cold. The hot/cold span (RN1 finding) addressed a phantom concern — cold is complete. Postgres path unchanged.",
+        "ac_ref": null,
+        "ac_delta": null
+      }
+    ],
+    "review": {
+      "lanes": [
+        "in-session-agent"
+      ],
+      "scores": [
+        82,
+        100,
+        100,
+        100
+      ],
+      "findings_fixed": [
+        "HIGH: hot/cold table divergence — formatRecords queried only hits_cold (Hit::query default table) while the page defaults to hits_hot (defaultDate today); recent hits absent/stale in cold -> map still empty. Fixed: CH models now looked up across BOTH hot+cold via ClickhouseModel::findManyAcrossWindows() (FINAL, deduped)."
+      ],
+      "findings_residual": [
+        "non-scoring: findManyAcrossWindows @return docblock cosmetic; follow-up to CI-unit-test the hot-wins merge (hot/cold union only exercised in live QA)"
+      ],
+      "lane_sources": [
+        {
+          "lane": "lane1",
+          "source": "in-session-agent"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "228476232e42544ce265e680b64233ded99febea",
+      "rework_pivot": false
+    },
+    "ac": [
+      {
+        "item": "In ClickHouse mode, clicking Show Cluster on Map opens the Map with the cluster pins (no empty/no-op).",
+        "status": "SATISFIED",
+        "evidence": "Real-CH repro: pre-fix hits_cold-only query = 0 rows (empty, no dispatch); post-fix formatRecords returned 2 pins -> hasData=TRUE -> updateMapData dispatched. No exception."
+      },
+      {
+        "item": "Map pins show plate label + vehicle image/details (Postgres parity).",
+        "status": "SATISFIED",
+        "evidence": "Pins carried label ABC1234 / TX, scan_img(Car) URL, address, vehicle 2020 Ford F-150 from CH denormalized columns."
+      },
+      {
+        "item": "No regression: Scans cluster map + Postgres hits map.",
+        "status": "SATISFIED",
+        "evidence": "5 Livewire tests pass; non-CH path unchanged; review 100/100."
+      }
+    ]
+  }
+}

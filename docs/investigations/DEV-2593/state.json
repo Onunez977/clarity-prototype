@@ -1,0 +1,245 @@
+{
+  "ticket": "DEV-2593",
+  "phase": "done",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "main_checkout": "/Users/daltonmccleery/Herd/platform",
+  "run_root": "/Users/daltonmccleery/Herd/platform/.claude/worktrees/DEV-2593",
+  "base_branch": "main",
+  "base_branch_reason": "bug route default; kept main",
+  "branch": "claude/DEV-2593",
+  "pr_url": "https://github.com/insight-lpr/platform/pull/421",
+  "pr_number": 421,
+  "knowledge_cards_loaded": [
+    "knowledge/clarity/scout.md"
+  ],
+  "gate": "CLEAN",
+  "escalated": true,
+  "best_of_n": false,
+  "needs_human_interview": false,
+  "flags": {
+    "eli5": true,
+    "jira_mirror": true,
+    "no_spawn": true,
+    "start_at": "plan",
+    "stop_at": null,
+    "only": null,
+    "skip": null,
+    "companion": false,
+    "review_policy": "functional"
+  },
+  "comment_ids": {
+    "status": "40110",
+    "build_record": "40157"
+  },
+  "spawned_sessions": [
+    {
+      "segment": "gate",
+      "session_id": "cursor-session-A",
+      "at": "2026-09-17T16:55:32Z",
+      "note": "Cursor in-session"
+    },
+    {
+      "segment": "build",
+      "session_id": "d2362209",
+      "at": "2026-09-17T16:55:53Z",
+      "abandoned": true,
+      "reason": "operator: no Claude spawn; continue in Cursor"
+    }
+  ],
+  "missed_caller_candidates": [
+    {
+      "file": "app/Filament/Resources/UsersResource/Pages/CreateUsers.php",
+      "symbol": "ScoutUserProvisioner",
+      "referenced_at": "7"
+    },
+    {
+      "file": "app/Filament/Resources/UsersResource/Pages/EditUsers.php",
+      "symbol": "ScoutUserProvisioner",
+      "referenced_at": "7"
+    },
+    {
+      "file": "tests/Filament/Resources/UsersResourceTest.php",
+      "symbol": "ScoutUserProvisioner/resend",
+      "referenced_at": "12-544"
+    },
+    {
+      "file": "resources/views/auth/scout/invalid-link.blade.php",
+      "symbol": "resend_onboarding copy",
+      "referenced_at": "34-36"
+    },
+    {
+      "file": "database/migrations/0001_01_01_000000_create_users_table.php",
+      "symbol": "email unique",
+      "referenced_at": "14"
+    }
+  ],
+  "record": {
+    "ac": [
+      {
+        "id": "AC1",
+        "item": "Resend invite",
+        "status": "SATISFIED",
+        "evidence": "A4 re-run"
+      },
+      {
+        "id": "AC2",
+        "item": "Invite TTL 3 days (no hard revoke)",
+        "status": "SATISFIED",
+        "evidence": "A5 modal + B3 expired page"
+      },
+      {
+        "id": "AC3",
+        "item": "Soft-delete collision + Restore offer",
+        "status": "SATISFIED",
+        "evidence": "A3 re-run"
+      },
+      {
+        "id": "AC4",
+        "item": "Restore soft-deleted Scout user",
+        "status": "SATISFIED",
+        "evidence": "A1/A2 re-run"
+      },
+      {
+        "id": "AC5",
+        "item": "Collision names user + action",
+        "status": "SATISFIED",
+        "evidence": "A3 re-run"
+      }
+    ],
+    "review": {
+      "lanes": 1,
+      "scores": [
+        93
+      ],
+      "gate_score": 90,
+      "gate_score_src": "arbitration",
+      "rounds": [
+        {
+          "rn": 1,
+          "reason": "gate",
+          "at": "2026-09-17T17:10:00Z",
+          "score": 62,
+          "verdict": "FAIL"
+        },
+        {
+          "rn": 2,
+          "reason": "gate",
+          "at": "2026-09-17T17:25:00Z",
+          "score": 76,
+          "verdict": "FAIL"
+        },
+        {
+          "rn": 3,
+          "reason": "gate",
+          "at": "2026-09-17T17:41:27Z",
+          "score": 91,
+          "verdict": "PASS"
+        },
+        {
+          "rn": 4,
+          "reason": "rework",
+          "at": "2026-09-17T19:16:50Z",
+          "score": 88,
+          "verdict": "PASS",
+          "note": "TTL pivot; medium modal copy"
+        },
+        {
+          "rn": 5,
+          "reason": "rework",
+          "at": "2026-09-17T19:16:50Z",
+          "score": 93,
+          "verdict": "PASS",
+          "note": "modal copy fixed"
+        }
+      ],
+      "unresolved_premises": [],
+      "findings_fixed": [
+        "org-scoped collision messages",
+        "withTrashed eager-load isolation",
+        "atomic nonce capture via lockForUpdate",
+        "nonce default 0 for legacy links",
+        "EditScoutUser trashed hydrate/preserve",
+        "UsersResource scoutContext flag",
+        "collision unit coverage",
+        "restore transaction + danger notify",
+        "stale nonce POST test"
+      ],
+      "findings_residual": [
+        {
+          "title": "modal TTL clock ambiguity",
+          "severity": "low",
+          "scoring": true
+        },
+        {
+          "title": "dead trashedAssignedUser guards",
+          "severity": "low",
+          "scoring": true
+        },
+        {
+          "title": "web_access no-op on trashed",
+          "severity": "low",
+          "scoring": true
+        }
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "in-session-agent"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "84dd2cb93da3592a4e505c43a13498f107c7aedf",
+      "rework_pivot": false
+    },
+    "deviations": [
+      {
+        "source": "qa-loop",
+        "edit": "Dropped scout_onboarding_nonce; invite TTL 7\u21923 days; resend no longer hard-invalidates prior links",
+        "ac_ref": "AC2",
+        "ac_delta": "hard-invalidate via nonce \u2192 TTL-only (3 days); dual-valid links within window accepted"
+      },
+      {
+        "source": "qa-loop",
+        "edit": "Soft-deleted Scout driver rows use same red wash as Users/Zones / Scans invalid",
+        "ac_ref": null,
+        "ac_delta": null
+      }
+    ]
+  },
+  "qa": {
+    "provisioned_early": true,
+    "verdict": "PASS",
+    "venue": "https://clarity-claude_dev_2593.test",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "human_plan": ".context/qa-plan-human.md",
+    "human_guide": ".context/qa-human-guide.html",
+    "resource_envelope": {
+      "verdict": "not-measured",
+      "basis": "n/a"
+    },
+    "provisioning": {
+      "db_database": "zod_claude_dev_2593",
+      "testing_database": "zod_testing_claude_dev_2593",
+      "herd_site": "https://clarity-claude_dev_2593.test",
+      "note": "reused pre-isolated worktree env; test-backed verify + site smoke"
+    },
+    "mode": "agent-qa-rerun",
+    "screenshots": ".context/qa-screenshots",
+    "torn_down": true
+  },
+  "decisions": {
+    "soft_delete_email": "1A_explain_offer_restore",
+    "resend_invalidation": "2X_ttl_only_3_days_no_nonce",
+    "ac4_disabled": "3B_toggle_plus_scout_users_restore",
+    "resend_invalidation_note": "Product pivot after QA: drop scout_onboarding_nonce; invite TTL 7\u21923 days; accept rare dual-valid links within TTL"
+  },
+  "jira_transitioned_by": "human",
+  "pr": {
+    "number": 421,
+    "url": "https://github.com/insight-lpr/platform/pull/421",
+    "draft": false
+  }
+}

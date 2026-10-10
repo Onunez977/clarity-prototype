@@ -1,0 +1,211 @@
+{
+  "key": "DEV-2291",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "base-resolve candidates were the deploy branch + two unrelated DEV-2246 signed-url hotfix branches; none is a Scout feature branch this standalone Zones bug belongs on, so default main.",
+  "branch": "claude/dev-2291-60964f",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "prep-candidate:1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 1216
+    },
+    {
+      "slot": "prep-candidate:2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 1216
+    },
+    {
+      "slot": "prep-candidate:3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 1216
+    },
+    {
+      "slot": "grep-backstop",
+      "model": "haiku",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 1216
+    },
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 422
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 343
+    },
+    {
+      "slot": "agent-qa",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "verify",
+      "dur_s": 441
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "clarity/scout.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "confidence<80 (fast-pass 68)",
+    "answered:false needs-human questions",
+    "escalate.recommend=true",
+    "blast-radius: shared broadcast path across 8 zone action sites"
+  ],
+  "best_of_n": true,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "93c31e454f5aeff87159553beb63922b6036b9a1",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 1,
+  "pr": {
+    "number": 299,
+    "url": "https://github.com/insight-lpr/platform/pull/299",
+    "draft": false
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": "pre-existing (ticket already In Progress at intake; global transition, not re-fired)",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "transitioned In Progress\u2192In Code Review via Atlassian MCP (id 4) @ 2026-08-03; undraft did not fire a draft-aware GH action",
+  "assumed": [],
+  "comment_ids": {
+    "status": "37963",
+    "build_record": "37966"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "n/a",
+      "ch_container": "n/a (deferred)",
+      "frontend_build": "n/a",
+      "postgres_db": "zod_claude_dev_2291_60964f (+ zod_testing_claude_dev_2291_60964f)",
+      "ch_strategy": "deferred",
+      "herd_site": "clarity-claude_dev_2291_60964f.test"
+    },
+    "provisioned_early": true
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact --filter=Zone (ran via phpunit -d memory_limit=-1 due to sandbox subprocess 128M limit)",
+        "passed": 128,
+        "failed": 0,
+        "skipped": 8
+      }
+    ],
+    "deviations": [],
+    "review": {
+      "lanes": [
+        "claude1"
+      ],
+      "scores": [
+        100
+      ],
+      "findings_fixed": [],
+      "findings_residual": [],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "in-session-agent"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "6ddfa8c5da259a54ee21a3f1ede9291df989a85b",
+      "rework_pivot": false
+    },
+    "ac": [
+      {
+        "item": "AC-1: assign user to zone, no error toast, saves",
+        "status": "SATISFIED",
+        "evidence": "Browser lane A1: logged in as admin (id 3), assigned kit driver (id 4) to the zero-driver zone 'QA \u2014 Zone DEV-2291' and saved \u2014 green 'Zone saved' toast, NO 'Error while loading page' toast; the livewire/update POST that fires the real synchronous Pusher broadcast returned 200."
+      },
+      {
+        "item": "AC-2: assignment persists when broadcast fails",
+        "status": "SATISFIED",
+        "evidence": "Live: A2 confirmed the driver chip persists under 'Assigned Kit Users' after a full reload. Failure-path persistence (broadcast throws \u2192 save still persists) is proven deterministically by the automated feature test test_save_persists_the_zone_and_assignment_when_broadcasting_throws (throwing broadcaster; zone + zone_user assert persisted)."
+      },
+      {
+        "item": "AC-3: genuine data error still rolls back",
+        "status": "N/A",
+        "evidence": "Not browser-checkable. Verified by the automated suite: the existing test_save_rolls_back_and_does_not_broadcast_when_geometry_rebuild_fails still passes unchanged, so a genuine in-transaction data error still rolls back (the fix isolates only the broadcast dispatch)."
+      },
+      {
+        "item": "AC-4: broadcast failures silent + logged",
+        "status": "SATISFIED",
+        "evidence": "Mechanism confirmed by B2 (both events implement Illuminate\\Contracts\\Broadcasting\\ShouldRescue \u2192 BroadcastManager wraps the dispatch in rescue()->report()). The automated test asserts the failure is report()'d (Exceptions::assertReported). No live broadcast failure occurred this run (the sync broadcast to wss.insightlpr.io succeeded \u2014 the log shows no broadcast/Pusher exception), so there was nothing to surface; the save succeeded silently with the success toast."
+      }
+    ]
+  }
+}

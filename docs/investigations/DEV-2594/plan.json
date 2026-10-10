@@ -1,0 +1,36 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Make newest Live Hit open details on list row and map marker (desktop + compact)",
+      "approach": "Root cause class: Hit Details opens under/behind competing top-left chrome, and/or the first list row loses clicks to the controls stack; newest-only symptom matches top-of-stack + optional null coords (no map pan cue). Fix: (1) collapse Live Hits whenever selectedHit is set (covers list + map marker paths); (2) raise Hit Details sheet above map chrome; (3) stop controls from stealing top-row clicks (republish height on toggle + safer offset + Live Hits z above controls while expanded); (4) key list rows by scan_id.",
+      "target_files": [
+        "resources/js/clarity-scout/components/DashboardOverlay.vue",
+        "resources/js/clarity-scout/components/ScoutControlsWidget.vue",
+        "resources/js/clarity-scout/components/MapShell.vue",
+        "resources/js/clarity-scout/components/BottomSheet.vue"
+      ],
+      "intended_diffs": "DashboardOverlay: key=scan_id; watch selectedHit→collapse live hits; z/offset safety. ScoutControlsWidget: republish --scout-controls-h on expand toggle. MapShell/BottomSheet: elevate sheet stacking; re-enter anim when selection changes while open.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {
+      "file": "resources/js/clarity-scout/components/DayOverlay.vue",
+      "reason": "Day-view local selectedHit; not the Live Hits stack."
+    },
+    {
+      "file": "resources/js/clarity-scout/components/TripOverlay.vue",
+      "reason": "Trip-view local selectedHit; not the Live Hits stack."
+    },
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutDashboardController.php",
+      "reason": "Payload already returns lat/lng nullable + scan_id; no API change unless QA proves missing fields."
+    }
+  ]
+}

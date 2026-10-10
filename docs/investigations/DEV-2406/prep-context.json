@@ -1,0 +1,331 @@
+{
+  "key": "DEV-2406",
+  "route": "feature",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "reconciled_from": {
+    "candidates": 3,
+    "model": "sonnet",
+    "method": "insightlpr:multi-candidate-merge",
+    "driver_overrides": "The driver ran its own read-only production ClickHouse probes; where a candidate's claim conflicted with a measured figure, the measurement wins (see docs/investigations/DEV-2406/driver-verified-findings.md)."
+  },
+  "synthesis": "The four Company Metrics hit tiles (Live, Direct Historical, Staging Live, Staging Historical) render their headline, sparkline and 13-month expanded bar chart from clarity.hit_stats_daily - a per-(org_id, date) rollup of four plain UInt64 count columns with NO plate identity. The ticket asks for the deduplicated unique-plate count as the primary number, the raw total demoted to a smaller secondary, and a two-series grouped bar chart with a legend. Plate identity (ocr) exists only on clarity.hits_cold / hits_hot. All three candidates agreed on that. They disagreed on whether reaching it is affordable; the driver measured it and it is: the full 13-month grouped count()+uniqExact(ocr) runs in 0.27s scoped to the largest org and 0.37s unscoped across all orgs, because the operative table is ~25M rows, not the ~308M the fast pass cited (that figure is zod.public_hits, the Postgres CDC mirror, a different table). So NO cross-repo chlocal schema change is required and the ticket is buildable in this repo. What actually blocks it is not feasibility but definition: (a) the dedup KEY is genuinely contested in-repo (literal ocr vs the countDistinct(hotlist_id) 'unique vehicle' precedent), and (b) hit_stats_daily and hits_cold measurably disagree by 0.5-9% for the same org and month, so a tile cannot take its total from one and its unique from the other without recreating the exact two-sources-of-truth defect DEV-2324 fixed three days ago in this same file - and re-sourcing both from the hits tables would visibly shift totals users see today. Those are product/data-semantics decisions, not engineering defaults.",
+  "scope": {
+    "summary": "Add one batched ClickHouse query computing BOTH count() and uniqExact(<dedup key>) per month per hit_type from hits_cold/hits_hot scoped by kit_org_id, thread it through SharedHitStatsData's existing single-computation/single-cache-key seam, render the dedup value as the Stat headline with the total via Stat::description(), and emit two grouped chart datasets with the legend enabled ONLY in the expanded view. Final shape depends on Q1/Q2/Q3 below.",
+    "proposed_changes": [
+      {
+        "file": "app/Clickhouse/Queries/HitPlateStatsBatchQuery.php",
+        "change": "NEW batched query mirroring HitStatsBatchQuery: SELECT toStartOfMonth(hit_created_at) AS month, countIf(hit_type='L') , uniqExactIf(<key>, hit_type='L'), ... FROM clarity.hits_cold FINAL WHERE kit_org_id = {org} AND hit_created_at BETWEEN ... GROUP BY month; plus a handleRange() sibling for today/last_7d against the hot window via Hit::forWindow(). Reuses existing scopes forKitOrg/forHitType/forCreatedBetween/final - no new model scopes needed.",
+        "reason": "hit_stats_daily has no plate column; hits_cold/hits_hot are the only tables carrying ocr. Computing count() and uniqExact in ONE query keeps both numbers from one population (see Q2).",
+        "ref": "app/Clickhouse/Queries/HitStatsBatchQuery.php; app/Clickhouse/Models/Hit.php:56-58,182-188"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/Concerns/SharedHitStatsData.php",
+        "change": "Thread the dedup series through the SAME batching/caching discipline as resolvePastMonths/resolveCurrentMonth/getSharedHitStatsForRange - one method, one cache key, two consumers. Switch getCardTotal() and getDescription() to the dedup series per AC-1/AC-5.",
+        "reason": "Single seam already shared by all four tiles and by both the compact card and the expanded chart.",
+        "ref": "app/Filament/Widgets/Dashboard/Concerns/SharedHitStatsData.php:1-204"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/Concerns/SharedHitStatsData.php (toStat/getData/getOptions overrides)",
+        "change": "toStat(): headline = dedup count, secondary total via ->description(number_format($total).' total hits'). getData(): two makeDataset() entries with NO shared 'stack' key so Chart.js groups side by side. getOptions(): call parent then set plugins.legend.display = true ONLY when $this->expanded.",
+        "reason": "AC-2/3/4 with zero blast radius onto the sibling tiles - see the blast-radius note below.",
+        "ref": "resources/views/vendor/filament-widgets/stats-overview-widget/stat.blade.php:75-78; app/Filament/Widgets/Dashboard/KitUsers.php:59"
+      }
+    ],
+    "target_files": [
+      "app/Clickhouse/Queries/HitPlateStatsBatchQuery.php",
+      "app/Filament/Widgets/Dashboard/Concerns/SharedHitStatsData.php",
+      "app/Clickhouse/Models/HitStatsDaily.php (only if the total is re-sourced)",
+      "tests/Feature/Clickhouse/HitPlateStatsBatchQueryTest.php",
+      "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardMetricsTest.php",
+      "tests/Filament/Pages/DashboardCardExpansionTest.php",
+      "tests/Filament/Widgets/Dashboard/DashboardMonthLabelsTest.php"
+    ],
+    "out_of_scope": [
+      "Any chlocal MV / schema change - the driver's measurement shows it is not needed on performance grounds.",
+      "ScanCount, RecoveryCounts, RecoveryLeader, KitUsers tiles.",
+      "The shared vendor stat.blade.php - NOT needed; Stat::description() is the existing smaller-secondary slot (precedent KitUsers.php:59). Candidate 2 proposed editing the app-wide blade; that was checked against the code and rejected.",
+      "Scout's (ocr, hour) list dedup and the client-portal client_historical_hits_hourly metric - different surfaces, different definitions.",
+      "cursor/company-metrics-recovery-batch - read as evidence only, never adopted."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Primary/large number on each of the 4 hit tiles is the deduplicated plate count",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Buildable and measured affordable, but the dedup KEY is unresolved (Q1) and the source-of-truth decision (Q2) changes what the number means. | UNBLOCKED 2026-08-24: dedup key = uniqExact(ocr); total stays on hit_stats_daily."
+    },
+    {
+      "item": "Total hit count still visible per tile in a smaller secondary style",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Stat::description() is the existing smaller-secondary slot; precedent at KitUsers.php:59. No new UI, no vendor-blade change."
+    },
+    {
+      "item": "Expanded monthly bar chart renders two bars per month (total + unique)",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Mechanically ready (two makeDataset() calls, base $options sets no scales.stacked so Chart.js groups by default) but depends on the same underlying series decision. | UNBLOCKED 2026-08-24: dedup key = uniqExact(ocr); total stays on hit_stats_daily."
+    },
+    {
+      "item": "Both bars have a clear legend/label",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Override getOptions() to enable the legend only when $this->expanded - resolved from code, no human input needed."
+    },
+    {
+      "item": "'Current Month: X | Last Month: Y' reflects the deduped count",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Same underlying series decision as AC-1. | UNBLOCKED 2026-08-24: dedup key = uniqExact(ocr); total stays on hit_stats_daily."
+    }
+  ],
+  "questions": [
+    {
+      "q": "Q1 (BLOCKING - dedup key). Does 'deduped plate count' mean distinct scanned plate text uniqExact(ocr), or distinct vehicle/hotlist entry countDistinct(hotlist_id)? The repo has BOTH live: MissedOpportunity uses countDistinct(hotlist_id) and okf/concepts/missed-opportunity.md states 'Distinct hotlists for counts, not raw row counts'; client_historical_hits_hourly uses uniqExactState(hotlist_id); Scout uses limitBy(1,'ocr') but only for LIST de-duplication, not a scalar count. The ticket says 'plate' four times, which argues for ocr - but ocr is raw OCR output, so misreads inflate a distinct-plate count, whereas hotlist_id is stable. These produce different numbers on a reported metric.",
+      "answered": true,
+      "answer": "uniqExact(ocr). Backed by F11: ocr and hotlist_plate diverge on only 0.85% of rows, so the OCR-misread objection is negligible; hotlist_id counts entries not plates (~24% higher) and does not match the tile label.",
+      "source": "human:Dalton 2026-08-24",
+      "recommendation": "uniqExact(ocr) - it is the literal ticket wording and the tiles count hits against plates seen, not hotlist entries. Flagging because the repo precedent points the other way and this is a number people will quote."
+    },
+    {
+      "q": "Q2 (BLOCKING - REFRAMED by F12/F13). The dedup number can only come from a table carrying a plate. The only fast such table, clarity.hits_cold, is measurably unreliable: it undercounts staging-live by 5-9% and OVERCOUNTS staging-historical by up to 27% versus the true hit population, because hits_cold_mv INNER JOINs scans/hotlist (DEV-2189, marked Done but the historical data is still wrong). The accurate route (joining the CDC mirrors) costs 2.9-6.6s per query versus 0.37s. So: ship the metric on a source we have just proven wrong, or fix the data first?",
+      "answered": true,
+      "answer": "OPTION B (revised recommendation, accepted). TOTAL stays on clarity.hit_stats_daily; UNIQUE comes from clarity.hits_cold via uniqExact(ocr). Rationale: hit_stats_daily wins on all three criteria for the total - RELIABLE (0 duplicate rows under FINAL: 218,286 rows = 218,286 distinct (org_id,date) keys; stable sort key + full-day-recompute means recompute REPLACES), PERFORMANT (0.08s vs 0.2s), and ACCURATE (fuller population - no scans/hotlist INNER JOIN loss, includes NICB). The unique count can only come from hits_cold since it is the sole source carrying plates. The earlier 'incoherent pair' objection assumed ~9% divergence; independent verification showed the real deduped divergence is only -0.1% to -0.8% per month, which is invisible at tile and chart scale. Two implementation obligations: (1) strict cache-key discipline per the DEV-2324 docblock - separate keys, no catch inside remember(); (2) March 2026 is the one month where the pair visibly disagrees until the DEV-2189 backfill runs.",
+      "source": "human:Dalton 2026-08-24",
+      "recommendation": "REVISED after independent verification: Option A (both numbers from hits_cold) using uniqExact(id) for the total and uniqExact(ocr) for the unique plate count. The totals shift is far smaller than first reported - the 9% figure was the intentional NICB exclusion plus a count() artifact, not real drift."
+    },
+    {
+      "q": "Q3 (BLOCKING - disposition). Does hit_stats_daily's chlocal MV apply a disposition/validity filter before counting? The measured 0.5-9% divergence in Q2 is evidence that something differs (filter, timezone bucketing, or late arrivals). If the new query does not replicate that rule exactly, the unique count will not be a true subset of the total. In-repo precedent is inconsistent: ClarityScoutDashboardController applies validDisposition(); RdnHitHourCountQuery and HitDirectHotspotQuery apply none.",
+      "answered": true,
+      "answer": "No disposition filter exists. The chlocal MV hit_stats_daily_mv.sql filters ONLY on hits._peerdb_is_deleted=0, a watermark-driven affected-days list, and kits.org_id IN (clarity.orgs WHERE type=1), with an INNER JOIN to public_kits. A parity query must therefore NOT apply validDisposition(). The measured 0.5-9% divergence instead comes from bucketing (the MV buckets on hits.created_at; hits_cold carries only a chlocal-derived hit_created_at) plus the hourly REFRESH...APPEND pipeline. See driver-verified-findings.md F9/F10.",
+      "source": "code"
+    },
+    {
+      "q": "Q4 (needs sign-off, low risk). DEV-2324's own prep-context recorded the constraint 'New sparkline/%-change work should read the existing pre-aggregated rollups, never re-scan hits_hot/hits_cold.' This ticket cannot satisfy AC-1 without violating it, because the rollup has no plate column. The driver measured the violation's cost at 0.27s (largest org) to 0.37s (all orgs unscoped) for the full 13-month grouped query. Accept the documented constraint being overridden on this evidence?",
+      "answered": true,
+      "answer": "ACCEPTED. Override DEV-2324's 'never re-scan hits_hot/hits_cold' constraint for this ticket, on the strength of the measured 0.27-0.37s cost, and record it explicitly in the Build Record as a decision rather than drift.",
+      "source": "human:Dalton 2026-08-24",
+      "recommendation": "Accept. The constraint was written to prevent a latency regression; the measurement shows this query shape does not cause one. Recording the override explicitly so it is a decision, not a drift."
+    },
+    {
+      "q": "Which org column scopes the four tiles today - hotlist_org_id or kit_org_id?",
+      "answered": true,
+      "answer": "kit_org_id. Proven twice independently: (1) the chlocal MV hit_stats_daily_mv.sql populates org_id from kits.org_id; (2) the driver's production probe shows hit_stats_daily's top orgs (1143, 469, 14) exactly match the top kit_org_id values in hits_cold, while org 165 - the largest hotlist_org_id at 14.1M rows - returns ZERO rows from hit_stats_daily. Any new query MUST scope by kit_org_id; scoping L/H by hotlist_org_id (as one candidate proposed) would produce numbers that do not correspond to the existing totals.",
+      "source": "code"
+    },
+    {
+      "q": "Is a live uniqExact scan of hits_cold/hits_hot affordable at production scale?",
+      "answered": true,
+      "answer": "Yes. Driver-measured, read-only, production ClickHouse Cloud: 0.27s scoped by hotlist_org_id to the largest org (14.1M of 24.96M rows), 0.33s scoped by kit_org_id (not in the sort key), 0.37s UNSCOPED across all orgs, for the full 13-month grouped count()+uniqExact(ocr). Table is ~25M rows. The ~308M figure cited as a blocker is zod.public_hits, the Postgres CDC mirror, not the table a dedup query reads.",
+      "source": "code"
+    },
+    {
+      "q": "Can a monthly unique count be derived by summing daily unique counts?",
+      "answered": true,
+      "answer": "No - distinct counts are not additive across sub-periods. The query must GROUP BY month directly over raw hit rows (which this design does), never sum a per-day distinct value. All three candidates agreed.",
+      "source": "code"
+    },
+    {
+      "q": "Does enabling the chart legend for AC-4 affect other tiles?",
+      "answered": true,
+      "answer": "It would if done naively. plugins.legend.display=false lives on a shared protected $options on the DashboardWidget BASE CLASS (line 41-45), and six widgets extend it - the four hit tiles PLUS ScanCount and RecoveryCounts. getData(), getDescription(), makeDataset() and toStat() are all on that same base. The safe fix is to override getOptions() in SharedHitStatsData and enable the legend only when $this->expanded; an in-repo per-widget $options override precedent also exists at MissedOpportunityClientGraph.php:36. Surfaced by the grep backstop, verified by the driver from source.",
+      "source": "code"
+    },
+    {
+      "q": "Is a change to the shared vendor stat.blade.php needed for the secondary total (AC-2)?",
+      "answered": true,
+      "answer": "No. stat.blade.php:75-78 already renders $getDescription() in the smaller fi-wi-stats-overview-stat-description slot, and KitUsers.php:59 already uses it for exactly this pattern. Candidate 2 proposed editing the app-wide blade and raised it as a blast-radius question; checked against the code and rejected.",
+      "source": "code"
+    },
+    {
+      "q": "Is FINAL alone sufficient to drop soft-deleted rows on hits_cold/hits_hot?",
+      "answered": true,
+      "answer": "Yes. system.tables shows SharedReplacingMergeTree(..., _version, _peerdb_is_deleted) - _peerdb_is_deleted is the native is_deleted engine argument, so FINAL drops them without a separate WHERE clause.",
+      "source": "code"
+    },
+    {
+      "q": "Q1a (evidence added): how much do the three candidate dedup keys actually differ on production data?",
+      "answered": true,
+      "source": "code",
+      "answer": "Measured, org 1143 / 2026-05, per hit_type (total | uniqExact(ocr) | uniqExact(hotlist_plate) | uniqExact(hotlist_id)): H 16470|2488|2487|2528 \u00b7 L 1339|622|622|623 \u00b7 S 5860|2623|2623|3065 \u00b7 Z 37294|6996|6998|8664. ocr and hotlist_plate are effectively identical (only 0.85% of rows have ocr != hotlist_plate), because a hit only exists where a scan MATCHED a hotlist plate - so the OCR-misread objection to ocr is negligible in practice. hotlist_id runs up to ~24% higher (Z: 8664 vs 6996) because one plate is often carried on several hotlist entries; it answers 'how many hotlist entries were hit', not 'how many unique plates'."
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "PERF GATE PRE-CLEARED: the Phase 3.5 CH-at-scale validation was performed during prep (measurement in state.perf_validation, verdict=go), because the whole feasibility argument turned on it.",
+    "An undocumented hit_type 'F' exists in hits_cold (34 rows). Not one of the four tiles - confirm it is excluded rather than silently bucketed.",
+    "hits_cold/hits_hot ORDER BY (hotlist_org_id, ...) so the kit_org_id filter the tiles need is NOT primary-key-assisted; measured cost is nonetheless 0.33s.",
+    "Pre-existing timezone risk inherited, do not fix as drift and do not worsen: toStartOfMonth() buckets in ClickHouse server tz while PHP labels are built in the user's tz (DEV-1927 territory; DashboardMonthLabelsTest pins the labeling).",
+    "getDescription() is duplicated between DashboardWidget and SharedHitStatsData (pre-existing drift). Only the SharedHitStatsData copy needs the series swap.",
+    "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardMetricsTest.php:287-313 currently asserts getCardTotal() returns the TOTAL - that premise flips under AC-1 and the test needs a companion assertion, not just a value swap.",
+    "ClarityScoutDashboardController.php:76 already runs a live uniqExactIf(ocr,...) with ->final() against these tables, so the technique is already in-repo.",
+    "Per CLAUDE.md do not write to okf/ during the build; queue the kit_org_id scoping fact and the two-source divergence for a post-merge wiki update.",
+    "F14 CORRECTION: DEV-2189's migration 110 IS live and working (Jul 2026 onward reconciles to ~0.1-1%). The unexecuted half is the one-time historical backfill the ticket itself specified. Separately, Feb-Mar 2026 show hits_cold OVER-counting Z by ~22% - a distinct defect. Also: hits_cold.kit_org_id derives from the SCAN's org while hit_stats_daily.org_id derives from the KIT's org (1.02% divergence) - a permanent definitional difference between the two tables.",
+    "SIDE FINDING (housekeeping, not this ticket): the chlocal repo's committed hits_cold_mv.sql is STALE - it lacks migrations 107 and 110 that are live in Cloud.",
+    "F15 (independent Fable 5 verification): CRITICAL IMPLEMENTATION CONSTRAINT - never use bare count() on hits_cold. FINAL cannot collapse rows whose sort key differs and the key contains the mutable hit_created_at, so raw counts run up to ~30% high in the worst months (Mar 2026: 52,423 rows for 40,046 distinct hit ids). Use uniqExact(id) for the total and uniqExact(ocr) for the unique figure.",
+    "F15: the driver's earlier 'Feb-Mar +22% over-count' and 'broad pre-July gap' claims were measurement errors. Deduped, Z diverges only -0.1% to -0.8% per month except a March 2026 incident; the staging-live gap is ~100% the INTENTIONAL NICB (org 149515) curation exclusion, and its mid-June disappearance is NICB volume collapse, not a fix.",
+    "F15: hits_cold IS usable for DEV-2406 today given the uniqExact guards. The backfill is still worth running (March 2026 hits remain recoverable) but is no longer a blocker."
+  ],
+  "tests": [
+    {
+      "file": "tests/Feature/Clickhouse/HitPlateStatsBatchQueryTest.php",
+      "what_it_pins": "NEW - repeated dedup-key values within a month collapse to one; kit_org_id scoping (not hotlist_org_id); month grain computed directly, never summed from days; FINAL/ReplacingMergeTree version dedup. RequiresClickhouse, fixtures anchored to now() for the hot-table TTL."
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardMetricsTest.php",
+      "what_it_pins": "Existing seam test asserting getCardTotal()==total; premise flips under AC-1. Seed distinct total vs unique sentinels so a source mix-up fails."
+    },
+    {
+      "file": "tests/Filament/Pages/DashboardCardExpansionTest.php",
+      "what_it_pins": "Expanded chart has exactly 2 datasets with distinguishing labels, neither carrying a shared 'stack' key, and legend.display true ONLY when expanded - plus a regression assertion that ScanCount/RecoveryCounts keep legend.display false."
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/DashboardMonthLabelsTest.php",
+      "what_it_pins": "DEV-1927 month-skip/duplicate regression; the new series must reuse the same bucketing loop, not a parallel one."
+    }
+  ],
+  "data_impact": {
+    "pg_tables": [
+      "public.hits (zod, CDC source)",
+      "public.kits (zod, supplies kits.org_id => hit_stats_daily.org_id)"
+    ],
+    "ch_tables": [
+      "clarity.hit_stats_daily (218,538 rows; ORDER BY (org_id,date); no plate column)",
+      "clarity.hits_cold (24,961,523 rows; has ocr/hotlist_id/hit_type/kit_org_id)",
+      "clarity.hits_hot (2,795,122 rows; same + TTL hot window)"
+    ],
+    "mv_or_cdc_implications": "hit_stats_daily is chlocal-owned; its org_id is kits.org_id. Its disposition-filter behavior is unverified (Q3) and is the likely source of the measured 0.5-9% divergence from hits_cold. No new writes and no MV change are proposed.",
+    "indexes_relied_on": [
+      "PARTITION BY toYYYYMM(hit_created_at) on hits_cold/hits_hot - prunes the 13-month window",
+      "kit_org_id is NOT indexed and not in the sort key - measured acceptable at 0.33s",
+      "idx_ocr ngrambf_v1 is for substring search, irrelevant to a uniqExact aggregation"
+    ]
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "New ClickHouse query class reading clarity.hits_cold/hits_hot with uniqExact, executed per Company Metrics page render (per-request, not scheduled).",
+    "driving_tables": [
+      {
+        "table": "clarity.hits_cold",
+        "source": "production ClickHouse Cloud (driver-probed)",
+        "prod_rows": 24961523,
+        "group_by": "hotlist_org_id",
+        "largest_group_rows": 14146263
+      },
+      {
+        "table": "clarity.hits_cold",
+        "source": "production ClickHouse Cloud (driver-probed)",
+        "prod_rows": 24961523,
+        "group_by": "kit_org_id",
+        "largest_group_rows": 2876335
+      },
+      {
+        "table": "clarity.hits_hot",
+        "source": "production ClickHouse Cloud (driver-probed)",
+        "prod_rows": 2795122,
+        "group_by": "n/a",
+        "largest_group_rows": null
+      },
+      {
+        "table": "zod.public_hits",
+        "source": "zod CDC mirror",
+        "prod_rows": 308664520,
+        "group_by": "kit_id",
+        "largest_group_rows": 7204449,
+        "note": "NOT the table a dedup query reads - listed to correct the fast pass's misattribution."
+      }
+    ],
+    "growth": "Concentration dominates: one org holds 14.1M of 24.96M hits_cold rows by hotlist_org_id. Fleet growth has historically been fast (29->43 kits in a day, DEV-2342), so today's figure is a lower bound.",
+    "schedule": null,
+    "allocation_sketch": "Per cache-miss: ONE batched ClickHouse round-trip building count() + uniqExact accumulators per month per hit_type for one org across 13 months. Measured 0.27s (largest org), 0.33s (kit_org_id path), 0.37s (unscoped, all orgs). Past months cache ~1 year; current month/today/last_7d recompute on a 10s-10min TTL and are the highest-frequency path. Query COUNT does not increase - the dedup column folds into the same batched statement.",
+    "oracle_status": "ok - driver probed production ClickHouse Cloud read-only; aggregates only, no raw rows.",
+    "unresolved": []
+  },
+  "derivation_log": [
+    {
+      "query_shape": "SELECT count() FROM clarity.{hits_hot,hits_cold,hit_stats_daily}",
+      "param_classes": "none",
+      "aggregate_result": "hits_hot 2,795,122; hits_cold 24,961,523; hit_stats_daily 218,538",
+      "why": "Settle the contested table-size claim; the operative dedup table is ~25M rows, not ~308M."
+    },
+    {
+      "query_shape": "SELECT count() FROM zod.public_hits",
+      "param_classes": "none",
+      "aggregate_result": "308,664,520",
+      "why": "Show the 308M figure belongs to the Postgres CDC mirror, a different table from the one a dedup query reads."
+    },
+    {
+      "query_shape": "SELECT toStartOfMonth(hit_created_at), hit_type, count(), uniqExact(ocr) FROM clarity.hits_cold FINAL WHERE <org filter> AND 13-month window GROUP BY month, hit_type",
+      "param_classes": "org filter class: none | hotlist_org_id=<largest> | kit_org_id=<largest>",
+      "aggregate_result": "wall 0.37s unscoped; 0.27s hotlist_org_id-scoped; 0.33s kit_org_id-scoped",
+      "why": "Phase 3.5 perf validation - establishes the dedup query is affordable per page load and no chlocal rollup is needed."
+    },
+    {
+      "query_shape": "SELECT hotlist_org_id, count() FROM clarity.hits_cold GROUP BY hotlist_org_id ORDER BY count() DESC LIMIT 3",
+      "param_classes": "group_by=hotlist_org_id",
+      "aggregate_result": "largest group 14,146,263 of 24,961,523 total (~57%)",
+      "why": "Largest-single-group sizing per the resource-envelope rule."
+    },
+    {
+      "query_shape": "SELECT org_id, sum(all four count columns) FROM clarity.hit_stats_daily FINAL GROUP BY org_id ORDER BY sum DESC LIMIT 5",
+      "param_classes": "group_by=org_id",
+      "aggregate_result": "top orgs 1143, 469, 14 - matching the top kit_org_id values, not the top hotlist_org_id values",
+      "why": "Proves hit_stats_daily.org_id is the KIT org; settles the org-scoping question empirically."
+    },
+    {
+      "query_shape": "Per-month comparison of hit_stats_daily's four count columns vs count() by hit_type from clarity.hits_cold, same org, same months",
+      "param_classes": "kit_org_id=<one org>, 4-month window",
+      "aggregate_result": "Sources diverge 0.5-9%; largest observed staging-live 6439 vs 5860 for one month",
+      "why": "Establishes that total and unique cannot be drawn from different sources - the basis for Q2."
+    },
+    {
+      "query_shape": "SELECT hit_type, count() FROM clarity.hits_cold FINAL GROUP BY hit_type",
+      "param_classes": "group_by=hit_type",
+      "aggregate_result": "Z 11,638,903; H 4,227,434; S 2,346,595; L 741,232; F 34",
+      "why": "Surfaces an undocumented 'F' hit_type that must be explicitly excluded."
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC-1",
+        "kind": "agent",
+        "intent": "Seed repeated dedup-key values within a month per hit_type; assert the tile headline equals the distinct count, strictly less than the row count."
+      },
+      {
+        "ac": "AC-2",
+        "kind": "agent",
+        "intent": "Assert the total still renders via Stat::description() in the smaller slot."
+      },
+      {
+        "ac": "AC-3/AC-4",
+        "kind": "human",
+        "intent": "Expand each of the four tiles; confirm two side-by-side (not stacked) bars per month with a legible legend, and confirm ScanCount/RecoveryCounts charts still have NO legend."
+      },
+      {
+        "ac": "AC-5",
+        "kind": "agent",
+        "intent": "Assert 'Current Month | Last Month' uses the dedup series, seeding distinct total vs unique values so a mix-up fails."
+      }
+    ],
+    "seed_scenario": "One org, one kit whose kit_org_id matches. Seed hits_cold/hits_hot across two months for all four hit types, with at least one dedup key repeated within a month (proves collapse) and one repeated ACROSS two months (proves months do not collapse into each other). Anchor all fixtures to now() for the hot-table TTL. Seed hit_stats_daily for the same period so the total path is independently exercised.",
+    "personas": [
+      "Admin (RoleEnum::ADMIN)",
+      "User (RoleEnum::USER)"
+    ],
+    "pg_tables": [],
+    "ch_tables": [
+      "clarity.hit_stats_daily",
+      "clarity.hits_cold",
+      "clarity.hits_hot"
+    ]
+  },
+  "missed_caller_candidates_note": "Recorded in state.json. The material one: DashboardWidget is a shared BASE CLASS extended by ScanCount and RecoveryCounts as well as the four hit tiles - see the answered legend question.",
+  "confidence": 86,
+  "escalate": {
+    "recommend": true,
+    "reason": "Feasibility and performance are now settled by measurement, and the org-scoping, UI, legend-blast-radius and FINAL questions are answered from code. What remains is three genuine product/data-semantics decisions (dedup key, source of truth, disposition parity) that under non-negotiable 1 must not be auto-answered."
+  }
+}

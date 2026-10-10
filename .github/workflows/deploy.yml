@@ -1,0 +1,199 @@
+name: Deployment
+
+# PROTOTYPE: automatic deploy is disabled. This sandbox must never ship to Insight.
+on:
+  workflow_dispatch:
+    inputs:
+      skip_npm_build:
+        description: '⏩ Skip NPM build'
+        default: false
+        type: boolean
+      skip_tests:
+        description: '⏩ Skip tests'
+        default: false
+        type: boolean
+      run_composer_post_deploy:
+        description: '🔄 Run composer post-deploy'
+        default: true
+        type: boolean
+
+jobs:
+  deploy:
+    name: 'Build and Deploy'
+    environment: 'deploy'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        php: [8.4]
+    env:
+      COMPOSER_AUTH_GITHUB_PAT: ${{ secrets.COMPOSER_AUTH_GITHUB_PAT }}
+      COMPOSER_AUTH_FILAMENT_FILTER_USERNAME: ${{ secrets.COMPOSER_AUTH_FILAMENT_FILTER_USERNAME }}
+      COMPOSER_AUTH_FILAMENT_FILTER_PASSWORD: ${{ secrets.COMPOSER_AUTH_FILAMENT_FILTER_PASSWORD }}
+      DB_HOST: 127.0.0.1
+      DB_USERNAME: root
+      DB_PASSWORD: postgres
+      DB_NAME: zod
+      DB_CONNECTION: platform
+      APP_ENV: testing
+      VITE_GOOGLE_MAPS_API_KEY: ''
+      CLICKHOUSE_DRIVER: clickhouse
+      CLICKHOUSE_HOST: 127.0.0.1
+      CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_DATABASE_CLARITY: clarity
+      CLICKHOUSE_DATABASE_ZOD: zod
+      CLICKHOUSE_USERNAME: default
+      CLICKHOUSE_PASSWORD: ''
+      CLICKHOUSE_HTTPS: false
+
+    services:
+      postgres:
+        image: postgis/postgis:16-3.5
+        env:
+          POSTGRES_USER: root
+          POSTGRES_DB: zod
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      clickhouse:
+        image: clickhouse/clickhouse-server:26.2
+        ports:
+          - 8123:8123
+          - 9000:9000
+        env:
+          CLICKHOUSE_USER: default
+          CLICKHOUSE_PASSWORD: ""
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+          CLICKHOUSE_DB: clarity
+        options: >-
+          --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: json, dom, curl, libxml, mbstring, ftp, intl, zip, gd
+          coverage: none
+
+      - name: Install Composer Dependencies
+        run: |
+          composer self-update -n
+          composer config github-oauth.github.com "${{ secrets.COMPOSER_AUTH_GITHUB_PAT }}"
+          composer install -q --no-ansi --no-interaction --no-scripts --no-progress
+
+      - name: Run Pint Check
+        run: ./vendor/bin/pint --test --config ${{ github.workspace }}/pint.json
+
+      - name: Install PostgreSQL extensions
+        run: |
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo apt-get update
+          sudo apt-get install -y postgresql-16-partman
+
+      - name: Prepare Application
+        run: |
+          echo "APP_KEY=" > ${{ github.workspace }}/.env
+          echo "DB_PASSWORD=${{ env.DB_PASSWORD }}" >> ${{ github.workspace }}/.env
+          echo "CLICKHOUSE_DRIVER=${{ env.CLICKHOUSE_DRIVER }}" >> ${{ github.workspace }}/.env
+          echo "CLICKHOUSE_HOST=${{ env.CLICKHOUSE_HOST }}" >> ${{ github.workspace }}/.env
+          echo "CLICKHOUSE_PORT=${{ env.CLICKHOUSE_PORT }}" >> ${{ github.workspace }}/.env
+          echo "CLICKHOUSE_DATABASE_CLARITY=${{ env.CLICKHOUSE_DATABASE_CLARITY }}" >> ${{ github.workspace }}/.env
+          echo "CLICKHOUSE_DATABASE_ZOD=${{ env.CLICKHOUSE_DATABASE_ZOD }}" >> ${{ github.workspace }}/.env
+          echo "CLICKHOUSE_USERNAME=${{ env.CLICKHOUSE_USERNAME }}" >> ${{ github.workspace }}/.env
+          echo "CLICKHOUSE_PASSWORD=${{ env.CLICKHOUSE_PASSWORD }}" >> ${{ github.workspace }}/.env
+          echo "CLICKHOUSE_HTTPS=${{ env.CLICKHOUSE_HTTPS }}" >> ${{ github.workspace }}/.env
+          php artisan key:generate
+          cp ${{ github.workspace }}/.env.example ${{ github.workspace }}/.env.testing
+          {
+            echo "APP_ENV=testing"
+            echo "APP_KEY=$(grep '^APP_KEY=' ${{ github.workspace }}/.env | cut -d= -f2-)"
+            echo "DB_CONNECTION=platform"
+            echo "DB_HOST=127.0.0.1"
+            echo "DB_PORT=5432"
+            echo "DB_DATABASE=zod_testing"
+            echo "DB_USERNAME=root"
+            echo "DB_PASSWORD=${{ env.DB_PASSWORD }}"
+            echo "DB_SEARCH_PATH=platform"
+            echo "CLICKHOUSE_DRIVER=${{ env.CLICKHOUSE_DRIVER }}"
+            echo "CLICKHOUSE_HOST=${{ env.CLICKHOUSE_HOST }}"
+            echo "CLICKHOUSE_PORT=${{ env.CLICKHOUSE_PORT }}"
+            echo "CLICKHOUSE_DATABASE_CLARITY=${{ env.CLICKHOUSE_DATABASE_CLARITY }}"
+            echo "CLICKHOUSE_DATABASE_ZOD=${{ env.CLICKHOUSE_DATABASE_ZOD }}"
+            echo "CLICKHOUSE_USERNAME=${{ env.CLICKHOUSE_USERNAME }}"
+            echo "CLICKHOUSE_PASSWORD=${{ env.CLICKHOUSE_PASSWORD }}"
+            echo "CLICKHOUSE_HTTPS=${{ env.CLICKHOUSE_HTTPS }}"
+          } > ${{ github.workspace }}/.env.testing
+          docker exec $(docker ps -q --filter "ancestor=postgis/postgis:16-3.5") \
+            psql -U root -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'zod_testing'" | grep -q 1 \
+            || docker exec $(docker ps -q --filter "ancestor=postgis/postgis:16-3.5") \
+            psql -U root -d postgres -c "CREATE DATABASE zod_testing"
+          php artisan dev:migrate --env=testing
+          php artisan config:clear
+          php artisan route:clear
+
+      - name: Load ClickHouse schema
+        run: |
+          cat ${{ github.workspace }}/database/schema/clickhouse-schema.sql \
+            | docker exec -i $(docker ps -q --filter "ancestor=clickhouse/clickhouse-server:26.2") clickhouse-client --multiquery
+
+      - name: Run Unit Tests
+        if: inputs.skip_tests == false
+        run: php artisan test --compact
+
+      - name: Import GPG Key
+        id: import-gpg
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.DEPLOY_GPG_PRIVATE }}
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+
+      - name: Write current time to authorization.txt
+        run: |
+          mkdir -p ${{ github.workspace }}/.deploy
+          echo "Branch: ${{github.ref_name}}" > ${{ github.workspace }}/.deploy/authorization.txt
+          echo "UTC: $(date -u)" >> ${{ github.workspace }}/.deploy/authorization.txt
+          echo "ET: $(TZ='America/New_York' date)" >> ${{ github.workspace }}/.deploy/authorization.txt
+          echo "MT: $(TZ='America/Denver' date)" >> ${{ github.workspace }}/.deploy/authorization.txt
+
+      - id: get-selected-step
+        uses: joao-zanutto/get-selected@v1.1.1
+        with:
+          separator: ","
+          ignore: "skip_npm_build"
+
+      - name: Write selected deploy commands to commands.txt
+        run: |
+          echo "${{ steps.get-selected-step.outputs.selected }}" > ${{ github.workspace }}/.deploy/commands.txt
+
+      - name: GPG Clearsign
+        run: |
+          gpg --batch --yes --clearsign --output ${{ github.workspace }}/.deploy/authorization_${{ github.ref_name }}.txt.asc ${{ github.workspace }}/.deploy/authorization.txt
+          gpg --batch --yes --clearsign --output ${{ github.workspace }}/.deploy/commands_${{ github.ref_name }}.txt.asc ${{ github.workspace }}/.deploy/commands.txt
+
+      - name: Remove Unsigned Files
+        run: |
+          rm ${{ github.workspace }}/.deploy/authorization.txt
+          rm ${{ github.workspace }}/.deploy/commands.txt
+
+      - name: Commit build and deploy authorization
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_author: "DaltonMcCleery <daltonmccleery@gmail.com>"
+          commit_user_name: "DaltonMcCleery"
+          commit_user_email: "daltonmccleery@gmail.com"
+          commit_message: "GHA deploy - Run ID: ${{ github.run_id }} - URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

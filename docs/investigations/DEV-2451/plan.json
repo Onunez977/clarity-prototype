@@ -1,0 +1,65 @@
+{
+  "key": "DEV-2451",
+  "authored_by": "driver at opus (= TICKET_PLAN_ARBITER_MODEL default); the driver holds the verified dead-code inventory a fresh arbiter reading only prep-context.json would have had to re-derive",
+  "decision": "Reading A-strict — remove the tier-1 call path from KitUserPathController outright (Dalton, 2026-08-31). No feature flag.",
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Remove the tier-1 continuous-GPS call path from KitUserPathController so kit_scan_paths is the sole path source",
+      "approach": "Delete tier-1 orchestration from paths() and collapse every branch that existed only to reconcile two tiers. Tier 2 (KitScanPathsQuery -> clarity.kit_scan_paths) becomes the only source, for all kits, all orgs. PRESERVE KitRangePathsQuery and its unit suite untouched — ClarityScoutBirdsEyeController still calls the class and Bird's Eye is deliberately left on continuous GPS. TDD: rewrite the controller test first (delete the tier-1 pins, add a pin that sc_positions is never queried), confirm red, then make it green.",
+      "target_files": [
+        "app/Http/Controllers/KitUserPathController.php",
+        "tests/Feature/Http/Controllers/KitUserPathControllerTest.php"
+      ],
+      "intended_diffs": {
+        "app/Http/Controllers/KitUserPathController.php": [
+          "REMOVE import: use App\\Clickhouse\\Queries\\KitRangePathsQuery;",
+          "REMOVE const DEDUP_METERS and const BROAD_DEDUP_METERS (tier-1-only; they feed KitRangePathsQuery's dedup_meters arg)",
+          "REMOVE in paths(): the mappingIndex()/$mappings/sort() block, $segments, $renderPointCount, and the entire `if ($mappings !== [])` tier-1 block (countPoints + its 503, the >MAX_RENDER_POINTS 422 fast-path, cachedHandle + its 503)",
+          "REMOVE method segmentRows() — with no segments it can only return []",
+          "REMOVE method mappingIndex() — its only consumers were the tier-1 block and segmentRows()",
+          "SIMPLIFY scanPathFallbackRows(): drop the $byMapping, $segments and $tier1PointCount params and the now-dead $coveredKitIds loop; every kit in $byId is eligible. Budget check becomes $fallbackPointCount > MAX_RENDER_POINTS.",
+          "COLLAPSE the over_budget branch to an unconditional 422 (there are no tier-1 rows left to degrade to)",
+          "COLLAPSE the unavailable branch to an unconditional 503 (tier 2 IS the whole response now)",
+          "SIMPLIFY the response to $fallback['rows'] — no array_merge with tier-1 rows",
+          "KEEP MAX_RENDER_POINTS (tier 2 is now its sole consumer) and update its docblock: it no longer sums across two tiers",
+          "KEEP $localStart/$localEnd but REWRITE the comment above them — it currently explains a capture-before-Carbon::utc()-mutation ordering that no longer exists once the tier-1 block (the only thing calling ->utc()) is gone",
+          "FIX the dangling {@see mappingIndex()} reference in kitsById()'s docblock",
+          "REWRITE scanPathFallbackRows() and scanPathRow() docblocks — both are written in tier-1-relative terms",
+          "ADD a class-level docblock recording the interim scan-only state, that it is global (all orgs, all kits), that Bird's Eye deliberately stays on continuous GPS, and that DEV-2450 is the ticket that restores enriched rendering"
+        ],
+        "tests/Feature/Http/Controllers/KitUserPathControllerTest.php": [
+          "DELETE the tier-1 pins: tier-1 503-on-throw, the combined/shared-budget tests, tier-1-not-overridden-by-scan-paths, the mapping-less rescue case, and the sparse-track per-day fallback case",
+          "KEEP and adjust the tier-2 pins (scan-only rendering, response row shape, 422 over-budget, 503 on tier-2 unavailable) — several currently assert tier-2 behaviour only for zero-coverage kits and must now assert it for every kit",
+          "ADD: a kit WITH sc_positions coverage still renders via kit_scan_paths (proves removal, not data availability, chose the source)",
+          "ADD: clarity.sc_positions / KitRangePathsQuery is never queried by this endpoint — extend the existing spy-client pattern"
+        ]
+      },
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "KitUserPathControllerTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    "app/Clickhouse/Queries/KitRangePathsQuery.php — PRESERVED verbatim; shared with ClarityScoutBirdsEyeController, which Q4 keeps on continuous GPS. Deleting or editing it would silently change Bird's Eye.",
+    "tests/Unit/Clickhouse/Queries/KitRangePathsQueryTest.php — PRESERVED; still the class's coverage for its remaining Bird's Eye caller. If this suite moves, the change leaked out of the controller.",
+    "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php — unchanged per Q4. The KUP-parity divergence is deliberate and gets recorded in the docblock and Build Record.",
+    "app/Http/Controllers/Api/ClarityScoutMapController.php — tier-2 consumer only; a tier-1 removal cannot reach it.",
+    "KitUserPathController::geojson() and ::hitDensity() — verified to read HotlistAddressGeohashQuery / HitDensityGeohashQuery; not path sources.",
+    "resources/js/components/kit-user-path.js and the Filament page/blade — both tiers already emitted an identical row shape and deck.gl never distinguished them, so no frontend change is needed.",
+    "config/app.php — no flag is being added under the outright-removal decision.",
+    "okf/concepts/scout-clickhouse-queries.md and okf/concepts/scout.md — they document tier-1-primary and will be stale. Queued for the POST-APPROVAL wiki pass per CLAUDE.md's WRITE rule."
+  ],
+  "sizing_gate": "PASS — 2 files, one cohesive concern (remove tier 1 from this one endpoint). No split recommended.",
+  "perf_gate": "NOT REQUIRED — the change REMOVES the sc_positions read rather than adding one, and the surviving surface (clarity.kit_scan_paths, measured 1.66M rows fleet-wide) is nowhere near the >1B-row threshold. Relevant cardinality was already measured during prep.",
+  "blast_radius_review": "No target file matches the sensitive globs (database/migrations/**, billing, Shield/Policies/auth, Clickhouse*Purge|Cleanup, PruneScans). No human pre-approval required beyond the Phase 2 gate answers already given.",
+  "risks": [
+    "617 kits (30d) lose continuous routing. ACCEPTED and global per Dalton's Q1/Q3 answers. This is a visible fidelity regression, not a silent one.",
+    "The over_budget and unavailable branches carried real tier-1-degradation semantics. Collapsing them must not turn a recoverable partial render into a hard error for a case that used to succeed — the surviving tier-2 422/503 semantics need explicit test pins.",
+    "Deleting tier-1 orchestration removes the only ->utc() mutation of $start/$end. Any code below that assumed UTC-mutated values would silently change meaning. Verified: only $localStart/$localEnd are consumed downstream and they are captured pre-mutation, so this is safe — but the worker must not 'tidy' that capture away.",
+    "DEV-2450 must now rebuild the tier-1 wiring rather than flip a flag. Stated to Dalton and accepted."
+  ]
+}

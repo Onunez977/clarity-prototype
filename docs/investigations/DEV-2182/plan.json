@@ -1,0 +1,25 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Org bird's-eye lists all active org kits (drop kit_settings-row filter)",
+      "approach": "In app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php, rewrite orgScoutKits(int $orgId): query Kit::query()->forOrg($orgId) with leftJoin('kit_metadata', kits.id = kit_metadata.kit_id)->whereNull('kit_metadata.deleted_at')->select('kits.*')->orderBy('name')->get() (mirroring Kit::getKits(withDeleted:false)'s soft-delete exclusion — inline, NOT calling getKits, which selects only id,name and is hourly-cached). Keep the separate keyed KitSettings lookup (cross-connection: Kit on zod, kit_settings on platform) and setRelation('settings', $settings->get($kit->id)) for each kit, leaving it null when absent — but DROP the ->filter(fn ($kit) => $settings->has($kit->id)) line so non-enrolled kits are retained. Do not cache (the map must reflect kit changes live). Update the drivers() and orgScoutKits() docblocks to describe 'all non-deleted org kits' instead of 'Scout-enrolled kits (those with a kit_settings row)'. TDD: first rewrite the existing test that pins the old settings-required exclusion so it asserts the new behavior, confirm red, then implement to green.",
+      "target_files": [
+        "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php"
+      ],
+      "intended_diffs": "orgScoutKits(): replace `Kit::query()->forOrg($orgId)->orderBy('name')->get()` + `->filter($settings->has(...))` with a forOrg + leftJoin kit_metadata + whereNull deleted_at + select('kits.*') query, and remove the filter() so every returned kit is kept (settings attached when present, null otherwise). Docblocks on drivers() (l.50-54) and orgScoutKits() (l.648-657) reworded. Test: the old exclusion test rewritten to assert (a) a kit with NO kit_settings row appears with null driver_name/vehicle_type, (b) a kit with kit_metadata.deleted_at set is excluded, (c) cross-org kits never leak; plus a test that a non-enrolled kit's kit_id is honored by a scopedKits-derived endpoint (hits/stats kit_ids filter).",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "ClarityScoutBirdsEyeControllerTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "app/Http/Controllers/Api/ClarityScoutMapController.php (driver single-kit map)", "reason": "kit_settings legitimately gates scout LOGIN there; ticket does not touch driver-side access."},
+    {"site": "resources/js/clarity-scout/* (DriverSelector/ScannerMap/stores/map.js/DashboardOverlay)", "reason": "already null-safe for missing settings/vehicle_type/driver_name — no frontend change needed."},
+    {"site": "app/Models/Kit.php::getKits()", "reason": "reused only as a pattern reference; modifying it would affect Clarity dropdowns (Org/User/Scan callers) — out of scope."}
+  ]
+}

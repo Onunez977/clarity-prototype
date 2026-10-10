@@ -1,0 +1,82 @@
+Plan DEV-2934. Repo root for this run: <mac-run-dir>/platform-wt (isolated worktree on branch cursor/dev-2934-rdn-unauthorized-case-miss, based on origin/main 43255f51 + one docs-only prep commit, tip 03a45aef; write specs ONLY under this worktree's .ai/specs/). POST_TO_JIRA: no — draft the Jira comment to .ai/specs/DEV-2934.jira-comment.md only; do not post anywhere.
+
+Write exactly two files: .ai/specs/DEV-2934.md and .ai/specs/DEV-2934.jira-comment.md. Writes outside .ai/specs/ are denied. Do not edit product code or tests.
+
+## Ticket (live, re-fetched 12:28pm CDT — authoritative)
+Key: DEV-2934 · Task · To Do · Sprint 42 · App Clarity · Repo insight-lpr/platform · Epic DEV-1580 · relates to DEV-2928 (PR #510 merged into main as 43255f51)
+URL: https://insightlpr-team.atlassian.net/browse/DEV-2934 · Jira cloudId: 150e0ba0-1d8e-4ac4-82da-ee78a512c3cc
+Summary: RDN case info: treat "API key not authorized for this case" 500 as a miss, not a retryable failure (follow-up to DEV-2928)
+
+Problem (verbatim): During the pre-prod RDN dry run for org 167 (DEV-2928), one case (hotlist 31963346) came back from RDN as an HTTP 500 with the body "API key not authorized for this case". `GetOrgHotlistCaseInfo` treats any 500 as a transport failure and retries it, so a case like this one is retried forever. It never succeeds, and every retry costs another RDN call under the `rdn-case-info:{org}` limiter. This is very likely existing job behaviour, but `app:rdn-backfill-branches` calls the same `handle()` path in-process, so the backfill hits it too.
+
+Fix (verbatim): Detect this specific RDN response, a 500 whose body says the API key is not authorized for the case, and treat it as a permanent miss for that hotlist:
+* Do not retry it and do not rethrow it as a transport failure.
+* Leave `branch_id` untouched, the same as a case with no branch.
+* In `app:rdn-backfill-branches`, count it in the miss / no-match bucket of the summary instead of as an error.
+* All other 500s and transport errors keep the current retry behaviour.
+Simplest thing first: this is a classification change in the existing error handling. No new queue, job, throttle, or config.
+
+Acceptance criteria (verbatim):
+- AC1: A not-authorized 500 for a case is recorded once as a miss and is not retried, in both the job path and the backfill command.
+- AC2: Other 500s and connection errors are still retried as before.
+- AC3: Feature tests cover the not-authorized 500 for both the job and the command (dry run and live), plus a regression test for a generic 500.
+- AC4: The API key and any secrets never appear in logs, test output, or the PR.
+Out of scope: the duplicate RDN branch "Action Towing & Recovery Orlando " (RDN ids 20576 and 21849).
+
+PM ruling (Dalton, 12:23pm CDT): the RDN SOAP fault "This API key is not authorized to access this case" (HTTP 500) = MISS, not endless transport retry.
+Literal fault text as logged by RDN.php L122 in the DEV-2928 dry run: `This API key is not authorized to access this case`. The ticket's paraphrase is NOT the literal string — match the logged text.
+
+## First Glance (comment 43378 — authoritative Branch path / hard stop)
+- Branch path: main→main (bugfix), base main 43255f51. Size S (~20–40 production lines).
+- Surface: RDN case-info error classification only. No query, UI, ClickHouse, queue, Horizon or config change. ch_touch: no. #25 parity N/A. No UI/copy change.
+- Hard stop: classification change inside the existing error handling only. A per-case "not authorized" SOAP fault becomes a miss that is not retried, in both the job and `app:rdn-backfill-branches` (live and dry run). Every other 500 and transport error keeps today's retry. No new queue, job, throttle, config or `config/horizon.php` change. The API key never appears in logs, test output or the PR.
+- Defaults (stand unless Dalton says otherwise — state them as decided defaults, not open questions): (1) SEAL ON FIRST REFUSAL — the AC says "not retried", so write `branch_lookup_attempts` = `maxLookupAttempts()` on the first refusal (a plain +1 miss would still call RDN up to 3 times). (2) NO new column in the live command summary (walked / processed / failed); the refusal already counts as processed, not failed; the miss shows as the sealed counter plus the existing `rdn_case_info.miss_no_branch_name` count. The dry-run table already has a `miss_no_branch_name` bucket.
+
+Recon at main 43255f51 (verify every line yourself and cite file:line):
+- `app/Services/RDN.php` `lastCallCompleted()` L101–104; `call()` L106–146; the catch at L121–125 logs `$exception->getMessage()` (L122) and returns EMPTY_RESULT (L128–129); `lastCallCompleted` reset false at L108. Callers never see the fault text.
+- `app/Jobs/Rdn/GetOrgHotlistCaseInfo.php`: outcomes L44–57; `ATTEMPTS_KEY` L42; `sealedPredicate()` L98–102; `maxLookupAttempts()` L120–126 (= 3 shipped); `findBranch()` L258; `handle()` L366–429 — transport return at L418 (no write, no attempt spent), answered miss → `recordUnresolvedLookup()` (+1) then miss_no_branch_match / miss_no_branch_name; `recordOutcome()` L450–459 (docblock L437–442 already scopes miss_no_branch_name to "credentials, ids, or genuinely unknown cases"); `isSealed()` L461–467; `recordUnresolvedLookup()` L510–550 (increments by 1, leaves a resolved branch_id alone).
+- `app/Console/Commands/RdnBackfillBranches.php`: live loop L147–178 runs `$job->handle()` in-process (inherits the job fix); summary L189–214; dry run does NOT call handle(): `classify()` L285–324 duplicates the rule and returns transport_failed at L313–315; `eligible()` L333–342 filters on `sealedPredicate()` (sealing is what stops repeat backfill passes).
+- Tests: `tests/Feature/Jobs/Rdn/GetOrgHotlistCaseInfoTest.php` — transport no-burn L1046–1088, existing counter left alone L1092–1139, at-ceiling seal L1330–1357, transport outcome L1459–1487, miss counter L733 / L975. `tests/Feature/Console/Commands/RdnBackfillBranchesTest.php` — live L135–165 ("walked 4, processed 3, failed 1"), dry-run per-bucket regex L239–289, dry-run vs job parity L293–325 (loop at L302), `stubSoapClient()` L427–447 (match arms EXACT / NORMALIZED / UNKNOWN / EMPTY / BOOM; default arm throws `SoapFault('HTTP','Could not connect to host')`).
+
+## Minimal approach to confirm (or simplify further — never expand)
+1. `RDN.php`: in the existing catch (L121–125) keep the caught exception on the instance and expose it with one getter next to `lastCallCompleted()` (one property + one getter, reset where `lastCallCompleted` is reset at L108). Return shape and the other callers unchanged.
+2. `GetOrgHotlistCaseInfo.php`: one public static check next to `findBranch()` (which the command already shares) that returns true ONLY for a `\SoapFault` whose message contains `not authorized to access this case` (case-insensitive). In `handle()`, before the transport return at L418: on a refusal, record a miss with the attempts counter written to `maxLookupAttempts()` (sealed on first sight), `branch_id` untouched, emit the existing `miss_no_branch_name` outcome. No new outcome, metric, counter or log line. Decide the smallest way to write the counter to the ceiling by reusing `recordUnresolvedLookup()` (e.g. one optional parameter) rather than a second SQL statement — justify your pick.
+3. `RdnBackfillBranches::classify()`: the same static check before L313 returns `miss_no_branch_name`. The live path needs no change.
+4. Tests (extend existing files and stubs; no new harness, no new test file unless unavoidable — justify):
+   - Job test: refusal SoapFault → row sealed (`branch_lookup_attempts` = ceiling), `branch_id` untouched, `miss_no_branch_name` emitted, and not re-dispatched by `GetOrgHotlistCases` (the inverse of L1046–1088); refusal on a row with an existing counter; GENERIC-500 REGRESSION: `SoapFault('SOAP-ENV:Server','Internal Server Error')` stays `transport_failed`, no write, re-dispatched. Also a key-wide refusal phrase that is NOT the case phrase (e.g. a fault mentioning "API key" / "not authorized" without "to access this case") stays transport — this pins the narrow match. L1046 / L1092 / L1459 stay green.
+   - Command test: add a `DENIED` arm to `stubSoapClient()` throwing the literal refusal SoapFault. Live run: the DENIED row is sealed, `failed 0` for it, and a re-run does not call RDN for it (`calledCases`). Dry run: counted under `miss_no_branch_name`, nothing written. Add `DENIED` to the parity loop at L302.
+   - KEY NEVER PRINTED (AC4): set a recognizable fake `rdn_api_key` on the test org and assert it is absent from command output (live + dry run) and from every log call (`Log::spy` / captured log context). Never use a real key anywhere.
+   - Pint on touched PHP.
+
+## Over-engineering lock (preflight #24 — Dalton hard rule 2026-10-08 8:22am CDT) — quoted, binding
+"Most simple/minimal thing FIRST. Before any Plan/spec proposes queues, jobs, throttles, Horizon, or new config, the Plan/spec must explicitly state why an inline or existing-path option will not work. Harness self-check refuses a Planner exit that adds those without that written justification. Example miss: DEV-2928 queued a backfill that should have been an inline Branch loop."
+Also: prefer the smallest change that clears AC; match existing structure, naming and neighboring patterns; do not invent new abstractions (traits, classes, services, layers, helpers) unless necessary to meet AC. Jira wins over "nice improvements".
+For this ticket the expected answer is: NO new queue, job, throttle, Horizon change, config key, class, trait, service, metric or outcome; `config/horizon.php` and `config/*.php` untouched. The spec MUST contain an explicit "Simplest-first (#24)" section stating that the change is inline in the existing catch / handle() / classify() paths and listing each thing NOT added. If you believe anything beyond inline/existing is needed, you must write why the inline/existing path cannot work — otherwise the harness rejects the spec.
+
+## Narrow-match risk (must appear in the spec as a named risk with its guard)
+A broad match — any HTTP 500, any SoapFault, "API key", or "not authorized" alone — would also catch an org-wide key rotation or revocation. Every row that run touched would then be sealed, and there is no un-seal path and no TTL. The match is therefore: `$e instanceof \SoapFault` AND case-insensitive substring `not authorized to access this case`. Generic 500s, transport errors, a null client, and key-wide refusals stay `transport_failed`. Tests pin both sides.
+
+## Provision (accepted deviation — state it in the spec)
+PM decision: no running site / ClickHouse twin for this key. Plan / Implement / Review run on a keyed test PG DB (`zod_testing_dev_2934`) + `vendor/` + `.env.testing` in this worktree. Agent QA is suites-only (no UI, copy or query change). Record in the spec as "Accepted provision deviation (#9): keyed test PG only; no site / ClickHouse environment; Agent QA suites-only." Do not invent ports, DSNs or ledgers.
+
+## Required spec sections (in addition to your template)
+- Status READY (or PARKED with reason). Branch line = main→main, base main 43255f51.
+- KB / okf citations for every claim (file + line). Read okf/index.md and any okf pages on RDN / integrations / jobs / testing conventions / logging that exist; cite what you used.
+- Blast radius table: files touched / not touched (explicitly list `config/horizon.php`, `config/services.php`, `GetOrgHotlistCases`, other `RDN::call()` callers as NOT touched); PG vs CH per file — CH: none.
+- Simplest-first (#24) section as above.
+- Narrow-match risk section as above.
+- Test map with an explicit line `ch_touch: no` and an AC→test mapping (AC1 job + command live + dry run; AC2 generic-500 regression + key-wide-phrase regression + existing transport tests; AC3; AC4 key-never-printed). Name each new/changed test method and the exact assertion.
+- Accepted provision deviation (#9) note.
+- Decided defaults (seal on first refusal; no new live-summary column) and open questions (non-blocking only; do not invent answers).
+
+## Drafted Jira comment
+Short plan summary for Dalton's ticket: approach, files, tests, `ch_touch: no`, the narrow-match guard, defaults, open questions. Neutral phase nouns only (Plan, Provision, Implement, Review, Agent QA, Verify). No agent, tool, CLI, model or bot names of any kind. Never include an API key or any secret.
+
+## Out of scope
+- Writing product code or tests (Plan only)
+- Provision / environment work, running commands or tests
+- Posting to Jira or GitHub (the harness posts after check)
+- Any ClickHouse access
+- The duplicate Orlando branch
+
+Write the spec now.

@@ -1,0 +1,200 @@
+{
+  "key": "DEV-2934",
+  "track": "product",
+  "label": "RDN case info: 'not authorized to access this case' SOAP fault = miss, not endless transport retry",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "sprint": "Sprint 42",
+  "repo": "insight-lpr/platform",
+  "epic": "DEV-1580",
+  "size": "S",
+  "phase": "verified",
+  "provisioned": true,
+  "base_branch": "main",
+  "target_branch": "main",
+  "branch_path": "main→main",
+  "base_sha": "43255f5154443dddb2ed1c581e6eb15232a18868",
+  "base_branch_reason": "First Glance comment 43378 (live re-GET 2026-10-08 ~12:28pm CDT)",
+  "branch": "cursor/dev-2934-rdn-unauthorized-case-miss",
+  "pr": {
+    "number": 512,
+    "url": "https://github.com/insight-lpr/platform/pull/512",
+    "draft": true,
+    "base": "main",
+    "head_sha": "45f27f260f0be083d3a77c6c7f668347359cdbe2",
+    "status_rewritten": "Implemented (3/7) / Next Review (2026-10-08 ~1:10pm CDT)"
+  },
+  "github_assignee": {
+    "requested": "DaltonMcCleery",
+    "set": true,
+    "pr": 512
+  },
+  "artifact_dir": "docs/investigations/DEV-2934/",
+  "gate": "CLEAN",
+  "next": "CI → QA Ready",
+  "worktree_mac": "<mac-run-dir>/platform-wt",
+  "checkout_box": "/workspace/dev-2934-wt",
+  "flags": {
+    "provision": true,
+    "implement": false,
+    "stop_at": "provisioned",
+    "cloud_ch_writes": false,
+    "cloud_touched": false,
+    "ch_touch": false,
+    "preflight_25": "N/A",
+    "preflight_26": "main→main",
+    "preflight_27": "N/A",
+    "preflight_18": "N/A (ch_touch:no)",
+    "preflight_9_deviation": "PM-accepted: keyed test PG + vendor + .env.testing only; no Path A; Agent QA suites-only",
+    "path_a_stood": false,
+    "pr_draft": true,
+    "board": false,
+    "messages": false,
+    "preflight_24": "PASS inline-only (Simplest-first section; no queue/job/throttle/Horizon/config)",
+    "preflight_30": "PASS trust==allowedTools (18); fs_write untrusted; MCP names accepted"
+  },
+  "jira": {
+    "key": "DEV-2934",
+    "id": "31480",
+    "url": "https://insightlpr-team.atlassian.net/browse/DEV-2934",
+    "type": "Task",
+    "status": "In Progress",
+    "priority": "Medium",
+    "assignee": "Dalton McCleery",
+    "labels_live": [],
+    "links": [
+      "DEV-2928 (relates, QA Complete)"
+    ],
+    "reget_at": "2026-10-08T12:28:00-05:00",
+    "comment_ids": {
+      "first_glance": "43378",
+      "plan": "43379",
+      "implement": "43380"
+    }
+  },
+  "pm_rulings": [
+    "Dalton 2026-10-08 12:23pm CDT: RDN SOAP fault 'This API key is not authorized to access this case' (HTTP 500) = MISS, not endless transport retry"
+  ],
+  "defaults": [
+    "Seal on first refusal (attempts = maxLookupAttempts()); AC says 'not retried'",
+    "No new column in the live summary"
+  ],
+  "hard_stops": [
+    "Classification change inside existing error handling only",
+    "Narrow match: SoapFault + case-insensitive 'not authorized to access this case'; generic 500 / key-wide refusal stay transport_failed",
+    "branch_id untouched; outcome miss_no_branch_name; no new metric/outcome",
+    "No new queue/job/throttle/config; no config/horizon.php diff (#24 lock)",
+    "RDN key never printed (logs, test output, PR)",
+    "Out of scope: duplicate Orlando branch (RDN 20576 / 21849)",
+    "No bot names on Jira/GitHub (#17)",
+    "Never commit .ai/ .context/ <agent-config-dir>/; [skip ci]; explicit refspec push, no upstream"
+  ],
+  "forecast_gates": [
+    "Seal vs single attempt (default seal)",
+    "Scope includes RDN.php accessor + classify() mirror",
+    "No live-summary column (default)",
+    "Env: test PG only; Agent QA suites-only"
+  ],
+  "timeline": {
+    "prep_start": "2026-10-08T12:27:00-05:00",
+    "pr_opened": "2026-10-08T12:29:03-05:00",
+    "plan_start": "2026-10-08T12:30:08-05:00",
+    "plan_end": "2026-10-08T12:54:17-05:00",
+    "plan_posted": "2026-10-08T12:55:26-05:00",
+    "provisioned": "2026-10-08T12:57:00-05:00",
+    "implement_start": "2026-10-08T12:59:32-05:00",
+    "implement_end": "2026-10-08T13:02:45-05:00",
+    "implement_commit": "2026-10-08T13:07:00-05:00",
+    "jira_in_progress": "2026-10-08T13:08:00-05:00",
+    "implement_posted": "2026-10-08T13:08:22-05:00"
+  },
+  "open_questions": [
+    "RDN faultcode for the refusal not captured; match is faultstring-only (reword falls back to transport, safe direction)"
+  ],
+  "comment_ids": {
+    "first_glance": "43378",
+    "plan": "43379",
+    "implement": "43380"
+  },
+  "prep_tip_sha": "03a45aef3b8e356b04d640e1e3d8c359142d9459",
+  "spec": {
+    "path_mac": "<mac-run-dir>/platform-wt/.ai/specs/DEV-2934.md",
+    "path_box": "/workspace/dev-2934-wt/.ai/specs/DEV-2934.md",
+    "mirror": "docs/investigations/DEV-2934/DEV-2934.md",
+    "status": "READY",
+    "ch_touch": "no",
+    "self_check": "CLEAN"
+  },
+  "plan": {
+    "plan-cli_wall_seconds": 1450,
+    "model": "<planner-model>",
+    "effort": "high",
+    "meta": "docs/investigations/DEV-2934/harness/meta.json",
+    "aborted_starts": 0,
+    "trust": "--trust-tools == card allowedTools (18 incl. MCP); fs_write untrusted (path-limited); no Jira write trusted",
+    "mcp_in_trust_tools": "accepted (<plan-cli> 2.27.1)",
+    "spec_written_without_fs_write_trust": true
+  },
+  "provision": {
+    "mode": "keyed_test_pg_only",
+    "pg": "Mac 127.0.0.1:5432/zod_testing_dev_2934",
+    "baseline": "58 passed (213 assertions), 0 failed (job 47 / command 11)",
+    "ledger": "docs/investigations/DEV-2934/provision.json"
+  },
+  "implement": {
+    "code_sha": "45f27f260f0be083d3a77c6c7f668347359cdbe2",
+    "ran_on": "Mac mini worktree; Implement agent under the harness with the trust-scope fix (worktree card from the proposed template: fs_write untrusted and not in allowedTools, allowedPaths <wt>/**, harness dirs denied; write guard limited to the 3 product + 3 test files; trust fs_read,grep,glob,code,thinking; pre-launch check PASS); exit 0, 12:59:32-1:02:45pm CDT. Harness ran tests/Pint/analyse on the Mac and committed.",
+    "changes": [
+      "RDN: private ?\\Exception $lastCallException, reset with lastCallCompleted in call(), set in the existing catch, getter lastCallException(); existing Log::error unchanged; never logged",
+      "GetOrgHotlistCaseInfo::isCaseRefusal(?\\Throwable): SoapFault && Str::contains(message, 'not authorized to access this case', ignoreCase: true)",
+      "handle(): refusal check before the transport check -> recordUnresolvedLookup(seal: true) + OUTCOME_MISS_NO_BRANCH_NAME",
+      "recordUnresolvedLookup(bool $seal = false): one statement; $floor = seal ? maxLookupAttempts() : 0; insert to_jsonb(greatest(1, ?::numeric)); conflict to_jsonb(greatest((case..end) + 1, ?::numeric)); ENRICHED_PREDICATE guard unchanged",
+      "RdnBackfillBranches::classify(): same check before the transport check -> OUTCOME_MISS_NO_BRANCH_NAME; live path unchanged",
+      "tests: spec 1-13 (job 7, command 3 + DENIED stub arm + parity loop, service 1); fake key only"
+    ],
+    "deviations": [
+      "test 12 spreads DENIED/TRANSPORT/EXACT across the three dry-run age buckets so --dry-run 3 samples each",
+      "test 13 uses andReturnUsing with a call counter"
+    ],
+    "tests": {
+      "job_plus_command": {
+        "passed": 68,
+        "assertions": 269,
+        "baseline": "58/213"
+      },
+      "RDNTest": {
+        "passed": 15,
+        "assertions": 61,
+        "baseline": "14/55"
+      },
+      "GetOrgHotlistCasesTest": {
+        "passed": 54,
+        "assertions": 140,
+        "baseline": "54/140"
+      },
+      "filter_new": {
+        "passed": 11,
+        "assertions": 61
+      },
+      "php83_four_files": {
+        "passed": 137,
+        "assertions": 470,
+        "php": "8.3.33"
+      },
+      "php84_runtime": "8.4.25"
+    },
+    "pint": "passed (touched files)",
+    "analyse": "phpstan level 5 (app/config/database): base 43255f51 1222 file errors, head 1222; 0 new, 0 gone",
+    "grep_proof": {
+      "config_diff_vs_base": "empty",
+      "new_env_calls": "none",
+      "queue_dispatch_limiter_added": "none",
+      "new_log_lines_in_app": "none"
+    },
+    "jira": {
+      "transition": "To Do -> In Progress",
+      "comment": "43380"
+    }
+  }
+}

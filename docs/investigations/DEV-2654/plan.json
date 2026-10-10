@@ -1,0 +1,132 @@
+{
+  "key": "DEV-2654",
+  "track": "product",
+  "phase": "plan",
+  "gate": "CLEAN",
+  "input": "docs/investigations/DEV-2654/prep-context.json",
+  "base_sha": "d8e70005479e14ba3ea4db1d194ab30a332e3e3e",
+  "ship_surface": "Staging Live Hit ranking becomes one filter-driven kit rollup shared with the Staging Live Hits headline (key 0). Windows convert viewer-local to UTC via the existing safeTimezone / toUtcDatetimeFor helpers. Ranking cache moves off LEADER_CACHE_PREFIX onto a class-neutral rememberedRange that calls baseDashboardCacheTTL(0). recovery_scans audit is a written finding. Recovery Leader leaves ClickhouseQuery::query() and keeps viewer-local dates against repo_date.",
+  "non_goals": [
+    "Zod",
+    "Cloud ClickHouse writes",
+    "phase=provisioned",
+    "Editing ResolvesDashboardCacheTtl or ScanPlateStatsBatchQuery",
+    "Calling scan-plate-stats cache keys from the hit leader",
+    "Restoring dashboardCacheTTL",
+    "Editing SharedHitStatsData's four-prefix batch",
+    "Editing ClickhouseQuery::query",
+    "Editing RecoveryCounts or RecoveryTotalsBatchQuery (the RecoveryCounts batching neighbor)",
+    "Closing or implementing the view-without-FINAL gap",
+    "Redefining clarity.lpr_assists",
+    "okf/ edits",
+    "Switching kit_org_id to hotlist_org_id",
+    "Bare count() on hits_cold",
+    "Keying the Staging Live result by kit_name"
+  ],
+  "ac7": {
+    "timezone": {
+      "choice": "accept the calendar-day compare; guard the interpolation",
+      "reason": "clarity.recoveries.repo_date is a Date. okf/concepts/lpr-assist.md says filter by repo_date, not scanned_at. toUtcDatetime would shift the calendar day. Viewer-local toDateString() is the viewer's calendar day."
+    },
+    "swallow": {
+      "choice": "resolve on RecoveryLeader only",
+      "reason": "ClickhouseQuery::query() returns [] in production and testing (PG-029). A guard around that return is dead. Do not change the base class."
+    }
+  },
+  "dev_2429": {
+    "action": "cite, do not implement",
+    "schema_order_by": "(recovery_id, scan_id) at database/schema/clickhouse-schema.sql:37",
+    "ticket_order_by": "(recovery_id, hit_id) — stale sentence; do not treat it as DDL"
+  },
+  "dev_2555": {
+    "status": "QA Ready",
+    "soft_ok": true,
+    "files_not_to_touch": [
+      "app/Filament/Widgets/Dashboard/RecoveryCounts.php",
+      "app/Clickhouse/Queries/RecoveryTotalsBatchQuery.php"
+    ]
+  },
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Rollup query, UTC bounds, class-neutral rememberedRange",
+      "approach": "On StagingLiveHitLeaderQuery, add handleRangeSql and handleRange modeled on ScanPlateStatsBatchQuery::handleRangeSql / handleRange. SQL: GROUP BY kit_id WITH ROLLUP, GROUPING(kit_id) AS is_rollup, uniqExactIf(ocr, hit_type = 'S') AS total, the existing anyLast(kit_name) blank fallback, FROM hits_cold FINAL, WHERE kit_org_id and _peerdb_is_deleted = 0. Before interpolation, convert start and end with ScanPlateStatsBatchQuery::toUtcDatetimeFor. Do not interpolate a timezone into this SQL. Return {totals: array<int,int>, names: array<int,string>} with totals[0] = the rollup row. Drop a kit_id 0 detail row the way handleRange does. Empty result is totals[0] = 0. Add sharedRangeCacheKey(org, start, end, timezone) as a class-neutral concat with a -v1 suffix and :tz=, no class basename, spaces stripped, assertDatetime on start and end. Add rememberedRange that cache()->remember's that key with TTL from (new class using ResolvesDashboardCacheTtl) or an equivalent call to baseDashboardCacheTTL(0) — impersonation 10 seconds, otherwise 10 minutes. The callback calls handleRange and must not catch Throwable (a failure writes nothing). Delete handle() LIMIT 10 and handleMonthly() once t2 has no caller; until then leave them so the suite stays loadable, and stop new callers. Do not edit ScanPlateStatsBatchQuery.",
+      "target_files": [
+        "app/Clickhouse/Queries/StagingLiveHitLeaderQuery.php",
+        "tests/Feature/Clickhouse/StagingLiveHitLeaderQueryTest.php"
+      ],
+      "intended_diffs": "New rollup SQL still contains uniqExactIf(ocr, hit_type = 'S'), kit_org_id, and kit_id, and does not contain hotlist_org_id or a bare count(). A test with two kits and a shared plate shows totals[0] is the org uniq, not the sum of the kit rows. A non-UTC zone converts the bound before the SQL string (the interpolated toDateTime literal is UTC). safeTimezone is not applied inside handleRangeSql. An invalid datetime string throws. sharedRangeCacheKey does not contain a class basename.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "StagingLiveHitLeaderQueryTest",
+      "ui_impact": false,
+      "blast_radius": ["hits_cold staging-live ranking"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "t2",
+      "title": "Leaderboard: every date arm uses the shared rollup; delete the 13-month ranking cache",
+      "approach": "StagingLiveHitLeader::leaderboardForSelectedRange uses the UniqueScansLeaderboard zone split for every arm, including this_month. this_month and last_month: ScanPlateStatsBatchQuery::safeTimezone(auth user timezone ?? 'UTC') plus currentMonthWindow / lastMonthWindow. today and last_7d: raw viewer zone (?? 'UTC') plus resolveCardRange(). Then StagingLiveHitLeaderQuery::rememberedRange. Drop totals[0] before the top-10 sort. Never display key 0 as a kit. Delete LEADER_CACHE_PREFIX, leaderCacheKey, leaderFailureMarkerKey, fetchMonthlyLeaderboard, getMonthlyLeaderData, and resolveLeaderMonths. Keep the sparkline path that fills and reads the SharedHitStatsData staging-live org-total keys (chartSeries). That series is not the ranked list. Keep baseDashboardCacheTTL for those month puts, including the month-end argument added by the shared cache-helper work. Do not restore dashboardCacheTTL. Do not read ScanPlateStatsBatchQuery::sharedRangeCacheKey.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/StagingLiveHitLeader.php",
+        "tests/Filament/Widgets/Dashboard/StagingLiveHitLeaderTest.php"
+      ],
+      "intended_diffs": "this_month no longer calls getMonthlyLeaderData. A counting seam shows one rememberedRange call per render for the selected window, including this_month. Impersonation (session admin_impersonator) makes that range TTL 10 seconds. The sparkline test still fails if chartSeries sums the top 10. Rewrite tests that require the 13-month per-kit batch; do not delete the test file.",
+      "depends_on": ["t1"],
+      "parallelizable": false,
+      "test_filter": "StagingLiveHitLeaderTest",
+      "ui_impact": true,
+      "blast_radius": ["staging-live-hit-leader", "shared hit-stat sparkline keys"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "t3",
+      "title": "Staging Live Hits headline reads rollup key 0",
+      "approach": "Override getCardTotal() on StagingLiveHits only. All four date arms call the same zone split as t2 and read (int) (StagingLiveHitLeaderQuery::rememberedRange(...)['totals'][0] ?? 0). today, last_7d, last_month, and this_month share that key with the leaderboard. Do not override this on LiveHits, HistoricalHits, or StagingHistoricalHits. Do not edit SharedHitStatsData. last_month is shared here even though Unique Scans does not share that arm: the Staging Live card has no separate per-kit scan to protect, and AC2 does not exempt the arm.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/StagingLiveHits.php",
+        "tests/Filament/Widgets/Dashboard/StagingLiveHitLeaderTest.php"
+      ],
+      "intended_diffs": "A test stubs rememberedRange, renders both the card total and the leaderboard, and asserts one call and that the card total equals totals[0] while the leaderboard list does not contain kit id 0. A second case fails if StagingLiveHits still calls HitPlateStatsBatchQuery for the headline.",
+      "depends_on": ["t1"],
+      "parallelizable": true,
+      "test_filter": "StagingLiveHitLeaderTest",
+      "ui_impact": true,
+      "blast_radius": ["staging-live-hits headline"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "t4",
+      "title": "Recovery Leader: Y-m-d assert, leave ClickhouseQuery::query()",
+      "approach": "RecoveryLeaderQuery: replace addslashes on start and end with a Y-m-d allowlist that throws on mismatch. Keep the comparisons on repo_date. Do not run those strings through toUtcDatetime. RecoveryLeader: use ResolvesDashboardCacheTtl. queryClickhouse calls RecoveryLeaderQuery::handle inside cache()->remember. TTL is baseDashboardCacheTTL(0), and for a closed month pass that month's end so the 8-day settle applies (index 1 + monthEndedAt). On Throwable, report() and return [] without cache()->put. Do not call ClickhouseQuery::query(). getGraphLabels uses auth()->user()->timezone ?? 'UTC'. Do not edit ClickhouseQuery.php. Do not edit RecoveryCounts.php.",
+      "target_files": [
+        "app/Clickhouse/Queries/RecoveryLeaderQuery.php",
+        "app/Filament/Widgets/Dashboard/RecoveryLeader.php",
+        "tests/Filament/Widgets/Dashboard/RecoveryLeaderTest.php"
+      ],
+      "intended_diffs": "A non-date start throws before SQL. A stubbed handle that throws is not written to cache and the method returns []. Impersonation TTL is 10 seconds. repo_date predicates remain Y-m-d strings, not UTC datetimes.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "RecoveryLeaderTest",
+      "ui_impact": true,
+      "blast_radius": ["recovery-leader"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "t5",
+      "title": "recovery_scans written audit (AC6)",
+      "approach": "During implement, write docs/investigations/DEV-2654/recovery-scans-audit.md. Read-only aggregates on the fleet Docker ClickHouse from the ledger for this key. A pgsql mirror and Cloud ClickHouse writes are not the measurement. Compare, for one org and one repo_date window: (1) RecoveryLeaderQuery's fractional total versus an equal split of distinct kits per recovery_id (the query weights by count() of junction rows); (2) uniqExact(recovery_id) from clarity.lpr_assists versus the same read with FINAL and _peerdb_is_deleted = 0 on clarity.recovery_scans; (3) confirm the query filters repo_date and does not apply a scanned_at predicate (the 90-day window lives in the Cloud scoring job, okf/concepts/lpr-assist.md). Record schema ORDER BY (recovery_id, scan_id), not the view-without-FINAL ticket sentence. If the only defect is the view without FINAL, cite the view-without-FINAL gap and do not open a duplicate and do not change the view. Any other defect gets one follow-up ticket, listed in the finding, not fixed in this story. If the fractions and the FINAL read match the documented leader metric (fractional kit credit, not the LPR Assists KPI), the finding is accurate-as-is and says so with the numbers. Kit-name keying (handle L51) is an audit seed: call it a defect only if the measurement shows a collision.",
+      "target_files": [
+        "docs/investigations/DEV-2654/recovery-scans-audit.md"
+      ],
+      "intended_diffs": "The file states accurate-as-is or a defect list. It names the view-without-FINAL gap when the view gap is observed. It does not contain a CREATE VIEW or an ALTER.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": null,
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "moderate"
+    }
+  ],
+  "next": "implement"
+}

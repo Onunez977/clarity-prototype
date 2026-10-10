@@ -1,0 +1,17 @@
+{
+  "recall_model": "haiku",
+  "verified_via_jql": true,
+  "knowledge_cards": [
+    {"path": "knowledge/clarity/filament-tables.md", "why": "Filament widget/table traps: deferLoading is ON outside testing so HTTP checks see an empty skeleton; asserting a config is not asserting it renders."},
+    {"path": "knowledge/clickhouse/core.md", "why": "PG is source of truth, CH is the CDC replica -- a PG-vs-CH mismatch is often lag, not loss. Bounded ranges, indexed filters."},
+    {"path": "knowledge/clarity/testing.md", "why": "RequiresClickhouse TRUNCATEs literal clarity/zod; php artisan test OOMs at 128M during discovery and still exits 0; pgsql driver silently skips all CH tests."}
+  ],
+  "precedents": [
+    {"key": "DEV-2460", "status": "QA Complete", "app": "Clarity", "relevance": "The foundation this ticket is blocked by: mockup grid layout, Pro-gate lockedStat() seam, CompanyMetricsOverview::cards() registration.", "verdict": "applicable", "why": "Merged to main via PR #384; lockedStat seam verified present on origin/main. This card plugs into its seam at row 1 col 4."},
+    {"key": "DEV-2424", "status": "Done", "app": "Clarity", "relevance": "'Company Metrics Dashboard -- case-claim cards (blocked: no case-claim data exists in Clarity)'.", "verdict": "applicable", "why": "The ORIGINAL conclusion that Clarity has no case-claim data is exactly what the route question re-opens. DEV-2464 comment 39117 overturns it: zod.public_billing_events + zod.public_hotlist(_status_log) ARE mirrored in ClickHouse."},
+    {"key": "DEV-2423", "status": "Done", "app": "Clarity", "relevance": "Four plate-level unique-scan Company Metrics cards.", "verdict": "applicable", "why": "Nearest in-repo precedent for card shape: lockedStat(), getStatColor() arm, DashboardCardExpansionTest card-order assertion."},
+    {"key": "DEV-2406", "status": "Done", "app": "Clarity", "relevance": "Deduped plate count metric; uniqExact dedup and shared cache builders on CH hit tables.", "verdict": "applicable", "why": "Same dedup class of problem: bare count() on a CH table with a mutable column in the sort key is inflated -- use uniqExact(id)."},
+    {"key": "DEV-2129", "status": "Done", "app": "Backyard", "relevance": "Repo Report -- LPR-attributed recoveries + case-claim distribution verification.", "verdict": "applicable-as-spec-source", "why": "CROSS-REPO: this is one of the two tickets (with DEV-2388, QA Complete, also Backyard) that authored the RepoReport::claimsCte()/recoveriesCte()/orgDbReposSql() SQL this ticket ports. Not a Clarity precedent -- a spec source to read via `git show origin/deploy:app/Models/Core/Extended/RepoReport.php` in the backyard repo."},
+    {"key": "DEV-2388", "status": "QA Complete", "app": "Backyard", "relevance": "Repo Report -- drill-downs, funnel totals, hide InsightLPR, chart.", "verdict": "applicable-as-spec-source", "why": "The second spec source. 'hide InsightLPR' is the rejectInternalOrgs() helper this ticket's port rule 1 depends on."}
+  ]
+}

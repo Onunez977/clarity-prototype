@@ -1,0 +1,27 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Restore admin Live Hits list: correct recentHits() + un-hide + Direct/Staging pill + range wiring",
+      "approach": "One cohesive change across the org-map recent-hits surface (backend query + JS store + Vue component + PHP feature tests). Backend TDD first. Keep the driver path byte-identical.",
+      "target_files": [
+        "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+        "resources/js/clarity-scout/stores/dashboard.js",
+        "resources/js/clarity-scout/components/DashboardOverlay.vue",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php"
+      ],
+      "intended_diffs": "1) BirdsEyeController@recentHits (494-535): rewrite the query to mirror sibling hits() (258-339): (a) add `$range = $request->query('range', 'today')` + `[$start,$end] = $this->getDateRange($range, $user->timezone)`; (b) build a `$scopedHits` closure: ClickhouseHit::forWindow($start)->newQuery()->final()->forKitOrg((int)$user->org_id)->whereIntegerInRaw('kit_id', $kitIds)->forHitTypes([HitTypeEnum::Live->value, HitTypeEnum::Staging_Live->value])->forCreatedBetween($start,$end)->validDisposition(); (c) CURRENT status: pluck distinct hotlist_id from $scopedHits(), then ClickhouseHotlist::query()->whereIntegerInRaw('id',$ids)->where('status',HotlistStatusEnum::Open->value)->pluck('id') → $openHotlistIds; (d) final list: $openHotlistIds===[] ? collect() : $scopedHits()->whereIntegerInRaw('hotlist_id',$openHotlistIds)->orderByDesc('hit_created_at')->limitBy(1,'ocr')->limit(20)->get(); (e) keep the SAME payload shape (id, kit_id, plate, hit_time, hit_type, status, plate_image, vehicle_image, lat, lng) — `status` can stay HotlistStatusEnum::Open->title() since the semi-join guarantees open; hit_type already present. Preserve the try/catch + report($e). Keep uncached OR mirror stats() cache key WITH range in it — pick uncached to match current behavior unless trivial. 2) dashboard.js: fetchRecentHits(targetRange) accepts optional range, uses buildUrl('/dashboard/recent-hits', targetRange ? {range: targetRange} : {}); setRange(newRange) calls fetchRecentHits(newRange) alongside fetchStats(newRange) in BOTH the immediate and any prefetch branch; fetchAll() passes range.value. Mirror how fetchStats already threads range. 3) DashboardOverlay.vue: on the collapsed pill (line 38) and expanded panel (line 56) remove ONLY the `!mapStore.adminMode` clause so the guards become just `!liveHitsExpanded` / `liveHitsExpanded` (driver branch identical; admin now also renders). At line 89 replace `{{ hit.status }}` with a Direct/Staging Live pill reusing MapShell's pattern: labels {L:'Direct Live', S:'Staging Live'} keyed on hit.hit_type, classes `hit.hit_type === 'S' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'`, same `text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full` chip styling; v-if on a computed label so an unknown type renders nothing. 4) Feature tests in ClarityScoutBirdsEyeControllerTest.php: recentHits() includes Direct+Staging; respects ?range; scoped by kit_org_id + org Scout kits (org-wide) and narrows under kit_ids; CURRENT-status — a hit whose clarity.hotlist status is now Repossessed is excluded though its frozen hits_hot.hotlist_status=Open, and the inverse included. Follow existing test setup conventions in the file (check how hits()/stats() tests, if any, or sibling controller tests, seed ClickHouse + kit_settings).",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "ClarityScoutBirdsEyeControllerTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "MapShell.vue / DayOverlay.vue / TripOverlay.vue detail label", "reason": "Already renders the Direct/Staging pill; AC #4 satisfied — no change."},
+    {"site": "ClarityScoutDashboardController@recentHits + driver DashboardOverlay branch", "reason": "AC 6 — driver view must stay unchanged; range is admin-only."},
+    {"site": "routes/web.php dashboard/recent-hits", "reason": "Route already registered (DEV-2130)."}
+  ]
+}

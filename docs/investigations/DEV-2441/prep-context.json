@@ -1,0 +1,450 @@
+{
+  "key": "DEV-2441",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "synthesis": "The ticket conflates two distinct failure modes under \"Kit User Path shows no data\". The verified, code-level root cause of the reported symptom is that KitUserPathController::paths() sources its route EXCLUSIVELY from clarity.sc_positions via KitRangePathsQuery \u2014 a different table from clarity.kit_scan_paths, which the reporter checked and correctly found populated for all 8 kits. Measured against production ClickHouse: 6 of the 8 org-469 kits have ZERO sc_positions rows in the last 30 days, kit 10588 has GPS for a single day (2026-08-13) only, and only kit 15349 has a healthy continuous track through today. So for nearly every kit the customer selects, KitRangePathsQuery legitimately returns zero segments and the frontend shows a blank map with a 'no data found' toast \u2014 exactly the reported symptom \u2014 while kit_scan_paths (read only by the Scout driver app, never by this admin page) is fully populated. Org 469 is therefore a live customer instance of the scan-only-kit class ALREADY tracked as DEV-2222, whose fix is implemented on an unmerged draft PR #320. The reporter's other two hypotheses (missing permission; all kits soft-deleted in kit_metadata) are plausible but NOT verifiable by this pipeline, and the permission hypothesis predicts a different symptom (page inaccessible) than the one reported.",
+  "scope": {
+    "summary": "Land the scan-only kit_scan_paths fallback for Kit User Path under DEV-2441, reusing PR #320's review-hardened implementation as prior art (rebased onto current main), PLUS fixes for two DEV-2341 residuals the operator has now un-deferred: R1 (rescue mapping-less kits via the kit_id-keyed fallback) and R3 (per-kit-PER-DAY fallback granularity, not whole-window). DEV-2222 is closed as superseded; DEV-2341 is closed once R1/R2/R3 are all in. The Bird's Eye sibling is a RATIFIED out-of-scope boundary (stays on DEV-2228) and must be documented as such where review lanes will see it. The three non-code ACs are Backyard ops actions.",
+    "proposed_changes": [
+      {
+        "file": "app/Http/Controllers/KitUserPathController.php",
+        "change": "Per-kit fallback: after KitRangePathsQuery renders segments, diff resolved vs requested mappings; for kits with zero segments, batch-read KitScanPathsQuery (org_id + kit_id) and splice those rows in.",
+        "reason": "Only way to make the 6-7 scan-only org-469 kits render without a new GPS source.",
+        "ref": "app/Http/Controllers/KitUserPathController.php:48-121 (no fallback on main); PR #320 implements this shape"
+      },
+      {
+        "file": "app/Clickhouse/Queries/KitRangePathsQuery.php",
+        "change": "cachedHandle() using handle() (throws) instead of query() (swallows to []).",
+        "reason": "ClickhouseQuery::query() swallows Throwable to [] in production|testing, so a CH outage is indistinguishable from a legitimate zero-segment result and would fire the fallback for every kit.",
+        "ref": "PR #320 diff (+23)"
+      },
+      {
+        "file": "app/Clickhouse/Queries/KitScanPathsQuery.php",
+        "change": "Same cachedHandle() pattern for the fallback tier.",
+        "reason": "Same throw-vs-swallow reasoning on the fallback source.",
+        "ref": "PR #320 diff (+23)"
+      },
+      {
+        "file": "app/Clickhouse/Queries/ClickhouseQuery.php",
+        "change": "Widen buildCacheKey() private -> protected.",
+        "reason": "Both cachedHandle() additions need it.",
+        "ref": "PR #320 diff (+1/-1)"
+      },
+      {
+        "file": "tests/Feature/Http/Controllers/KitUserPathControllerTest.php",
+        "change": "Pin: zero-sc_positions kit falls back to kit_scan_paths; a kit with a real track is not overridden; a tier-1 CH throw surfaces as an error rather than silently firing the fallback org-wide.",
+        "reason": "PR #320 already carries ~465 lines of this coverage.",
+        "ref": "tests/Feature/Http/Controllers/KitUserPathControllerTest.php"
+      }
+    ],
+    "target_files": [
+      "app/Http/Controllers/KitUserPathController.php",
+      "app/Clickhouse/Queries/KitScanPathsQuery.php",
+      "app/Clickhouse/Queries/KitRangePathsQuery.php",
+      "app/Clickhouse/Queries/ClickhouseQuery.php",
+      "tests/Feature/Http/Controllers/KitUserPathControllerTest.php",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php",
+      "tests/Unit/Clickhouse/Queries/KitScanPathsQueryTest.php"
+    ],
+    "out_of_scope": [
+      "ClarityScoutBirdsEyeController::historicalContinuousPaths() \u2014 identical sc_positions-only gap, RATIFIED out of scope by the operator 2026-08-27. Stays on DEV-2228. Must be documented in-code so review lanes read it as a boundary, not a missed site (this is the same false-positive class that made lanes repeatedly flag the ratified MAX_RENDER_POINTS asymmetry).",
+      "KitHistoricPositionsQuery / OrgLivePathsQuery \u2014 same idiom, tracked as DEV-2228.",
+      "Granting Don Snyder the Analytics_Geospatial_Kit_User_Path permission \u2014 moot; the permission is already granted (he can open the page).",
+      "Auditing/clearing kit_metadata.deleted_at \u2014 Backyard ops confirmation only; not a root cause (the dropdown populates).",
+      "Creating Francisco Garza's kit \u2014 Backyard ops + customer confirmation, per AC-4.",
+      "KitUsersFilter's withDeleted default-arg inconsistency and Kit::getKits()'s hourly cache TTL \u2014 orthogonal to the symptom.",
+      "Creating any NEW Jira ticket \u2014 the operator has instructed that residuals be fixed in-ticket or raised for a decision, never spun into a fresh ticket unasked."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Confirm whether Don Snyder's user account has the Analytics_Geospatial_Kit_User_Path permission",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "RESOLVED by operator: Don can open the page, so canAccess() passes and the permission is granted. Recorded as answered-by-behaviour; the Backyard console is the audit path if a written confirmation is wanted."
+    },
+    {
+      "item": "Check kit_metadata for kit IDs 10373, 10588, 13689, 13865, 14144, 14305, 14756, 15349 - look for deleted_at values",
+      "source": "ticket",
+      "decision": "defer",
+      "reason": "Deferred to Backyard ops as a confirmation only. Not a root cause: the dropdown demonstrably populates, so no soft-delete is blocking this customer."
+    },
+    {
+      "item": "Root cause identified and resolved - Kit User Path dropdown shows all 8 kits for org 469 users",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Root cause identified (sc_positions-only read vs scan-only kits) AND now being resolved in this ticket, including R1 so mapping-less kits are rescued too."
+    },
+    {
+      "item": "Francisco Garza's kit created at org 469 if needed (confirm with customer)",
+      "source": "ticket",
+      "decision": "defer",
+      "reason": "Backyard ops + customer confirmation, per the AC's own wording."
+    },
+    {
+      "item": "Customer (Don Snyder) can view path data for their kit users",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Fully addressed once the fallback lands with R3's per-day granularity \u2014 that is what makes kit 10588 (GPS on 1 of 30 days) render its scan events on the other 29 days."
+    }
+  ],
+  "questions": [
+    {
+      "q": "DEV-2441's primary symptom is the SAME defect as DEV-2222 (scan-only kits render empty on Kit User Path), whose fix sits on unmerged draft PR #320 (+1950/-26, 11 files, 358 commits behind main, DEV-2222 still 'To Do'). How should DEV-2441 proceed? (A) rebase and land PR #320 under DEV-2222 and keep DEV-2441 for the data/ops ACs; (B) implement the fallback fresh inside DEV-2441 and close DEV-2222 as superseded; (C) keep DEV-2441 purely as the data/ops verification ticket and close its code half as a duplicate of DEV-2222.",
+      "answered": true,
+      "answer": "Implement fresh in DEV-2441: land the scan-only fallback under this ticket and close DEV-2222 as superseded. Reuse PR #320's review-hardened code as prior art (5 review rounds of settled decisions) rather than reinventing it, rebased onto current main.",
+      "source": "human:Dalton 2026-08-27"
+    },
+    {
+      "q": "Does Don Snyder's account have the Analytics_Geospatial_Kit_User_Path permission? (Unanswerable here - not in the CDC mirror. Also: can Don open the page at all? If yes, the permission hypothesis is already refuted.)",
+      "answered": true,
+      "answer": "REFUTED. Don can open the page and sees the map render blank. canAccess() therefore passes, so the permission IS granted. This also proves the kits are selectable, which refutes the kit_metadata-soft-delete/empty-dropdown hypothesis as the reported symptom. The sc_positions gap is the whole story.",
+      "source": "human:Dalton 2026-08-27"
+    },
+    {
+      "q": "Are the kit_metadata rows for org 469's kits soft-deleted (deleted_at set)? (Unanswerable here - kit_metadata is not CDC-mirrored.)",
+      "answered": true,
+      "answer": "Deferred to the Backyard admin console as an ops confirmation, not a root cause \u2014 the dropdown demonstrably populates (see the permission answer), so no soft-delete is blocking this customer.",
+      "source": "human:Dalton 2026-08-27"
+    },
+    {
+      "q": "Is Don Snyder's own users.org_id actually 469? getUserKits() is org_id-only, so a different org_id would explain an empty dropdown with no soft-deletes at all.",
+      "answered": true,
+      "answer": "Moot for the reported symptom: the dropdown populates and kits are selectable, so getUserKits() is resolving org 469's kits correctly. Recorded as confirmed-by-behaviour rather than by query.",
+      "source": "human:Dalton 2026-08-27"
+    },
+    {
+      "q": "Is Francisco Garza's kit genuinely missing, or intentionally never provisioned?",
+      "answered": true,
+      "answer": "Deferred to the Backyard admin console + customer confirmation, per AC-4's own wording.",
+      "source": "human:Dalton 2026-08-27"
+    },
+    {
+      "q": "Is the reporter's claim that clarity.kit_scan_paths has current data for all 8 kits accurate?",
+      "answered": true,
+      "answer": "Confirmed: all 8 kits have 442-857 kit_scan_paths rows in the last 30 days, current through 2026-08-27. But KitUserPathController::paths() never reads that table - it is used only by the Scout driver app (ClarityScoutBirdsEyeController / ClarityScoutMapController).",
+      "source": "code"
+    },
+    {
+      "q": "What table does the admin Kit User Path map actually read?",
+      "answered": true,
+      "answer": "clarity.sc_positions exclusively, via KitRangePathsQuery from KitUserPathController::paths(). Corroborated by okf/concepts/scout-clickhouse-queries.md.",
+      "source": "code"
+    },
+    {
+      "q": "Could any of the 8 kits be dropped by kitsByMapping() for lacking a kit_mapping?",
+      "answered": true,
+      "answer": "No - all 8 have a non-empty kit_mapping (length 9-17, verified by length only) and kit_type=1. Rules out that path.",
+      "source": "code"
+    },
+    {
+      "q": "Do org type (repo vs client) or accessibleRepoOrgIds affect which org's kits appear in the dropdown?",
+      "answered": true,
+      "answer": "No - the dropdown, KitUsersFilter, and KitUserPathRequest all resolve through Kit::getKits(org_id: $user->org_id), which is org_id-only. accessibleRepoOrgIds is never referenced on this page.",
+      "source": "code"
+    },
+    {
+      "q": "R3 (DEV-2341): the fallback is per-kit across the WHOLE window, so a kit with one day of GPS inside a 7/15/30-day window hides its scan events on every other day. Org 469's kit 10588 is a live instance (GPS on 2026-08-13 only). Fix R3 here?",
+      "answered": true,
+      "answer": "FIX IT. Move the fallback to per-kit-PER-DAY granularity so kit 10588 renders its continuous route on 08-13 and its scan-event route on the other days. Reverses the 2026-08-17 'accept whole-window as-specified' deferral, on the strength of a confirmed customer instance.",
+      "source": "human:Dalton 2026-08-27"
+    },
+    {
+      "q": "RN5's top repeat review finding was the unrepaired sibling ClarityScoutBirdsEyeController::historicalContinuousPaths() (identical sc_positions-only defect). Include it in DEV-2441?",
+      "answered": true,
+      "answer": "LEAVE IT OUT and document the boundary. Keep DEV-2441 scoped to Kit User Path; write the deliberate-scope rationale where review lanes will see it, so it reads as a ratified boundary rather than a missed exhaustiveness site. Sibling remains on DEV-2228.",
+      "source": "human:Dalton 2026-08-27"
+    },
+    {
+      "q": "R1 (DEV-2341): mapping-less kits are never rescued because the unresolved set comes from kitsByMapping(), and an all-mapping-less selection returns before the fallback exists. Org 469's 8 kits all HAVE mappings, so R1 does not block this customer. Fix R1 here?",
+      "answered": true,
+      "answer": "FIX IT HERE, and close DEV-2341 as resolved once R1/R2/R3 are all addressed in this PR (R2 already landed on PR #320). Build the unresolved set from the full Kit collection keyed by kit_id (mirroring ClarityScoutBirdsEyeController::driverPositions()) and replace the $byMapping === [] early return with a no-kits-at-all check. Reverses the 2026-08-17 deferral.",
+      "source": "human:Dalton 2026-08-27"
+    },
+    {
+      "q": "Does the per-day fallback (R3) require fixing R7's trip_date timezone divergence?",
+      "answered": true,
+      "answer": "YES \u2014 and fix it in the shared query, properly. Change KitScanPathsQuery's toDate(timestamp) to toDate(timestamp, '<timezone>') using the timezone ALL THREE call sites already pass. This makes the per-(kit,day) diff correct and also fixes Bird's Eye Org Map's fade-by-age, which currently mis-dates any non-UTC viewer's evening drive as the next day. R7 is closed rather than institutionalised. Blast radius is exactly one other trip_date consumer (ClarityScoutBirdsEyeController:544) and it needs test coverage.",
+      "source": "human:Dalton 2026-08-27"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "The two 'no data' symptoms are NOT the same bug: (a) empty dropdown = Kit::getKits()/kit_metadata path (unverifiable here), vs (b) kit selectable but map blank = KitRangePathsQuery/sc_positions path (verified here). The reporter listed 8 kit NAMES, which implies they ARE selectable - pointing at (b), not (a).",
+    "Permission hypothesis (c) predicts a page-level symptom: canAccess() false means the nav item disappears / 403, not 'page loads, map blank'. Inconsistent with the report as written. Confirming whether Don can open the page at all would refute or confirm this in one question.",
+    "ClickhouseQuery::query() swallows Throwable to [] in production|testing, so on main a real CH outage is indistinguishable from a legitimate empty result - a CH outage cannot be ruled out from application logs alone.",
+    "Kit::getKits() caches per org for an hour ('org-kits:{org_id}-active'/'-all'), so even a correct kit_metadata data fix would not surface in the dropdown for up to 60 minutes without a cache clear. Worth including in any ops resolution steps.",
+    "KitUsersFilter::setUp()/format() call getUserKits() with the default withDeleted:true while the page and the FormRequest pass withDeleted:false - a latent inconsistency for 'All Kits' selections. Not the reported symptom.",
+    "okf/concepts/scout-clickhouse-queries.md accurately documents main as sc_positions-only with no fallback tier, corroborating the diagnosis.",
+    "DEV-2222's own investigation already measured orgs where the majority of kits are scan-only (Premier: ~37 GPS vs ~141 scan-path), consistent with org 469's measured 6-of-8.",
+    "PRIOR ART: PR #320 (branch claude/dev-2222-cf9a90) carries a review-hardened implementation of the fallback \u2014 4 code files, +465 lines of tests, and FIVE adversarial review rounds. Its settled decisions must not be re-litigated: (a) trigger is zero RENDERED SEGMENTS, not zero raw rows; (b) $localStart/$localEnd captured BEFORE Carbon::utc() mutates in place, because KitScanPathsQuery wants LOCAL wall-clock; (c) tier-1 and tier-2 both use cachedHandle() (throws) not query() (swallows Throwable to []); (d) a tier-1 CH outage is 503, a genuine over-budget count is 422; (e) tier-2 rows accumulate into a local list and merge only after the loop, so a mid-loop throw cannot ship truncated rows as a 200; (f) a tier-2 failure degrades to tier-1-only and never wipes kits that ARE rendering; (g) tier-2 is deliberately OUTSIDE MAX_RENDER_POINTS (ratified); (h) name/color come from the resolved Kit, never the CH row; (i) the CH-decoded path is json_encode'd once, not spliced verbatim like tier-1's pre-encoded path_json.",
+    "REVIEW HISTORY: DEV-2222's gate NEVER passed \u2014 RN1 78, RN2 72, RN3 80, RN4 78, RN5 74 against a >=90 threshold. RN2 went DOWN because a self-authored guard was itself defective (it keyed off 'counted points but zero segments', but countPoints() counts PRE-SPLIT and <2-point segments are dropped, so that shape is legitimate and common). Do not reintroduce that guard; a pin test exists for exactly this.",
+    "R3+R7 INTERACTION (driver-spotted, needs a decision): per-day fallback makes the day key load-bearing. R7 records that trip_date is UTC-dated on the fallback tier but viewer-local-dated on the continuous tier. A per-day set-difference across two different day definitions will mis-diff at day boundaries \u2014 double-rendering or dropping a day. So R3 cannot be implemented correctly without making both tiers agree on the day key. Prefer normalizing the fallback tier's trip_date in the CONTROLLER (keeps the shared KitScanPathsQuery untouched, so the Bird's Eye and Scout Map co-callers see zero blast radius) rather than changing the shared query, which is why R7 was originally left alone.",
+    "OPEN RESIDUALS worth folding in while here (they scored in RN3-RN5): R4 near-tautological fallback name/color test; R6 scanPathRow() emits invalid JSON if json_encode returns false; plus RN5's 'TTL fork' and 'vacuous tier-2 test' mediums. Fixing these is cheap and they are known repeat scorers.",
+    "PROCESS: RN5's claude3 H1 was 'review-state/journal scores inside diff' \u2014 DEV-2222's ~1200 lines of docs/investigations artifacts were in the PR diff and reviewers graded them as part of the change. Keep DEV-2441's artifacts tight and expect the same effect.",
+    "Org 469 evidence STRENGTHENS R1's general severity even though it does not block this customer: 151 kits at the org, 6 of 8 sampled are scan-only \u2014 consistent with the 'Premier: ~37 GPS vs ~141 scan paths' production shape cited in DEV-2341. Record this on DEV-2341 when closing it.",
+    "SECURITY (driver-spotted, must not be missed): KitScanPathsQuery currently uses $timezone only via Carbon::parse(), which is safe. Interpolating it into raw SQL for toDate(timestamp, '<tz>') makes it an injection vector \u2014 $user->timezone resolves from $this->dti['timeZone'], which is user-influenced JSON. It MUST be validated against timezone_identifiers_list() first, exactly as KitRangePathsQuery::safeTimezone() already does. Note KitScanPathsQuery already addslashes() $layer, so the class has precedent for treating these arguments as untrusted.",
+    "R3 DESIGN (driver): implement the diff as per-(kit_id, local trip_date) coverage rather than per-kit-whole-window. Build a covered[kit_id][YYYY-MM-DD] map from tier-1 segments, enumerate the window's local days, skip any kit whose covered-day count already spans every window day (so a GPS-healthy org still issues no tier-2 read at all \u2014 preserving PR #320's 'fallback fires only for the minority' allocation property), then issue ONE batched tier-2 read for the remaining kits and drop any row whose (kit_id, trip_date) tier 1 already renders. This subsumes R1 for free: a mapping-less kit has no tier-1 coverage, so all of its days fall back."
+  ],
+  "tests": [
+    {
+      "file": "tests/Feature/Http/Controllers/KitUserPathControllerTest.php",
+      "what_it_pins": "A kit with zero sc_positions in the window falls back to its kit_scan_paths route; a kit with a genuine track is unaffected; a tier-1 CH throw surfaces as an error rather than silently firing the fallback for every kit."
+    },
+    {
+      "file": "tests/Unit/Clickhouse/Queries/KitScanPathsQueryTest.php",
+      "what_it_pins": "The fallback read propagates a real CH failure instead of swallowing to []; existing org_id/kit_id WHERE-shape coverage stays green."
+    },
+    {
+      "file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php",
+      "what_it_pins": "Blast-radius guard: Bird's Eye's own callers of the shared query classes are unaffected."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Filament/Pages/KitUserPath.php:59-72 (load() early-returns if no kits)",
+      "app/Filament/Pages/KitUserPath.php:87-95 (dropdown = getUserKits(withDeleted:false))",
+      "app/Filament/Pages/KitUserPath.php:410-413 (canAccess() permission gate)",
+      "app/Http/Requests/KitUserPathRequest.php:38-45 ('kits' validated against getUserKits(withDeleted:false))",
+      "app/Http/Controllers/KitUserPathController.php:48-121 (paths(): no fallback on main)",
+      "app/Http/Controllers/KitUserPathController.php:164-179 (kitsByMapping(): kits without kit_mapping silently skipped)",
+      "app/Clickhouse/Queries/KitRangePathsQuery.php:34-46,210-260 (sc_positions-only assembly)",
+      "app/Clickhouse/Queries/KitScanPathsQuery.php:63-118 (kit_scan_paths FINAL read, keyed by org_id+kit_id, NOT kit_mapping)",
+      "app/Models/Kit.php:235-260 (getKits(): hourly cache, leftJoin kit_metadata whereNull deleted_at)",
+      "app/Models/User.php:182-185 (getUserKits(): org_id-only passthrough)",
+      "resources/js/components/kit-user-path.js:73-99 (empty response -> 'no data found' toast, blank map)",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:552-640 (historicalContinuousPaths(): sibling defect)",
+      "app/Http/Controllers/Api/ClarityScoutMapController.php:504-565 (kitPosition(): the correctly-implemented 3-tier fallback)",
+      "routes/web.php:97-100 (kit-user-path.paths / .geojson / .hit-density behind OrgMiddleware)",
+      "vendor/insight-lpr/laravel-zod-migrations/database/schema/zod-schema.sql (public.kit_metadata; vendored, no migration in this repo)"
+    ],
+    "code_flow": "KitUserPath.php (Filament page, load() on 'map-loaded') -> kit-user-path.blade.php -> kit-user-path.js (POST /kit-user-path/paths) -> KitUserPathRequest (authorize via PermissionEnum + validate kits against getUserKits(withDeleted:false)) -> KitUserPathController::paths() -> kitsByMapping() (keyed by lower(kit_mapping)) -> KitRangePathsQuery::countPoints() then ::query() -> reads clarity.sc_positions ONLY, segments in ClickHouse -> segmentsResponse() -> JS renders, or on empty array shows the 'no data' toast over a blank map.",
+    "tables": [
+      "clarity.sc_positions (CH, 331,106,659 rows, continuous scanner GPS)",
+      "clarity.kit_scan_paths (CH, 1,680,578 rows, 15-min scan-triggered MV, needs FINAL)",
+      "clarity.kit_trips (CH, derived from sc_positions)",
+      "public.kits (PG, zod connection)",
+      "public.kit_metadata (PG, zod connection, vendored schema, deleted_at soft-delete)"
+    ],
+    "related_components": [
+      "KitUsersFilter",
+      "Kit::getKits() hourly cache",
+      "PermissionEnum::Analytics_Geospatial_Kit_User_Path (BlackAdam)",
+      "ClickhouseQuery base (swallows Throwable to [])",
+      "DEV-2222 / PR #320"
+    ]
+  },
+  "exhaustiveness": {
+    "idiom": "A ClickHouse query/controller that reads clarity.sc_positions as its ONLY route/position source, with no fallback to clarity.kit_scan_paths for kits that only emit scan events.",
+    "grep_patterns": [
+      "git grep -l 'sc_positions' -- app/Clickhouse/Queries app/Http/Controllers",
+      "git grep -n 'kit_scan_paths|fallback|degrade' -- <each matched file>",
+      "git grep -ln 'KitRangePathsQuery|KitScanPathsQuery|KitUserPathController' -- app resources routes  (driver backstop)"
+    ],
+    "sites": [
+      {
+        "site": "app/Clickhouse/Queries/KitRangePathsQuery.php (via KitUserPathController::paths())",
+        "status": "buggy",
+        "reason": "sc_positions-only, no fallback on main. This ticket's confirmed defect; fix drafted on PR #320."
+      },
+      {
+        "site": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php::historicalContinuousPaths()",
+        "status": "buggy",
+        "reason": "Also calls KitRangePathsQuery for Bird's Eye historical route ('KUP-comparable' per its own docblock); identical gap, NOT covered by PR #320's scope, not named in this ticket. Confirmed as a caller by the driver's grep backstop."
+      },
+      {
+        "site": "app/Clickhouse/Queries/KitHistoricPositionsQuery.php",
+        "status": "buggy",
+        "reason": "Same idiom, but explicitly tracked and deferred as DEV-2228 per okf/concepts/scout-clickhouse-queries.md:167."
+      },
+      {
+        "site": "app/Clickhouse/Queries/OrgLivePathsQuery.php",
+        "status": "buggy",
+        "reason": "Same idiom, same DEV-2228 deferral."
+      },
+      {
+        "site": "app/Clickhouse/Queries/OrgLivePositionsQuery.php",
+        "status": "safe",
+        "reason": "Has a shipped tier-2 fallback to OrgScanPathPositionsQuery/kit_scan_paths (DEV-2253)."
+      },
+      {
+        "site": "app/Clickhouse/Queries/OrgScanPathPositionsQuery.php",
+        "status": "safe",
+        "reason": "It IS the fallback tier (reads kit_scan_paths by design, keyed by kit_id)."
+      },
+      {
+        "site": "app/Http/Controllers/Api/ClarityScoutMapController.php::kitPosition()",
+        "status": "safe",
+        "reason": "Explicit 3-tier fallback: sc_positions -> kit_scan_paths MV -> last trip end point."
+      },
+      {
+        "site": "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php",
+        "status": "safe",
+        "reason": "Different concern (GPS fixes vs hotlist geofences for check-ins); a scan-only kit legitimately cannot produce GPS check-ins."
+      }
+    ]
+  },
+  "missed_caller_candidates": [
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+      "symbol": "KitRangePathsQuery",
+      "referenced_at": "historicalContinuousPaths() - shares the defect AND would be affected by a cachedHandle() signature change on the shared query class"
+    },
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutMapController.php",
+      "symbol": "KitScanPathsQuery",
+      "referenced_at": "kitPosition() tier-2 - shared query class, blast radius for any KitScanPathsQuery change"
+    },
+    {
+      "file": "resources/js/clarity-scout/stores/map.js",
+      "symbol": "KitRangePathsQuery",
+      "referenced_at": "frontend consumer of the Bird's Eye endpoint backed by the same query"
+    }
+  ],
+  "data_impact": {
+    "pg_tables": [
+      "public.kits (read-only)",
+      "public.kit_metadata (ops-action target; not touched by the proposed diff)"
+    ],
+    "ch_tables": [
+      "clarity.sc_positions (tier-1 read)",
+      "clarity.kit_scan_paths (tier-2/fallback read, FINAL)"
+    ],
+    "mv_or_cdc_implications": "kit_metadata, users, roles, permissions and model_has_permissions are NOT in the zod.public_* CDC mirror, so AC-1 and AC-2 must be checked against production Postgres directly. clarity.kit_scan_paths is a ReplacingMergeTree MV requiring FINAL (already handled by KitScanPathsQuery::handle()).",
+    "indexes_relied_on": [
+      "clarity.kit_scan_paths ORDER BY (org_id, kit_id, timestamp) - keyed by kit_id, NEVER kit_mapping",
+      "Kit::getKits() cache key 'org-kits:{org_id}-{active|all}' (org-scoped, not per-user)"
+    ]
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "ClickHouse query classes under app/Clickhouse/** plus a batched per-selection read in KitUserPathController::paths().",
+    "driving_tables": [
+      {
+        "table": "clarity.kit_scan_paths",
+        "source": "ClickHouse-native (not a CDC mirror)",
+        "prod_rows": 1680578,
+        "group_by": "org_id",
+        "largest_group_rows": 55447,
+        "org_469_points_30d": 1638423,
+        "org_469_ticket_kits_points_30d": 424929
+      },
+      {
+        "table": "clarity.sc_positions",
+        "source": "ClickHouse-native (not a CDC mirror)",
+        "prod_rows": 331106659,
+        "group_by": "kit_mapping",
+        "largest_group_rows": 19589
+      }
+    ],
+    "growth": "Not time-series probed for this ticket. Org 469 sits mid-pack (151 kits vs largest org 283) but is 2nd-highest by 30-day kit_scan_paths volume (24,141 rows / 35 active kits).",
+    "schedule": {
+      "expression": null,
+      "interval_seconds": null,
+      "without_overlapping_minutes": null
+    },
+    "allocation_sketch": "Tier 2 now pre-encodes each bucket's path in ClickHouse (toJSONString/arrayMap) and PHP splices the string verbatim, so PHP holds one string per bucket instead of an array per point. Measured through the real driver: 95 bytes/point (was 325). At the shared 1.5M MAX_RENDER_POINTS ceiling that projects to ~222 MB peak including Laravel's 79 MB baseline, under the 256 MB web limit; derived hard ceiling ~1.86M points. Org 469's 8 ticket kits over 30 days = 424,929 points => ~119 MB (passes); its full 151-kit All-Kits selection = 1,638,423 points => refused by the budget.",
+    "oracle_status": "ok",
+    "unresolved": [],
+    "cardinality_file": ".context/qa-prod-cardinality.json",
+    "scoped_org": 469
+  },
+  "derivation_log": [
+    {
+      "query_shape": "SELECT name FROM system.databases; SELECT name FROM system.tables WHERE database='zod'",
+      "param_classes": "none",
+      "aggregate_result": "5 databases (bizintel, clarity, guardian, system, zod). zod mirror has NO kit_metadata / users / roles / permissions tables.",
+      "why": "Establish whether the pipeline's read-only oracle can answer AC-1 and AC-2. It cannot."
+    },
+    {
+      "query_shape": "SELECT id, name FROM zod.public_orgs FINAL WHERE id=469 AND _peerdb_is_deleted=0",
+      "param_classes": "1 org_id from the ticket",
+      "aggregate_result": "org 469 = 'Reliable Recovery Services Inc. (IL)' - matches the ticket.",
+      "why": "Confirm the org identity before reasoning about its kits."
+    },
+    {
+      "query_shape": "SELECT id, org_id, name, kit_mapping, kit_type, _peerdb_is_deleted FROM zod.public_kits FINAL WHERE id IN (<8 ticket kit_ids>)",
+      "param_classes": "8 known kit_ids from the ticket",
+      "aggregate_result": "All 8 exist at org_id=469, all _peerdb_is_deleted=0, all kit_type=1, all kit_mapping non-empty (length 9-17).",
+      "why": "Confirm the kits are live LPR kits and rule out the kitsByMapping() no-mapping skip."
+    },
+    {
+      "query_shape": "SELECT count() AS total, countIf(_peerdb_is_deleted=1) AS cdc_deleted FROM zod.public_kits FINAL WHERE org_id=469",
+      "param_classes": "1 org_id",
+      "aggregate_result": "151 total kits, 0 CDC-deleted.",
+      "why": "Size the dropdown; an empty dropdown would require ~all 151 soft-deleted in kit_metadata."
+    },
+    {
+      "query_shape": "SELECT kit_id, count(), max(timestamp), min(timestamp) FROM clarity.kit_scan_paths WHERE kit_id IN (<8 kit_ids>) AND timestamp >= now()-30d GROUP BY kit_id",
+      "param_classes": "8 known kit_ids",
+      "aggregate_result": "All 8 kits: 442-857 rows each, current through 2026-08-27.",
+      "why": "Confirm the reporter's claim that kit_scan_paths is populated. It is."
+    },
+    {
+      "query_shape": "SELECT k.id, count(sp.id), max(sp.timestamp_utc), min(sp.timestamp_utc) FROM zod.public_kits k LEFT JOIN clarity.sc_positions sp ON lower(sp.kit_mapping)=lower(k.kit_mapping) AND sp.timestamp_utc >= now()-30d WHERE k.id IN (<8 kit_ids>) GROUP BY k.id",
+      "param_classes": "8 kit_ids joined via kit_mapping (raw mapping values never surfaced)",
+      "aggregate_result": "6 kits (10373, 13689, 13865, 14144, 14305, 14756): ZERO sc_positions rows. Kit 10588: 3,746 rows all on 2026-08-13 only. Kit 15349: 19,589 rows spanning 2026-08-13..2026-08-27.",
+      "why": "THE decisive measurement: the table this page actually reads is empty for 6 of 8 kits, which fully explains the reported blank map."
+    },
+    {
+      "query_shape": "SELECT count(), uniqExact(kit_id), uniqExact(org_id) FROM clarity.kit_scan_paths WHERE timestamp >= now()-30d; then GROUP BY org_id ORDER BY rows DESC LIMIT 5; then scoped to org_id=469",
+      "param_classes": "fleet-wide and org-469-scoped aggregates",
+      "aggregate_result": "Fleet 30d: 591,705 rows / 1,105 kits / 265 orgs. Largest org: 59,003 rows / 80 kits. Org 469: 24,141 rows / 35 kits.",
+      "why": "Size the fallback tier's allocation for the resource envelope."
+    },
+    {
+      "query_shape": "SELECT count() FROM clarity.kit_scan_paths; SELECT count() FROM clarity.sc_positions",
+      "param_classes": "unbounded totals",
+      "aggregate_result": "kit_scan_paths 1,680,578; sc_positions 331,106,659.",
+      "why": "prod_rows for the resource envelope."
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC-1",
+        "kind": "human",
+        "intent": "Verify Don Snyder's account carries Analytics_Geospatial_Kit_User_Path in production Postgres; also simply ask whether he can open the page at all."
+      },
+      {
+        "ac": "AC-2",
+        "kind": "human",
+        "intent": "Query production kit_metadata directly for the 8 kit IDs' deleted_at values."
+      },
+      {
+        "ac": "AC-3",
+        "kind": "agent",
+        "intent": "Seed an org mixing scan-only kits (kit_scan_paths rows, zero sc_positions) with one GPS-active kit; select all; assert path rows come back for the scan-only kits via the fallback and for the GPS kit via the continuous read."
+      },
+      {
+        "ac": "AC-4",
+        "kind": "human",
+        "intent": "Confirm with the customer whether Francisco Garza should get a kit, then verify it appears after the hourly org-kits cache expires."
+      },
+      {
+        "ac": "AC-5",
+        "kind": "human",
+        "intent": "End-to-end check (impersonation or with Don) that Kit User Path renders route data for the 8 kit users."
+      }
+    ],
+    "seed_scenario": "An org with 8 kits: 6 having ONLY clarity.kit_scan_paths rows (no sc_positions) and 2 having genuine sc_positions spanning the window - mirroring org 469's measured shape (6 scan-only, 1 single-day GPS, 1 GPS-active). A user at that org with Analytics_Geospatial_Kit_User_Path granted. Anchor all CH fixtures to now() (hot tables carry a 90-day TTL).",
+    "personas": [
+      "Repo-org admin/analyst viewing Kit User Path for their own org's kits (Don Snyder's role)"
+    ],
+    "pg_tables": [
+      "public.kits",
+      "public.kit_metadata",
+      "public.users",
+      "public.model_has_permissions"
+    ],
+    "ch_tables": [
+      "clarity.sc_positions",
+      "clarity.kit_scan_paths"
+    ]
+  },
+  "confidence": 88,
+  "escalate": {
+    "recommend": false,
+    "reason": "Every Phase-1 trigger was resolved by the operator's gate answers: the duplication/scope question is decided (implement here, reuse PR #320 as prior art), the permission hypothesis is refuted by observed behaviour, and the two unanswerable production ACs are ratified as Backyard ops actions. Confidence 88. Best-of-N prep would now re-derive grounding already verified against production ClickHouse and already hardened by five adversarial review rounds on PR #320. The remaining risk is in DESIGN (R1 + R3 + the R3/R7 day-key interaction), which Phase 3 owns at the opus plan-arbiter tier and Phase 5 will attack with 3 lanes."
+  }
+}

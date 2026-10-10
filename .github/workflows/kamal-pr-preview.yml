@@ -1,0 +1,489 @@
+name: Kamal PR Preview
+
+# Mirrors pre-platform's Kamal deploy (kamal-deploy.yml) and Overwatch's PR-preview
+# model: each PR deploys an isolated web app (+ its own Horizon) that SHARES the QA
+# Postgres + ClickHouse pre-platform uses and runs NO migrations. Only a per-PR
+# ephemeral Redis is isolated (cluster-enabled, like pre-platform's). Gated behind the
+# repo variable PREVIEW_ENABLED so the whole pipeline can be killed without editing YAML.
+# PROTOTYPE: PR previews are disabled. They target shared QA databases.
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to (re)deploy. Run this workflow from that PR's branch."
+        required: true
+        type: string
+      target_environment:
+        description: "Target environment (preview = QA DB, staging = production DB host)"
+        required: true
+        type: choice
+        default: preview
+        options:
+          - preview
+          - staging
+
+concurrency:
+  # Serialize per-PR so synchronize events don't overlap, and so a teardown
+  # (same group) waits for an in-flight deploy instead of racing it.
+  group: kamal-pr-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────
+  # Deploy: opened / reopened / synchronize / ready_for_review on non-draft PRs
+  # (same-repo only — forks have no secrets), or a manual re-deploy. Draft PRs
+  # can opt in with the `deploy:preview` label.
+  # ────────────────────────────────────────────────────────────────────
+  deploy:
+    if: >-
+      vars.PREVIEW_ENABLED == 'true' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (
+          (
+            github.event.pull_request.draft == false ||
+            contains(github.event.pull_request.labels.*.name, 'deploy:preview')
+          ) &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        )
+      )
+    name: Deploy PR-${{ github.event.pull_request.number || inputs.pr_number }} preview
+    # workflow_dispatch can target `staging` (prod DB host) instead of `preview` (QA DB).
+    # On pull_request events `inputs` is empty, so this falls back to `preview`. The
+    # only difference between the environments is the QA_DB_HOST/QA_DB_READ_HOST vars,
+    # which `staging` overrides to the production DB host (env-scoped vars, same pattern
+    # as the mail config); everything else falls back to repo-level — plus the computed
+    # APP_ENV below, which keys off this same input and is auth-relevant (DEV-2521).
+    environment: ${{ inputs.target_environment || 'preview' }}
+    # Self-hosted runner inside the VPC, colocated with the Kamal host (.13) — same
+    # runner group pre-platform's qa deploy uses.
+    runs-on: [self-hosted, kamal]
+    timeout-minutes: 45
+
+    # Hand the live preview URL to the jira-comment job below.
+    outputs:
+      preview_url: ${{ steps.preview_url.outputs.url }}
+
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+      # Resolved deploy target: `preview` (QA DB) by default, `staging` (prod DB host)
+      # when chosen via workflow_dispatch. Used only for the deployment summary; the
+      # actual DB host swap is driven by the `staging` environment's scoped vars.
+      TARGET_ENVIRONMENT: ${{ inputs.target_environment || 'preview' }}
+
+      # ── Kamal targeting (per-PR) ──────────────────────────────────────
+      KAMAL_PREVIEW: "true"
+      KAMAL_SERVICE: platform-pr-${{ github.event.pull_request.number || inputs.pr_number }}
+      KAMAL_SERVER: ${{ vars.QA_KAMAL_SERVER }}
+      KAMAL_PROXY_HOST: pr-${{ github.event.pull_request.number || inputs.pr_number }}-platform.internal.insightlpr.io
+      # TLS terminated upstream (AWS wildcard cert on ALB/NLB); Kamal proxy speaks plain HTTP.
+      KAMAL_PROXY_SSL: "false"
+      KAMAL_SSH_USER: ${{ vars.KAMAL_SSH_USER || 'ubuntu' }}
+      KAMAL_STORAGE_VOLUME: platform_pr_${{ github.event.pull_request.number || inputs.pr_number }}_storage
+
+      # ── AWS / ECR ─────────────────────────────────────────────────────
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-2' }}
+      AWS_DEFAULT_REGION: ${{ vars.AWS_REGION || 'us-east-2' }}
+      AWS_ECR_REPOSITORY: ${{ vars.PLATFORM_AWS_ECR_REPOSITORY || 'insight-lpr/platform' }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      # ── App env (clear) — mirrors pre-platform, except APP_ENV (see below) ──
+      # Horizon supervisor names are `{APP_NAME}-{APP_ENV}-supervisor-*` and
+      # must stay alphanumeric/dash/underscore (Overwatch uses Guardian-PR-N).
+      # Parentheses or spaces in APP_NAME break that. See HorizonConfigTest.
+      #
+      # APP_ENV is load-bearing for AUTHENTICATION, not just for log verbosity:
+      # `CustomLoginPage` skips the emailed OTP whenever `! app()->isProduction()`
+      # (DEV-2521), so any target whose database is production MUST resolve to exactly
+      # the string `production` or that preview becomes a credential-free login to
+      # production data. `staging` is such a target — it overrides DB_HOST to the
+      # production database (see the `environment:` comment above, and note APP_ENV is
+      # computed here rather than scoped to the environment).
+      #
+      # The test is deliberately written as an ALLOW-LIST of the targets known to hold
+      # QA data, so it FAILS CLOSED: a new `options:` entry, or a rename, gets
+      # `production` (OTP required — inert but safe) rather than silently inheriting
+      # the bypass. Only `preview` and plain `pull_request` events keep `preprod`.
+      APP_NAME: Platform-PR-${{ github.event.pull_request.number || inputs.pr_number }}
+      APP_ENV: ${{ (github.event_name == 'pull_request' || inputs.target_environment == 'preview') && 'preprod' || 'production' }}
+      APP_DEBUG: "false"
+      APP_URL: https://pr-${{ github.event.pull_request.number || inputs.pr_number }}-platform.internal.insightlpr.io
+      FORCE_HTTPS: "true"
+      LOG_CHANNEL: stack
+      LOG_LEVEL: info
+      DEV_LOGIN_ENABLED: "false"
+      TRACK_ANALYTICS: "false"
+      # Registers the Scout route group (`routes/web.php`, gated on
+      # `config('app.experimental.clarity_scout')`). Without it the group never
+      # registers, while the "Org Map" nav item in `app/Providers/Filament/App.php`
+      # still becomes visible to an ADMIN who is impersonating — its `visible()`
+      # short-circuits on `session('admin_impersonator')`, which route registration
+      # has no equivalent of. The item's `->url(fn () => route('clarity-scout.org-map'))`
+      # then throws while Filament renders the sidebar, 500ing EVERY admin page rather
+      # than just the Scout one. Enabling it here keeps previews usable while
+      # impersonating; the underlying gate mismatch is a separate bug.
+      CLARITY_SCOUT_ENABLED: "true"
+
+      # ── Shared QA Postgres — NO migrations ever ───────────────────────
+      DB_CONNECTION: ${{ vars.QA_DB_CONNECTION || 'platform' }}
+      DB_HOST: ${{ vars.QA_DB_HOST }}
+      DB_READ_HOST: ${{ vars.QA_DB_READ_HOST || vars.QA_DB_HOST }}
+      DB_PORT: ${{ vars.QA_DB_PORT || '5432' }}
+      DB_DATABASE: ${{ vars.QA_DB_DATABASE || 'zod' }}
+      DB_SEARCH_PATH: ${{ vars.QA_DB_SEARCH_PATH || 'platform' }}
+
+      # ── Per-PR Redis (cache + session + queue/Horizon) ────────────────
+      # Cluster-only, like pre-platform: REDIS_HOST_1/2 are resolved at deploy
+      # time to the booted per-PR redis accessory's container IP (see "Boot +
+      # initialize per-PR Redis cluster"). The per-PR prefixes keep this preview's
+      # cache/sessions/queues namespaced even though it's a fresh isolated node.
+      REDIS_CLIENT: phpredis
+      REDIS_CLUSTER: redis
+      REDIS_PORT: "6379"
+      REDIS_DB: "0"
+      REDIS_PREFIX: platform_pr_${{ github.event.pull_request.number || inputs.pr_number }}_
+      HORIZON_PREFIX: "platform_pr_${{ github.event.pull_request.number || inputs.pr_number }}_horizon:"
+
+      # ── Websockets (Soketi / Pusher-protocol) ────────────────────────
+      # GitHub environment/repo vars (QA_*). VITE_* is baked into the image
+      # at `vite build` (Dockerfile ARG). App key stays a secret (PUSHER_APP_KEY).
+      BROADCAST_CONNECTION: ${{ vars.QA_BROADCAST_CONNECTION || 'log' }}
+      PUSHER_HOST: ${{ vars.QA_PUSHER_HOST || 'wss.insightlpr.io' }}
+      PUSHER_PORT: ${{ vars.QA_PUSHER_PORT || '443' }}
+      PUSHER_SCHEME: ${{ vars.QA_PUSHER_SCHEME || 'https' }}
+      PUSHER_APP_CLUSTER: ${{ vars.QA_PUSHER_APP_CLUSTER || 'mt1' }}
+      VITE_PUSHER_APP_KEY: ${{ vars.VITE_PUSHER_APP_KEY || secrets.PUSHER_APP_KEY }}
+      VITE_PUSHER_APP_CLUSTER: ${{ vars.QA_PUSHER_APP_CLUSTER || 'mt1' }}
+      VITE_PUSHER_HOST: ${{ vars.QA_VITE_PUSHER_HOST || 'wss.insightlpr.io' }}
+      VITE_PUSHER_PORT: ${{ vars.QA_VITE_PUSHER_PORT || vars.QA_PUSHER_PORT || '443' }}
+      VITE_PUSHER_SCHEME: ${{ vars.QA_VITE_PUSHER_SCHEME || vars.QA_PUSHER_SCHEME || 'https' }}
+      CACHE_STORE: ${{ vars.QA_CACHE_STORE || 'redis' }}
+      # Mirror pre-platform (QA_FILESYSTEM_DISK=local): previews never touch the prod bucket.
+      FILESYSTEM_DISK: ${{ vars.QA_FILESYSTEM_DISK || 'local' }}
+      QUEUE_CONNECTION: ${{ vars.QA_QUEUE_CONNECTION || 'redis' }}
+      SESSION_DRIVER: ${{ vars.QA_SESSION_DRIVER || 'redis' }}
+      SESSION_COOKIE: platform_pr_${{ github.event.pull_request.number || inputs.pr_number }}_session
+      SESSION_SECURE_COOKIE: "true"
+
+      # Mail config is environment-scoped (set per-environment on `qa`/`preview`),
+      # so each environment can point at its own mailbox. Only MAIL_PASSWORD is a
+      # secret; the rest are plain environment variables.
+      MAIL_MAILER: ${{ vars.MAIL_MAILER || 'log' }}
+      MAIL_HOST: ${{ vars.MAIL_HOST }}
+      MAIL_PORT: ${{ vars.MAIL_PORT || '587' }}
+      MAIL_USERNAME: ${{ vars.MAIL_USERNAME }}
+      MAIL_ENCRYPTION: ${{ vars.QA_MAIL_ENCRYPTION || 'tls' }}
+      MAIL_FROM_ADDRESS: ${{ vars.QA_MAIL_FROM_ADDRESS || 'noreply@insightlpr.com' }}
+      MAIL_FROM_NAME: Platform
+
+      CLICKHOUSE_DRIVER: clickhouse
+      CLICKHOUSE_HOST: ${{ vars.QA_CLICKHOUSE_HOST }}
+      CLICKHOUSE_PORT: ${{ vars.QA_CLICKHOUSE_PORT || '8123' }}
+      CLICKHOUSE_HTTPS: ${{ vars.QA_CLICKHOUSE_HTTPS || 'true' }}
+      CLICKHOUSE_DATABASE_CLARITY: ${{ vars.QA_CLICKHOUSE_DATABASE_CLARITY || 'clarity' }}
+      CLICKHOUSE_DATABASE_ZOD: ${{ vars.QA_CLICKHOUSE_DATABASE_ZOD || 'zod' }}
+      CLICKHOUSE_TIMEOUT_CONNECT: ${{ vars.QA_CLICKHOUSE_TIMEOUT_CONNECT || '2' }}
+      CLICKHOUSE_TIMEOUT_QUERY: ${{ vars.QA_CLICKHOUSE_TIMEOUT_QUERY || '60' }}
+
+      TWILIO_NUMBER: ${{ vars.QA_TWILIO_NUMBER }}
+
+      # Otto / Bedrock — set on the GitHub `preview` (or repo) environment.
+      # Both BEDROCK_* and AWS_BEDROCK_* names are forwarded to the container.
+      AWS_BEDROCK_REGION: ${{ vars.AWS_BEDROCK_REGION || vars.QA_AWS_BEDROCK_REGION || 'us-east-2' }}
+      AWS_BEDROCK_USE_DEFAULT_CREDENTIALS: ${{ vars.AWS_BEDROCK_USE_DEFAULT_CREDENTIALS || vars.QA_AWS_BEDROCK_USE_DEFAULT_CREDENTIALS || 'true' }}
+      OTTO_PROVIDER: ${{ vars.OTTO_PROVIDER || vars.QA_OTTO_PROVIDER || 'bedrock' }}
+      OTTO_MODEL: ${{ vars.OTTO_MODEL || vars.QA_OTTO_MODEL }}
+      OTTO_TOOL_CALL_LIMIT: ${{ vars.OTTO_TOOL_CALL_LIMIT || vars.QA_OTTO_TOOL_CALL_LIMIT || '50' }}
+      OTTO_LOG_LEVEL: ${{ vars.OTTO_LOG_LEVEL || vars.QA_OTTO_LOG_LEVEL || 'debug' }}
+      OTTO_PRICE_PROMPT_PER_M: ${{ vars.OTTO_PRICE_PROMPT_PER_M || vars.QA_OTTO_PRICE_PROMPT_PER_M || '2.20' }}
+      OTTO_PRICE_COMPLETION_PER_M: ${{ vars.OTTO_PRICE_COMPLETION_PER_M || vars.QA_OTTO_PRICE_COMPLETION_PER_M || '6.60' }}
+      OTTO_PRICE_CACHE_READ_PER_M: ${{ vars.OTTO_PRICE_CACHE_READ_PER_M || vars.QA_OTTO_PRICE_CACHE_READ_PER_M || '0.55' }}
+
+      # ── App env (secrets) ─────────────────────────────────────────────
+      # Repo-level secrets are inherited by the `preview` environment; APP_KEY +
+      # MAIL_PASSWORD are copied into `preview` from `qa` so the preview decrypts the
+      # shared QA database's encrypted columns with the same APP_KEY pre-platform uses.
+      APP_KEY: ${{ secrets.APP_KEY }}
+      DB_USERNAME: ${{ secrets.DB_USERNAME }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      # Per-PR Redis accessory runs password-less (config/deploy.yml preview branch).
+      REDIS_PASSWORD: ""
+      MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+      AWS_BUCKET: ${{ secrets.AWS_BUCKET }}
+      CLICKHOUSE_USERNAME: ${{ secrets.CLICKHOUSE_USERNAME }}
+      CLICKHOUSE_PASSWORD: ${{ secrets.CLICKHOUSE_PASSWORD }}
+      CLICKHOUSE_WRITE_USERNAME: ${{ secrets.CLICKHOUSE_WRITE_USERNAME || secrets.CLICKHOUSE_USERNAME }}
+      CLICKHOUSE_WRITE_PASSWORD: ${{ secrets.CLICKHOUSE_WRITE_PASSWORD || secrets.CLICKHOUSE_PASSWORD }}
+      PUSHER_APP_ID: ${{ secrets.PUSHER_APP_ID }}
+      PUSHER_APP_KEY: ${{ secrets.PUSHER_APP_KEY }}
+      PUSHER_APP_SECRET: ${{ secrets.PUSHER_APP_SECRET }}
+      GEOCODIO_API_KEY: ${{ secrets.GEOCODIO_API_KEY }}
+      CONVERTAPI_SECRET: ${{ secrets.CONVERTAPI_SECRET }}
+      TWILIO_SID: ${{ secrets.TWILIO_SID }}
+      TWILIO_TOKEN: ${{ secrets.TWILIO_TOKEN }}
+      MATCHER_API_KEY: ${{ secrets.MATCHER_API_KEY }}
+      MCP_BEARER_TOKEN: ${{ secrets.MCP_BEARER_TOKEN }}
+      BEDROCK_KEY: ${{ secrets.BEDROCK_KEY || secrets.AWS_BEDROCK_ACCESS_KEY_ID }}
+      BEDROCK_SECRET: ${{ secrets.BEDROCK_SECRET || secrets.AWS_BEDROCK_SECRET_ACCESS_KEY }}
+      AWS_BEDROCK_ACCESS_KEY_ID: ${{ secrets.AWS_BEDROCK_ACCESS_KEY_ID || secrets.BEDROCK_KEY }}
+      AWS_BEDROCK_SECRET_ACCESS_KEY: ${{ secrets.AWS_BEDROCK_SECRET_ACCESS_KEY || secrets.BEDROCK_SECRET }}
+
+      # ── Maps (clear; client-restricted key) ───────────────────────────
+      GOOGLE_MAPS_API_KEY: ${{ vars.VITE_GOOGLE_MAPS_API_KEY || secrets.VITE_GOOGLE_MAPS_API_KEY }}
+      VITE_GOOGLE_MAPS_API_KEY: ${{ vars.VITE_GOOGLE_MAPS_API_KEY || secrets.VITE_GOOGLE_MAPS_API_KEY }}
+
+      # ── Composer auth (consumed by .kamal/secrets) ────────────────────
+      COMPOSER_AUTH_GITHUB_PAT: ${{ secrets.COMPOSER_AUTH_GITHUB_PAT }}
+
+    steps:
+      - name: Checkout PR head
+        # On pull_request, deploy the PR's actual HEAD commit (not the speculative
+        # refs/pull/N/merge commit). On workflow_dispatch, head.sha is empty and
+        # checkout uses the ref the workflow was dispatched from.
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Kamal setup (AWS, Ruby, Kamal, composer auth, SSH)
+        uses: ./.github/actions/kamal-setup
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+          kamal-server: ${{ env.KAMAL_SERVER }}
+          ssh-key: ${{ secrets.KAMAL_SSH_KEY }}
+          ssh-known-hosts: ${{ secrets.KAMAL_SSH_KNOWN_HOSTS }}
+          composer-github-pat: ${{ secrets.COMPOSER_AUTH_GITHUB_PAT }}
+
+      - name: Resolve ECR registry password
+        # .kamal/secrets reads KAMAL_REGISTRY_PASSWORD from the environment.
+        # The runner authed to AWS via static keys (no profile) in kamal-setup.
+        run: echo "KAMAL_REGISTRY_PASSWORD=$(aws ecr get-login-password --region "$AWS_REGION")" >> "$GITHUB_ENV"
+
+      - name: Boot + initialize per-PR Redis cluster
+        # `kamal deploy` does not manage accessories. Boot (or reboot, on a
+        # synchronize) this PR's ephemeral redis accessory — cluster-enabled, single
+        # node — and assign all 16384 slots so the cluster becomes healthy. Platform's
+        # redis connection is cluster-only (config/database.php: clusters.default,
+        # options.cluster=redis, queue name `{default}` hash tag). Same dance as
+        # pre-platform's kamal-deploy.yml, scoped to this PR's container.
+        run: |
+          set -euo pipefail
+          if kamal accessory details redis >/dev/null 2>&1; then
+            kamal accessory reboot redis
+          else
+            kamal accessory boot redis
+          fi
+
+          HOST="${KAMAL_SERVER%%,*}"
+          CONTAINER="${KAMAL_SERVICE}-redis"
+          SSH="ssh -o StrictHostKeyChecking=accept-new ${KAMAL_SSH_USER}@${HOST}"
+
+          # Wait for the node to accept connections.
+          for _ in $(seq 1 30); do
+            if $SSH "docker exec ${CONTAINER} redis-cli ping" 2>/dev/null | grep -q PONG; then break; fi
+            sleep 2
+          done
+
+          # Container IP on the kamal docker network — the address the app uses to
+          # reach redis and the address this single node announces via CLUSTER SLOTS.
+          REDIS_IP="$($SSH "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ${CONTAINER}" | tr -d '[:space:]')"
+          echo "Redis node IP: ${REDIS_IP}"
+          test -n "${REDIS_IP}"
+
+          # Announce a reachable IP so phpredis (RedisCluster) gets a usable endpoint
+          # from CLUSTER SLOTS even with no gossip peers.
+          $SSH "docker exec ${CONTAINER} redis-cli config set cluster-announce-ip ${REDIS_IP}" >/dev/null
+
+          # Make this single node a functional cluster. `redis-cli --cluster create`
+          # refuses < 3 masters, so assign all 16384 slots directly with
+          # CLUSTER ADDSLOTSRANGE (Redis 7+). Idempotent via the cluster_state guard.
+          if $SSH "docker exec ${CONTAINER} redis-cli cluster info" | grep -q 'cluster_state:ok'; then
+            echo "Redis cluster already healthy."
+          else
+            $SSH "docker exec ${CONTAINER} redis-cli cluster reset hard" || true
+            $SSH "docker exec ${CONTAINER} redis-cli config set cluster-announce-ip ${REDIS_IP}" >/dev/null
+            $SSH "docker exec ${CONTAINER} redis-cli cluster addslotsrange 0 16383"
+          fi
+          $SSH "docker exec ${CONTAINER} redis-cli cluster info" | grep -q 'cluster_state:ok' \
+            && echo "cluster_state:ok (all 16384 slots on ${REDIS_IP})"
+
+          # Point both nodes of platform's redis cluster config at this node.
+          echo "REDIS_HOST_1=${REDIS_IP}" >> "$GITHUB_ENV"
+          echo "REDIS_HOST_2=${REDIS_IP}" >> "$GITHUB_ENV"
+
+      - name: Kamal deploy
+        run: kamal deploy --verbose
+
+      # Migrations are intentionally NOT run: the preview shares pre-platform's QA
+      # `zod` Postgres (`platform` schema). Schema-changing PRs may not fully render
+      # until merged — the same Phase-1 tradeoff Overwatch documents.
+
+      - name: Expose preview URL output
+        id: preview_url
+        run: echo "url=https://${KAMAL_PROXY_HOST}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache + config warm
+        run: |
+          kamal app exec --reuse "php artisan config:cache"
+          kamal app exec --reuse "php artisan route:cache"
+          kamal app exec --reuse "php artisan view:cache"
+
+      - name: Comment preview URL on PR
+        if: github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: kamal-pr-preview
+          number: ${{ env.PR_NUMBER }}
+          message: |
+            ### 🚀 Preview deploy ready
+
+            - **URL:** https://pr-${{ env.PR_NUMBER }}-platform.internal.insightlpr.io
+            - **Horizon:** https://pr-${{ env.PR_NUMBER }}-platform.internal.insightlpr.io/horizon
+            - **Service:** `${{ env.KAMAL_SERVICE }}`
+            - **Commit:** `${{ github.event.pull_request.head.sha }}`
+
+            _Phase-1 preview: shares pre-platform's QA Postgres + ClickHouse (changes
+            affect shared QA data) and runs no migrations (schema-changing PRs may not
+            fully render until merged). Only a per-PR Redis is isolated. Torn down
+            automatically when the PR closes._
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          {
+            echo "## PR-${PR_NUMBER} preview deploy"
+            echo ""
+            echo "- Target:   \`${TARGET_ENVIRONMENT}\`"
+            echo "- Service:  \`${KAMAL_SERVICE}\`"
+            echo "- Host:     \`${KAMAL_SERVER}\`"
+            echo "- URL:      https://${KAMAL_PROXY_HOST}"
+            echo "- DB host:  \`${DB_HOST}\` (ClickHouse stays QA in every target)"
+            echo "- Migrations: none (shared DB)"
+            echo "- Isolated: per-PR Redis (cache/session/queue, cluster-enabled)"
+            echo "- Broadcast: \`${BROADCAST_CONNECTION}\` (Laravel \`${PUSHER_HOST}\`, browser \`${VITE_PUSHER_HOST}\`)"
+            echo "- Commit:   \`${{ github.event.pull_request.head.sha || github.sha }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ────────────────────────────────────────────────────────────────────
+  # Mirror the preview URL onto the matching DEV Jira ticket. Runs only after a
+  # successful PR-triggered deploy, and skips 'synchronize' so re-pushes don't
+  # spam the ticket on every commit. Skips gracefully until JIRA_* secrets exist.
+  # ────────────────────────────────────────────────────────────────────
+  jira-comment:
+    name: Comment preview URL on Jira ticket
+    needs: deploy
+    if: >-
+      needs.deploy.result == 'success' &&
+      github.event_name == 'pull_request' &&
+      github.event.action != 'synchronize'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+      JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+      # Pipe- or comma-separated Jira project keys to detect.
+      JIRA_PROJECT_KEYS: "DEV"
+    steps:
+      - name: Detect Jira ticket key
+        id: detect
+        # PR title and branch are user-controlled; pass them through env vars
+        # (never inline ${{ }}) to avoid shell injection.
+        env:
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+
+          # Skip silently if Jira isn't configured (secrets unset).
+          if [ -z "${JIRA_BASE_URL:-}" ] || [ -z "${JIRA_API_TOKEN:-}" ]; then
+            echo "::notice::Jira secrets not configured; skipping."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          key_regex="(${JIRA_PROJECT_KEYS//,/|})-[0-9]+"
+
+          # Branch name first, then PR title.
+          key="$(printf '%s' "$PR_BRANCH" | grep -oE "$key_regex" | head -n1 || true)"
+          if [ -z "$key" ]; then
+            key="$(printf '%s' "$PR_TITLE" | grep -oE "$key_regex" | head -n1 || true)"
+          fi
+
+          if [ -z "$key" ]; then
+            echo "::notice::No Jira ticket key found in branch ('$PR_BRANCH') or title. Skipping."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Detected Jira ticket: $key"
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+
+      - name: Post preview URL comment
+        if: steps.detect.outputs.found == 'true'
+        env:
+          ISSUE_KEY: ${{ steps.detect.outputs.key }}
+          PREVIEW_URL: ${{ needs.deploy.outputs.preview_url }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          set -euo pipefail
+
+          base="${JIRA_BASE_URL%/}"
+          auth="$JIRA_USER_EMAIL:$JIRA_API_TOKEN"
+          api="$base/rest/api/3/issue/$ISSUE_KEY/comment"
+
+          pr_label="PR #${PR_NUMBER}"
+
+          # Build the ADF comment body with jq so user-controlled values are
+          # safely escaped (no string interpolation into JSON).
+          jq -n \
+            --arg url "$PREVIEW_URL" \
+            --arg label "$pr_label" \
+            --arg href "$PR_URL" \
+            '{
+              body: {
+                type: "doc",
+                version: 1,
+                content: [
+                  {
+                    type: "paragraph",
+                    content: [
+                      { type: "text", text: "🚀 Preview deployed for " },
+                      { type: "text", text: $label, marks: [ { type: "link", attrs: { href: $href } } ] },
+                      { type: "text", text: ": " },
+                      { type: "text", text: $url, marks: [ { type: "link", attrs: { href: $url } } ] }
+                    ]
+                  },
+                  {
+                    type: "paragraph",
+                    content: [
+                      { type: "text", text: "Phase-1 preview: shares pre-platform QA data and runs no migrations.", marks: [ { type: "em" } ] }
+                    ]
+                  }
+                ]
+              }
+            }' > comment.json
+
+          code="$(curl -sS -u "$auth" -X POST \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            --data @comment.json \
+            -o comment_result.json -w '%{http_code}' "$api")"
+
+          if [ "$code" = "201" ]; then
+            echo "::notice::Posted preview URL to $ISSUE_KEY."
+          else
+            echo "::error::Failed to comment on $ISSUE_KEY (HTTP $code)"
+            cat comment_result.json || true
+            exit 1
+          fi

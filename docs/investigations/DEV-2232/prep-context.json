@@ -1,0 +1,93 @@
+{
+  "key": "DEV-2232",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "synthesis": "GET /api/scout/shift/status lazily materializes an open kit_shifts row (EnsureOpenShift::currentOpenForKit -> forKit) and fires ShiftStart analytics + a Spatie audit log the first time a driver's poll observes recent scan activity. The Sanctum force-login token minted for admin impersonation carries the literal `clarity-scout-force` ability; ClarityScoutMiddleware treats it as an unconditional bypass but does NOT bypass the controller body, so an impersonating admin polling /shift/status runs EnsureOpenShift exactly like a real driver and opens a real shift on the driver's kit, polluting shift/analytics/audit data. Fix: gate the lazy-open + ShiftStart emit in status() on !$user->isScoutForceImpersonator(), returning the normal no-open-shift payload.",
+  "scope": {
+    "summary": "Guard ClarityScoutShiftController::status() so a force-login impersonator never triggers EnsureOpenShift's lazy kit_shifts creation nor the ShiftStart analytics/audit emit; return the standard no-open-shift JSON shape instead. Optional belt-and-suspenders: gate the frontend End Shift button on !auth.isImpersonating (button already hides once status() returns open:false).",
+    "proposed_changes": [
+      {"file": "app/Http/Controllers/Api/ClarityScoutShiftController.php", "change": "In status(), short-circuit before $this->ensureOpenShift->currentOpenForKit($kit) when $user->isScoutForceImpersonator(); return the existing no-open-shift JSON shape without touching EnsureOpenShift or the ShiftStart Analytics/audit emit.", "reason": "Sole lazy-open + ShiftStart emit site (exhaustiveness sweep + grep backstop confirm no other caller).", "ref": "app/Http/Controllers/Api/ClarityScoutShiftController.php:60-67"}
+    ],
+    "target_files": [
+      "app/Http/Controllers/Api/ClarityScoutShiftController.php",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutShiftControllerTest.php"
+    ],
+    "out_of_scope": [
+      "end() guard — Dalton decided (2026-07-24): JUST START, match the ticket. end()'s impersonation side effect (own lazy-create fallback + unconditional ShiftEnd) is a KNOWN RESIDUAL noted for a possible follow-up ticket.",
+      "Frontend defense-in-depth (End Shift !auth.isImpersonating guard) — Dalton decided: BACKEND-ONLY. Backend fix already satisfies AC3; no Vue change / no asset rebuild.",
+      "EnsureOpenShift.php internals — generic helper correctly reused; guard belongs at the controller call site.",
+      "ClarityScoutMiddleware bypass behavior — intentional (lets impersonators reach the PWA), not the bug.",
+      "CloseInactiveShiftsCommand — scheduled system caller of forKit(), not an impersonation path.",
+      "Any ClickHouse-side Scout data — the shift path is 100% Postgres."
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "An impersonating admin polling GET /api/scout/shift/status creates no kit_shifts row and fires no ShiftStart analytics/audit events.", "source": "ticket", "decision": "implement", "reason": "Primary AC."},
+    {"item": "A normal (non-impersonated) driver's shift-start behavior (lazy open + ShiftStart emit) is unchanged.", "source": "ticket", "decision": "implement", "reason": "Regression guard AC."},
+    {"item": "The Scout PWA shows no open shift (End Shift hidden) while impersonating.", "source": "ticket", "decision": "implement", "reason": "Satisfied by the backend fix; optional frontend guard hardens it."}
+  ],
+  "questions": [
+    {"q": "Also guard the shift close path end() (POST /api/scout/shift/end)? It has its own independent lazy-create fallback ($latest ?? $this->ensureOpenShift->forKit($kit)) and fires ShiftEnd analytics UNCONDITIONALLY before checking whether anything was newly closed — so an impersonator hitting End Shift can create-and-immediately-close a zero-activity kit_shifts row and emit a ShiftEnd event as a pure impersonation side effect. Ticket reported symptom is start only.", "answered": true, "answer": "JUST START — match the ticket's reported scope; do NOT guard end(). end()'s impersonation side effect is a KNOWN RESIDUAL for a possible follow-up.", "source": "human:Dalton 2026-07-24"},
+    {"q": "Include the optional frontend defense-in-depth (gate End Shift button on !auth.isImpersonating) or keep the diff backend-only?", "answered": true, "answer": "BACKEND-ONLY. Backend fix already satisfies AC3 (button gates on shift.open). No Vue change / no asset rebuild.", "source": "human:Dalton 2026-07-24"},
+    {"q": "Does isScoutForceImpersonator() check the correct token ability and is it the right single source of truth?", "answered": true, "answer": "Yes — User.php:252 uses in_array('clarity-scout-force', currentAccessToken()?->abilities ?? [], true), an exact-membership check (not tokenCan which a * token satisfies). Established SoT used by ClarityScoutMiddleware/AuthController/MapController.", "source": "code"}
+  ],
+  "blockers": [],
+  "notes": [
+    "Only two real lazy-materialization sites for kit_shifts: EnsureOpenShift::currentOpenForKit() (called only from status()) and EnsureOpenShift::forKit() (from currentOpenForKit, end()'s fallback, and CloseInactiveShiftsCommand — a scheduled system job).",
+    "Grep backstop confirmed: all other ->forKit() hits are an unrelated ClickHouse Scan/Hit query scope; ShiftStart appears only as the ScoutAnalyticsEvent enum case; no missed EnsureOpenShift caller.",
+    "end() fires Analytics::track(ShiftEnd) unconditionally before the newlyClosed check — pre-existing quirk that compounds the impersonation-on-end concern; relevant to questions[0].",
+    "Test convention: PHPUnit #[Test] attrs; impersonation tokens via createToken('name', ['*','clarity-scout-force']) (pattern in ClarityScoutMapControllerTest.php:260, ClarityScoutMiddlewareTest.php:121).",
+    "Existing ClarityScoutShiftControllerTest.php mocks Analytics::shouldReceive('track')->zeroOrMoreTimes(); tighten in the new tests to assert zero ShiftStart for impersonator and >=1 for the normal driver.",
+    "Shift path is 100% PostgreSQL (Scan read, KitShift write) — no RequiresClickhouse. Auto-open reads recent Postgres zod.scans, so QA must seed Postgres scans (memory: scout-shift-gate-reads-postgres-scans)."
+  ],
+  "tests": [
+    {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutShiftControllerTest.php", "what_it_pins": "Impersonator token ['*','clarity-scout-force'] + fresh matching scan activity + no existing shift: GET /shift/status returns the no-open-shift shape, KitShift count unchanged, Analytics::track never called with ShiftStart."},
+    {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutShiftControllerTest.php", "what_it_pins": "Regression: normal scout token + same scan activity still opens a shift (wasRecentlyCreated) and fires ShiftStart (AC2)."},
+    {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutShiftControllerTest.php", "what_it_pins": "IF end() brought into scope: impersonator token calling POST /shift/end on a kit with zero shift history creates no kit_shifts row and fires no ShiftEnd."}
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Models/User.php:252",
+      "app/Http/Middleware/ClarityScoutMiddleware.php:25",
+      "app/Http/Controllers/Api/ClarityScoutShiftController.php:51-93 (status)",
+      "app/Http/Controllers/Api/ClarityScoutShiftController.php:95-135 (end)",
+      "app/Services/Scout/EnsureOpenShift.php:54-97 (forKit)",
+      "app/Services/Scout/EnsureOpenShift.php:111-142 (currentOpenForKit)",
+      "resources/js/clarity-scout/stores/auth.js:19-40",
+      "resources/js/clarity-scout/composables/useShift.js:27-48",
+      "resources/js/clarity-scout/components/ScoutControlsWidget.vue:107",
+      "resources/js/clarity-scout/App.vue:129",
+      "routes/api.php:59-60",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutShiftControllerTest.php"
+    ],
+    "code_flow": "GET /shift/status -> ClarityScoutMiddleware (full bypass for clarity-scout-force) -> status() -> EnsureOpenShift::currentOpenForKit -> [no open row + recent Scan] -> forKit -> KitShift::create (Postgres) -> if wasRecentlyCreated: Analytics::track(ShiftStart) + logShiftActivity -> JSON. POST /shift/end -> same bypass -> unconditional Analytics::track(ShiftEnd) -> tx: latest KitShift else forKit fallback, force-fill ended_at/end_type, save -> SendEndOfShiftSummary + logShiftActivity only if newlyClosed.",
+    "tables": ["platform.kit_shifts (write; unique partial index kit_shifts_one_open_per_kit)", "zod.scans (read via Scan, Postgres)"],
+    "related_components": ["ScoutAnalyticsEvent::ShiftStart/ShiftEnd (App\\Facades\\Analytics)", "Spatie Activitylog 'scout-shift'", "CloseInactiveShiftsCommand (scheduled, unrelated)", "stores/auth.js isImpersonating", "composables/useShift.js (shift.open drives End Shift visibility)"]
+  },
+  "exhaustiveness": {
+    "patterns": ["currentOpenForKit", "EnsureOpenShift", "isScoutForceImpersonator", "ShiftStart", "->forKit(", "clarity-scout-force"],
+    "sites": [
+      {"site": "ClarityScoutShiftController::status() -> currentOpenForKit", "verdict": "buggy", "reason": "The reported lazy-open + ShiftStart emit site; the guard target."},
+      {"site": "ClarityScoutShiftController::end() -> $latest ?? forKit + unconditional ShiftEnd", "verdict": "buggy (open question)", "reason": "Own lazy-create fallback + unconditional ShiftEnd emit; pending human decision on scope."},
+      {"site": "CloseInactiveShiftsCommand -> forKit", "verdict": "safe", "reason": "Scheduled system job, no impersonation context."},
+      {"site": "ClarityScoutDashboardController/TripsController/MapController ->forKit", "verdict": "safe", "reason": "Unrelated ClickHouse Scan/Hit query scope, not EnsureOpenShift."},
+      {"site": "ScoutAnalyticsEvent::ShiftStart", "verdict": "safe", "reason": "Enum case definition, not an emit site."}
+    ]
+  },
+  "data_impact": {"pg_tables": ["kit_shifts (write)", "scans (read)"], "ch_tables": [], "mv_or_cdc_implications": "none", "indexes_relied_on": ["kit_shifts_one_open_per_kit (unique partial)"]},
+  "derivation_log": [],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "AC-1", "kind": "agent", "intent": "Force-login token + recent scans, poll /shift/status; assert kit_shifts count unchanged, open:false, no ShiftStart audit entry."},
+      {"ac": "AC-2", "kind": "agent", "intent": "Normal token + same scans, poll /shift/status; assert kit_shifts row created + ShiftStart fires."},
+      {"ac": "AC-3", "kind": "human", "intent": "In the live PWA while impersonating, confirm no End Shift button/pill renders."}
+    ],
+    "seed_scenario": "One org with clarity-scout enabled; one Kit + assigned driver User; a burst of recent Postgres zod.scans for that kit within ~3h to trip the activity window; no pre-existing kit_shifts row. Test a normal token (['clarity-scout']) and a force-login token (['*','clarity-scout-force']).",
+    "personas": ["Scout driver — normal shift-start must be unchanged", "Admin impersonator (force-login) — zero shift/analytics side effects"],
+    "pg_tables": ["kit_shifts", "scans"],
+    "ch_tables": []
+  },
+  "missed_caller_candidates": [],
+  "confidence": 84,
+  "escalate": {"recommend": true, "reason": "One ticket-flagged open question (guard end() too?) with real supporting evidence; analytics/audit integrity + kit_shifts uniqueness invariant. Resolution is a human scope decision routed to the Phase 2 gate."}
+}

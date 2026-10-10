@@ -1,0 +1,119 @@
+{
+  "key": "DEV-2653",
+  "track": "product",
+  "phase": "plan",
+  "gate": "CLEAN",
+  "input": "docs/investigations/DEV-2653/prep-context.json",
+  "base_sha": "25870f75661f07a27a69124a414e557d4c11fff0",
+  "ship_surface": "PHP cache sharing for ScanPlateStatsBatchQuery (primary). Keep LprRepossessionsQuery shared keys and route their TTL through the ladder. Do not add UniqueLprCaseClaimsQuery billing-leg shared cache. Closed-month settle window on DashboardWidget::getCacheTTL. AC-5 docblock per class.",
+  "non_goals": [
+    "Zod",
+    "Cloud ClickHouse writes",
+    "DEV-2659 SQL rewrites",
+    "DEV-2654",
+    "Hashing an existing concat key",
+    "Removing UniqueLprCaseClaims heldFlexible cache",
+    "okf/ edits",
+    "phase=provisioned"
+  ],
+  "key_shape": {
+    "choice": "concat",
+    "reason": "Existing shared*CacheKey helpers and ClickhouseQuery::buildCacheKey are concat. Comment 41303 leaves this as an implement choice. Hashing would cold-start production."
+  },
+  "settle_window": {
+    "min": "2 hours after month end (inside the non-final span)",
+    "full": "8 days after month end before +1 year",
+    "ttl_until_full": "10 minutes (the existing open-month arm)",
+    "impersonation": "10 seconds, evaluated before the settle branch",
+    "signature": "getCacheTTL($index = 0, ?DateTimeInterface $monthEndedAt = null)"
+  },
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Closed-month settle window on the TTL ladder",
+      "approach": "Extend DashboardWidget::getCacheTTL with an optional month-end. Impersonation still returns now()->addSeconds(10) before any other branch. Index 0 still returns now()->addMinutes(10). Index !== 0 with a null month-end still returns now()->addYear(), so a caller that does not name a month keeps today's behavior. Index !== 0 with a month-end younger than 8 days returns now()->addMinutes(10). That 10-minute span includes the ~2 hour minimum (one hourly refresh past month end) and the arrival-reprocess window. At 8 days or older, return now()->addYear(). Add CLOSED_MONTH_SETTLE_FULL_SECONDS = 8 * 86400 next to the method. Do not add a second intermediate duration. Thread the month end into every year-cache writer that already knows the month: DashboardWidget::getMonthlyData (the $i loop), the last_month arm near line 391, UniqueScanCounts past-month puts (per month, not one TTL for the whole batch), RatioAgainstUniqueScans's write loop, RecoveryCounts's month puts, and SharedHitStatsData's past-month puts. UniqueScanCounts::pastMonthCacheTTL's 10-minute impersonation floor stays and still applies only when the ladder returns something shorter. Do not change getCacheTTL's impersonation result to satisfy that floor.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+        "app/Filament/Widgets/Dashboard/UniqueScanCounts.php",
+        "app/Filament/Widgets/Dashboard/Concerns/RatioAgainstUniqueScans.php",
+        "app/Filament/Widgets/Dashboard/RecoveryCounts.php",
+        "app/Filament/Widgets/Dashboard/Concerns/SharedHitStatsData.php",
+        "tests/Unit/Filament/DashboardWidgetCacheTtlTest.php"
+      ],
+      "intended_diffs": "getCacheTTL gains ?DateTimeInterface $monthEndedAt = null. New unit test, no ClickHouse: impersonation is 10 seconds even when the month ended yesterday; a month that ended 1 hour ago and a month that ended 3 days ago are 10 minutes; a month that ended 9 days ago is 1 year; a null month-end at index 1 is still 1 year. Update the four writer loops to pass that month's endOfMonth(). Leave UniqueLprCaseClaims::getCacheTTL's 60-second floor and its [3600, 86400] series pair untouched.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "DashboardWidgetCacheTtlTest",
+      "ui_impact": false,
+      "blast_radius": [
+        "company-metrics-ttl",
+        "hit-cards-via-shared-hit-stats",
+        "recovery-counts-month-keys"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "t2",
+      "title": "One Y-m key for the ScanPlateStatsBatchQuery open month",
+      "approach": "UniqueScanCounts::getMonthlyData and UniqueScansLeaderboard::chartSeries use the literal 'this_month' for i === 0. RatioAgainstUniqueScans::fetchUniqueScansSeries uses Y-m for that same bucket, so the three ratio cards miss the value UniqueScanCounts just wrote and issue another scans_cold read. Store and read the open month as Y-m (the calendar month in the viewer's safe timezone) on sharedMonthCacheKey. Do not bump -v1: the payload stays a bare int. Do not change the dashboard date filter value 'this_month', and do not change sharedRangeCacheKey or the this_month/last_month range-window contract between UniqueScanCounts and UniqueScansLeaderboard. resolveCurrentMonthFromCold writes the int under the Y-m key with getCacheTTL(0). Past-month writes already use Y-m; t1 makes their TTL per month. Leaderboard chartSeries stays a passive reader. CompanyMetricsOverview::cards() order stays unique-scan-counts before unique-scans-leaderboard.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/UniqueScanCounts.php",
+        "app/Filament/Widgets/Dashboard/UniqueScansLeaderboard.php",
+        "app/Filament/Widgets/Dashboard/Concerns/RatioAgainstUniqueScans.php",
+        "tests/Filament/Widgets/Dashboard/UniqueScanCountsTest.php",
+        "tests/Filament/Widgets/Dashboard/UniqueScansLeaderboardTest.php",
+        "tests/Filament/Widgets/Dashboard/Concerns/RatioAgainstUniqueScansTest.php",
+        "tests/Unit/Clickhouse/ScanPlateStatsBatchQueryContractTest.php"
+      ],
+      "intended_diffs": "Delete the i === 0 ? 'this_month' : Y-m split in the two month-series readers and in UniqueScansLeaderboardTest::seedAllSharedMonthsZero. Add a counting-seam test: one Company Metrics stats pass with a cold cache invokes ScanPlateStatsBatchQuery::handle / the ratio batch seam at most once for a given org+window+timezone, and the ratio card reads the Y-m int UniqueScanCounts wrote for the open month. Assert the key does not contain a class basename. Do not assert wall clock.",
+      "depends_on": ["t1"],
+      "parallelizable": false,
+      "test_filter": "UniqueScanCountsTest|UniqueScansLeaderboardTest|RatioAgainstUniqueScansTest|ScanPlateStatsBatchQueryContractTest",
+      "ui_impact": false,
+      "blast_radius": [
+        "scan-plate-stats-month-namespace",
+        "leaderboard-sparkline"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "t3",
+      "title": "Keep LprRepossessionsQuery shared keys and put them on the ladder",
+      "approach": "Do not rename, hash, or drop sharedMonthlySeriesCacheKey or sharedWindowCacheKey. Do not change their payload contracts (series array versus int db_repos). Replace both heldFlexible([3600, 86400]) call sites in LprRepossessions with a pair derived from the ladder. The series map includes the open month, so its TTL is getCacheTTL(0), not the year arm. The today/last_7d window key is also getCacheTTL(0). Convert the DateTimeInterface to [seconds, seconds] so flexible's hard TTL does not outlive the ladder. Stay on heldFlexible so the companion key and the cold lock stay shared. Do not add a new minimum that cancels the 10-second impersonation collapse; the class docblock records that the 33.7s tail can outlast that TTL, and the cold lock still single-flights a total miss. The series key stays without :tz=.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/LprRepossessions.php",
+        "app/Clickhouse/Queries/LprRepossessionsQuery.php",
+        "tests/Filament/Widgets/Dashboard/LprRepossessionsTest.php"
+      ],
+      "intended_diffs": "LprRepossessions.php: both heldFlexible TTL arrays come from getCacheTTL(0). Docblock on the query class: AC-5 billing leg is DEV-2659; hotlist and status-log legs are DEV-2657 / DEV-2660. Test: impersonation makes the flexible pair 10 seconds, not 3600/86400; a non-impersonated series pair is 600 seconds; the key strings are unchanged and contain no class basename.",
+      "depends_on": ["t1"],
+      "parallelizable": true,
+      "test_filter": "LprRepossessionsTest",
+      "ui_impact": false,
+      "blast_radius": [
+        "lpr-repossessions-shared-cache"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "t4",
+      "title": "AC-5 docblocks per class, and no claims shared cache",
+      "approach": "Docblocks only, plus a contract assertion that UniqueLprCaseClaimsQuery still has no shared*CacheKey method and UniqueLprCaseClaims::getMonthlyData still builds its key with buildWidgetCacheKey. ScanPlateStatsBatchQuery: the N-org cold start is N concurrent scans_cold reads (DEV-2466 measured 60,738,996 rows / 2.44 GB for one copy). Do not mention DEV-2655 as this class's fix. UniqueLprCaseClaimsQuery: the ceiling is removed by DEV-2659 reading clarity.billing_claim_events_v (is_internal = 0; org_id = 0 is a sentinel). Do not add cache helpers and do not change SQL. LprRepossessionsQuery docblock is the t3 edit if t4 lands in the same file; do not fork a second copy of that paragraph.",
+      "target_files": [
+        "app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php",
+        "app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php",
+        "app/Clickhouse/Queries/LprRepossessionsQuery.php",
+        "app/Filament/Widgets/Dashboard/UniqueLprCaseClaims.php",
+        "tests/Unit/Clickhouse/CompanyMetricsCacheScopeTest.php"
+      ],
+      "intended_diffs": "Class docblocks gain the per-class AC-5 sentence. New source-level test reads UniqueLprCaseClaimsQuery.php and asserts it does not declare function shared. UniqueLprCaseClaims monthly cache key in a widget test still starts with the snake of the class name. No SQL diff.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "CompanyMetricsCacheScopeTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple"
+    }
+  ],
+  "next_phase": "Provision (waits fleet ledger). Do not mark phase=provisioned in this run."
+}

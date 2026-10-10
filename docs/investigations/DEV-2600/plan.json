@@ -1,0 +1,104 @@
+{
+  "key": "DEV-2600",
+  "track": "feature",
+  "phase": "planned",
+  "gate": "CLEAN",
+  "authoritative": true,
+  "product_php": true,
+  "product_vue": true,
+  "claude_first": {
+    "preflight": 23,
+    "primary": "docs/investigations/DEV-2600/claude-plan-draft.md",
+    "model": "claude-opus-5",
+    "effort": "high",
+    "cloud_review": "docs/investigations/DEV-2600/cloud-plan-review.md",
+    "cloud_agent": "bc-d7db0f46-b1b2-5ee5-aaf1-9ec8c460f846",
+    "cloud_verdict": "REQUEST_CHANGES",
+    "reconcile": "docs/investigations/DEV-2600/claude-plan-reconcile.md",
+    "adopted_must_fix": "ScannerMap watch visibleOrderTiers → updateOverlayLayers() only"
+  },
+  "input": "docs/investigations/DEV-2600/prep-context.json",
+  "base_sha": "f52b5d85afadb3adc7e01d4153d603de9050e08b",
+  "branch": "cursor/dev-2600-density-legend-filter-f382",
+  "branch_path": "holding_scout",
+  "pr": 476,
+  "first_glance": "42171",
+  "answers": {
+    "Q1": {
+      "id": "band-set",
+      "option": "B",
+      "text": "Split combined 10+ into Kit User Path 10–24 and 25+ on the SAME unioned Direct+Staging Orders layer. Do NOT un-union Direct and Staging."
+    }
+  },
+  "preflight": {
+    "24": "smallest change — Kit toggle pattern onto existing Orders legend; no new abstraction",
+    "25": "does_not_fire",
+    "26": "holding_scout"
+  },
+  "files": [
+    {
+      "path": "app/Clickhouse/Queries/HotlistAddressGeohashQuery.php",
+      "change": "Five-band getCombinedTier / Color / Label; rewrite :223–227 docblock"
+    },
+    {
+      "path": "tests/Unit/Clickhouse/Queries/HotlistAddressGeohashQueryTest.php",
+      "change": "Five-band tier/label asserts; rewrite color test; rename both …cap_at_ten methods"
+    },
+    {
+      "path": "resources/js/clarity-scout/stores/map.js",
+      "change": "visibleOrderTiers reactive Set + toggleOrderTier + ORDER_TIERS, exported"
+    },
+    {
+      "path": "resources/js/clarity-scout/components/DashboardOverlay.vue",
+      "change": "Five clickable legend rows + isTierVisible; rewrite :331–333 comment"
+    },
+    {
+      "path": "resources/js/clarity-scout/components/ScannerMap.vue",
+      "change": "Paint-time tier filter in updateOverlayLayers + sibling watch"
+    },
+    {
+      "path": "public/build/**",
+      "change": "npm run build, committed with the source change"
+    },
+    {
+      "path": "resources/js/clarity-scout/components/HelpPanel.vue:346–356",
+      "change": "Optional. If in: 5th swatch stop + \"1 → 25+\" only"
+    }
+  ],
+  "steps": [
+    "1. PHP five-band split in HotlistAddressGeohashQuery.php:228–256 (tier_10_plus → tier_10_24 + tier_25_plus; Kit colors; ASCII hyphen labels; rewrite docblock)",
+    "2. Store: ORDER_TIERS + visibleOrderTiers reactive Set (all on) + toggleOrderTier beside activeHeatmaps; export; not persisted",
+    "3. Legend: rewrite DashboardOverlay.vue:331–354 comment + five clickable rows via ORDER_LEGEND v-for; isTierVisible must spread Set; keep beside ordersActive",
+    "4. Paint-time filter in ScannerMap.vue:1215–1237 — spread visibleOrderTiers, filter features by properties.tier, guard layers.push on non-empty",
+    "5. MUST watch sibling to activeHeatmaps watch (:1841): watch(() => [...mapStore.visibleOrderTiers], () => updateOverlayLayers()) only — never syncHeatmaps/fetchOrdersHeatmap",
+    "6. Explicitly unchanged: fetchOrdersHeatmap sends no tiers; date/driver/zone untouched; Direct+Staging stay unioned; no cache bust"
+  ],
+  "out_of_scope": [
+    "Live Hit Density legend and HitDirectHotspotQuery (DEV-2601 — do not touch recentHits)",
+    "Un-unioning Direct and Staging",
+    "Porting Kit tierConditions HAVING filter or checkbox chrome",
+    "A tiers param on /map/heatmap/orders",
+    "A shared legend component",
+    "A bottom-of-map legend",
+    "A Playwright spec",
+    "Any okf/ edit"
+  ],
+  "test": {
+    "phpunit": "Rewrite HotlistAddressGeohashQueryTest: rename both cap_at_ten methods; assert 10/24→tier_10_24 and 25/30→tier_25_plus; rewrite color test body (assert #7B1FA2 at 10, #4A148C at 25, count 5); labels 12→10-24, 40→25+. Run: php artisan test --compact --filter=HotlistAddressGeohashQueryTest. Keep #[Group] attrs.",
+    "browser": "Driver map Direct Orders on: hide 5–9; independent multi-band on/off; pan keeps hidden band gone; all-off drops layer; date/driver/zone/Map Layers unaffected; org map same buttons; count 10–24 paints #7B1FA2.",
+    "build": "npm run build + commit public/build same commit"
+  },
+  "risks": [
+    "Immediate color change on deploy: count 10–24 cells #4A148C → #7B1FA2 even with all bands on — state in PR body",
+    "public/build large generated diff — required same commit; do not hand-edit hashed assets",
+    "DEV-2601 shares DashboardOverlay/ScannerMap — keep hunks inside Orders block / beside ordersActive",
+    "Wiki queued not written: okf/concepts/scout-clickhouse-queries.md:263 goes stale; post-approval pass",
+    "HelpPanel optional — if left out note in PR body (stays 4-stop / 1 → 10+)"
+  ],
+  "provision": {
+    "needs_galadriel_path_a": true,
+    "needs_docker_ch": true,
+    "reason": "Browser multi-band cells; filter itself is client-side GeoJSON properties.tier"
+  },
+  "help_panel": "optional"
+}

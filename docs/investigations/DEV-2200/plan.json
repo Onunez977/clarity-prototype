@@ -1,0 +1,32 @@
+{
+  "key": "DEV-2200",
+  "sizing": {"core_files": 2, "test_files": 2, "concerns": 1, "split_recommended": false},
+  "perf_gate": {"required": false, "reason": "No query change — the ->get() runs today; only in-memory ->map() gains 4 keys. Zero CH cost delta."},
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Add vehicle description fields to both recentHits projections (driver + admin) + pin with tests",
+      "approach": "In each recentHits() ->map(), append the 4 keys (vehicle_year, vehicle_make, vehicle_model, hotlist_us_state) as plain $hit-> reads, mirroring ClarityScoutMapController::hits() (L262-265) verbatim. No query/select change, no Vue change, no asset rebuild. TDD: extend/add controller-test assertions that the recentHits payload now carries all 4 keys, matching the pin/hits payload; run red->green.",
+      "target_files": [
+        "app/Http/Controllers/Api/ClarityScoutDashboardController.php",
+        "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php"
+      ],
+      "intended_diffs": "ClarityScoutDashboardController.php ~L149: after 'lng' => ..., add 'vehicle_year' => $hit->vehicle_year, 'vehicle_make' => $hit->vehicle_make, 'vehicle_model' => $hit->vehicle_model, 'hotlist_us_state' => $hit->hotlist_us_state. Same 4 lines in ClarityScoutBirdsEyeController.php ~L582 (after its 'lng'). Tests: extend Dashboard test_can_get_recent_hits (~L296) OR add test_recent_hits_includes_vehicle_description mirroring test_recent_hits_includes_lat_lng (~L562), seeding a hit with non-null vehicle_year/make/model + hotlist_us_state and asserting all 4 present in data[0]; add the equivalent recentHits key-list assertion in ClarityScoutBirdsEyeControllerTest.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "recent_hits",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex",
+      "notes": "complexity=complex only because it touches >1 file (two mirror controllers + their tests); it is a single additive concern with no blast radius. Model resolves to sonnet either way. hotlist_us_state/vehicle_* are Nullable(String) — seed non-null values in the test fixture so the assertions are meaningful."
+    }
+  ],
+  "excluded_sites": [
+    {"site": "ClarityScoutMapController::hits (L262-265)", "reason": "Already emits the 4 fields — reference pattern, not a bug."},
+    {"site": "ClarityScoutBirdsEyeController::hits (L327-341)", "reason": "Already emits the 4 fields."},
+    {"site": "ClarityScoutTripsController day/show builders", "reason": "Already ->select() and emit the 4 fields."},
+    {"site": "MapShell.vue / stores/map.js", "reason": "Already renders the keys when present; no change, no rebuild."}
+  ]
+}

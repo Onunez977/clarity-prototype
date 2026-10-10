@@ -1,0 +1,152 @@
+{
+  "key": "DEV-2546",
+  "generated_at": "2026-09-15T13:20:00Z",
+  "gate": "CLEAN",
+  "mode": "normal",
+  "synthesis": "Add four filter-reactive metric cards above the Hits table. The four same-named dashboard widgets cannot be reused: they read clarity.hit_stats_daily, a per-org/per-day rollup with no plate/VIN/order/disposition/kit/client/lienholder/location dimension, so they structurally cannot answer a filtered question. New purpose-built header widgets on ListHits are required, sourcing counts from the SAME query the table uses.",
+  "scope": {
+    "summary": "New header widgets on ListHits wired to Filament's handleTableFilterUpdates() choke point, plus the HasClickableFilter bypass, computing counts over the same buildClickhouseQuery()/buildPostgresQuery() base via applyFiltersToTableQuery().",
+    "target_files": [
+      "app/Filament/Resources/HitsResource/Pages/ListHits.php",
+      "app/Filament/Concerns/HasClickableFilter.php",
+      "app/Filament/Widgets/HitMetricCards/LiveHitsMetricCard.php",
+      "app/Filament/Widgets/HitMetricCards/HistoricalHitsMetricCard.php",
+      "app/Filament/Widgets/HitMetricCards/StagingLiveHitsMetricCard.php",
+      "app/Filament/Widgets/HitMetricCards/StagingHistoricalHitsMetricCard.php",
+      "app/Clickhouse/Queries/HitMetricCardsQuery.php",
+      "tests/Filament/Resources/HitsResourceTest.php",
+      "tests/Feature/Clickhouse/HitMetricCardsQueryTest.php"
+    ],
+    "out_of_scope": [
+      "Modifying the four existing Company Metrics dashboard widgets or clarity.hit_stats_daily \u2014 different question (org-wide, date-bucketed), architecturally unrelated",
+      "Adding deduped-by-plate 'unique' counting unless Q1 resolves that way",
+      "Changing the Hits filter definitions themselves \u2014 only reacting to them is in scope",
+      "Any change to hits_hot/hits_cold schema or the CDC/MV pipeline"
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Four metric cards appear above the hits table: Live Hits, Direct Historical Hits, Staging Live Hits, Staging Historical Hits",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "via ListHits::getHeaderWidgets()"
+    },
+    {
+      "item": "Each card displays the filtered count and a secondary 'X total hits' label",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Stat::make()->description(); exact meaning gated on Q1/Q2"
+    },
+    {
+      "item": "Cards update whenever any left-pane filter is applied, changed, or reset",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "handleTableFilterUpdates() choke point + the HasClickableFilter bypass"
+    },
+    {
+      "item": "Cards and table always reflect the same underlying filtered dataset",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "reuse applyFiltersToTableQuery() over the same base builder; branch on the same shouldUseClickhouse()"
+    },
+    {
+      "item": "Cards display correctly across all screen sizes without layout overflow",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Filament header-widget responsive grid; CompanyMetricsOverview columnSpan precedent"
+    }
+  ],
+  "questions": [
+    {
+      "q": "Reuse vs parallel for the four existing dashboard widgets",
+      "answered": true,
+      "answer": "Cannot reuse \u2014 hit_stats_daily has no filter dimensions and the widgets are non-mounted data adapters. Build new; carry over only the visual convention.",
+      "source": "code"
+    },
+    {
+      "q": "How does a Filament header widget get the page's live filter state here?",
+      "answered": true,
+      "answer": "No ListRecords page in this app uses header widgets today. Use Filament's handleTableFilterUpdates() single choke point + a Livewire event, and ALSO hook HasClickableFilter::addFilter()/addQueryFilter(), which bypass it.",
+      "source": "code"
+    },
+    {
+      "q": "Do both the ClickHouse and Postgres paths need the cards?",
+      "answered": true,
+      "answer": "Yes \u2014 the cards must branch on the same shouldUseClickhouse() the table uses, or they desync for orgs without the clickhouse:hits flag.",
+      "source": "code"
+    },
+    {
+      "q": "What does the secondary 'X total hits' number mean \u2014 an org-wide unfiltered grand total, or the same filtered set's raw non-deduped count under a deduped headline?",
+      "answered": true,
+      "answer": "Same filtered set: the headline is the deduped count, the secondary is the RAW (non-deduped) hit count for the same filtered dataset. Matches the existing dashboard convention ->description(number_format($total).' total hits').",
+      "source": "human:Dalton 2026-09-15"
+    },
+    {
+      "q": "If 'total hits' is filtered-but-non-deduped, what time window does it cover \u2014 the active Hit Date filter (defaults to today), or all time?",
+      "answered": true,
+      "answer": "Follows the active Hit Date filter like every other filter. No special-casing \u2014 preserves the 'cards and table always show the same dataset' invariant.",
+      "source": "human:Dalton 2026-09-15"
+    },
+    {
+      "q": "Should the new count apply FINAL on hits_cold? The table's own query does not, and hits_cold carries a documented ~1.33x un-merged duplicate residue for some orgs.",
+      "answered": true,
+      "answer": "No FINAL. Match the table's existing query exactly, duplicates included. Cards and table must agree (AC-4); the ~1.33x hits_cold residue is pre-existing and out of scope for this ticket.",
+      "source": "human:Dalton 2026-09-15"
+    }
+  ],
+  "blockers": [],
+  "data_impact": {
+    "pg_tables": [
+      "hits",
+      "hotlist",
+      "scans",
+      "scans_metadata",
+      "kits",
+      "orgs"
+    ],
+    "ch_tables": [
+      "hits_hot",
+      "hits_cold"
+    ],
+    "mv_or_cdc_implications": "none \u2014 read-only aggregate over existing tables",
+    "indexes_relied_on": "existing hits filter predicates"
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "new app/Clickhouse/Queries/*Query.php issuing an aggregate COUNT/GROUP BY over hits_hot/hits_cold on every filter change",
+    "driving_tables": [
+      {
+        "table": "hits",
+        "source": "zod.public_hits",
+        "prod_rows": 318165105,
+        "group_by": "kit_id",
+        "largest_group_rows": 7737992
+      }
+    ],
+    "growth": "largest single kit already ~7.7M of 318M rows; an org may own several",
+    "schedule": null,
+    "allocation_sketch": "per-request query cost, not per-process memory accumulation \u2014 the DEV-2342 per-org-loop failure class does not apply",
+    "oracle_status": "ok",
+    "unresolved": [
+      "no latency measurement for a representative filtered aggregate against hits_cold at production scale \u2014 validate during build/QA (recorded as an open risk, not a blocker: oracle_status=ok and the driving-table cardinality IS measured)"
+    ]
+  },
+  "missed_caller_candidates": [],
+  "notes": [
+    "HasClickableFilter::addFilter()/addQueryFilter() bypass handleTableFilterUpdates() \u2014 hooking only the choke point silently violates AC-3 for filter chips",
+    "DateTogglesFilter hits.created_at defaults to 'today' \u2014 easy to overlook as a filter the cards must react to",
+    "project_hits_cold_unmergeable_duplicates: bare count() on hits_cold over-counts ~1.33x for some orgs; hits_hot is clean",
+    "DECIDED 2026-09-15: secondary number = raw count of the SAME filtered set; follows the date filter; no FINAL (match the table)."
+  ],
+  "escalation": {
+    "triggers_fired": [
+      "confidence 62 < 80",
+      "escalate.recommend=true",
+      "3 answered:false questions",
+      "scale_relevant with unresolved cardinality/latency"
+    ],
+    "deep_path_run": false,
+    "deep_path_skip_reason": "All three open questions are product semantics (what 'total hits' means, its window, FINAL policy). N=3 blind candidates re-derive code facts the single pass already grounded and cannot answer a product question, so the fan-out would not change the gate. Recorded rather than silently skipped."
+  },
+  "confidence": 62
+}

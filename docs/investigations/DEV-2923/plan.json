@@ -1,0 +1,190 @@
+{
+  "key": "DEV-2923",
+  "phase": "ultra-plan",
+  "gate": "CLEAN",
+  "confidence": 92,
+  "verdict": "APPROVE-with-adopted-changes",
+  "branch": "cursor/dev-2923-ch-timeout-log-context-4838",
+  "branch_path": "main→main",
+  "base": "main",
+  "base_sha": "1eaf006989221ec50e29d1ef9b4956299fe50600",
+  "pr": {
+    "number": 502,
+    "url": "https://github.com/insight-lpr/platform/pull/502",
+    "draft": true,
+    "base": "main"
+  },
+  "first_glance": {
+    "comment_id": "43033",
+    "verdict": "Ready",
+    "branch_path": "main→main"
+  },
+  "open_questions": [],
+  "platform_vs_package": "platform-only",
+  "package_pr": false,
+  "escalate_before_implement": false,
+  "product_php": false,
+  "changes_adopted": [
+    {
+      "id": 1,
+      "title": "Rewrite AC-1 forced-timeout recipe for server code 159",
+      "delta": "Test-local clarity_clickhouse: timeout_query=2, timeout_connect=5, retries=0; settings timeout_before_checking_execution_speed=0 + max_block_size=1; SELECT * FROM numbers(100000000); assert ch_code===159 + TIMEOUT_EXCEEDED. Not written to config/.env/dashboard constants."
+    }
+  ],
+  "nits_adopted": [
+    {
+      "id": 1,
+      "title": "App\\ caller invoker + no-App\\ fallback",
+      "delta": "Drive curl-error select from App\\ frame; use App\\Jobs\\TrackAnalytics for write path; timeout numbers() asserts null caller_* fallback"
+    },
+    {
+      "id": 2,
+      "title": "write()/statement failure + shared private emit",
+      "delta": "Assert statement=write via TrackAnalytics; one private emit for select+write overrides"
+    },
+    {
+      "id": 3,
+      "title": "redactBindings accepts formatValue types",
+      "delta": "Unit-cover null/bool/int/float/DateTimeInterface/array/__toString/string; throw must not swallow log"
+    },
+    {
+      "id": 4,
+      "title": "server_elapsed_ms best-effort",
+      "delta": "Pass on ch_code===159 + TIMEOUT_EXCEEDED; parse elapsed <n> ms only; null still passes"
+    },
+    {
+      "id": 5,
+      "title": "Success-path write SQL outside RequiresClickhouse",
+      "delta": "SELECT 1 via statement() in FailureLoggingTest; never bare TRUNCATE; keep AC-2 off RequiresClickhouse class"
+    },
+    {
+      "id": 6,
+      "title": "Typed timeout properties",
+      "delta": "Copy timeout_query/timeout_connect/retries/settings max_execution_time into typed props; do not retain raw config (credentials)"
+    },
+    {
+      "id": 7,
+      "title": "Relativize caller_file",
+      "delta": "Repo-root relative paths from debug_backtrace"
+    },
+    {
+      "id": 8,
+      "title": "Keep bindings_redacted key",
+      "delta": "Do not rename to bindings (extract_sql_queries.py would splice redacted values)"
+    },
+    {
+      "id": 9,
+      "title": "Empty insert unenriched",
+      "delta": "Cannot insert empty values throws before write(); leave unenriched; HTTP failures still hit write()"
+    },
+    {
+      "id": 10,
+      "title": "audit-card-query-sql reflection OK",
+      "delta": "Verified; no script edit"
+    }
+  ],
+  "nits_rejected": [],
+  "acs": [
+    {
+      "id": "AC-1",
+      "text": "Forced CH timeout: db_error includes SQL + caller/route enough to name query without system.query_log",
+      "landing": "LoggingClickhouseHttpClient select/write catch → db-error; forced-159 Docker recipe as Change 1"
+    },
+    {
+      "id": "AC-2",
+      "text": "Successful queries unchanged beyond log I/O",
+      "landing": "hrtime only on success; log only in catch; zero db-error on SELECT 1 select+statement"
+    },
+    {
+      "id": "AC-3",
+      "text": "No credentials; truncation documented",
+      "landing": "4096 head-biased; credential regex; bindings_redacted separate; typed props exclude password"
+    },
+    {
+      "id": "AC-4",
+      "text": "Org-469-style 159 before/after on PR",
+      "landing": "Same forced local 159; stock vs logging client; org-469 query not run"
+    }
+  ],
+  "files": [
+    {
+      "path": "app/Clickhouse/Logging/LoggingClickhouseHttpClient.php",
+      "action": "create"
+    },
+    {
+      "path": "app/Clickhouse/Logging/LoggingClickhouseConnection.php",
+      "action": "create"
+    },
+    {
+      "path": "app/Providers/AppServiceProvider.php",
+      "action": "modify"
+    },
+    {
+      "path": "tests/Feature/Clickhouse/ClickhouseFailureLoggingTest.php",
+      "action": "create"
+    },
+    {
+      "path": "tests/Feature/Clickhouse/ClickhouseTimeoutLoggingTest.php",
+      "action": "create"
+    },
+    {
+      "path": "tests/Unit/Clickhouse/ClickhouseLogRedactionTest.php",
+      "action": "create"
+    }
+  ],
+  "hard_stops": [
+    "logging_only",
+    "no_timeout_budget_changes",
+    "no_product_query_rewrites",
+    "no_LprRepossessions_HeldFlexibleCache_retune",
+    "no_laravel_clickhouse_pr",
+    "cloud_ch_readonly",
+    "no_dev_2904_path_a_twin",
+    "not_org_469_query_fix",
+    "soft_27_na",
+    "no_product_php_in_plan_phase"
+  ],
+  "forced_timeout_recipe": {
+    "connection": "clarity_clickhouse",
+    "host": "127.0.0.1",
+    "port": 8123,
+    "timeout_query": 2,
+    "timeout_connect": 5,
+    "retries": 0,
+    "curl_budget_seconds": 7,
+    "settings": {
+      "timeout_before_checking_execution_speed": 0,
+      "max_block_size": 1
+    },
+    "sql": "SELECT * FROM numbers(100000000)",
+    "assert": ["ch_code === 159", "TIMEOUT_EXCEEDED in message"],
+    "scope": "test-local config()+DB::purge only; never config/database.php .env .env.testing defaults or dashboard constants"
+  },
+  "truncation": {
+    "chars": 4096,
+    "bias": "head",
+    "suffix": "…[truncated N chars]",
+    "sql_original_length": true
+  },
+  "provision": {
+    "mode": "fleet_docker_ch_twin",
+    "provisioned": false,
+    "own_twin": true,
+    "steal_dev_2904": false,
+    "needs": [
+      "real Docker ClickHouse (not pgsql mirror)",
+      "CLICKHOUSE_DRIVER=clickhouse",
+      "literal clarity/zod DB names",
+      "forced-timeout test needs no seed"
+    ],
+    "next": "Request LIVE fleet ledger for DEV-2923 (separate from DEV-2904), then Provision"
+  },
+  "sources": {
+    "draft": "claude-plan-draft.md",
+    "review": "cloud-plan-review.md",
+    "reconcile": "claude-plan-reconcile.md",
+    "cloud_agent": "bc-9dd40489",
+    "review_tip": "ff86442c65123b5d3f8c2f708dab7d7eb7839b5b",
+    "sealed_after": "reconcile"
+  }
+}

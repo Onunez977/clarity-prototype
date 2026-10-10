@@ -1,0 +1,509 @@
+{
+  "gate": "CLEAN",
+  "mode": "normal",
+  "synthesis": "DEV-2386 repoints both Scout check-in query classes off the zod CDC address chain onto clarity.scout_open_addresses (live 2026-08-18, ~4.5M rows / 1,965 orgs), adds a 45-minute staleness gate to scout:record-check-ins before the concurrency slot, and re-enables the commented schedule. AC-1 is absolute: neither ScoutCheckInMatchQuery nor ScoutCheckInRollupQuery may retain a reference to zod.public_hotlist_address or zod.public_address. Coordinates come from the new table's lng/lat. Preserve the semantic difference (matcher: hotlist_id + Direct-wins argMin; rollup: neither, counts a shared address in both buckets), not the public_address join. CROSS JOIN bbox stays (ORDER BY has no geo prefix; 1.55M vs 1.97M rows on the org 14 slice). Config key is book_freshness_minutes (matches lookback_minutes). Rollup consumer is ClarityScoutDashboardController:254 \u2014 signature unchanged, but its feature test seeds the old tables. Schema re-export is platform-side via .claude/commands/chlocal.md from Herd/chlocal, resolved from the main checkout not this worktree.",
+  "scope": {
+    "summary": "Rewrite both matcher and rollup onto scout_open_addresses, add the staleness gate, re-enable the schedule, update fixtures/schema/seeder/tests, and land the three okf pages named in AC-7.",
+    "proposed_changes": [
+      {
+        "file": "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php",
+        "change": "Replace the zod CTE chain with clarity.scout_open_addresses; CROSS JOIN bbox; keep Direct-wins argMin, hotlist_id, ::handle().",
+        "reason": "AC-1 + work items 1-6",
+        "ref": "ticket AC-1"
+      },
+      {
+        "file": "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php",
+        "change": "Same address-source swap; keep dual-bucket countIf and ::query(cache: true) signature.",
+        "reason": "AC-1; dashboard consumer signature-stable",
+        "ref": "ClarityScoutDashboardController.php:254"
+      },
+      {
+        "file": "app/Console/Commands/ScoutRecordCheckIns.php",
+        "change": "Staleness gate before acquireConcurrencySlot: max(refreshed_at) older than book_freshness_minutes or empty/epoch \u2192 Log::warning + report(RuntimeException) + SUCCESS.",
+        "reason": "AC-5",
+        "ref": "CloseInactiveShiftsCommand empty-max idiom"
+      },
+      {
+        "file": "config/scout.php",
+        "change": "Add book_freshness_minutes default 45, env SCOUT_CHECK_INS_BOOK_FRESHNESS_MINUTES, no call-site fallback.",
+        "reason": "DEV-2342 single-default discipline",
+        "ref": "config/scout.php header"
+      },
+      {
+        "file": "routes/console.php",
+        "change": "Uncomment scout:record-check-ins schedule.",
+        "reason": "Work item 11 / AC-6; AC-4 is human QA before merge",
+        "ref": "routes/console.php:58-69"
+      },
+      {
+        "file": "tests/Feature/Console/ScoutRecordCheckInsScheduleTest.php",
+        "change": "Flip absent-event pin to registered-event pin.",
+        "reason": "AC-6",
+        "ref": "ticket"
+      },
+      {
+        "file": "tests/Unit/Clickhouse/Queries/ScoutCheckInMatchQueryParityTest.php",
+        "change": "Re-seed onto scout_open_addresses; rewrite CDC-version test as new-table dedupe; pin Direct-wins.",
+        "reason": "AC-3",
+        "ref": "parity test exists"
+      },
+      {
+        "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+        "change": "Re-seed; add stale/fresh/empty-book gate cases.",
+        "reason": "AC-5",
+        "ref": "ticket"
+      },
+      {
+        "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsMemoryTest.php",
+        "change": "Re-seed address fixtures onto the new table.",
+        "reason": "AC-8 fixtures",
+        "ref": "ticket"
+      },
+      {
+        "file": "tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php",
+        "change": "Re-seed check-in-counts fixtures onto the new table.",
+        "reason": "Missed caller; exercises rewritten rollup",
+        "ref": "backstop"
+      },
+      {
+        "file": "tests/Concerns/RequiresClickhouse.php",
+        "change": "Add clarity.scout_open_addresses; keep zod.public_address / public_hotlist_address for geohash.",
+        "reason": "AC-8",
+        "ref": "ticket"
+      },
+      {
+        "file": "database/schema/local-clickhouse-schema.sql",
+        "change": "Full CREATE TABLE matching chlocal DDL, not a comment stub.",
+        "reason": "AC-8 / work item 8",
+        "ref": "ticket"
+      },
+      {
+        "file": "database/seeders/ClarityScoutClickhouseSeeder.php",
+        "change": "Add scout_open_addresses to $tables (pgsql REPLICA IDENTITY FULL bridge).",
+        "reason": "AC-8",
+        "ref": "seeder line 69"
+      },
+      {
+        "file": "database/schema/clickhouse-schema.sql",
+        "change": "Re-export via /chlocal from Herd/chlocal cloud exports. Do not hand-write DDL.",
+        "reason": "AC-7",
+        "ref": ".claude/commands/chlocal.md"
+      },
+      {
+        "file": "okf/concepts/check-in.md",
+        "change": "Book membership is now \u226415 min + refresh-lag stale.",
+        "reason": "AC-7",
+        "ref": "ticket item 10"
+      },
+      {
+        "file": "okf/concepts/scout-check-in-recorder.md",
+        "change": "MV-backed matcher + staleness gate + re-enabled schedule.",
+        "reason": "AC-7",
+        "ref": "ticket item 10"
+      },
+      {
+        "file": "okf/concepts/scout-clickhouse-queries.md",
+        "change": "Both classes read scout_open_addresses; CROSS JOIN bbox.",
+        "reason": "AC-7",
+        "ref": "ticket item 10"
+      }
+    ],
+    "target_files": [
+      "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php",
+      "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php",
+      "app/Console/Commands/ScoutRecordCheckIns.php",
+      "config/scout.php",
+      "routes/console.php",
+      "tests/Feature/Console/ScoutRecordCheckInsScheduleTest.php",
+      "tests/Unit/Clickhouse/Queries/ScoutCheckInMatchQueryParityTest.php",
+      "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+      "tests/Feature/Console/Commands/ScoutRecordCheckInsMemoryTest.php",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php",
+      "tests/Concerns/RequiresClickhouse.php",
+      "database/schema/local-clickhouse-schema.sql",
+      "database/seeders/ClarityScoutClickhouseSeeder.php",
+      "database/schema/clickhouse-schema.sql",
+      "okf/concepts/check-in.md",
+      "okf/concepts/scout-check-in-recorder.md",
+      "okf/concepts/scout-clickhouse-queries.md"
+    ],
+    "out_of_scope": [
+      "clarity.hotlist_address / recoveries_mv staleness repair",
+      "org-batched matcher",
+      "blank kit_mapping telemetry gap",
+      "mv_lag false-positive on clarity.kits",
+      "DEV-1758 open-status re-verify at push time (flag only)",
+      "HotlistAddressGeohashQuery public_address usage",
+      "ClarityScoutDashboardController.php (signature-stable unless return keys change)",
+      "Extracting hotlistOrgFilter to a shared helper",
+      "bbox clamping / lookback_minutes change",
+      "Hand-authored Cloud DDL"
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Both query classes read clarity.scout_open_addresses; no remaining reference to zod.public_hotlist_address / zod.public_address in either.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "AC-1"
+    },
+    {
+      "item": "Per-kit matcher on real prod kits (org 14): p50 < 400 ms AND read_rows < 2M.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "AC-2; measured on production ClickHouse"
+    },
+    {
+      "item": "Old-vs-new parity diff on kits with real matches (0-vs-0 does not count) before merge.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "AC-3; measured on production ClickHouse"
+    },
+    {
+      "item": "One full manual scout:record-check-ins prod cycle < 5 min, flat host memory.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "AC-4; human QA before merge; schedule uncomment still ships in this PR"
+    },
+    {
+      "item": "Staleness gate: MV paused \u2192 skip with counted, surfaced failure.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "AC-5"
+    },
+    {
+      "item": "Schedule re-enabled and ScoutRecordCheckInsScheduleTest updated; host pct_usable flat afterwards.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "AC-6; host flat is human QA"
+    },
+    {
+      "item": "okf pages updated and okf-lint green; clickhouse-schema.sql re-exported.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "AC-7; three named pages only (scout-dashboard-stats.md deferred)"
+    }
+  ],
+  "questions": [
+    {
+      "q": "Confirm org 14 is Scout-enabled app-side (clarity-scout permission + Pennant) before treating it as the AC-2 gate org.",
+      "answered": true,
+      "answer": "Doesn't matter \u2014 do not block on app-side enablement confirmation.",
+      "source": "human:Dalton 2026-08-18"
+    },
+    {
+      "q": "Where are AC-2, AC-3, and AC-4 measured \u2014 production ClickHouse Cloud / the prod host, or staging? Local fixtures cannot reproduce the ticket numbers.",
+      "answered": true,
+      "answer": "Production ClickHouse (and the prod host for AC-4 cycle timing).",
+      "source": "human:Dalton 2026-08-18"
+    },
+    {
+      "q": "Feature-route design approval: proceed with the ticket's specified design (both query classes onto scout_open_addresses, CROSS JOIN bbox, 45-min staleness gate, schedule uncomment in this PR, AC-4/AC-6 host verify as human QA before merge)?",
+      "answered": true,
+      "answer": "Yes \u2014 proceed with the ticket's specified design.",
+      "source": "human:Dalton 2026-08-18"
+    },
+    {
+      "q": "Is org 14's 973,257-row book slice the largest scout_open_addresses group, or only the sampled Scout org? The resource envelope's worst case depends on this. Proceed with 973k as the sizing figure, or measure max(org) first?",
+      "answered": true,
+      "answer": "Treat 973k as the sizing figure. Do not measure max(org) first.",
+      "source": "human:Dalton 2026-08-18"
+    },
+    {
+      "q": "Ticket AC-7 names three okf pages (check-in.md, scout-check-in-recorder.md, scout-clickhouse-queries.md). scout-dashboard-stats.md:90 also documents the old rollup CDC chain. Include that fourth page in this PR?",
+      "answered": true,
+      "answer": "No \u2014 stick to the three pages named in AC-7. Do not include scout-dashboard-stats.md.",
+      "source": "human:Dalton 2026-08-18"
+    },
+    {
+      "q": "Config key name for the staleness gate?",
+      "answered": true,
+      "answer": "book_freshness_minutes (env SCOUT_CHECK_INS_BOOK_FRESHNESS_MINUTES, default 45). Matches lookback_minutes / slot_lease_minutes in config/scout.php; mv_staleness_minutes leaks storage mechanism.",
+      "source": "code"
+    },
+    {
+      "q": "Is chlocal present for schema re-export?",
+      "answered": true,
+      "answer": "Yes at /Users/daltonmccleery/Herd/chlocal. Resolve sibling from the main checkout (/Users/daltonmccleery/Herd/platform), not this worktree. STOP if cloud export files are missing; do not invent DDL.",
+      "source": "code"
+    },
+    {
+      "q": "Does the dashboard controller need a code change?",
+      "answered": true,
+      "answer": "No if rollup keeps query(array, cache: true) and return shape. Controller test fixtures must still be re-seeded.",
+      "source": "code"
+    },
+    {
+      "q": "Keep the max(_peerdb_version) join on public_address for geo?",
+      "answered": true,
+      "answer": "No. AC-1 forbids remaining public_address references. lng/lat come from scout_open_addresses.",
+      "source": "ticket"
+    },
+    {
+      "q": "local-clickhouse-schema.sql: full CREATE TABLE or comment stub?",
+      "answered": true,
+      "answer": "Full CREATE TABLE matching chlocal DDL (ticket work item 8).",
+      "source": "ticket"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "lookback_minutes stays 15 (Dalton 2026-08-18). Raising to 25 withdrawn.",
+    "Bbox clamping withdrawn (comment 38388): pathological kit was kit_mapping=''.",
+    "Do not extract hotlistOrgFilter unless the rewrite forces it.",
+    "Schedule uncomment ships in this PR; AC-4/AC-6 host verify is human QA before merge.",
+    "okf writes happen during implement (this ticket's AC-7), not during prep.",
+    "RequiresClickhouse must KEEP zod.public_address / public_hotlist_address for HotlistAddressGeohashQuery.",
+    "Parity test's CDC-version case must be rewritten, not deleted.",
+    "PHP 8.3 only.",
+    "DEV-1758 follow-up: must re-verify open status at push time once book membership is up to 15 minutes stale.",
+    "Phase 2: org 14 enablement doesn't matter; AC-2/3/4 venue = prod ClickHouse; design approved; 973k sizing; okf three pages only."
+  ],
+  "tests": [
+    {
+      "file": "tests/Unit/Clickhouse/Queries/ScoutCheckInMatchQueryParityTest.php",
+      "what_it_pins": "Matcher vs rollup grain; Direct-wins vs both-buckets; rewrite CDC-version case onto new table"
+    },
+    {
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+      "what_it_pins": "Command path + new staleness-gate cases"
+    },
+    {
+      "file": "tests/Feature/Console/ScoutRecordCheckInsScheduleTest.php",
+      "what_it_pins": "Schedule registration (flip from absent to present)"
+    },
+    {
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsMemoryTest.php",
+      "what_it_pins": "Peak RSS; re-seed onto new table"
+    },
+    {
+      "file": "tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php",
+      "what_it_pins": "Dashboard check-in-counts through rewritten rollup"
+    },
+    {
+      "file": "tests/Feature/Console/ScoutRecordCheckInsOverrunSignalTest.php",
+      "what_it_pins": "Overrun signal; re-run after gate (no fixture change expected)"
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php:135",
+      "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php:118",
+      "app/Console/Commands/ScoutRecordCheckIns.php:49",
+      "app/Http/Controllers/Api/ClarityScoutDashboardController.php:254",
+      "config/scout.php:1",
+      "routes/console.php:58",
+      "tests/Unit/Clickhouse/Queries/ScoutCheckInMatchQueryParityTest.php:1",
+      "tests/Concerns/RequiresClickhouse.php:15"
+    ],
+    "code_flow": "ScoutRecordCheckIns::handle \u2192 [NEW freshness gate] \u2192 acquireConcurrencySlot \u2192 per-org/per-kit ScoutCheckInMatchQuery::handle \u2192 insertOrIgnore scout_check_ins. Dashboard: ClarityScoutDashboardController \u2192 ScoutCheckInRollupQuery::query(cache: true).",
+    "tables": [
+      "clarity.scout_open_addresses",
+      "clarity.sc_positions",
+      "clarity.scans_hot",
+      "clarity.scans_cold",
+      "platform.scout_check_ins"
+    ],
+    "related_components": [
+      "ClickhouseQuery::clarityDb()",
+      "Org::stagingOrgIds()",
+      "CloseInactiveShiftsCommand empty-max idiom",
+      "ClarityScoutDashboardController"
+    ]
+  },
+  "exhaustiveness": {
+    "patterns": [
+      "public_hotlist_address",
+      "public_address",
+      "hotlistOrgFilter",
+      "scout:record-check-ins",
+      "scout_open_addresses",
+      "ScoutCheckInMatchQuery",
+      "ScoutCheckInRollupQuery"
+    ],
+    "sites": [
+      {
+        "file": "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php",
+        "line": 135,
+        "verdict": "buggy",
+        "reason": "zod CTE chain; rewrite onto scout_open_addresses",
+        "variant": "matcher"
+      },
+      {
+        "file": "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php",
+        "line": 118,
+        "verdict": "buggy",
+        "reason": "zod CTE chain; rewrite onto scout_open_addresses",
+        "variant": "rollup"
+      },
+      {
+        "file": "app/Clickhouse/Queries/HotlistAddressGeohashQuery.php",
+        "line": 140,
+        "verdict": "safe",
+        "reason": "Different surface (heatmap), out of scope",
+        "variant": "other"
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutDashboardController.php",
+        "line": 254,
+        "verdict": "safe",
+        "reason": "Caller; signature-stable if return shape holds",
+        "variant": "caller"
+      },
+      {
+        "file": "app/Console/Commands/ScoutRecordCheckIns.php",
+        "line": 49,
+        "verdict": "buggy",
+        "reason": "Needs staleness gate before slot",
+        "variant": "command"
+      },
+      {
+        "file": "routes/console.php",
+        "line": 63,
+        "verdict": "buggy",
+        "reason": "Schedule commented; uncomment",
+        "variant": "schedule"
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [
+      "platform.scout_check_ins (insertOrIgnore, unchanged contract)"
+    ],
+    "ch_tables": [
+      "clarity.scout_open_addresses (new read)",
+      "clarity.sc_positions (unchanged GPS read)",
+      "clarity.scans_hot / scans_cold (unchanged rollup read)",
+      "zod.public_hotlist_address / zod.public_address (removed from these two classes only)"
+    ],
+    "mv_or_cdc_implications": "scout_open_addresses is a chlocal-owned full-refresh table/MV. Platform is SELECT-only. Staleness gate is the platform-side guard. No CDC writes.",
+    "indexes_relied_on": [
+      "scout_open_addresses ORDER BY (org_id, is_staged, hotlist_id, address_id) \u2014 no geo, bbox prefilter required"
+    ]
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "Scheduled command + two ClickHouse query classes + routes/console.php",
+    "driving_tables": [
+      {
+        "table": "clarity.scout_open_addresses",
+        "source": "ticket measurement 2026-08-18",
+        "prod_rows": 4505508,
+        "group_by": "org_id",
+        "largest_group_rows": 973257
+      },
+      {
+        "table": "platform.kits",
+        "source": "prod-cardinality.sh zod CDC",
+        "prod_rows": 5527,
+        "group_by": "org_id",
+        "largest_group_rows": 283
+      }
+    ],
+    "growth": "DEV-2342: fleet 29\u219243 kits and 11\u219212 orgs in one day. Book grows with open orders.",
+    "schedule": {
+      "expression": "everyFiveMinutes",
+      "interval_seconds": 300,
+      "without_overlapping_minutes": 10
+    },
+    "allocation_sketch": "Memory O(matches) after DEV-2342 W2/W3. 2-slot semaphore. Rewrite removes per-kit book re-derivation. CROSS JOIN bbox ~1.55M read_rows on org 14 slice. Schedule re-enable is the operational blast radius. Operator accepted 973k as the sizing figure (Dalton 2026-08-18).",
+    "oracle_status": "ok",
+    "unresolved": []
+  },
+  "derivation_log": [
+    {
+      "query_shape": "prod-cardinality.sh --app clarity --table kits:org_id",
+      "param_classes": "none",
+      "aggregate_result": "total 5527; largest org_id=1 n=283; org 14 n=201; oracle ok",
+      "why": "Per-org kit fan-out bound"
+    },
+    {
+      "query_shape": "prod-cardinality.sh --app clarity --table scout_check_ins:org_id",
+      "param_classes": "none",
+      "aggregate_result": "unavailable (no zod.public_scout_check_ins)",
+      "why": "N/A \u2014 writes are insertOrIgnore of match rows"
+    },
+    {
+      "query_shape": "ticket: count() / org-14 slice on clarity.scout_open_addresses",
+      "param_classes": "none",
+      "aggregate_result": "4505508 rows / 1965 orgs; org 14 slice 973257 (155/549 granules)",
+      "why": "CH driving table; not in PG CDC oracle"
+    },
+    {
+      "query_shape": "ticket EXPLAIN CROSS JOIN vs scalar bbox",
+      "param_classes": "org-14 kit window",
+      "aggregate_result": "1553766 vs 1967227 read_rows; 19 matches both",
+      "why": "AC-2 headroom"
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC-1",
+        "kind": "agent",
+        "intent": "rg public_address|public_hotlist_address on both query files \u2192 0"
+      },
+      {
+        "ac": "AC-5",
+        "kind": "agent",
+        "intent": "phpunit stale/fresh/empty-book cases"
+      },
+      {
+        "ac": "AC-6 code",
+        "kind": "agent",
+        "intent": "schedule test asserts registration"
+      },
+      {
+        "ac": "AC-7",
+        "kind": "agent",
+        "intent": "okf-lint 0 + schema dump contains scout_open_addresses"
+      },
+      {
+        "ac": "AC-2",
+        "kind": "human",
+        "intent": "p50/read_rows on org 14 kits at chosen venue"
+      },
+      {
+        "ac": "AC-3",
+        "kind": "human",
+        "intent": "old-vs-new parity on kits with real matches"
+      },
+      {
+        "ac": "AC-4/AC-6 host",
+        "kind": "human",
+        "intent": "one full cycle <5 min, flat memory/pct_usable"
+      }
+    ],
+    "seed_scenario": "Seed scout_open_addresses with a Direct+Staging shared address, GPS/scans inside 160.934 m, refreshed_at=now(). Assert matcher Direct-wins and rollup both-buckets. Second seed with refreshed_at=now-50min asserts the command skips.",
+    "personas": [
+      "Scout-enabled driver",
+      "org with empty staging list",
+      "org with staging partners"
+    ],
+    "pg_tables": [
+      "platform.scout_check_ins"
+    ],
+    "ch_tables": [
+      "clarity.scout_open_addresses",
+      "clarity.sc_positions",
+      "clarity.scans_hot"
+    ]
+  },
+  "confidence": 90,
+  "escalate": {
+    "recommend": false,
+    "reason": "Phase 2 answers folded; gate CLEAN."
+  },
+  "missed_caller_candidates": [
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutDashboardController.php",
+      "symbol": "ScoutCheckInRollupQuery::query",
+      "referenced_at": "254"
+    },
+    {
+      "file": "tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php",
+      "symbol": "zod.public_address fixtures",
+      "referenced_at": "115"
+    }
+  ]
+}

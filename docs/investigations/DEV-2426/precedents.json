@@ -1,0 +1,16 @@
+{
+  "recall_model": "haiku",
+  "note": "Input for prep candidates only — never copied as decisions. The recall sub-agent mis-attributed the per-place election to DEV-2342; it was DEV-2414 (corrected here by the driver against the merged code).",
+  "precedents": [
+    {"key": "DEV-2414", "status": "In Code Review (merged to main via PR #367)", "relevance": "The direct predecessor: made the matcher elect one address per (geo, hour, is_staged) but deliberately left the storage key at (kit_id, address_id, hour_bucket) — no schema change by design. Its class docblock documents this exact gap as accepted-not-fixed.", "verdict": "applicable", "why": "DEV-2426 closes the residual gap DEV-2414 named. Its artifacts (docs/investigations/DEV-2414/) carry the AC4 prediction methodology and the book cluster distribution."},
+    {"key": "DEV-2386", "status": "Done", "relevance": "Moved matcher + rollup onto clarity.scout_open_addresses (the 15-min MV book) and re-enabled the schedule.", "verdict": "applicable", "why": "The book's 15-minute full rebuild IS the churn engine that drives winner flips — mechanism 2 in this ticket."},
+    {"key": "DEV-2342", "status": "Done", "relevance": "Production OOM on this same recorder surface; introduced the N-slot concurrency semaphore and the resource-envelope discipline.", "verdict": "applicable", "why": "Sets the resource-envelope bar for any change to this command; NOT the origin of the per-place election (recall sub-agent erred)."},
+    {"key": "DEV-2348", "status": "Done", "relevance": "Slot lease must stay <= lookback_minutes.", "verdict": "not-applicable", "why": "Concurrency/lease coupling is untouched by a uniqueness-key change."},
+    {"key": "DEV-2339", "status": "Done", "relevance": "ScoutOpenOrderAddressesQuery timeout (CH error 159).", "verdict": "not-applicable", "why": "That query class is upstream and superseded by the book; this ticket adds no new CH scan breadth."},
+    {"key": "DEV-1756", "status": "Done", "relevance": "Origin spec; its per-address running count is derived as COUNT(*) WHERE address_id = ?.", "verdict": "applicable", "why": "Constrains the design: if the new uniqueness key drops the both-sides row for a co-located Direct/Staging pair, that address reads as never visited."}
+  ],
+  "knowledge_cards_matched": [
+    "knowledge/clarity/scout.md",
+    "knowledge/clickhouse/core.md"
+  ]
+}

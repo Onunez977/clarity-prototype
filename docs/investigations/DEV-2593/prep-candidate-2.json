@@ -1,0 +1,342 @@
+{
+  "synthesis": "DEV-2593 reports Scout users cannot be re-added after deletion because email stays registered. Root cause: User model uses SoftDeletes (User.php:101) + users.email has DB-level unique constraint (migration line 14) + Laravel's unique() validation does NOT exclude soft-deleted rows by default. When admin deletes Scout user via UsersResource (soft-delete), email remains blocked. The resend_onboarding action EXISTS (added by the earlier resend-onboarding hotfix, lines 356-412 ScoutUsersResource.php) but only helps unverified users who still have the permission \u2014 it doesn't solve the deleted-user-email-reuse problem. Ticket's 'disable/delete/re-add' workaround fails at re-add because unique validation (ScoutUsersResource:140, UsersResource:58-65) checks ALL users including trashed. Second issue: AC2 'invalidate prior token' is NOT implemented \u2014 both old and new signed URLs remain valid until 7-day expiry. ScoutSetPasswordController guards reuse after password-set via email_verified_at, but pre-password multiple valid links coexist.",
+  "scope": {
+    "summary": "Fix unique email validation to exclude soft-deleted users in both resources. Enhance error messaging when collision is with trashed user (suggest restore path). Clarify resend-invalidation requirement (AC2). Add test coverage for soft-delete + email reuse. Document restore flow for deleted Scout users.",
+    "proposed_changes": [
+      {
+        "file": "app/Filament/Resources/ScoutUsersResource.php",
+        "change": "Replace unique() validation on new_user_email (line 140) with Illuminate\\Validation\\Rule::unique('users', 'email')->whereNull('deleted_at')->ignore(null). Add custom validation closure to detect trashed-user collision and return actionable error: 'This email belongs to a deleted user ({name}). Restore them in Users, then re-enable Scout access here.'",
+        "reason": "Current unique(ignoreRecord: false) includes soft-deleted users. Must exclude trashed rows so email can be reused. Enhanced error guides admin through proper restore flow instead of bare rejection.",
+        "ref": "ScoutUsersResource.php:136-144"
+      },
+      {
+        "file": "app/Filament/Resources/ScoutUsersResource.php",
+        "change": "Update existing_user_email custom validation (lines 154-170) to exclude trashed: User::where('email', \\$value)->whereNull('deleted_at')->when(\\$assignedUserId, \u2026). Same enhanced error for trashed collision.",
+        "reason": "Covers attach-existing-user path. Current validation checks all users; must exclude deleted.",
+        "ref": "ScoutUsersResource.php:154-170"
+      },
+      {
+        "file": "app/Filament/Resources/UsersResource.php",
+        "change": "Replace unique() on email (line 58-65) with Rule::unique('users', 'email')->whereNull('deleted_at')->ignoreRecord(true). Update validationMessages to include trashed-user guidance.",
+        "reason": "Same root cause affects general Users resource. Soft-deleted user's email must be reusable. ignoreRecord:true already correct (edit mode), just need whereNull.",
+        "ref": "UsersResource.php:54-65"
+      },
+      {
+        "file": "app/Notifications/ScoutOnboardingNotification.php",
+        "change": "CONDITIONAL (if AC2 strict interpretation required): Add users.onboarding_nonce column (nullable string, default null). Include in signed route params. Increment on resend. Validate in ValidateScoutSignedUrl. OR document that overlapping-valid-links is acceptable.",
+        "reason": "AC2 'invalidates the prior one' is not implemented. Current: both URLs valid until 7-day expiry. ScoutSetPasswordController guards post-password reuse (email_verified_at), but pre-password multiple links coexist. Versioning adds complexity; overlapping-valid-links may be acceptable tradeoff. Escalate for product decision.",
+        "ref": "ScoutOnboardingNotification.php:24-35"
+      },
+      {
+        "file": "app/Http/Middleware/ValidateScoutSignedUrl.php",
+        "change": "CONDITIONAL (if nonce implemented): Add nonce validation after signature check. Reject if user.onboarding_nonce != request('nonce'). Return 'This link has been replaced by a newer one' instead of generic invalid signature.",
+        "reason": "Enforcement point for AC2 strict. Must fail gracefully with helpful message.",
+        "ref": "ValidateScoutSignedUrl.php (not read but known from middleware chain)"
+      },
+      {
+        "file": "tests/Filament/Resources/ScoutUsersResourceTest.php",
+        "change": "Add test_soft_deleted_user_releases_email_for_reuse: soft-delete user via UsersResource, create new Scout user with same email, assert success. Add test_trashed_email_collision_shows_helpful_error: attempt create with trashed user's email, assert error names user and suggests restore. Add test_resend_invalidates_prior_url (if AC2 versioning): resend, verify old URL fails with 'replaced by newer' message.",
+        "reason": "No test coverage for soft-delete + email reuse (critical bug). No test for resend invalidation (AC2). Existing tests (lines 387-424) only cover active-user collision.",
+        "ref": "ScoutUsersResourceTest.php:387-551 (existing tests)"
+      },
+      {
+        "file": "tests/Filament/Resources/UsersResourceTest.php",
+        "change": "Add test_soft_deleted_user_releases_email_for_reuse_in_general_users_resource: soft-delete user, create new user with same email (no Scout), assert success.",
+        "reason": "Same bug affects UsersResource. Test the fix on that surface too.",
+        "ref": "UsersResourceTest.php:94-124 (existing trashed filter test)"
+      }
+    ],
+    "target_files": [
+      "app/Filament/Resources/ScoutUsersResource.php",
+      "app/Filament/Resources/UsersResource.php",
+      "app/Notifications/ScoutOnboardingNotification.php",
+      "app/Http/Middleware/ValidateScoutSignedUrl.php",
+      "app/Http/Controllers/Auth/ScoutSetPasswordController.php",
+      "tests/Filament/Resources/ScoutUsersResourceTest.php",
+      "tests/Filament/Resources/UsersResourceTest.php",
+      "database/migrations/YYYY_MM_DD_HHMMSS_add_onboarding_nonce_to_users.php (if AC2 strict)"
+    ],
+    "out_of_scope": [
+      "sibling Scout password-reset work (explicitly out of scope)",
+      "Zone assignment logic (separate concern)",
+      "Vehicle type management (unrelated to email/invite)",
+      "Force-login token mechanics (admin impersonation, separate from onboarding)",
+      "UsersResource delete/restore UI improvements (already functional, just needs docs)",
+      "General email verification flows (non-Scout users)"
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Clarity \u2192 Scout Users provides a 'Resend invite' action for any user who has not yet set a password",
+      "source": "ticket AC1",
+      "decision": "already-implemented",
+      "reason": "resend_onboarding action exists at ScoutUsersResource.php:356-412 (added by the earlier resend-onboarding hotfix per precedents.json). Visible when user has clarity-scout permission AND email_verified_at IS NULL (line 365-375). Sends fresh ScoutOnboardingNotification (line 389), logs activity (lines 403-411), shows success notification (lines 391-394). Test coverage at ScoutUsersResourceTest.php:528-551. Reporter may not have seen it due to visibility conditions, or issue predates that hotfix merge (~48 days ago)."
+    },
+    {
+      "item": "Resending issues a fresh invite token and invalidates the prior one",
+      "source": "ticket AC2",
+      "decision": "not-implemented",
+      "reason": "Current implementation generates new temporarySignedRoute (ScoutOnboardingNotification.php:28-33, 7-day TTL) but does NOT invalidate prior URL. Both old and new signed URLs remain cryptographically valid until their respective expiry. ScoutSetPasswordController guards reuse AFTER password-set via email_verified_at check (line 71-73), so once user sets password, ALL links (old and new) become 'used'. But BEFORE password-set, user who never clicked first link can use either URL. If strict single-use-per-resend is required, needs versioning/nonce (add users.onboarding_nonce column, include in signed params, validate in ValidateScoutSignedUrl, increment on resend). Trade-off: adds complexity (migration, validation logic, error messaging) vs current behavior which is secure post-password and only allows overlap pre-password. ESCALATE: is overlapping-valid-links-until-first-use acceptable, or must prior link be cryptographically invalidated immediately on resend?"
+    },
+    {
+      "item": "Deleting a Scout user releases their email address for reuse, OR the UI explains that the user already exists and offers 'Resend invite' / 'Re-enable' instead of a bare rejection",
+      "source": "ticket AC3",
+      "decision": "broken-must-implement",
+      "reason": "CRITICAL BUG. unique() validation on users.email does NOT exclude soft-deleted rows. User model uses SoftDeletes (User.php:101), users table has unique constraint on email (migration line 14), but Laravel's unique() rule checks ALL rows including deleted_at IS NOT NULL. When admin deletes Scout user via UsersResource DeleteAction (soft-delete, UsersResource.php:215-218, labeled 'Disable User' at EditUsers.php:31), user row remains with email + deleted_at set, blocking reuse. Attempting to create new Scout user with that email fails with 'This email address is already in use.' (ScoutUsersResource.php:142) \u2014 no mention of trashed user or restore path. Must fix: (1) add whereNull('deleted_at') to unique validation at ScoutUsersResource.php:140 and UsersResource.php:58-65, and ScoutUsersResource.php:154-170 custom validation; (2) enhance error message to detect trashed collision (User::where('email', \\$email)->onlyTrashed()->first()) and suggest 'This email belongs to a deleted user ({{name}}). Restore them in Users \u2192 re-enable Scout access here.'"
+    },
+    {
+      "item": "Re-enabling a disabled user restores their prior access without requiring deletion",
+      "source": "ticket AC4",
+      "decision": "already-implemented",
+      "reason": "Disable = revoke clarity-scout permission via toggle_web_access action (ScoutUsersResource.php:414-488, line 446). Re-enable = grant permission again (line 459), sends onboarding email if unverified (lines 462-464). User is NOT deleted; kit assignment is NOT cleared on disable. If admin used UsersResource soft-delete (different from disable), restore via RestoreAction (UsersResource.php:220-224), then re-enable Scout access via toggle_web_access or EditScoutUser form. Disable/re-enable flow works correctly; the confusion arises from two removal paths (disable vs soft-delete) and the email-reuse bug on soft-delete. Test coverage: ScoutUsersResourceTest.php:316-341 (revoking then granting), 509-524 (toggle sends email to unverified), 572-588 (toggle does NOT email verified)."
+    },
+    {
+      "item": "The already-registered error message names the existing user and the available action",
+      "source": "ticket AC5",
+      "decision": "partially-implemented-enhance",
+      "reason": "Current error: 'This email address is already in use.' (ScoutUsersResource.php:142, UsersResource.php:64, ScoutUsersResource.php:167 custom validation). Does NOT name the existing user or suggest actions. Must enhance to detect collision type and provide guidance: (a) trashed user \u2192 'This email belongs to a deleted user ({{name}}). Restore them in Users, then re-enable Scout access.'; (b) active unverified Scout user \u2192 'This email is already assigned to {{name}} (pending). Use Resend invite if needed.'; (c) active verified user \u2192 'This email is already assigned to {{name}}.' Use User::where('email', \\$value)->first() (or withTrashed()->first() to check trashed), inspect deleted_at, email_verified_at, hasPermissionTo('clarity-scout') to determine message."
+    }
+  ],
+  "questions": [
+    {
+      "q": "Is AC2 'invalidates the prior one' a hard requirement requiring cryptographic invalidation (versioning/nonce), or is overlapping-valid-links acceptable given that (a) both links expire after 7 days, (b) post-password-set all links are guarded by email_verified_at, (c) only pre-password overlap allows dual-valid links?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-escalation-product"
+    },
+    {
+      "q": "What is the intended Scout user removal flow: (1) disable only (revoke clarity-scout permission via toggle_web_access, user remains active), or (2) soft-delete allowed (UsersResource DeleteAction, user.deleted_at set)? If soft-delete is valid, email MUST be released (fix unique validation). If disable-only is intended, document that Scout users should NOT be soft-deleted, only disabled.",
+      "answered": false,
+      "answer": null,
+      "source": "needs-escalation-product"
+    },
+    {
+      "q": "Does 'delete' in the ticket refer to soft-delete (UsersResource DeleteAction, sets deleted_at) or disable (ScoutUsersResource toggle_web_access, revokes clarity-scout permission)?",
+      "answered": true,
+      "answer": "Almost certainly soft-delete. ScoutUsersResource.canDelete() returns false (line 502-505), so no delete action is exposed there. UsersResource HAS DeleteAction (line 215-218, soft-delete). Reporter's 'disable/delete/re-add' sequence suggests they used UsersResource delete (sets deleted_at), which leaves email blocked. The 're-add' attempt then hits unique constraint. If they had only used toggle_web_access (disable), email would not be blocked, but they couldn't 'delete' from Scout Users resource (action doesn't exist).",
+      "source": "code-inspection"
+    },
+    {
+      "q": "Should resend_onboarding action be visible for users who have expired link but haven't set password (email_verified_at still NULL)?",
+      "answered": true,
+      "answer": "YES, already the case. Action is visible when user.email_verified_at IS NULL AND user.hasPermissionTo('clarity-scout') (ScoutUsersResource.php:365-375). Expired link is just a signature-check failure; email_verified_at remains NULL, so resend action stays visible. This is correct behavior \u2014 user with expired link needs resend.",
+      "source": "code-inspection"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "The resend-onboarding hotfix (precedents.json, Done ~48 days ago) introduced resend_onboarding action as HOTFIX for 'new scout user 403 Invalid signature on set-password'. Ticket DEV-2593 filed 2026-09-16. Possible timeline: reporter's issue predates that hotfix, or visibility rules hid action, or action exists but doesn't solve deeper email-reuse problem (this ticket's real bug).",
+    "Scout knowledge card (scout.md:5-12) warns 'ticket grounding on Scout goes stale fast' and instructs 'verify every doesn't exist claim against current main'. In this case, resend_onboarding DOES exist (contrary to possible ticket assumption), but email-reuse bug is separate and real.",
+    "User model SoftDeletes trait at line 101. Migration 0001_01_01_000000_create_users_table.php line 14: \\$table->string('email')->unique()->nullable(). DB-level unique constraint does NOT exclude deleted_at. Laravel unique() validation rule also does NOT exclude soft-deleted rows by default \u2014 must explicitly add whereNull('deleted_at') or withoutTrashed() scope.",
+    "ScoutUsersResource models Kit (line 37: protected static ?string \\$model = Kit::class), not User directly. The form creates/attaches User via EditScoutUser page (ScoutUsersResource/Pages/EditScoutUser.php:54-156 mutateFormDataBeforeSave). This is why delete action is disabled \u2014 deleting Kit is not the intent; deleting/disabling User is.",
+    "UsersResource query uses withoutGlobalScope(SoftDeletingScope::class) at line 228, so trashed users ARE visible in admin list (with red background, line 230). RestoreAction is available (line 220-224). This is the proper restore path for deleted Scout user, but it's two-step: restore in Users, then re-enable Scout access in Scout Users. Not intuitive; better error messaging helps.",
+    "ScoutSetPasswordController guards link reuse via email_verified_at check (not by invalidating URL). Once password is set (email_verified_at marked, line 118-121 in controller), guardUser method (lines 66-84) aborts with 'already used' error. But BEFORE password-set, multiple active URLs can coexist (overlapping resends). After password-set, ALL URLs (old and new) are 'used'.",
+    "The invite-link invalid-signature fix (precedents.json, Done ~16 days ago) fixed 'Invalid signature on Scout invite link' \u2014 relevant to AC2 if we implement nonce-based invalidation, as it shows signature validation is already a known pain point.",
+    "Test coverage: ScoutUsersResourceTest.php has resend action test (lines 528-551), duplicate email tests for active users (lines 387-424), toggle web access tests (lines 428-605). UsersResourceTest.php has trashed filter test (lines 94-124) and Scout provisioning tests (lines 226-634). MISSING: test for soft-delete + email reuse scenario (the bug), and test for resend invalidating prior URL (AC2).",
+    "Filament unique() rule uses Illuminate\\Validation\\Rule under the hood. To exclude soft-deleted rows, replace ->unique(table, column, ignoreRecord) with Rule::unique(table, column)->whereNull('deleted_at')->ignore(recordIdOrNull)."
+  ],
+  "tests": [
+    {
+      "file": "tests/Filament/Resources/ScoutUsersResourceTest.php",
+      "what_it_pins": "Resend onboarding action: test_resend_onboarding_sends_email_for_unverified_scout_user (lines 528-551) verifies action visible, sends ScoutOnboardingNotification, logs activity. Resend hidden for verified: test_resend_onboarding_is_hidden_for_verified_users (lines 555-568). Duplicate email blocking: test_duplicate_email_is_blocked_for_a_new_user (lines 387-403) and test_duplicate_email_is_blocked_for_an_existing_user (lines 407-424) \u2014 both test active-user collision, NOT trashed-user collision (the bug). Toggle web access: test_toggle_web_access_grants_then_revokes_permission (lines 428-447), test_toggle_web_access_sends_onboarding_email_to_unverified_user (lines 509-524), test_toggle_web_access_does_not_email_an_already_verified_user (lines 572-588). MISSING: soft-delete + email reuse test, resend-invalidation test."
+    },
+    {
+      "file": "tests/Filament/Resources/UsersResourceTest.php",
+      "what_it_pins": "Trashed filter: test_can_see_trashed (lines 94-124) verifies UsersResource table filters show/hide trashed users, confirming soft-delete + restore UI works. Scout provisioning: test_can_create_scout_user_with_kit_and_role (lines 265-295), test_editing_user_turns_scout_access_on_and_ties_kit (lines 374-404), test_editing_user_turns_scout_access_off_revokes_and_clears_kit_tie (lines 409-437). MISSING: email reuse after soft-delete test on general Users resource."
+    },
+    {
+      "file": "tests/Feature/Notifications/ScoutOnboardingNotificationTest.php",
+      "what_it_pins": "Email rendering: test_sign_off_renders_a_real_line_break_not_a_literal_br (lines 22-29), test_email_subject_action_and_expiry_are_unchanged (lines 32-42) verifies subject 'Welcome to Clarity Scout', action 'Set Your Password', expiry '7 days'. Signed URL: test_action_url_uses_a_relative_signature_that_survives_http_requests (lines 46-62) verifies relative signature (absolute:false) works behind TLS-terminating proxy. Does NOT test: multiple concurrent valid URLs or resend invalidation."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Filament/Resources/ScoutUsersResource.php \u2014 resend action (356-412), unique validation bug (140, 154-170), visibility rules, toggle_web_access, canDelete:false",
+      "app/Filament/Resources/UsersResource.php \u2014 unique validation bug (58-65), soft-delete action (215-218), restore action (220-224), withoutGlobalScope (228)",
+      "app/Filament/Resources/ScoutUsersResource/Pages/EditScoutUser.php \u2014 create/attach user flow (54-156 mutateFormDataBeforeSave), ScoutOnboardingNotification send (76, 115)",
+      "app/Models/User.php \u2014 SoftDeletes trait (101), fillable (103-111), email_verified_at cast (115)",
+      "app/Notifications/ScoutOnboardingNotification.php \u2014 temporarySignedRoute (28-33), 7-day TTL (17, 43), relative signature (27, 32)",
+      "app/Http/Controllers/Auth/ScoutSetPasswordController.php \u2014 guardUser email_verified_at check (66-84), password set + email verification (118-121)",
+      "app/Support/Scout/ScoutUserProvisioner.php \u2014 UsersResource Scout provisioning (extract:63-75, reconcile:84-143), shared by CreateUsers/EditUsers",
+      "database/migrations/0001_01_01_000000_create_users_table.php \u2014 users.email unique constraint (14), soft deletes (21)"
+    ],
+    "code_flow": "Admin creates Scout user (ScoutUsersResource EditScoutUser) \u2192 toggle create_new_user:true OR select existing user \u2192 mutateFormDataBeforeSave validates email (line 140 or 154-170) \u2192 BLOCKS if collision with trashed user (BUG) \u2192 if passes, User.create or User::find \u2192 KitSettings.updateOrCreate (1:1 kit\u2194user, lines 127-139) \u2192 givePermissionTo('clarity-scout') (line 75 or 112) \u2192 ScoutOnboardingNotification sent if unverified (line 76 or 115) \u2192 User clicks signed URL (7-day TTL) \u2192 ValidateScoutSignedUrl middleware validates \u2192 ScoutSetPasswordController.show (guardUser aborts if email_verified_at set) \u2192 user submits password \u2192 ScoutSetPasswordController.update sets password + email_verified_at (lines 118-121) \u2192 link becomes 'used' for all future attempts (guardUser check). Resend: admin clicks resend_onboarding (line 356) \u2192 new ScoutOnboardingNotification (line 389) \u2192 new signed URL (old URL NOT invalidated, both valid until expiry). Delete: admin uses UsersResource DeleteAction \u2192 User soft-deleted (deleted_at set) \u2192 email STILL blocks reuse (unique constraint includes trashed).",
+    "tables": [
+      "users \u2014 platform connection, email string unique nullable, soft deletes (deleted_at), email_verified_at timestamp nullable",
+      "kit_settings \u2014 platform, kit_id PK, user_id nullable unique (1:1 kit\u2194user), vehicle_type enum nullable",
+      "model_has_roles, model_has_permissions \u2014 Spatie, team_id scoped (setPermissionsTeamId required)"
+    ],
+    "related_components": [
+      "ScoutOnboardingNotification \u2014 7-day temporarySignedRoute, relative signature (TLS-terminating proxy compat), queued (ShouldQueue)",
+      "ValidateScoutSignedUrl middleware \u2014 signature validation, accepts old absolute + new relative signatures",
+      "ScoutSetPasswordController \u2014 guardUser (email_verified_at), password set, email verification, link reuse guard",
+      "ScoutUserProvisioner \u2014 UsersResource Scout controls (checkbox + kit picker), extract/reconcile virtual fields",
+      "the earlier resend-onboarding hotfix \u2014 introduced resend_onboarding action (hotfix ~48 days ago)",
+      "the invite-link invalid-signature fix \u2014 fixed invalid signature on Scout invite link (~16 days ago)",
+      "the sibling password-reset ticket \u2014 sibling ticket: Scout password reset, explicitly out of scope",
+      "ForceHttpsRequest + trusted proxies \u2014 absolute links work behind TLS-terminating nginx/ALB"
+    ]
+  },
+  "exhaustiveness": {
+    "patterns": [
+      "unique.*email \u2014 2 sites: ScoutUsersResource.php:140 (new_user_email), UsersResource.php:58 (email), ScoutUsersResource.php:154-170 (existing_user_email custom validation)",
+      "SoftDeletes \u2014 User.php:101, migration line 21",
+      "whereNull.*deleted_at \u2014 MISSING in unique validation (the bug)",
+      "withTrashed|onlyTrashed \u2014 NOT used in email uniqueness checks (should be for error messaging)",
+      "resend.*onboarding \u2014 ScoutUsersResource.php:356-412 (action), ScoutUsersResourceTest.php:528-551 (test)",
+      "ScoutOnboardingNotification \u2014 notification class, sent on first grant (EditScoutUser:76,115, ScoutUserProvisioner:141) and resend (ScoutUsersResource:389)",
+      "temporarySignedRoute \u2014 ScoutOnboardingNotification.php:28-33, 7-day TTL",
+      "email_verified_at \u2014 User model cast:115, set in ScoutSetPasswordController:118-121, guarded in guardUser:71-73, checked in resend visibility:368",
+      "clarity-scout.*permission \u2014 granted in EditScoutUser:75,112, ScoutUserProvisioner:118, toggle_web_access:459; revoked in EditScoutUser:118, ScoutUserProvisioner:123, toggle_web_access:446",
+      "toggle_web_access \u2014 ScoutUsersResource.php:414-488, grants/revokes clarity-scout, sends onboarding if unverified",
+      "canDelete \u2014 ScoutUsersResource:502-505 returns false; UsersResource has DeleteAction (soft-delete)"
+    ],
+    "sites": [
+      {
+        "file": "app/Filament/Resources/ScoutUsersResource.php",
+        "line_or_symbol": "140 (new_user_email unique validation)",
+        "verdict": "buggy",
+        "reason": "->unique(table: 'users', column: 'email', ignoreRecord: false) does NOT exclude soft-deleted rows. Must replace with Rule::unique('users', 'email')->whereNull('deleted_at')->ignore(null) to allow email reuse after soft-delete."
+      },
+      {
+        "file": "app/Filament/Resources/ScoutUsersResource.php",
+        "line_or_symbol": "154-170 (existing_user_email custom validation)",
+        "verdict": "buggy",
+        "reason": "User::where('email', \\$value)->when(\\$assignedUserId, \u2026)->exists() does NOT exclude trashed. Must add ->whereNull('deleted_at') before ->exists() check. Also needs enhanced error for trashed collision (suggest restore)."
+      },
+      {
+        "file": "app/Filament/Resources/UsersResource.php",
+        "line_or_symbol": "58-65 (email unique validation)",
+        "verdict": "buggy",
+        "reason": "->unique(table: 'users', column: 'email', ignoreRecord: true) does NOT exclude soft-deleted rows. Must replace with Rule::unique('users', 'email')->whereNull('deleted_at')->ignoreRecord(true). ignoreRecord:true is correct for edit mode (excludes current record), just need whereNull for trashed."
+      },
+      {
+        "file": "app/Notifications/ScoutOnboardingNotification.php",
+        "line_or_symbol": "28-33 (temporarySignedRoute)",
+        "verdict": "design-question",
+        "reason": "Generates 7-day signed URL with user.id param. Does NOT invalidate prior URLs (no versioning/nonce). AC2 'invalidates the prior one' is not implemented. This is a design choice, not a bug per se. ScoutSetPasswordController guards post-password reuse (email_verified_at), so security is maintained after first use. Pre-password, multiple valid links can coexist (overlapping resends). ESCALATE: is this acceptable, or must prior link be cryptographically invalidated immediately on resend?"
+      },
+      {
+        "file": "app/Http/Controllers/Auth/ScoutSetPasswordController.php",
+        "line_or_symbol": "66-84 (guardUser, email_verified_at check)",
+        "verdict": "safe",
+        "reason": "Correctly guards against link reuse AFTER password-set via email_verified_at check (line 71-73). If email_verified_at is set, aborts with 'This invitation link has already been used.' Secure. Does NOT prevent multiple valid links BEFORE password-set (overlapping resends until first use). Consistent with current design; versioning would change this."
+      },
+      {
+        "file": "app/Filament/Resources/ScoutUsersResource.php",
+        "line_or_symbol": "356-412 (resend_onboarding action)",
+        "verdict": "correct-but-incomplete",
+        "reason": "Action exists, works correctly, sends fresh ScoutOnboardingNotification, logs activity, shows success notification. Visibility rules (unverified + has clarity-scout) are appropriate. Test coverage exists (ScoutUsersResourceTest.php:528-551). Issue is NOT that action is missing (AC1 satisfied), but that (1) email reuse is blocked by unique constraint on trashed users (AC3 broken), and (2) prior token is not invalidated (AC2 not implemented). Resend action alone doesn't solve the ticket's core problem."
+      },
+      {
+        "file": "app/Filament/Resources/ScoutUsersResource.php",
+        "line_or_symbol": "414-488 (toggle_web_access action)",
+        "verdict": "safe",
+        "reason": "Toggle action grants/revokes clarity-scout permission (lines 446, 459), sends onboarding email if unverified (lines 462-464), handles roleless users (lines 455-457). Correct implementation of disable/re-enable flow (AC4 satisfied). Does NOT soft-delete user; email is NOT blocked on disable. Confusion arises from two removal paths (disable vs soft-delete)."
+      },
+      {
+        "file": "app/Filament/Resources/ScoutUsersResource.php",
+        "line_or_symbol": "502-505 (canDelete)",
+        "verdict": "correct-by-design",
+        "reason": "Returns false, disabling delete action in this resource. Scout users are not deleted via Scout Users resource; they are disabled (toggle_web_access) or soft-deleted via general UsersResource. This is intentional design (Kit-modeled resource doesn't delete Kits). Not a bug, but contributes to confusion about proper removal flow."
+      },
+      {
+        "file": "app/Filament/Resources/UsersResource.php",
+        "line_or_symbol": "215-218, 220-224 (DeleteAction, RestoreAction)",
+        "verdict": "safe",
+        "reason": "Soft-delete and restore actions work correctly. UsersResource query uses withoutGlobalScope(SoftDeletingScope::class) at line 228, so trashed users are visible (red background, line 230). RestoreAction is available for trashed users. This is the proper path for restoring a deleted Scout user, followed by re-enabling Scout access in ScoutUsersResource. Works as designed; just needs better documentation and error messaging to guide admins."
+      },
+      {
+        "file": "database/migrations/0001_01_01_000000_create_users_table.php",
+        "line_or_symbol": "14 (\\$table->string('email')->unique()->nullable())",
+        "verdict": "correct-but-interacts-with-bug",
+        "reason": "DB-level unique constraint on email is correct (prevents duplicate emails in active users). Constraint does NOT exclude deleted_at, which is standard for DB constraints. The bug is in Laravel validation layer (must exclude trashed in unique() rule), not in DB schema. No migration needed; fix is validation logic only."
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [
+      "users \u2014 email column: no schema change (DB-level unique constraint stays). Fix is validation logic (add whereNull('deleted_at') to unique checks). If AC2 versioning implemented: ADD onboarding_nonce column (nullable string, default null) via migration."
+    ],
+    "ch_tables": [],
+    "mv_or_cdc_implications": "None. User management, invite sending, email validation are pure PostgreSQL transactional. No ClickHouse, materialized views, or CDC involved.",
+    "indexes_relied_on": [
+      "users.email unique index (DB-level, includes trashed rows \u2014 this is standard; validation layer must filter)"
+    ]
+  },
+  "resource_envelope": {
+    "scale_relevant": false,
+    "concurrency_sensitive": false,
+    "batch_iterative": false,
+    "reason": "Filament UI admin actions on individual users (create, edit, delete, restore, resend). Email sending is queued (ScoutOnboardingNotification implements ShouldQueue). Validation is O(1) DB lookup. No iterative queries, no batch operations, no scale-sensitive paths. If AC2 versioning implemented, onboarding_nonce increment is single-row UPDATE on users table (trivial)."
+  },
+  "derivation_log": [
+    "Read scout.md knowledge card: warns 'ticket grounding goes stale fast, verify doesn't-exist claims'. Noted that the earlier hotfix added resend_onboarding (precedents.json).",
+    "Read precedents.json: The resend-onboarding hotfix (Done ~48 days ago) introduced resend_onboarding action for 'Invalid signature' hotfix. The invite-link invalid-signature work (Done ~16 days ago) addressed signed-URL failures. Sibling password-reset work (To Do ~1 day ago) is out of scope.",
+    "Read scout-user-assignment.md: confirmed ScoutUsersResource models Kit, not User. ScoutOnboardingNotification is 7-day signed URL. Accessors kit/kit_id read through kitSettings relationship.",
+    "Read ScoutUsersResource.php: resend_onboarding action EXISTS (lines 356-412), visible for unverified Scout users. Unique validation on new_user_email uses ignoreRecord:false (line 140) \u2014 does NOT exclude trashed. Custom validation on existing_user_email (lines 154-170) also missing trashed filter. canDelete returns false (line 502).",
+    "Read EditScoutUser.php: mutateFormDataBeforeSave creates/attaches user (lines 54-156), sends ScoutOnboardingNotification if unverified (lines 76, 115).",
+    "Read User.php: SoftDeletes trait at line 101. email is fillable (line 105), email_verified_at is cast to datetime (line 115).",
+    "Read ScoutOnboardingNotification.php: temporarySignedRoute with 7-day TTL (lines 28-33), relative signature (line 32). No nonce/version param. Does NOT invalidate prior URLs.",
+    "Read UsersResource.php: unique validation on email uses ignoreRecord:true (line 61) \u2014 correct for edit mode, but missing whereNull('deleted_at') (line 58-65). withoutGlobalScope(SoftDeletingScope::class) at line 228 shows trashed users in table. DeleteAction at line 215 (soft-delete), RestoreAction at line 220.",
+    "Read EditUsers.php: DeleteAction labeled 'Disable User' (line 31), confirming soft-delete.",
+    "Read ScoutUserProvisioner.php: UsersResource Scout provisioning (extract/reconcile), sends ScoutOnboardingNotification if shouldNotify (line 141).",
+    "Read create_users_table migration: email unique constraint (line 14), soft deletes (line 21). No partial unique index excluding deleted_at.",
+    "Read ScoutUsersResourceTest.php: resend_onboarding test at lines 528-551. Duplicate email tests at lines 387-424 (active users only, not trashed). No test for soft-delete + email reuse.",
+    "Read ScoutOnboardingNotificationTest.php: email rendering, signed URL tests. No test for resend invalidation or multiple concurrent URLs.",
+    "Read UsersResourceTest.php: trashed filter test at lines 94-124. Scout provisioning tests at lines 226-634. No test for email reuse after soft-delete.",
+    "Grepped for unique validation patterns: ScoutUsersResource.php:140, UsersResource.php:58-65, ScoutUsersResource.php:154-170. All missing whereNull('deleted_at').",
+    "Grepped for withTrashed/onlyTrashed: used in tests and ActivityResource, but NOT in email uniqueness validation (the bug).",
+    "Grepped for ignoreRecord: ScoutUsersResource uses false (line 140, correct for create), UsersResource uses true (line 61, correct for edit). Both need whereNull('deleted_at') added.",
+    "Synthesized: root cause is unique validation includes trashed users. AC1 (resend action) already implemented. AC2 (invalidate prior token) not implemented. AC3 (email release on delete) broken. AC4 (re-enable disabled user) already implemented. AC5 (better error message) not implemented. Two escalation questions: AC2 interpretation, intended removal flow."
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC1 (resend action exists)",
+        "kind": "human",
+        "intent": "Navigate to Scout Users, find unverified Scout user (email_verified_at NULL, has clarity-scout permission). Verify resend_onboarding action is visible in table actions. Click it, confirm success notification. Check email queue (or MailHog/Mailtrap), verify ScoutOnboardingNotification sent with fresh signed URL. Click URL, verify set-password page renders."
+      },
+      {
+        "ac": "AC2 (invalidate prior token)",
+        "kind": "agent-or-human-depending-on-implementation",
+        "intent": "If versioning implemented: create Scout user, capture first invite URL, click resend_onboarding, capture second URL. Attempt to use first URL, verify it fails with 'This link has been replaced by a newer one' (not generic invalid signature). Use second URL, verify it works. If overlapping-valid-links accepted: both URLs work until expiry (current behavior) \u2014 document this tradeoff."
+      },
+      {
+        "ac": "AC3 (email release on delete)",
+        "kind": "agent",
+        "intent": "Create Scout user alice@example.com on Kit A (unverified). Navigate to Users resource (not Scout Users). Soft-delete alice via DeleteAction. Verify row shows in 'With Inactive Users' filter (red background). Attempt to create NEW Scout user (different person) with alice@example.com on Kit B. BEFORE FIX: expect 'This email address is already in use.' AFTER FIX: expect success (email reused) OR enhanced error 'This email belongs to a deleted user (Alice). Restore them in Users, then re-enable Scout access.' Test restore path: restore Alice via UsersResource RestoreAction, navigate to Scout Users, find Kit A, toggle_web_access on (re-enable Scout), verify resend_onboarding visible, click it, verify email sent."
+      },
+      {
+        "ac": "AC4 (re-enable disabled user)",
+        "kind": "human",
+        "intent": "In Scout Users, find Scout user with clarity-scout enabled (toggle_web_access icon shows enabled). Click toggle_web_access, confirm modal 'Disable Scout Access', click confirm. Verify success notification, verify user loses clarity-scout permission (toggle icon now shows disabled). Click toggle_web_access again, confirm modal 'Enable Scout Access', click confirm. Verify success notification, verify user regains clarity-scout permission. If user was unverified, verify onboarding email sent. If user was verified, verify NO email sent."
+      },
+      {
+        "ac": "AC5 (better error message)",
+        "kind": "agent",
+        "intent": "Attempt to create Scout user with email of (a) soft-deleted user (trashed@example.com) \u2192 verify error names user and suggests 'Restore them in Users, then re-enable Scout access'; (b) active unverified Scout user (unverified@example.com) \u2192 verify error names user and suggests 'Use Resend invite if needed'; (c) active verified Scout user (verified@example.com) \u2192 verify error names user ('already assigned'). Covers both ScoutUsersResource (create new) and existing_user_email (attach existing) paths."
+      }
+    ],
+    "seed_scenario": "Scout-enabled org (Pro, clarity_scout flag, Admin user). Create 2 kits: Kit A ('Alpha', GL 001), Kit B ('Bravo', GL 002). Create 3 users: Alice (alice@example.com, Kit A, clarity-scout, unverified email_verified_at NULL), Bob (bob@example.com, Kit B, clarity-scout, verified email_verified_at set), Charlie (charlie@example.com, no Kit, no clarity-scout). Soft-delete Alice via UsersResource. Now: Alice row exists with deleted_at set, email alice@example.com blocked. Attempt to create Carol (carol's real email is alice@example.com) on Kit A \u2192 hits unique constraint bug. Restore Alice \u2192 re-enable Scout on Kit A \u2192 resend onboarding \u2192 verify email sent with fresh URL.",
+    "personas": [
+      "Admin user (ADMIN role, Scout-enabled org, can access both Users and Scout Users resources)",
+      "Unverified Scout user (clarity-scout permission, email_verified_at NULL, has kit assignment, pending onboarding)",
+      "Verified Scout user (clarity-scout permission, email_verified_at set, has kit assignment, active)",
+      "Soft-deleted Scout user (deleted_at set, email still in users table, clarity-scout permission persists on trashed row, not visible in Scout Users but visible in Users with trashed filter)",
+      "Disabled Scout user (clarity-scout permission revoked via toggle_web_access, deleted_at NULL, still active user, no longer appears in Scout-filtered views)"
+    ],
+    "pg_tables": [
+      "users (id, name, email unique, org_id, email_verified_at, password, deleted_at, created_at, updated_at, mobile_phone, clarity_user_id)",
+      "kit_settings (kit_id PK, user_id nullable unique, vehicle_type, created_at, updated_at)",
+      "model_has_permissions (permission_id, model_type='user', model_id=user.id, team_id=org_id)",
+      "model_has_roles (role_id, model_type='user', model_id=user.id, team_id=org_id)"
+    ],
+    "ch_tables": []
+  },
+  "confidence": 80,
+  "escalate": {
+    "recommend": true,
+    "reason": "Two critical ambiguities require product/design decision before implementation can be scoped: (1) AC2 'invalidates the prior one' \u2014 is strict cryptographic prior-token invalidation required (needs users.onboarding_nonce column, versioning in signed URL, validation in middleware, error messaging for 'replaced by newer link'), or is overlapping-valid-links-until-first-use acceptable (simpler, current behavior is secure post-password-set via email_verified_at guard, only pre-password overlap allows dual-valid links)? Versioning adds migration, validation logic, and UX complexity; overlapping-valid-links is simpler and arguably secure enough given 7-day expiry + email_verified_at guard. (2) Intended Scout user removal flow \u2014 should admins soft-delete Scout users via UsersResource (in which case email MUST be released by fixing unique validation, and two-step restore flow must be documented), or should Scout users only be disabled via toggle_web_access (in which case document disable-only policy and warn against UsersResource soft-delete for Scout users, but still fix unique validation to prevent accidental lockout)? Without these clarifications, implementation may solve the wrong problem or miss the intended UX. Recommend product/PM review of both questions, then proceed with clear requirements."
+  }
+}

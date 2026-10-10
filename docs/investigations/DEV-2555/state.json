@@ -1,0 +1,546 @@
+{
+  "key": "DEV-2555",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "Story on Clarity, Sprint 41, no hotfix marker. origin/main @ 4833e815 already contains the prior Total Repossessions batch landing (RecoveryCounts owns the batched denominator) and the viewer-timezone numerator landing (viewer-zone numerators). No stack branch carries this follow-up.",
+  "branch": "cursor/dev-2555-e924",
+  "branch_note": "Cloud agent branch law is cursor/<name>-e924. Fellowship convention claude/DEV-2555 was not used. No qa-prep, so the branch name does not re-key a Herd site.",
+  "phase": "reviewed",
+  "models": {
+    "prep": "grok-4.7",
+    "plan": "grok-4.7",
+    "plan_arbiter": "grok-4.7"
+  },
+  "flags": {
+    "companion": false,
+    "jira_mirror": false,
+    "no_spawn": true,
+    "start_at": "intake",
+    "stop_at": "plan",
+    "implement": true,
+    "qa": false,
+    "review": false
+  },
+  "jira": {
+    "key": "DEV-2555",
+    "id": "31015",
+    "url": "https://insightlpr-team.atlassian.net/browse/DEV-2555",
+    "type": "Story",
+    "status": "To Do",
+    "priority": "Medium",
+    "assignee": "Dalton McCleery",
+    "assignee_account": "712020:3ed4235b-e525-4dec-97c9-84f47098e1d2",
+    "parent": "the parent story",
+    "relates": [
+      "the recovery-totals query landing",
+      "the prior Total Repossessions batch landing"
+    ],
+    "sprint": "Sprint 41",
+    "reget_at": "2026-09-23T18:05:00Z",
+    "comment_ids": {
+      "first_glance": "41178",
+      "obsolete_duplicate": "41327",
+      "build_record": "41334"
+    }
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "provisioned": true,
+    "provisioned_early": true,
+    "provisioning": {
+      "provision_mode": "provision-only",
+      "plans_written": false,
+      "provisioned_phase": "3.5 (early, /ticket)",
+      "bootstrap": "ran",
+      "bootstrap_cmd": "bash .claude/hooks/bootstrap.sh",
+      "deps": "via-bootstrap",
+      "migrations": "ran",
+      "docker_daemon": "n/a",
+      "ch_container": "n/a",
+      "frontend_build": "n/a",
+      "postgres_dev_db": "zod_cursor_dev_2555_e924",
+      "postgres_test_db": "zod_testing_cursor_dev_2555_e924",
+      "ch_strategy": "deferred",
+      "herd_site": "clarity-cursor_dev_2555_e924"
+    },
+    "note": "Provisioned via qa-prep provision-only. ClickHouse deferred; host neutralized to 127.0.0.1. Ledger is on disk only.",
+    "torn_down": false,
+    "torn_down_note": "N/A for Fellowship Docker \u2014 provision was Herd worktree + CH deferred; no clarity-qa-* containers for this key. Mac Herd site left up (Pippin). No Cloud CH. build-record-gate does not require teardown.",
+    "agent_qa": {
+      "verdict": "PASS",
+      "head_sha": "05491bd47c51d4ac0f4267c647c4334083822b5e",
+      "report": ".context/qa-agent-report.md",
+      "ac_results": ".context/qa-ac-results.json"
+    },
+    "ch_teardown": "n/a_deferred_never_started"
+  },
+  "cli_provision": {
+    "status": "done",
+    "next": "frodo"
+  },
+  "escalated": false,
+  "best_of_n": false,
+  "needs_human_interview": false,
+  "escalation_decision": "The forecast gates resolve from code on main. UniqueScansToRepo is deleted. The int payload and the shared window key already exist. No Dalton question remains.",
+  "prep": {
+    "gate": "CLEAN",
+    "confidence": 91,
+    "artifact": "docs/investigations/DEV-2555/prep-context.json"
+  },
+  "gate": {
+    "result": "CLEAN",
+    "blocked_questions": [],
+    "resolved": [
+      "Q1",
+      "Q2",
+      "Q3"
+    ],
+    "source": "code on main @ 4833e815 plus the earlier window-key correction's decisions record, re-share"
+  },
+  "scope_lock": {
+    "at": "2026-09-23T18:06:00Z",
+    "source": "tree, not a new Dalton signature",
+    "ship": [
+      "docblock truth on RecoveryTotalsBatchQuery",
+      "window shared-key assertion that fails if the write is removed",
+      "named int pin beside the existing month assertion"
+    ],
+    "out": [
+      "SQL",
+      "cache key strings",
+      "UniqueScansToRepo",
+      "ScanPlateStatsBatchQuery",
+      "the parked scans-stats cache follow-up"
+    ],
+    "gate": "CLEAN"
+  },
+  "plan": {
+    "artifact": "docs/investigations/DEV-2555/plan.json",
+    "reading": "docs/investigations/DEV-2555/plan.md",
+    "behavior_change": false
+  },
+  "record": {
+    "sprint": "Sprint 41",
+    "path": "A",
+    "subtasks": [
+      {
+        "id": "t1",
+        "status": "done",
+        "title": "RecoveryTotalsBatchQuery docblocks match main"
+      },
+      {
+        "id": "t2",
+        "status": "done",
+        "title": "Window shared-key int pin in RecoveryCountsTest"
+      }
+    ],
+    "tests": [
+      {
+        "cmd": "php artisan test --compact tests/Filament/Widgets/Dashboard/RecoveryCountsTest.php",
+        "passed": 28,
+        "failed": 0,
+        "skipped": 0,
+        "assertions": 95,
+        "duration_s": 6.56,
+        "note": "assertIsInt beside the shared month key (value 9). After one today getCardTotal(), cache()->get(sharedWindowCacheKey(...)) is int 40. reposCalls === 1 on the month test stayed. Key helper output contains neither RecoveryCounts nor WindowStubbingRecoveryCounts."
+      },
+      {
+        "cmd": "php artisan test --compact tests/Feature/Clickhouse/RecoveryTotalsBatchQueryTest.php",
+        "passed": 0,
+        "failed": 0,
+        "skipped": 9,
+        "assertions": 0,
+        "duration_s": 2.62,
+        "note": "ClickHouse group skipped. Worktree .env.testing has CLICKHOUSE_DRIVER=pgsql (qa-prep deferred ClickHouse; host 127.0.0.1). RequiresClickhouse skips before any TRUNCATE. Cloud and production ClickHouse were not written."
+      }
+    ],
+    "okf": "okf/concepts/company-metrics-dashboard.md already records the prior Total Repossessions batch landing, the class_basename cache-key trap, and RecoveryCounts entering through RecoveryTotalsBatchQuery::handle. No sentence claims thirteen Eloquent queries. Wiki not edited.",
+    "review_rn1": {
+      "rn": 1,
+      "lanes": [
+        "correctness",
+        "conventions",
+        "tests"
+      ],
+      "scores": [
+        93,
+        92,
+        91
+      ],
+      "min_score": 91,
+      "lane_sources": [
+        {
+          "lane": "correctness",
+          "source": "in-session-sam"
+        },
+        {
+          "lane": "conventions",
+          "source": "in-session-sam"
+        },
+        {
+          "lane": "tests",
+          "source": "in-session-sam"
+        }
+      ],
+      "reviewed_sha": "04babea2de2e98e0b61c7bc3d84dfa785227c7ef",
+      "rerun_required": false,
+      "act_on": "NONE",
+      "behavior_change": false,
+      "sprint": "Sprint 41",
+      "path": "A",
+      "gate": "REVIEW_GATE: pass min=91 lanes=3 rn=1 sources=in-session-sam:3",
+      "gate_binary": "harness-local",
+      "gate_note": "review-gate.sh is not on this image (filesystem search found none). The gate that printed the pass line is /tmp/harness-review-gate.sh: it reads the three lane Score lines (first 20 lines, regex Score: *[0-9]+/100) and .ai/review-manifest.json, requires MIN>=85 and 3 lanes. Artifacts under .ai/ are on disk for the gate only and are not committed. Sprint 41 Path A. behavior_change false.",
+      "pint": {
+        "cmd": "vendor/bin/pint --test app/Clickhouse/Queries/RecoveryTotalsBatchQuery.php tests/Filament/Widgets/Dashboard/RecoveryCountsTest.php",
+        "result": "passed",
+        "exit": 0
+      },
+      "scores_by_lane": {
+        "correctness": 93,
+        "conventions": 92,
+        "tests": 91
+      }
+    },
+    "review_rn2": {
+      "rn": 2,
+      "review_number": 2,
+      "lanes": [
+        "correctness",
+        "conventions",
+        "blast-radius"
+      ],
+      "scores": [
+        64,
+        90,
+        58
+      ],
+      "min_score": 58,
+      "lane_sources": [
+        {
+          "lane": "correctness",
+          "source": "in-session-sam"
+        },
+        {
+          "lane": "conventions",
+          "source": "in-session-sam"
+        },
+        {
+          "lane": "blast-radius",
+          "source": "in-session-sam"
+        }
+      ],
+      "reviewed_sha": "2e39673b16c604fec5a18efcb55efbde34895170",
+      "rerun_required": true,
+      "act_on": "FRODO. Do not hand Galadriel. safeTimezone() must not return a string new DateTimeZone rejects. On PHP 8.4.25 (cli built Aug 28 2026, Timezone Database internal, Olson 0.system) ALL_WITH_BC has 500 ids and omits US/Central, US/Eastern, US/Pacific, Asia/Calcutta. new DateTimeZone throws for each. timezone_open returns false and warns. America/Chicago, America/New_York, America/Los_Angeles, and Asia/Kolkata construct. ClickHouse accepts toDateTime(..., 'US/Central'). ScanPlateStatsBatchQuery::safeTimezone('US/Central') returns US/Central, then handleSql() throws Carbon\\Exceptions\\InvalidTimeZoneException inside toUtcDatetime() before SQL, and now(tz: 'US/Central') throws the same. RecoveryCounts::ratioMonthlySeries() calls now(tz:) before scansTimezone is stored, so Jeff's test errors instead of asserting US/Central. CompanyMetricsOverview::getStats() has no per-card try, so the throw 500s the grid. Pre-tip UTC fallback did not throw. CST, PST, +05:00, and garbage must stay UTC. Do not copy the unconstructable early return onto KitRangePathsQuery. Shape: keep the four-alias allowlist; if new \\DateTimeZone($alias) succeeds, return the alias (identity-keep); on DateInvalidTimeZoneException return the canonical id (US/Central\u2192America/Chicago, US/Eastern\u2192America/New_York, US/Pacific\u2192America/Los_Angeles, Asia/Calcutta\u2192Asia/Kolkata), never UTC and never throw from safeTimezone(). Do not use timezone_open (it warns). Mirror only on KitScanPathsQuery. One zone for handle() bounds and grouping. Update the contract test and the three widget providers so the expected zone is the alias when constructable and the canonical id when not, and assert new DateTimeZone(safeTimezone($alias)) does not throw and handleSql with timezone US/Central gets past toUtcDatetime. Docblock: identity-keep only when PHP can construct the alias. US/* and America/* are not historically identical; that is not a reason to return an unconstructable string. Re-prove on PHP 8.4.25. Frodo's PHP 8.4.23 run stays green either way.",
+      "next": "Frodo",
+      "sprint": "Sprint 41",
+      "path": "A",
+      "schema_gate": "soft OK",
+      "tip_behavior_change": true,
+      "gate": "REVIEW_GATE: fail min=58 lanes=3 rn=2 sources=in-session-sam:3 (min<85)",
+      "gate_binary": "harness-local",
+      "gate_note": "review-gate.sh is not on this image (filesystem search found none). The gate is /tmp/harness-review-gate.sh: it reads the three lane Score lines (first 20 lines, regex Score: *[0-9]+/100) and .ai/review-manifest.json, requires MIN>=85 and 3 lanes. It printed a fail line and exited non-zero. Artifacts under .ai/ are on disk for the gate only and are not committed. Sprint 41 Path A. Soft OK vs SCHEMA-GATE.",
+      "pint": {
+        "cmd": "vendor/bin/pint --test app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php app/Clickhouse/Queries/KitScanPathsQuery.php tests/Filament/Widgets/Dashboard/RecoveryCountsTest.php tests/Filament/Widgets/Dashboard/UniqueLprCaseClaimsTest.php tests/Filament/Widgets/Dashboard/LprRepossessionsTest.php tests/Unit/Clickhouse/ScanPlateStatsBatchQueryContractTest.php",
+        "result": "passed",
+        "exit": 0
+      },
+      "scores_by_lane": {
+        "correctness": 64,
+        "conventions": 90,
+        "blast-radius": 58
+      }
+    },
+    "review": {
+      "rn": 4,
+      "review_number": 4,
+      "lanes": [
+        "correctness",
+        "conventions",
+        "blast-radius"
+      ],
+      "scores": [
+        92,
+        88,
+        91
+      ],
+      "min_score": 88,
+      "threshold": 85,
+      "lane_sources": [
+        {
+          "lane": "correctness",
+          "source": "in-session-review"
+        },
+        {
+          "lane": "conventions",
+          "source": "in-session-review"
+        },
+        {
+          "lane": "blast-radius",
+          "source": "in-session-review"
+        }
+      ],
+      "reviewed_sha": "9213a42a256a8cbd80af6bd72e47ef62fa7756ae",
+      "branch_tip": "e55353589432d5a1caee9ce1c0b091d28f915bf6",
+      "rerun_required": false,
+      "act_on": "NONE",
+      "next": "Agent QA",
+      "next_note": "Re-run Agent QA on product tip 9213a42 (viewerTimezone + per-card unavailable). Soft OK vs SCHEMA-GATE. Real fleet Docker CH required for CH-touching paths (pgsql stand-in is not a done-signal).",
+      "sprint": "Sprint 41",
+      "path": "A",
+      "schema_gate": "soft OK",
+      "tip_behavior_change": true,
+      "gate": "REVIEW_GATE: pass min=88 threshold=85 lanes=3 rn=4 scores=92/88/91 conventions=88 sources=in-session-review:3 source=lane-min",
+      "gate_binary": "harness-local",
+      "scores_by_lane": {
+        "correctness": 92,
+        "conventions": 88,
+        "blast-radius": 91
+      },
+      "okf_note": "okf/concepts/company-metrics-dashboard.md still says getStats() has no per-card try; deferred post-approval.",
+      "act_ons_cleared": [
+        "M",
+        "N",
+        "P",
+        "I"
+      ]
+    },
+    "ac": [
+      {
+        "id": "AC-1",
+        "status": "SATISFIED",
+        "evidence": "On main via the prior Total Repossessions batch landing; tip fetchRepoSeries\u2192handle() one round trip; test_past_months reposCalls===1 @ 05491bd; Pippin qa-ac-results"
+      },
+      {
+        "id": "AC-2",
+        "status": "SATISFIED",
+        "evidence": "UniqueScansToRepo deleted in the prior Total Repossessions batch landing (Q1); ratio denominator getMonthlyData() on RecoveryCounts; structural share holds; docblocks"
+      },
+      {
+        "id": "AC-3",
+        "status": "SATISFIED",
+        "evidence": "assertIsInt sharedMonthCacheKey (9) + sharedWindowCacheKey (40); -v1 not bumped; Pippin 28/95"
+      },
+      {
+        "id": "AC-4",
+        "status": "SATISFIED",
+        "evidence": "Month reposCalls===1 + shared key read; window cache()->get(sharedWindowCacheKey) int 40 fails if shared write removed"
+      },
+      {
+        "id": "AC-5",
+        "status": "SATISFIED",
+        "evidence": "behavior_change=false; docblocks+assertions only; no SQL/key-string change vs main; live browser N/A Path A"
+      },
+      {
+        "id": "AC-6",
+        "status": "SATISFIED",
+        "evidence": "Window key stays shared as int with raw viewer tz (earlier window-key correction, re-share); docblocks + window assertIsInt pin"
+      }
+    ],
+    "behavior_change": false,
+    "verify": {
+      "agent": "Merry",
+      "at": "2026-09-23T19:39:00Z",
+      "tip_product": "268e66ed72dae27b9b0b63810f6712a41fc5c6c4",
+      "tip_reviewed": "05491bd47c51d4ac0f4267c647c4334083822b5e",
+      "status_before": "ecd8f5cb95c35ece9231974113a3915a39257d88",
+      "conventions_gate_16": "pass",
+      "okf": "okf/concepts/company-metrics-dashboard.md",
+      "live_browser": "N/A",
+      "cloud_ch_writes": false
+    },
+    "playwright_off_go": {
+      "at": "2026-09-24T15:45:00Z",
+      "parent": "229b984fa393b476879a20c2652de9ef23637aaa",
+      "tip": "9213a42a256a8cbd80af6bd72e47ef62fa7756ae",
+      "phase": "reviewed",
+      "next": "Agent QA",
+      "failures": {
+        "M": "US/Central viewer zone 500s DateTogglesFilter now(tz:) before safeTimezone",
+        "N": "US/Eastern and US/Pacific, same filter path",
+        "P": "garbage zone, same filter path",
+        "I": "ClickHouse down + cold cache 500s CompanyMetricsOverview::getStats because one card throw has no catch"
+      },
+      "fix": {
+        "A": "DateTogglesFilter::viewerTimezone() delegates to ScanPlateStatsBatchQuery::safeTimezone. timezone(), now(tz:), maxDate, resolveStartDate, and resolveEndDate use it.",
+        "B": "getStats() try/catch around toStat() reports the exception and renders -- / Unavailable. No new cache.",
+        "C": "safeTimezone semantics unchanged. KitRangePathsQuery untouched. KitScanPathsQuery untouched."
+      },
+      "clickhouse": "pgsql stand-in only (.env.testing CLICKHOUSE_DRIVER=pgsql, host 127.0.0.1). Degrade test is a stub throw and does not open ClickHouse. Dashboard Livewire renders use that stand-in. No Cloud ClickHouse writes.",
+      "okf": "company-metrics-dashboard.md still says getStats() has no per-card try. Left for the post-approval pass.",
+      "jira_workflow": "not transitioned",
+      "assignee": "DaltonMcCleery",
+      "skip_ci": false,
+      "draft": false,
+      "pr": "https://github.com/insight-lpr/platform/pull/439",
+      "tests": [
+        {
+          "cmd": "php artisan test --compact tests/Filament/Tables/Filters/DateTogglesFilterTest.php",
+          "passed": 10,
+          "failed": 0,
+          "assertions": 40,
+          "duration_s": 4.15,
+          "note": "US/Central, US/Eastern, US/Pacific, Asia/Calcutta, Not/A_Real_Zone. viewerTimezone matches safeTimezone, DateTimeZone constructs, end picker timezone matches, resolveStartDate/resolveEndDate keep the zone, Livewire Dashboard assertOk."
+        },
+        {
+          "cmd": "php artisan test --compact tests/Filament/Widgets/Dashboard/CompanyMetricsOverviewTest.php",
+          "passed": 1,
+          "failed": 0,
+          "assertions": 9,
+          "duration_s": 2.17,
+          "note": "Code 210 stub throw becomes -- / Unavailable / gray. Sibling card still renders 48. Exception reported. No ClickHouse connection."
+        },
+        {
+          "cmd": "php artisan test --compact tests/Unit/Clickhouse/ScanPlateStatsBatchQueryContractTest.php",
+          "passed": 11,
+          "failed": 0,
+          "assertions": 42,
+          "duration_s": 3.66,
+          "note": "safeTimezone contract unchanged. pgsql stand-in; no Cloud ClickHouse writes."
+        }
+      ],
+      "review_rn": 4,
+      "reviewed_sha": "9213a42a256a8cbd80af6bd72e47ef62fa7756ae"
+    }
+  },
+  "comment_ids": {
+    "build_record": "41334"
+  },
+  "review2_fix": {
+    "from": "Sam review-2 FAIL",
+    "reviewed_sha": "2e39673b16c604fec5a18efcb55efbde34895170",
+    "scores": {
+      "correctness": 64,
+      "conventions": 90,
+      "blast-radius": 58
+    },
+    "min": 58,
+    "shape": "safeTimezone returns the alias when new DateTimeZone succeeds, else the canonical IANA id. Never UTC for the four fleet aliases. Never throws. Mirrored on KitScanPathsQuery only. KitRangePathsQuery untouched.",
+    "next": "Sam review-3",
+    "galadriel": false,
+    "jira_workflow": "left at QA Ready",
+    "assignee": "DaltonMcCleery",
+    "cloud_ch_writes": false,
+    "skip_ci": false,
+    "pr": "https://github.com/insight-lpr/platform/pull/439",
+    "proof": {
+      "mac_php": "8.4.23",
+      "mac_us_central": "constructs, safeTimezone returns US/Central, CST returns UTC",
+      "recovery_counts": "28 passed, 95 assertions",
+      "contract": "11 passed, 42 assertions",
+      "official_php_8_4_25_cli": "internal tzdb 2026.3, ALL_WITH_BC 598, US/Central still constructs",
+      "debian_trixie_php": "8.4.24 Olson 0.system ALL_WITH_BC 488. DateInvalidTimeZoneException for the four aliases. safeTimezone returns America/Chicago, America/New_York, America/Los_Angeles, Asia/Kolkata. CST and +05:00 return UTC. KitScanPathsQuery returns America/Chicago. KitRangePathsQuery returns UTC. Carbon parse succeeds."
+    }
+  },
+  "bounce": {
+    "from": "Jeff",
+    "verdict": "FAIL Off GO",
+    "suite": "RecoveryCountsTest",
+    "result": "27 pass / 1 fail",
+    "test": "test_ratio_numerator_records_the_sanitised_zone_and_to_stat_does_not_throw",
+    "expected": "US/Central",
+    "got": "UTC",
+    "cause": "PHP 8.4.25 timezone DB omits the US/Central BC alias, so ScanPlateStatsBatchQuery::safeTimezone() fell back to UTC via timezone_identifiers_list(ALL_WITH_BC).",
+    "fix": "Explicit allowlist returns US/Central, US/Eastern, US/Pacific, and Asia/Calcutta as themselves even when ALL_WITH_BC omits them. CST, PST, +05:00, and garbage stay UTC. No remap to America/Chicago. Mirrored on KitScanPathsQuery::safeTimezone(). KitRangePathsQuery untouched.",
+    "prior_tip": "bf648a284b2584bf1aa3dce8d73d8fd753b4ac66",
+    "jira_workflow": "left at QA Ready",
+    "pr": "https://github.com/insight-lpr/platform/pull/439",
+    "assignee": "DaltonMcCleery",
+    "cloud_ch_writes": false,
+    "skip_ci": false
+  },
+  "hold_scrub": {
+    "kind": "sibling-cite",
+    "scope": "New docblock lines on ScanPlateStatsBatchQuery and KitScanPathsQuery, plus the new contract-test note. Historical cites already on main left in place. Older journal entries left as written.",
+    "php_logic": "unchanged",
+    "kit_range_paths_query": "untouched",
+    "rebase": false,
+    "phase": "reviewed",
+    "next": "Galadriel",
+    "next_note": "verify scrub, then ask Jeff re-FREEZE if HOLD #1 is clear; HOLD #2 0-behind still deferred",
+    "jira_workflow": "left at QA Ready",
+    "skip_ci": true,
+    "cloud_ch_writes": false,
+    "schema_gate": "soft OK"
+  },
+  "fix_cycle": {
+    "at": "2026-09-24T12:38:37Z",
+    "trigger": "HOLD 41372 declined re-FREEZE until the sibling-cite scrub, a 0-behind rebase, and a freeze tip that runs CI",
+    "journal_scrub": "Paraphrased the added journal sentence so identity-keep is described without the sibling ticket. Main-era product cites already on main left in place. Older journal sections left as written.",
+    "rebase": {
+      "onto": "25870f75661f07a27a69124a414e557d4c11fff0",
+      "behind": 0,
+      "conflicts": "none",
+      "schema_gate": "DEV-2653 Path A is on main; this branch does not edit that surface"
+    },
+    "product_php": {
+      "preserved_from": "fcd59300304b838e7dad1d225feafd39e4d15ad7",
+      "rebased_sha": "6a20dd417abed92bdc4bbc8ef8e4ad7f92de7dc9",
+      "blobs_unchanged": true,
+      "semantics": "safeTimezone returns the alias when new DateTimeZone succeeds, else the canonical IANA id. Never UTC for US/Central, US/Eastern, US/Pacific, Asia/Calcutta. Never throws. Mirrored on KitScanPathsQuery only. KitRangePathsQuery untouched."
+    },
+    "skip_ci": false,
+    "phase": "reviewed",
+    "next": "verify scrub \u2192 re-FREEZE ask",
+    "assignee": "DaltonMcCleery",
+    "jira_workflow": "not transitioned",
+    "cloud_ch_writes": false,
+    "pr": "https://github.com/insight-lpr/platform/pull/439"
+  },
+  "playwright_off_go": {
+    "at": "2026-09-24T15:45:00Z",
+    "parent": "229b984fa393b476879a20c2652de9ef23637aaa",
+    "tip": "9213a42a256a8cbd80af6bd72e47ef62fa7756ae",
+    "phase": "reviewed",
+    "next": "Agent QA",
+    "failures": {
+      "M": "US/Central viewer zone 500s DateTogglesFilter now(tz:) before safeTimezone",
+      "N": "US/Eastern and US/Pacific, same filter path",
+      "P": "garbage zone, same filter path",
+      "I": "ClickHouse down + cold cache 500s CompanyMetricsOverview::getStats because one card throw has no catch"
+    },
+    "fix": {
+      "A": "DateTogglesFilter::viewerTimezone() delegates to ScanPlateStatsBatchQuery::safeTimezone. timezone(), now(tz:), maxDate, resolveStartDate, and resolveEndDate use it.",
+      "B": "getStats() try/catch around toStat() reports the exception and renders -- / Unavailable. No new cache.",
+      "C": "safeTimezone semantics unchanged. KitRangePathsQuery untouched. KitScanPathsQuery untouched."
+    },
+    "clickhouse": "pgsql stand-in only (.env.testing CLICKHOUSE_DRIVER=pgsql, host 127.0.0.1). Degrade test is a stub throw and does not open ClickHouse. Dashboard Livewire renders use that stand-in. No Cloud ClickHouse writes.",
+    "okf": "company-metrics-dashboard.md still says getStats() has no per-card try. Left for the post-approval pass.",
+    "jira_workflow": "not transitioned",
+    "assignee": "DaltonMcCleery",
+    "skip_ci": false,
+    "draft": false,
+    "pr": "https://github.com/insight-lpr/platform/pull/439",
+    "tests": [
+      {
+        "cmd": "php artisan test --compact tests/Filament/Tables/Filters/DateTogglesFilterTest.php",
+        "passed": 10,
+        "failed": 0,
+        "assertions": 40,
+        "duration_s": 4.15,
+        "note": "US/Central, US/Eastern, US/Pacific, Asia/Calcutta, Not/A_Real_Zone. viewerTimezone matches safeTimezone, DateTimeZone constructs, end picker timezone matches, resolveStartDate/resolveEndDate keep the zone, Livewire Dashboard assertOk."
+      },
+      {
+        "cmd": "php artisan test --compact tests/Filament/Widgets/Dashboard/CompanyMetricsOverviewTest.php",
+        "passed": 1,
+        "failed": 0,
+        "assertions": 9,
+        "duration_s": 2.17,
+        "note": "Code 210 stub throw becomes -- / Unavailable / gray. Sibling card still renders 48. Exception reported. No ClickHouse connection."
+      },
+      {
+        "cmd": "php artisan test --compact tests/Unit/Clickhouse/ScanPlateStatsBatchQueryContractTest.php",
+        "passed": 11,
+        "failed": 0,
+        "assertions": 42,
+        "duration_s": 3.66,
+        "note": "safeTimezone contract unchanged. pgsql stand-in; no Cloud ClickHouse writes."
+      }
+    ],
+    "review_rn": 4,
+    "reviewed_sha": "9213a42a256a8cbd80af6bd72e47ef62fa7756ae"
+  }
+}

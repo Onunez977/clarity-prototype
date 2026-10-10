@@ -1,0 +1,630 @@
+{
+  "key": "DEV-2451",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "base-resolve.sh found 6 main-ahead candidates (otto stack + a docs branch); haiku decision agent returned base=main confidence=95 \u2014 no candidate carries Kit Path Map work",
+  "branch": "claude/DEV-2451",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "grep-backstop",
+      "model": "haiku",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 259
+    },
+    {
+      "slot": "prep-candidate:1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 336
+    },
+    {
+      "slot": "prep-candidate:2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 411
+    },
+    {
+      "slot": "prep-candidate:3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 411
+    },
+    {
+      "slot": "reconcile",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 161
+    },
+    {
+      "slot": "plan-arbiter",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "plan",
+      "dur_s": 32
+    },
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 294
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 623
+    },
+    {
+      "slot": "review-fix:rn2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 333
+    },
+    {
+      "slot": "review:rn2",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 606
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "knowledge/clarity/scout.md",
+    "knowledge/clickhouse/core.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "3 unanswered needs-human questions in fast pass",
+    "confidence 40 < 80",
+    "escalate.recommend=true from fast pass",
+    "behavior-reversal risk against recently-shipped DEV-2441"
+  ],
+  "best_of_n": true,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+      "symbols": [
+        "KitRangePathsQuery",
+        "KitScanPathsQuery"
+      ],
+      "referenced_at": 597,
+      "kind": "app",
+      "driver_triage": "MATERIAL \u2014 verified: a SECOND caller of BOTH tier query classes. Docblock:46-47 says last_N ranges use continuous sc_positions via KitRangePathsQuery for 'KUP parity' (DEV-2374); today's overlay uses KitScanPathsQuery. Two consequences: (1) the scan-only gate MUST live in KitUserPathController, never inside KitRangePathsQuery, or Bird's Eye silently loses continuous paths; (2) DEV-2374 deliberately aligned these two surfaces, so taking KUP scan-only DIVERGES them \u2014 that is a human decision, raised as gate question Q3."
+    },
+    {
+      "file": "app/Http/Controllers/KitUserPathController.php::geojson",
+      "symbols": [
+        "KitUserPathGeojsonRequest"
+      ],
+      "referenced_at": 429,
+      "kind": "app",
+      "driver_triage": "CLEARED \u2014 verified reads HotlistAddressGeohashQuery (hotlist addresses), not sc_positions and not a path source. No scan-only exposure."
+    },
+    {
+      "file": "app/Http/Controllers/KitUserPathController.php::hitDensity",
+      "symbols": [
+        "KitUserPathHitDensityRequest"
+      ],
+      "referenced_at": 506,
+      "kind": "app",
+      "driver_triage": "CLEARED \u2014 verified reads HitDensityGeohashQuery (hits), REPO_HEATMAP-gated. Not a path source."
+    },
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutMapController.php",
+      "symbols": [
+        "KitScanPathsQuery"
+      ],
+      "referenced_at": 156,
+      "kind": "app",
+      "driver_triage": "SAFE \u2014 tier-2 (scan-derived) consumer only; never calls KitRangePathsQuery, so a tier-1 gate cannot affect it."
+    },
+    {
+      "file": "resources/js/clarity-scout/stores/map.js",
+      "symbols": [
+        "KitRangePathsQuery",
+        "HistoricPathBuilder"
+      ],
+      "referenced_at": 47,
+      "kind": "app",
+      "driver_triage": "SAFE \u2014 references are COMMENTS only (OOM/concurrency notes, 500ft break threshold). Scout store, not the KUP renderer."
+    },
+    {
+      "file": "tests/Unit/Clickhouse/Queries/HotlistAddressGeohashQueryTest.php",
+      "symbols": [
+        "kit-user-path"
+      ],
+      "referenced_at": 14,
+      "kind": "test",
+      "driver_triage": "SAFE \u2014 #[Group('kit-user-path')] tag only; covers the geojson query, which is cleared above."
+    },
+    {
+      "file": "tests/Unit/Clickhouse/Queries/KitRangePathsQueryTest.php",
+      "symbols": [
+        "KitRangePathsQuery"
+      ],
+      "referenced_at": 58,
+      "kind": "test",
+      "driver_triage": "MATERIAL \u2014 a large tier-1 unit suite the fast pass did not list. A controller-level gate should leave it untouched; if any change reaches the query class, this suite is the tripwire."
+    },
+    {
+      "file": "tests/Filament/Pages/KitUserPathTest.php",
+      "symbols": [
+        "KitUserPath"
+      ],
+      "referenced_at": 5,
+      "kind": "test",
+      "driver_triage": "WATCH \u2014 existing Filament page test; must stay green."
+    },
+    {
+      "file": "tests/Feature/Http/Requests/KitUserPathRequestTest.php",
+      "symbols": [
+        "KitUserPathRequest"
+      ],
+      "referenced_at": 5,
+      "kind": "test",
+      "driver_triage": "WATCH \u2014 request validation suite; only affected if the gate adds a request field."
+    },
+    {
+      "file": "tests/Roles/UserRoleTest.py",
+      "symbols": [
+        "KitUserPath"
+      ],
+      "referenced_at": 7,
+      "kind": "test",
+      "driver_triage": "FABRICATED \u2014 file does not exist (backstop artifact). tests/Roles/AdminRoleTest.php + ClientRoleTest.php are real and only assert page permissions."
+    }
+  ],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [
+      "clarity.kit_scan_paths"
+    ],
+    "approach": "outright removal of the tier-1 sc_positions read",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "e247bbb5ab38d7004637821f04088063d2ec8bf8",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 2,
+  "pr": {
+    "number": 375,
+    "url": "https://github.com/insight-lpr/platform/pull/375",
+    "draft": false
+  },
+  "pr_urls": {
+    "main": "https://github.com/insight-lpr/platform/pull/375"
+  },
+  "jira_in_progress_by": "already-in-progress (human, before this run)",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "Undrafting PR #375 did NOT auto-transition (ticket still read In Progress after undraft), so the pipeline transitioned via the Atlassian MCP to 'In Code Review' (transition id 4) at 2026-08-31T15:58:45Z. This is the designed fallback working, NOT a manual human intervention.",
+  "assumed": [],
+  "comment_ids": {
+    "status": "38708",
+    "build_record": "38740"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "resource_envelope": {
+      "path": ".context/qa-resource-envelope.json",
+      "verdict": "not-measured",
+      "peak_rss_bytes": null,
+      "wall_clock_seconds": null,
+      "plausible_concurrency": null,
+      "projected_marginal_gb": null,
+      "headroom_gb": null,
+      "host_ram_gb": 68,
+      "extrapolation_factor": 58731.0,
+      "basis": "n/a",
+      "note": "NOT MEASURABLE BY CONSTRUCTION \u2014 the change touches no command/job; the scale surface is the POST /kit-user-path/paths request path. Seeded 60 rendered points vs the 1,500,000 ceiling (0.004%). Production authority (read-only, prep/review): worst org 3,523,861 points over 30d = 2.35x the ceiling; 2/263 orgs over at 30d, 1/253 at 15d, 0/248 at 7d -> HTTP 422. Owner-accepted, ship, no follow-up ticket. Recorded not-measured rather than PASS deliberately."
+    },
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "started",
+      "ch_container": "reused-and-started",
+      "frontend_build": "n/a",
+      "postgres_db": "zod_claude_dev_2451_50da1a (+ testing zod_testing_claude_dev_2451_50da1a)",
+      "ch_strategy": "docker (LOCAL 127.0.0.1:18123, LITERAL clarity/zod databases)",
+      "herd_site": "clarity-claude_dev_2451_50da1a.test (probe 200)",
+      "seed_method": "tinker",
+      "seeded": "org 5; kits 16/17/18; 2 personas; 12 kit_scan_paths buckets (60 pts) + 90 sc_positions rows",
+      "plans": "agent 15 items / human 7 happy + 3 edge + 2 adjacent"
+    },
+    "provisioned_early": true,
+    "production_cardinality_qa": {
+      "path": "docs/investigations/DEV-2451/production-cardinality-qa.md",
+      "method": "read-only production ClickHouse, aggregates only; zod.public_kits FINAL (_peerdb_is_deleted=0) bridges kit_mapping <-> kit_id so sc_positions (keyed by kit_mapping) can be cross-tabbed against kit_scan_paths (keyed by kit_id); both filtered to length(path_points)>=2, matching KitScanPathsQuery::filteredQuery()",
+      "hp3_kits_rendering_nothing": {
+        "7d": 0,
+        "15d": 0,
+        "30d": 1,
+        "the_one": "kit_id 13075, org_id 445986, kit_type 1 \u2014 13 GPS rows across 1 active day in the whole 30d window",
+        "population_30d": {
+          "both_sources_keep_rendering": 611,
+          "goes_dark": 1,
+          "scan_only_unaffected": 487,
+          "already_dark": 4471,
+          "kits_total": 5570
+        },
+        "orgs_with_any_dark_kit": 1
+      },
+      "hp4_fidelity": {
+        "median_points_per_kitday": 1183.5,
+        "median_segments_per_kitday": 27,
+        "p90_segments": 42,
+        "worst_segments": 93,
+        "avg_points_per_segment": 62.2,
+        "segment_quality_7d": {
+          "buckets_total": 124494,
+          "two_point_stubs": 8790,
+          "pct_two_point": 7.1,
+          "over_20_points": 65543,
+          "pct_over_20": 52.6
+        },
+        "fidelity_vs_gps": {
+          "kitdays_with_both": 2345,
+          "median_gps_raw_rows": 11339,
+          "median_scan_points": 1336,
+          "scan_pct_of_gps_rendered": 33.5,
+          "caveat": "divides raw GPS rows by 3 to approximate tier-1 rendered points using the recorded ~3x decimation factor \u2014 treat as 'about a third', not a precise 33.5%"
+        }
+      },
+      "verdict": "hp-3 largely MOOT (1 barely-active kit, not ~617). hp-4 now an INFORMED narrow judgment: ~27 segments/day at ~62 points each, ~1/3 of GPS detail, only 7.1% degenerate stubs. Revised risk ordering: the 422 ceiling (2 of 263 orgs) outweighs dark kits (1)."
+    },
+    "teardown_note": "Teardown-only qa-complete. down.sh DELIBERATELY NOT USED: the ledger's clickhouse.databases were the LITERAL clarity/zod (also in shared_databases_do_not_drop and serving clarity_claude_dev_2409/2426), and down.sh reads .env to pick targets, so it would have dropped shared databases. Did it manually instead: deleted this run's seeded rows (already 0 on arrival), restored .env/.env.testing from backups, dropped both per-worktree Postgres DBs behind the zod_/zod_testing_ guards, unlinked the Herd site (probe now 000), left the shared container + literal databases INTACT (verified). Ledger deleted. Receipt at .context/qa-complete.md preserving all 10 qa_log entries.",
+    "seed_wipe_finding": "The QA seed was applied 15:01:04Z and TRUNCATEd at 16:03:24Z by a test run in ANOTHER worktree \u2014 the shared literal clarity/zod databases mean any worktree's suite wipes every other worktree's QA seed via RequiresClickhouse's hardcoded table list. The operator's QA window (guide written 15:49Z, Build Record posted 15:58Z) PRECEDED the wipe, so that QA ran against intact data. A few minutes' difference would have meant QA'ing an empty map with no indication."
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact --filter=KitUserPathControllerTest (BASELINE, pre-change)",
+        "passed": 29,
+        "failed": 0,
+        "note": "green baseline; tests genuinely ran (not skipped) after the .env.testing driver fix"
+      },
+      {
+        "cmd": "php artisan test --compact --filter=KitUserPathControllerTest (post-change)",
+        "passed": 17,
+        "failed": 0,
+        "note": "29->17: ~12 tier-1-specific tests deleted, 2 added (sc_positions-still-renders-via-scan, sc_positions-never-queried)"
+      },
+      {
+        "cmd": "php artisan test --compact <7 blast-radius suites>",
+        "passed": 175,
+        "failed": 0,
+        "note": "incl. KitRangePathsQueryTest + ClarityScoutBirdsEyeControllerTest, both UNTOUCHED and green -> proves Bird's Eye continuous GPS intact"
+      },
+      {
+        "cmd": "php -d memory_limit=2G vendor/bin/phpunit (FULL SUITE)",
+        "passed": 1659,
+        "failed": 8,
+        "note": "1668 tests: 2 errors + 6 failures + 4 skipped + 1 incomplete + 1 risky. ALL 8 VERIFIED PRE-EXISTING, not caused by this change. Evidence: (a) the same classes fail at DIFF_BASE e247bbb5 with the change reverted (1 error + 4 failures); (b) counts/lines shift run-to-run even at base (run1 4E/4F, run2 2E/6F); (c) RdnHitHourCountQueryTest PASSES in isolation (5/5) so its batch failure is cross-pollution; (d) CloseInactiveShiftsCommandTest fails at :308 in isolation, matching a previously-recorded pre-existing tz failure; (e) HasStatDrillDownTest fails at a DIFFERENT line alone (642) than in batch (1217) = order-dependent; (f) no failing file references KitUserPathController. Mechanism: RequiresClickhouse truncates a hardcoded shared clarity.*/zod.* table list in the shared literal CH databases, so CH-touching tests cross-pollute by ordering."
+      },
+      {
+        "cmd": "php artisan test --compact (FULL SUITE, default 128M limit)",
+        "passed": 0,
+        "failed": 0,
+        "note": "DOES NOT RUN. OOMs at 128M inside symfony/finder SortableIterator during test DISCOVERY, before executing anything. Dangerous because the shell wrapper still reports exit 0 -- it looks like a pass. Local full-suite runs MUST use `php -d memory_limit=2G vendor/bin/phpunit`."
+      },
+      {
+        "cmd": "vendor/bin/pint --dirty --format agent",
+        "passed": 1,
+        "failed": 0,
+        "note": "result: passed"
+      },
+      {
+        "cmd": "php artisan test --compact <7 blast-radius suites> (FINAL, post-RN2 + docblock fix)",
+        "passed": 177,
+        "failed": 0,
+        "note": "177 = the original 175 + 2 new tests. Includes KitRangePathsQueryTest and ClarityScoutBirdsEyeControllerTest, proving the comment-only edits to those files changed nothing."
+      },
+      {
+        "cmd": "php artisan test --compact --filter=KitUserPathControllerTest (FINAL)",
+        "passed": 19,
+        "failed": 0,
+        "note": "17 -> 19 after the RN1 fix pass added the GPS-only-renders-nothing and broad-window tests."
+      },
+      {
+        "cmd": "CH container memory incident (env, not code)",
+        "passed": 0,
+        "failed": 4,
+        "note": "A mid-review blast-radius run showed 4 failures: ClickHouse error 241 'total memory limit exceeded ... current RSS: 5.21 GiB, maximum: 5.21 GiB' thrown at tests/Concerns/RequiresClickhouse.php:45 (the TRUNCATE setup, before any test logic). Local Docker CH had accumulated pressure after ~40min across 8 databases. Dropped the two unused per-worktree DBs this run created, restarted the container (3.65GiB -> 1.74GiB); suite returned to 177/177. NOT a code defect."
+      }
+    ],
+    "deviations": [
+      {
+        "source": "review-rn1",
+        "edit": "Accepted the 422 for 2 orgs on 30-day All-Kits rather than raising MAX_RENDER_POINTS or adding scan-path decimation",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "production-cardinality-qa",
+        "edit": "CORRECTED a factual error the driver had propagated: multiple artifacts claimed ~617 production kits would render nothing. Measurement shows 611 of those 617 still render from scan data; only 1 kit renders nothing. Corrected in the human plan (rev 3), agent plan, agent report (addendum), ledger, AC evidence, and this state file.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "handoff",
+        "edit": "Updated okf/ BEFORE merge (okf/concepts/scout-clickhouse-queries.md 6 edits + okf/index.md 1 row) at Dalton's explicit direction, overriding CLAUDE.md's WRITE rule which defers wiki edits until after approval. The driver flagged the rule and the DEV-2342 precedent for it; Dalton chose to update now. okf-lint passed (106 files, 0 warnings). Found 5 stale sites, not the 4 the review lanes flagged \u2014 the KitScanPathsQuery section and its table row also needed updating since it is now Kit User Path's SOLE source.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "handoff",
+        "edit": "Drafted knowledge card knowledge/clarity/testing.md + registered it in knowledge/index.json, at Dalton's request. NOTE: that is the claude-plugins repo, NOT platform \u2014 left uncommitted on its main branch; it needs its own branch + PR and is not part of PR #375.",
+        "ac_ref": null,
+        "ac_delta": null
+      }
+    ],
+    "review": {
+      "lanes": [
+        "claude1",
+        "claude2",
+        "claude3"
+      ],
+      "scores": [
+        94,
+        94,
+        94
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "harness-claude-p"
+        },
+        {
+          "lane": "claude2",
+          "source": "harness-claude-p"
+        },
+        {
+          "lane": "claude3",
+          "source": "harness-claude-p"
+        }
+      ],
+      "gate": "REVIEW_GATE: pass min=94 lanes=3 rn=2 sources=harness-claude-p:3 (threshold 90). Two rounds, both passed.",
+      "rerun_required": false,
+      "reviewed_sha": "6a7b854a674eb7e11f41a0f9647d1121bf2d552a",
+      "rework_pivot": false,
+      "findings_verified_by_driver": [
+        {
+          "id": "cache-loss",
+          "lanes": [
+            "claude1 M1",
+            "claude3 L2"
+          ],
+          "verdict": "CONFIRMED",
+          "detail": "KitRangePathsQuery::cachedHandle() wraps Cache::remember with a 5-min TTL (3s under impersonation); KitScanPathsQuery::countPoints()/encodedPaths() go straight to filteredQuery() with NO cache. So the endpoint lost its cached read path AND the uncached path widened from GPS-less kits to all kits. Real perf regression. NOT fixed: adding a cache to the scan path is new work, not part of a revert (tier 2 was never cached pre-change either)."
+        },
+        {
+          "id": "decimation-framing",
+          "lanes": [
+            "claude1 M2",
+            "claude2 D3"
+          ],
+          "verdict": "CORRECTED",
+          "detail": "The lanes framed this as '15_days/30_days now emit fully undecimated points'. Verified WRONG in mechanism: kit_scan_paths NEVER accepted dedup_meters, so tier 2 was ALWAYS undecimated. What actually changed is that tier 2 now serves ALL kits instead of only GPS-less ones. The volume consequence is real; the 'lost decimation' framing is not."
+        },
+        {
+          "id": "render-ceiling",
+          "lanes": [
+            "claude1 M2",
+            "claude2 D3"
+          ],
+          "verdict": "CONFIRMED BY MEASUREMENT",
+          "detail": "Measured read-only against prod clarity.kit_scan_paths FINAL: 30d per-org rendered points max=3,523,861 (2.35x the 1,500,000 ceiling), p95=522,201, mean=121,478 across 263 orgs. Orgs OVER the ceiling: 30d=2/263 (4 more within 80%), 15d=1/253, 7d=0/248. Those 2 orgs now get 422 on a 30-day All-Kits selection where tier-1's 50m dedup previously kept the combined count under. DECISION (Dalton 2026-08-31): ship it, NO follow-up ticket; document the behavior."
+        },
+        {
+          "id": "ac-not-pinned",
+          "lanes": [
+            "claude3 M1"
+          ],
+          "verdict": "CONFIRMED",
+          "detail": "Both new tests seed a kit_scan_paths bucket, so neither pins the actual headline consequence: a GPS-only kit (sc_positions rows, ZERO kit_scan_paths rows) renders NOTHING. That is the behavior the 617 affected kits will experience and it was untested. FIXING in RN2."
+        },
+        {
+          "id": "broad-window-coverage",
+          "lanes": [
+            "claude1 M3",
+            "claude2 D5"
+          ],
+          "verdict": "CONFIRMED",
+          "detail": "No surviving test exercises 15_days or 30_days after test_broad_windows_render_fewer_points_than_the_narrow_ones was deleted, so those match arms are unverified. FIXING in RN2."
+        },
+        {
+          "id": "dead-log-spy",
+          "lanes": [
+            "claude2 D2"
+          ],
+          "verdict": "CONFIRMED",
+          "detail": "A test docblock certifies discrimination its assertions no longer perform, and Log::spy() is dead in both 503 tests. Test-integrity. FIXING in RN2."
+        },
+        {
+          "id": "birds-eye-false-docs",
+          "lanes": [
+            "claude2 D1"
+          ],
+          "verdict": "CONFIRMED",
+          "detail": "5 sites in ClarityScoutBirdsEyeController are now factually false: :46 'KUP parity', :82 'the broad KUP spacing / the 5 m ladder' (names DEDUP_METERS + BROAD_DEDUP_METERS, both deleted by this diff), :371 'Org Map historical parity with Kit User Path', :552 'KUP-comparable', :588 'same trap as KUP' (the Carbon::utc() trap this diff removed from KUP). HISTORICAL_DEDUP_METERS=50.0 at :86 is now calibrated against a value that no longer exists. DECISION (Dalton 2026-08-31): fix the COMMENTS ONLY, zero behavior change. FIXING in RN2."
+        },
+        {
+          "id": "kitscanpathsquery-stale-prose",
+          "lanes": [
+            "claude3 L3"
+          ],
+          "verdict": "CONFIRMED",
+          "detail": "KitScanPathsQuery still documents a two-tier Kit User Path at :12-14, :95-97, :118-120, and KitScanPathsQueryTest.php:152. This drift was CREATED by this change. FIXING in RN2 (comments only)."
+        },
+        {
+          "id": "timezone-disagreement",
+          "lanes": [
+            "claude2 D4"
+          ],
+          "verdict": "PRE-EXISTING, NOT A REGRESSION",
+          "detail": "safeTimezone()'s whitelist can disagree with the PHP-side window built from the user's raw tz. But BOTH tiers used a whitelisting safeTimezone pre-change, so this is not new \u2014 it is merely no longer masked by tier 1 for GPS kits. The surviving test_a_legacy_timezone_alias_reports_the_same_day_as_its_canonical_form still passes. Reported, not fixed in this revert."
+        }
+      ],
+      "rounds": [
+        {
+          "rn": 1,
+          "scores": [
+            94,
+            94,
+            94
+          ],
+          "gate": "pass min=94",
+          "sources": "harness-claude-p:3"
+        },
+        {
+          "rn": 2,
+          "scores": [
+            94,
+            94,
+            94
+          ],
+          "gate": "pass min=94",
+          "sources": "harness-claude-p:3"
+        }
+      ],
+      "findings_fixed": [
+        "RN1 claude3 M1 \u2014 AC not pinned: added test_a_gps_only_kit_renders_nothing_now_that_sc_positions_is_not_read (sc_positions seeded, ZERO kit_scan_paths rows -> empty response). Pins the actual consequence for the ~617 affected kits.",
+        "RN1 claude1 M3 / claude2 D5 \u2014 broad windows untested: added test_a_broad_window_reaches_kit_scan_path_buckets_the_narrow_window_misses (buckets at 3/12/20 days; 20-day bucket surfaces only at 30_days, 12-day only at 15_days+).",
+        "RN1 claude2 D2 \u2014 dead Log::spy(): both 503 tests now assert Log::shouldHaveReceived('warning') with the real message/context; corrected the tier-1-era docblock that certified discrimination its body no longer performed.",
+        "RN1 claude2 D1 \u2014 5 false docblock sites in ClarityScoutBirdsEyeController corrected (COMMENT-ONLY, verified zero executable lines changed).",
+        "RN1 claude3 L3 \u2014 4 stale tier-relative prose sites in KitScanPathsQuery + its test corrected (COMMENT-ONLY, verified).",
+        "RN1 render-ceiling \u2014 measurement recorded in the MAX_RENDER_POINTS docblock per the owner's ship-it/no-ticket decision.",
+        "RN2 claude1 M1 \u2014 KitRangePathsQuery's OWN class docblock was false in 4 places ('for the one caller (Kit User Path)', 'Every other caller...', 'Omit all four... (Kit User Path)', 'Called with cache: true ... _mappings'). Corrected COMMENT-ONLY (verified). Fixed for consistency: the identical drift class was already corrected in two other files, so leaving it in the most-affected file was indefensible.",
+        "RN2 claude1 M2 / claude2 L1 \u2014 RN2 changes were not recorded as test-run in state.json. Now recorded (this entry)."
+      ],
+      "findings_residual": [
+        {
+          "id": "lost-cache-and-dead-cachedHandle",
+          "lanes": [
+            "RN1 claude1 M1",
+            "RN1 claude3 L2",
+            "RN2 claude2 M1",
+            "RN2 claude3 M1"
+          ],
+          "status": "ACCEPTED, NOT FIXED",
+          "detail": "VERIFIED: KitRangePathsQuery::cachedHandle() (5-min Cache::remember) now has ZERO callers in app/ \u2014 Bird's Eye calls handle() at ClarityScoutBirdsEyeController:605, and nothing passes _mappings/mappings_key. So KUP lost its cached read AND the cached entry point is orphaned dead code. The endpoint now issues two uncached FINAL reads of kit_scan_paths per request across every selected kit. NOT FIXED because adding a cache to the scan path is new work rather than part of a revert (tier 2 was never cached pre-change either), and deleting cachedHandle() is behavior-adjacent on a file the owner scoped as untouched. Documented in the class docblock and kept so DEV-2450 can restore a cached read."
+        },
+        {
+          "id": "okf-wiki-teaches-deleted-design",
+          "lanes": [
+            "RN2 claude1 L4",
+            "RN2 claude2 L4",
+            "RN2 claude3 M2"
+          ],
+          "status": "DEFERRED BY REPO POLICY",
+          "detail": "4 confirmed sites: okf/concepts/scout-clickhouse-queries.md:4, :77-78, :309 and okf/index.md:47 all state KitRangePathsQuery powers Kit User Path. All three lanes flagged that nothing queued the correction. It IS queued (plan.json excluded_sites + prep-context proposed_changes), but CLAUDE.md's WRITE rule forbids writing to okf/ while work is in flight \u2014 the update must land only after merge/approval. Carried into the Build Record so the post-merge pass cannot be lost."
+        },
+        {
+          "id": "max-render-points-bucket-granularity",
+          "lanes": [
+            "RN2 claude2 M2",
+            "RN2 claude3 H1"
+          ],
+          "status": "REPORTED, NOT FIXED",
+          "detail": "The ceiling bounds POINTS while the PHP/response envelope scales with BUCKETS, and the docblock's bucket-granularity description is imprecise. claude3 rated H1 needs-verification, below its own deduct bar. Not re-derived because the owner explicitly ruled out changing MAX_RENDER_POINTS and adding decimation. Measured consequence is recorded (2/263 orgs 422 at 30d)."
+        },
+        {
+          "id": "timezone-dual-dating",
+          "lanes": [
+            "RN1 claude2 D4",
+            "RN2 claude2 L3",
+            "RN2 claude3 L1"
+          ],
+          "status": "PRE-EXISTING",
+          "detail": "trip_date can be labeled in a different zone than the window that selected it. Both tiers used a whitelisting safeTimezone() pre-change, so this is not new \u2014 merely no longer masked by tier 1 for GPS kits. test_a_legacy_timezone_alias_reports_the_same_day_as_its_canonical_form still passes."
+        },
+        {
+          "id": "minor-test-precision",
+          "lanes": [
+            "RN2 claude2 L2",
+            "RN2 claude2 L5",
+            "RN2 claude3 L2"
+          ],
+          "status": "REPORTED",
+          "detail": "Window-boundary assertions sit far from the boundary so they can't catch the off-by-one they advertise; the sc_positions spy only inspects select() so its name is broader than its guard; window construction sits outside the handled try. All non-scoring precision notes on tests that do pass."
+        }
+      ],
+      "post_review_change": "After the RN2 gate passed, ONE comment-only docblock fix was applied to KitRangePathsQuery (RN2 claude1 M1). Verified zero executable lines changed; 177/177 blast-radius tests re-run green afterwards. Non-material per the Phase 7 materiality guard (comment-only, no sensitive glob, no architecture pivot), so it took the light path rather than a third review round."
+    },
+    "ac": [
+      {
+        "item": "Kit Path Map builds paths from scan data only",
+        "status": "SATISFIED",
+        "evidence": "Proven three independent ways. (1) Browser A1: kit 16 \u2014 seeded with BOTH sources at deliberately different coordinates \u2014 rendered Indianapolis [-86.149,39.7606] with ZERO Austin coords anywhere in the pass. (2) B2: KitScanPathsQuery executed directly returned 60 points / 12 buckets with path_json [[-86.129,39.7806],...]. (3) A4: date_toggles arms verified across 7/15/30 days (2/4/6 rows, trip_dates 08-30 / +08-19 / +08-11). A3 confirms the surviving scan path renders normally. PRODUCTION CARDINALITY (read-only): of 5,570 kits, 611 hold both sources and keep rendering from scan data, 487 are scan-only and unaffected, and exactly 1 renders nothing at 30 days (0 at 7d/15d)."
+      },
+      {
+        "item": "No dependency on unavailable merged SC_POSITIONS/kit data for path rendering",
+        "status": "SATISFIED",
+        "evidence": "B3 static assertion: KitRangePathsQuery (line 26) and sc_positions (line 23) appear ONLY inside the class docblock \u2014 no executable reference. Runtime: kit 17 (45 sc_positions rows, zero scan buckets) returns 200 with [] rather than falling back to GPS (A2, A8); a mixed 3-kit selection contributes nothing for it without failing wholesale (A7). PRODUCTION CARDINALITY: the sole GPS-with-no-scans kit (13075) renders empty rather than falling back to GPS."
+      },
+      {
+        "item": "Behavior documented so it can be swapped when the follow-up lands",
+        "status": "SATISFIED",
+        "evidence": "B5: the KitUserPathController class docblock states all five required facts \u2014 scan-data-only, interim, cites DEV-2450 as the restore ticket and NOT the description's DEV-2448 typo, global across every org and kit, and records the deliberate Bird's Eye divergence. Human hp-6 confirms readability."
+      }
+    ]
+  }
+}

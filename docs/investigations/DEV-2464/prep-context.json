@@ -1,0 +1,604 @@
+{
+  "key": "DEV-2464",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "reconcile": {
+    "technique": "insightlpr:multi-candidate-merge",
+    "candidates": 3,
+    "plus_fast_pass": true,
+    "performed_by": "driver in-session (opus)",
+    "why_in_session": "The driver already held all three candidate JSON outputs plus its own independent code+production verifications, which are the tiebreakers on three of the four disagreements. Dispatching a fresh opus reconcile agent would have discarded exactly the evidence needed to arbitrate. Recorded rather than silently substituted.",
+    "confidences": {
+      "fast_pass": 58,
+      "candidate_1_port_fidelity": 55,
+      "candidate_2_architecture": 45,
+      "candidate_3_verifiability": 52
+    }
+  },
+  "synthesis": "Add the 'LPR Repossessions' compact card at mockup slot row 1 col 4 of the Company Metrics dashboard. It shows ONE number -- 'DB repos': the count of deduped (forwarder_org_id, agent_org_id, vin) triples among successful case-claim billing events whose claiming agency subsequently marked the hotlist Repossessed (status 3) within 7 days of the claim. This is the definition Oscar asked for; an earlier LPR-assisted definition was rejected outright and must not be ported. The spec is backyard's RepoReport::claimsCte() + recoveriesCte() + orgDbReposSql() on origin/deploy, org-scoped on the (forwarder_org_id = ? OR agent_org_id = ?) axis that backyard's ClarityCommercialFeeSummary already bills customers off. The ticket's description says Postgres zod; Jira comment 39117 supersedes that with ClickHouse. The card must run exactly one Cache::flexible([3600, 86400]) query per resolved window per org -- never through DashboardWidget::getMonthlyData()'s 13-month loop -- because the funnel measured ~32s cold. Two things this prep establishes that the ticket does not: the sparkline AC and the one-query AC are not simultaneously satisfiable with any mechanism that exists in this repo, and the ticket's own ClickHouse validation numbers were computed with RAW counts, which puts its 'the port reproduces the AC' evidence in doubt.",
+  "scope": {
+    "summary": "One new ClickHouse query class porting the funnel, one new DashboardMetricCard widget, an insert at index 2 of CompanyMetricsOverview::cards(), and the test-registry updates. Reuses the existing FeatureEnum::COMPANY_METRICS gate -- no new Pennant case. Two shared test-infrastructure edits are needed before the card's core logic is testable at all.",
+    "out_of_scope": [
+      "A new FeatureEnum case -- SETTLED against the ticket text: COMPANY_METRICS already exists at both target tiers (see questions[].q1).",
+      "The Postgres zod route -- superseded by comment 39117.",
+      "DEV-2463's own card, and any shared-CTE extraction.",
+      "The full five-column funnel in the expanded card state -- additive per comment 39129, not required by any AC.",
+      "Porting LprRepossessionCountQuery / LprRepossessions from claude/DEV-2409 -- the rejected definition.",
+      "titlemax-viewer disclosure copy -- with Oscar.",
+      "Granting readonly_user READ ON REMOTE for the server-side envelope -- infra, not app code.",
+      "Any change to backyard's RepoReport.php (cross-repo, read-only spec source), platform.recoveries (the stalled MV the report deliberately avoids), or clarity.hotlist_status_aggregate (evaluated as a cheaper substitute and REJECTED: no vin column, no per-hotlist grain, so it cannot support the per-(vin, agent_org_id) recoveries join)."
+    ],
+    "target_files_STALE_pre_rescope": [
+      "app/Clickhouse/Queries/LprRepossessionsQuery.php (new)",
+      "app/Filament/Widgets/Dashboard/LprRepossessions.php (new)",
+      "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php",
+      "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+      "tests/Filament/Pages/DashboardCardExpansionTest.php",
+      "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php",
+      "tests/e2e/helpers/company-metrics.ts",
+      "tests/e2e/lpr-repossessions.spec.ts (new)",
+      "tests/Filament/Widgets/Dashboard/LprRepossessionsTest.php (new)",
+      "tests/Feature/Clickhouse/LprRepossessionsQueryTest.php (new)",
+      "database/schema/clickhouse-schema.sql",
+      "tests/Concerns/RequiresClickhouse.php"
+    ],
+    "target_files": [
+      "app/Filament/Widgets/Dashboard/Concerns/HeldFlexibleCache.php (new, extracted)",
+      "app/Filament/Widgets/Dashboard/UniqueLprCaseClaims.php (refit onto the concern -- shipped/QA-passed, isolated in t1)",
+      "app/Clickhouse/Queries/LprRepossessionsQuery.php (new)",
+      "app/Filament/Widgets/Dashboard/LprRepossessions.php (replace 3 stub methods; ADD canViewCardData; TTL floor; UTC label axis)",
+      "tests/Feature/Clickhouse/LprRepossessionsQueryTest.php (new)",
+      "tests/Filament/Widgets/Dashboard/LprRepossessionsTest.php (new)",
+      "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php (add to $expectedGated)",
+      "tests/e2e/lpr-repossessions.spec.ts + tests/e2e/helpers/company-metrics.ts (t6, deferrable)"
+    ],
+    "_rescope_note": "scope.target_files was stale after the origin/main merge -- it still listed CompanyMetricsOverview, DashboardWidget, the CH schema dump, RequiresClickhouse and the expansion test. All of those are done: b1/b2 landed on main via DEV-2463, and #394 shipped the registration, the getStatColor() arm and the expansion-test entry. The pre-rescope list is preserved under target_files_STALE_pre_rescope."
+  },
+  "settled_by_reconcile": [
+    {
+      "item": "Route",
+      "answer": "ClickHouse, not Postgres zod.",
+      "agreement": "4/4 passes",
+      "source": "ticket comment 39117"
+    },
+    {
+      "item": "Compact card content",
+      "answer": "DB repos alone, one number. Confirmed structurally: orgDbReposSql() returns ONLY a scalar db_repos for one org axis -- no funnel array -- so this is the natural port, not an extra design decision.",
+      "agreement": "4/4",
+      "source": "ticket comment 39129 + backyard SQL"
+    },
+    {
+      "item": "Array slot",
+      "answer": "Insert at index 2 of cards(), after 'recovery-counts', before 'staging-live-hit-leader'. Does NOT depend on DEV-2463: when that card lands it splices in at index 2 and pushes this to 3, which is exactly the documented design.",
+      "agreement": "candidates 1 and 2 + the driver's own read of the cards() docblock; candidate 3 dissented, calling it a hard blocker, and is OVERRULED as contradicted by the docblock",
+      "source": "code -- CompanyMetricsOverview::cards() docblock, Dashboard.php:82-90"
+    },
+    {
+      "item": "Dedup key",
+      "answer": "GROUP BY (forwarder_org_id, agent_org_id, vin) -- the 3-column SQL key, NOT the class docblock's stale 'distinct (vin, agent)' prose. The ticket's port rule 3 is correct.",
+      "agreement": "3/3 candidates read the actual SQL and agree",
+      "source": "backyard RepoReport.php:1056-1061, 1091-1097 vs its own docblock at :32-34"
+    },
+    {
+      "item": "Do not convert the dedup to uniqExact",
+      "answer": "Keep the GROUP BY shape. A tuple uniqExact over a possibly-NULL agent_org_id does not behave like GROUP BY and would silently change the count.",
+      "agreement": "candidate 1, unchallenged",
+      "source": "code analysis"
+    },
+    {
+      "item": "h.vin asymmetry",
+      "answer": "Only the claims-side d.vin is upper/trim-normalised; hotlist.vin is NOT. This is deliberate in backyard's shipped SQL. Preserve it exactly -- 'fixing' it would over-match relative to backyard's real production numbers.",
+      "agreement": "candidate 1, unchallenged",
+      "source": "backyard RepoReport.php recoveriesCte()"
+    },
+    {
+      "item": "ls-claim",
+      "answer": "Out.",
+      "agreement": "4/4",
+      "source": "ticket comment 39129"
+    },
+    {
+      "item": "Eloquent-on-zod vs raw SQL",
+      "answer": "Moot on the ClickHouse route. Follow the CohortDeclinedQuery / CohortClosedQuery raw-SQL shape.",
+      "agreement": "4/4",
+      "source": "ticket comment 39117 + code precedent"
+    },
+    {
+      "item": "Exclusions",
+      "answer": "Reject insightlpr only. NEVER filter titlemax in the counting path -- isExternalRepoSystem() only sets a display flag; collapsing the two is a -2.6% error on DB repos.",
+      "agreement": "4/4",
+      "source": "ticket + backyard rejectInternalOrgs()/decorateRow()"
+    },
+    {
+      "item": "Cache::flexible availability",
+      "answer": "Exists and works here. Already used at app/Models/Org.php:197,233 and app/Models/Concerns/HitAlertSettings.php:29. Its background refresh runs via Laravel defer() in the same request process, NOT a queue job -- so QUEUE_CONNECTION=sync is irrelevant to it. Prod CACHE_STORE=redis.",
+      "agreement": "candidate 2, verified against code",
+      "source": "code"
+    },
+    {
+      "item": "scale_relevant",
+      "answer": "true.",
+      "agreement": "4/4",
+      "source": "resource_envelope"
+    }
+  ],
+  "questions": [
+    {
+      "id": "q1",
+      "q": "Pennant gate -- does this card need a new FeatureEnum case at CLARITY_PRO + CLARITY_PRO_PLUS, as Jira comment 39129 instructs?",
+      "answered": true,
+      "answer": "No. FeatureEnum::COMPANY_METRICS already exists (app/Enums/FeatureEnum.php:91, slug platform_repo_pro_company_metrics), is already in BOTH CLARITY_PRO (ProTierEnum.php:62) and CLARITY_PRO_PLUS (ProTierEnum.php:79), is Pennant-defined (PennantServiceProvider.php:48), and is the gate the immediately-preceding sibling StagingLiveHitLeader (DEV-2461) actually ships. The comment's instruction is stale relative to shipped code; the tier it asked to confirm is already exactly right. Reuse it -- adding a second case would gate a card independently of its own dashboard and would also break the assertCount(18) in tests/Unit/Enums/FeatureEnumTest.php:74.",
+      "source": "code",
+      "note": "All four passes independently flagged the contradiction; the driver verified it directly. This is the one named-open item that code answers outright."
+    },
+    {
+      "id": "q2",
+      "q": "THE SPARKLINE. The ACs 'trend sparkline consistent with existing card styling' and 'exactly one funnel query per resolved window' cannot both be met by any mechanism that exists in this repo. Every DashboardWidget card's chartSeries() reads getMonthlyData(), which is literally up to 13 separate cached queries -- the multiplication this ticket forbids. The two non-DashboardWidget siblings (StagingLiveHitLeader, RecoveryLeader) dodge it by reading cache buckets a DIFFERENT card independently maintains for its own cheap purposes, and no such sibling writer exists for a case-claim/repo funnel. Which way do you want it?",
+      "answered": true,
+      "answer": "RESOLVED by prod-scale measurement (see perf-measurement.md). Use ONE query grouped by toStartOfMonth(...) over a 3-month span -- the okf house pattern (BatchMonthlySparklineData, okf/concepts/client-analytics.md:83), whose own default span is 3 months. Measured interleaved n=8 on the worst-case org: 1-month median 5.04s / p90 5.54s vs 3-month median 5.40s / p90 6.22s -- the span costs +7% at the median. Nothing prunes (billing_events and hotlist_status_log are both ORDER BY id), so the scan is the same size regardless of window and only the small surviving row count grows. This satisfies BOTH ACs: literally one query per resolved window, and a real trend series consistent with existing card styling. SUPERSEDED AND STRENGTHENED: my +7% was wall-clock contention, not cost. Measured server-side, read_rows is IDENTICAL across 1-, 3- and 13-month windows -- a wider window is genuinely free, because nothing prunes.",
+      "source": "code",
+      "options": [
+        "(a) No real sparkline -- flat/empty series. Zero extra queries, satisfies the one-query AC literally, but not the styling AC's spirit.",
+        "(b) Two-point series: this window vs the previous window, as one CTE with conditional aggregation. Still honestly one query. Gives a direction arrow rather than a trend curve. DRIVER'S PICK -- it is the only option that satisfies both ACs as written without new unmeasured cost.",
+        "(c) One wide GROUP BY month query producing all 13 buckets in a single round trip, long TTL. Architecturally 'one query' but scans far more than one window, and its cost is completely unmeasured on a 389M-row join. Never authorised by the ticket."
+      ],
+      "raised_by": "all 3 candidates independently; not addressed by comment 39117 or 39129"
+    },
+    {
+      "id": "q3",
+      "q": "Were the ClickHouse numbers in comment 39117 (deduped 11,975 / DB repos 9,130) computed WITHOUT `FINAL` and without `_peerdb_is_deleted = 0` on the hotlist leg? The driver measured production read-only: zod.public_hotlist raw = 154,553,066 vs FINAL+not-deleted = 136,362,585, a 13.3% overcount (~6.18M soft-deleted, ~12.0M unmerged duplicates). The ticket's cited 156,096,149 sits on the RAW lineage and is 12.6% above the FINAL count. If the funnel shared that methodology, its +14-over-target DB repos figure may be an un-deduplicated join reading high -- NOT the benign live-hotlist drift the ticket attributes it to. Both explanations fit +14 and they mean opposite things. The reproduction's SQL is not recorded on the ticket, only its results.",
+      "answered": true,
+      "answer": "DOWNGRADED after measurement -- and this corrects the driver's own earlier framing. The 13.3% raw-vs-FINAL overcount is a WHOLE-TABLE figure. On the slice this query actually touches, `hotlist WHERE status = 3`, the duplicate rate is only **0.33%**: raw 16,191,610 rows over 16,138,718 unique ids (52,892 duplicate rows), against FINAL+not-deleted 16,138,205 with zero duplicates. Soft-deletes at status = 3 are ~0. That makes sense -- Repossessed is a TERMINAL status, so those rows stop being updated and get merged, while the churny in-progress statuses carry the duplicates. Consequence: a missing FINAL cannot plausibly explain the reproduction's +14 (0.15%). Even a naive inflation ceiling would be 0.33% (~30 rows), and most duplicates collapse anyway because the recoveries CTE aggregates with max(hsl.created_at) and groups per (vin, agent) pair. The ticket's live-hotlist-drift explanation stands as the better one, and the route's validation evidence is NOT undermined. What survives as a real requirement: the port should still apply FINAL + _peerdb_is_deleted = 0 on the hotlist leg deliberately (it is correct, and cheap on this slice -- 1,049ms vs 559ms), and should NOT apply FINAL to hotlist_status_log or billing_events, where raw and FINAL counts are byte-identical and FINAL costs 10x for nothing. It remains unrecorded whether the comment-39117 reproduction used FINAL; that is now a hygiene note, not a blocker. CLOSED FOR GOOD by the full port measurement: with FINAL applied the total still reads 9,135 against the 9,116-9,117 Postgres target, and the drift rate reconciles across three readings at ~1.3-1.6/day in one direction. The +18 is live-hotlist drift, not a dedup artefact.",
+      "source": "code",
+      "how_to_close": "Re-run the funnel twice against production read-only -- once with and once without FINAL + _peerdb_is_deleted = 0 on the hotlist leg -- and see which lands on 9,116-9,117. This also settles whether the route's validation evidence stands.",
+      "measured_by_driver": true
+    },
+    {
+      "id": "q4",
+      "q": "DEV-2463 (Unique LPR Case Claims) is still To Do with no code in this repo. This ticket's description says to build it first because it proves the shared claim CTE end-to-end at low risk. The inherited QUESTIONS were settled by investigation (comments 39117/39129), but no shipped Clarity code implements the claims CTE. Do we proceed and port it here first -- accepting that DEV-2463 then either reuses or diverges from this port -- or resequence and build DEV-2463 first?",
+      "answered": true,
+      "answer": "RESEQUENCE. Operator decision: build DEV-2463 (Unique LPR Case Claims) FIRST, hold DEV-2464. Note the original rationale for that ordering is now largely spent -- this run already proved the shared claim CTE end-to-end against production, reproducing deduped 11,975 total and 7,230 for the largest forwarder exactly (see perf-measurement.md). So DEV-2463 inherits a validated CTE rather than having to de-risk one. DEV-2464 resumes after DEV-2463 lands, and should REUSE that ticket's claims/deduped query rather than re-port it.",
+      "source": "human:Dalton McCleery 2026-09-08",
+      "note": "The grid-slot half of this dependency is NOT a blocker (see settled_by_reconcile). What survives is duplicate-port risk on the shared CTE.",
+      "raised_by": "4/4 passes"
+    },
+    {
+      "id": "q5",
+      "q": "Base class -- extend DashboardWidget, or bypass it? The ticket's card contract says 'add an explicit getStatColor() arm in DashboardWidget', which assumes inheritance. Its one-query AC points the other way, and the two most recent siblings (StagingLiveHitLeader, RecoveryLeader) both bypass DashboardWidget and hardcode ->color() in their own toStat(). The ticket's two instructions point at different base classes.",
+      "answered": true,
+      "answer": "CLOSED by shipped code (#394). The LprRepossessions stub on main EXTENDS DashboardWidget and overrides getModelQueryForDates(), getMonthlyData() and currentPeriodTotal() -- the only paths that reach cache()->remember(). That is better than either option I offered: overriding getMonthlyData() IS the seam that removes the 13-month loop, while keeping the base class's rendering, TTL ladder and colour handling. My recommendation to bypass DashboardWidget is overtaken. getMonthlyData() must return 13 elements -- getData() zips it positionally against getGraphLabels().",
+      "source": "code",
+      "driver_pick": "Bypass DashboardWidget, following StagingLiveHitLeader, and implement getCardKey()/toStat()/lockedStat() directly -- inheriting the 13-month loop is the one thing this ticket most clearly forbids. That makes the getStatColor() arm a no-op, so the contract line should be read as 'the card must have an explicit colour, not the silent gray default', satisfied in the card's own toStat().",
+      "raised_by": "candidate 2 (assigned this surface); candidates 1 and 3 assumed inheritance without noticing the conflict"
+    },
+    {
+      "id": "q6",
+      "q": "What is the ClickHouse type of zod.public_billing_events.additional (the JSONB column holding claimed_by_org_id and vin in Postgres)? The table is absent from this repo's schema dump, so there is no local fixture to check. If it mirrors as String it needs JSONExtractString(); PG's `::int` cast ERRORS on a non-numeric value while a CH toInt32OrNull() would silently NULL that row -- a real, if low-probability, divergence in the port.",
+      "answered": true,
+      "answer": "`additional` mirrors as a plain **String**, not a native JSON type (system.columns, driver-measured read-only 2026-09-08). Full mirror shape: id Int64, api_key_id Int32, success Bool, event_type String, additional String, ts Int64, plus the three _peerdb_* columns. So the port needs JSONExtractString(additional, 'vin') and, for claimed_by_org_id, JSONExtract-then-cast. Note the PG-vs-CH cast divergence stands: PG's `::int` ERRORS on a non-numeric value while toInt32OrNull() silently NULLs that row -- prefer a form that surfaces bad data rather than dropping it. Two incidental confirmations: `ts` really is an integer epoch (port rule 2 holds) and billing_events carries NO org_id, so the forwarder must come from api_keys.org_id exactly as the ticket says.",
+      "source": "code",
+      "how_to_close": "DESCRIBE TABLE zod.public_billing_events read-only against production -- one statement, cheap.",
+      "raised_by": "candidates 1 and 2; not covered by any of the ticket's 5 port rules"
+    },
+    {
+      "id": "q7",
+      "q": "Do ClickHouse joins treat a NULL agent_org_id join key the way Postgres does (never matches, correctly excluding those claims from DB repos), or could join_use_nulls / the hash-join implementation match NULL-to-NULL and inflate the count?",
+      "answered": true,
+      "answer": "No divergence -- ClickHouse behaves like Postgres. A synthetic INNER JOIN on a NULL key matched 0 rows under default settings AND with join_use_nulls = 1, while a NULL-vs-real-value control matched exactly 1 (driver-measured read-only 2026-09-08). Claims with an unresolved agent_org_id therefore cannot inflate DB repos. Candidate 1's concern is closed.",
+      "source": "code",
+      "how_to_close": "An isolated empirical test against a seeded NULL-agent claim. Not inferable from static SQL.",
+      "raised_by": "candidate 1"
+    },
+    {
+      "id": "q8",
+      "q": "Which hotlist table should the recoveries leg join -- clarity.hotlist FINAL (denormalized, matches HitDirectHotspotQuery/HotlistAddressGeohashQuery's established pattern) or zod.public_hotlist (the raw CDC mirror, a closer 1:1 to backyard's literal `hotlist`)?",
+      "answered": true,
+      "answer": "MEASURED -- use A1: the backyard-faithful zod.public_hotlist FINAL (status=3) join zod.public_hotlist_status_log (new_status=3), WITH backyard's min(claim_date)-7 floor on the status log (identical answer, 33% less peak memory: 2.50 GB vs 3.72 GB). REJECT the clarity.hotlist repo_date shortcut even though it is 5.9x cheaper (105.7M vs 664.3M read_rows, 5.54 vs 15.04 GB, 1.89 vs 2.50 GB memory): across 5 windows x 5 orgs it matched 23/25 but diverged -2 in April, and the diagnosis is decisive -- clarity.hotlist is missing 2 (vin, org) pairs outright, AND its repo_date differs from the status-transition date for 1,588 of 6,770 counted pairs (23%). It agrees only because '>= claim_date - 7' is loose enough to absorb the slack, so it is agreement by luck, not equivalence. Its repo_date comes from hotlist_meta (client-reported); backyard's definition is our own status transition. For a billing-adjacent figure reconciled against Brek's report, fidelity outranks the 3x scan. Record B as measured-and-rejected in the Build Record with the 23% figure so it is not re-proposed as a free win. See q8-recoveries-leg.md.",
+      "source": "code",
+      "note": "Interacts with q3: whichever is chosen, the FINAL/soft-delete discipline must be explicit, because the driver measured a 13.3% raw overcount on zod.public_hotlist.",
+      "raised_by": "candidate 2"
+    },
+    {
+      "id": "q9",
+      "q": "The UTC calendar-month window rests on an unverified server default. Neither the clarity_clickhouse nor the public_clickhouse connection block in config/database.php sets a timezone, and the Postgres side never sets the session timezone GUC either (app.timezone=UTC does not control it). Should the port pass 'UTC' explicitly to every date function?",
+      "answered": true,
+      "answer": "Yes -- pass 'UTC' explicitly to every date function. Driver-confirmed that neither the clarity_clickhouse nor the public_clickhouse block in config/database.php carries a timezone key, and the Postgres side never sets the session timezone GUC (app.timezone=UTC does not control it). Port rule 2 makes the UTC calendar month a hard requirement, so inheriting an implicit server default on either side is the one thing most likely to break it silently. Explicit UTC is cheap and strictly safer; taken as a driver decision rather than a question.",
+      "source": "code",
+      "driver_pick": "Yes -- pass 'UTC' explicitly. Port rule 2 makes the UTC calendar month a hard requirement, and inheriting an implicit default on either side is the single biggest generic threat to it. This is cheap and strictly safer.",
+      "raised_by": "candidate 1; driver verified both connection blocks carry no timezone key"
+    },
+    {
+      "id": "q10",
+      "q": "titlemax-viewer disclosure. A TitleMax viewer sees a 51.0% repo rate against a 73-89% peer pack, because their repossessions happen inside their own RepoSystem and never fully reach our clone -- so the number reads as poor performance rather than missing data. Does this card ship any disclosure treatment, or is it purely a copy decision with no code impact here?",
+      "answered": true,
+      "answer": "OUT OF SCOPE. Oscar: 'copy we handle later, outside this ticket.' No card-level disclosure in DEV-2464. TitleMax stays in the count (never filtered) with a structurally understated number; note the understatement in the Build Record. Removes a possible scope item -- adds no work.",
+      "source": "human:Oscar Nunez 2026-09-09",
+      "note": "Explicitly with Oscar on the ticket. Carried, not re-litigated.",
+      "asked_of_oscar": "DEV-2464 comment 39323 (2026-09-09), @-mentioned, mention verified resolved to accountId 712020:d36a2f57-a650-4f7f-bf65-bf5d2d5a444b",
+      "refreshed_figures": "Aug 2026, measured read-only: TitleMax 268 deduped / 142 db_repos = 53.0%, against a pack of 75.4% (Location Services 7,454/5,623), 79.8% (Primeritus), 82.3% (American Recovery), 84.4% (Millennium), 86-88% (Burns, Bell & Williams, Victory). Jul 2026 read 51.0% -- the gap is stable, not a one-month artefact."
+    },
+    {
+      "id": "q11",
+      "q": "83% of orgs read 0 on this card (256 of 1,536 orgs appear on either side of a deduped case claim in Jul 2026). Ship as-is, or does it change the card's framing or visibility rule? A related code hazard: a legitimately-zero org and a FAILED query currently render identically as 0, because ClickhouseQuery::query() swallows Throwable to [] in production and testing.",
+      "answered": true,
+      "answer": "CLOSED FAVOURABLY -- the denominator was wrong. Oscar: 'we only need to care about Orgs that have a Clarity account. not worried about the 1270 orgs that did not have case claims.' My 83.1% used all 1,528 orgs with any repossession; most are not Clarity customers and cannot open the dashboard. Measured the real audience by mirroring Org::isProEnabled(COMPANY_METRICS) against zod.public_org_meta: 29 entitled orgs (4,118 carry a platform_repo_pro* key; 42 are pro after the end-date check; 0 have an individual company_metrics flag; 29 qualify by tier) -- landing on EXACTLY the 29 okf recorded independently. Of those 29: Aug 2026 29/29 = 100.0% see a non-zero value (median 35, max 973); Jul 2026 25/29 = 86.2% (median 30, max 867). The card reads meaningfully for essentially its whole audience. Residual: 4 of 29 read zero in July, a legitimate 'no claims this month' -- which keeps DEV-2463's propagate-don't-swallow precedent worth having, but needs NO zero-state special-casing and no visibility branch. Adds no work.",
+      "source": "human:Oscar Nunez 2026-09-09 + measured",
+      "note": "Explicitly with Oscar. The fail-soft-indistinguishable-from-zero half is a code concern the driver adds: prefer the bespoke-class pattern with its own try/catch + Log::error so a failure is observable.",
+      "asked_of_oscar": "DEV-2464 comment 39323 (2026-09-09), @-mentioned, mention verified resolved to accountId 712020:d36a2f57-a650-4f7f-bf65-bf5d2d5a444b",
+      "refreshed_figures": "Aug 2026, measured read-only: 258 orgs appear on either side of a deduped case claim vs 1,528 orgs with any repossession, so 1,270 orgs (83.1%) would read 0. Jul 2026 read 83%. Stable."
+    },
+    {
+      "id": "q12",
+      "q": "No server-side ClickHouse resource envelope exists for the epic's most expensive card. readonly_user lacks READ ON REMOTE, so clusterAllReplicas(system.query_log) is denied and read_rows / read_bytes / peak memory are unknown -- only client wall clock (~32s cold, 8.65s warm) has ever been measured. Comment 39117 says to get those numbers 'before the route is frozen'. Proceed on wall clock alone, or get the grant first?",
+      "answered": true,
+      "answer": "CLOSED -- I was wrong that this was unobtainable. DEV-2466 established that the X-ClickHouse-Summary RESPONSE HEADER carries read_rows, read_bytes and memory_usage with no READ ON REMOTE grant needed; system.query_log was never the only route. okf/concepts/billing-events.md uses it throughout: 40,046,830 read_rows / 1.83 GB for a one-month window, IDENTICAL for 3-month and 13-month, and identical again scoped to a single org (11 orgs, 22 interleaved runs, 0.00% spread). The AC asking the Build Record to restate an unmeasured cost should now restate a measured one.",
+      "source": "code",
+      "note": "Also unmeasured: the concurrency envelope (how many distinct orgs can independently cache-miss a ~32s query inside the same Cache::flexible fresh window), and the added cost of FINAL if q3 requires it -- the driver measured a bare FINAL count on hotlist at 12.5s by itself."
+    },
+    {
+      "id": "q13",
+      "q": "NEW, surfaced by the merge. The ticket mandates one Cache::flexible([3600, 86400]) query per resolved window, but okf/concepts/company-metrics-dashboard.md warns that a card caching through its own path bypasses DashboardWidget::getCacheTTL() entirely -- including the collapse to a 10-second TTL while impersonating (the ladder is 1 year for sparkline buckets, 10 min for the headline, 10 s impersonating). Use Cache::flexible as the ticket says and accept that an impersonating admin sees a staler value here than on neighbouring cards, or use the base ladder and drop Cache::flexible?",
+      "answered": true,
+      "answer": "ANSWERED from shipped precedent (DEV-2463's UniqueLprCaseClaims) -- and my framing of the hazard was BACKWARDS. I said the risk was an impersonating admin seeing a STALER value; the real risk is that getCacheTTL() collapses to 10s under admin_impersonator, which is SHORTER than the query's contended p99, so every impersonated re-render starts a fresh full scan (a stampede, not staleness). Keep Cache::flexible([3600, 86400]) as the ticket mandates, plus the four parts DEV-2463 shipped: (1) a getCacheTTL() override flooring the TTL (they use 60s); (2) a cold-path herd guard, because Cache::flexible locks ONLY its stale-refresh branch and a total miss is unlocked -- one full scan per entitled org per concurrent tab after a deploy or cache:clear; the guard must test BOTH $key and illuminate:cache:flexible:created:{$key}, which land in different Redis-cluster slots and can be evicted independently; (3) COLD_LOCK_SECONDS > CLICKHOUSE_TIMEOUT_QUERY and an explicit REFRESH_LOCK_SECONDS, since flexible()'s own refresh lock defaults to never expiring; (4) the window's identity in the cache key, or a month rollover serves a map whose newest bucket is absent and ?? 0 fabricates a zero. DO NOT inherit DEV-2463's constants: theirs are tuned to a ~40M-row query with a 9.3s contended p99, and DEV-2464's A1 measures 664M rows / 2.50 GB -- ~16x. Under-sizing COLD_BLOCK_SECONDS is the documented failure mode where every waiter times out and computes anyway. Measure this card's own p99 and re-derive. See q13-caching.md.",
+      "source": "code"
+    },
+    {
+      "id": "q14",
+      "q": "NEW. My measured port omits the insightlpr internal-org exclusion (position(lower(replaceRegexpAll(coalesce(name,''),'[^a-zA-Z0-9]','')),'insightlpr') = 0, joined through orgs) and uses GROUP BY + count() rather than the canonical uniqExactIf over the triple. It also references the deduped CTE three times, which okf measures as exactly 3.0x the read_rows over this table. All three are implementation corrections rather than open questions -- recorded so Phase 3 cannot miss them.",
+      "answered": true,
+      "source": "code",
+      "answer": "Fix all three in the plan: apply the insightlpr exclusion, switch to uniqExactIf over (forwarder_org_id, agent_org_id, vin) with uniqExact (never uniq -- HyperLogLog, approximate, and these figures are reconciled against a report), and restructure to a SINGLE pass over billing_events. Note the exclusion fails OPEN: FINAL on orgs does drop tombstones, so a soft-deleted internal org would fall out of the join and its claims would silently re-enter."
+    }
+  ],
+  "blockers": [
+    {
+      "id": "b1",
+      "blocker": "zod.public_billing_events is absent from database/schema/clickhouse-schema.sql, so CI cannot create the table this card's core query reads, and no test of the claims CTE can run there. Verified per-table by the driver: public_api_keys (:49), public_hotlist (:56), public_hotlist_status_log (:63) and public_orgs (:67) ARE present; only billing_events is missing. The table verifiably exists in production (38,018,542 rows).",
+      "correction": "The fast pass and candidate 3 also cited database/schema/local-clickhouse-schema.sql as a second gap. That file holds only 8 CREATEs and no zod.* tables at all -- it is a partial local fixture, not a second full dump, so its absence there is not evidence. The single real gap is the CI dump.",
+      "shared_infra": true
+    },
+    {
+      "id": "b2",
+      "blocker": "tests/Concerns/RequiresClickhouse.php truncates zod.public_hotlist_status_log, zod.public_address, zod.public_hotlist_address and zod.kit_last_scan -- but NOT zod.public_hotlist, zod.public_api_keys, zod.public_orgs or zod.public_billing_events. Any test seeding those four leaks rows into every later test class in the run, and because the literal clarity/zod ClickHouse databases are shared across worktrees, it leaks across runs too.",
+      "shared_infra": true
+    },
+    {
+      "id": "b4",
+      "blocker": "The sparkline AC and the one-query AC are not simultaneously satisfiable with any existing mechanism -- see questions[].q2. This needs a design decision before implementation, not during it.",
+      "shared_infra": false
+    },
+    {
+      "id": "b3-retired",
+      "blocker": "RETIRED by measurement. Previously: 'the route's validation evidence is in doubt because the ticket's row counts are raw'. The raw-count finding is confirmed, but the duplicate rate on the status = 3 slice the query actually joins is 0.33%, not the whole-table 13.3% -- too small to explain the +14, and largely collapsed by the recoveries CTE's own GROUP BY. See questions[].q3. Kept visible rather than deleted so the reversal is on the record.",
+      "shared_infra": false
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "item": "Card reproduces Brek's Repo Report for the same window and org set: DB repos 9,116-9,117, largest forwarder 5,355-5,356, +/-1 expected.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Core correctness AC. NOT provable in CI -- the number is production-scale. CI can pin the RULES (dedup key, window inclusivity, exclusions, event_type, org axis); the number itself needs a read-only live check at QA time, snapshot-pinned. Blocked on q3 before the target can be trusted."
+    },
+    {
+      "item": "Exactly one funnel query per resolved window per org; no per-month multiplication.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Must be pinned by a literal query-count assertion (DB::listen or a query spy), not by code shape -- or it regresses silently. Depends on q2 and q5."
+    },
+    {
+      "item": "Respects the Today / Last 7d / This Month / Last Month filter.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "BuildsDateFilterChartSeries::resolveCardRange() is the existing seam; the new query needs an equivalent window resolver on the integer epoch ts. Testable in CI once b1/b2 are fixed."
+    },
+    {
+      "item": "Non-Pro orgs do not see the value.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "The lockedStat()/canViewCardData() seam from DEV-2460, gated on the existing COMPANY_METRICS feature per q1. Pin that lockedStat() executes NO query."
+    },
+    {
+      "item": "Trend sparkline consistent with existing card styling.",
+      "source": "ticket",
+      "decision": "BLOCKED on q2",
+      "reason": "Cannot be planned or tested until the design tension is resolved by a human."
+    },
+    {
+      "item": "Existing metrics and their values are unaffected.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "The insert is additive; test_all_four_hit_cards_are_contiguous() still holds (it measures array adjacency of the 4 hit keys, which the index-2 insert does not touch)."
+    },
+    {
+      "item": "The unmeasured production cost is restated in the Build Record.",
+      "source": "ticket",
+      "decision": "implement, with corrected wording",
+      "reason": "The ticket says 'production-Postgres cost'. The route moved to ClickHouse, which retires that risk and introduces a different one: no server-side CH envelope (q12). The Build Record must restate the CURRENT risk, not the retired one."
+    },
+    {
+      "item": "CDC correctness: FINAL and/or _peerdb_is_deleted = 0 applied per-table, deliberately.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "ADDED -- the ticket's 5 port rules never mention it. Driver-measured: hotlist needs it (13.3% raw overcount); hotlist_status_log and billing_events currently do not (raw == FINAL exactly), and FINAL on the status log costs 10x wall clock for zero benefit. Per-table and justified, never blanket."
+    },
+    {
+      "item": "Explicit UTC in every date function.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "ADDED -- see q9. Neither CH connection block nor the PG session sets a timezone, so port rule 2's UTC calendar month currently rests on a server default."
+    }
+  ],
+  "data_impact": {
+    "pg_tables": [
+      "zod.public.billing_events (backyard-owned; upstream of the mirror only -- Clarity does not query Postgres on this route)",
+      "zod.public.hotlist",
+      "zod.public.hotlist_status_log",
+      "zod.public.api_keys",
+      "zod.public.orgs"
+    ],
+    "ch_tables": [
+      "zod.public_billing_events",
+      "zod.public_api_keys",
+      "zod.public_hotlist",
+      "zod.public_hotlist_status_log",
+      "zod.public_orgs"
+    ],
+    "mv_or_cdc_implications": "All five are PeerDB CDC mirrors: ReplacingMergeTree(_peerdb_version, _peerdb_is_deleted), PRIMARY KEY id, ORDER BY id. Dedup is asynchronous, so raw reads can return duplicates. Driver-measured per table: hotlist raw 154,553,066 vs FINAL+not-deleted 136,362,585 (needs the discipline); hotlist_status_log and billing_events raw == FINAL+not-deleted exactly (do not today, and FINAL on the status log costs 10x for nothing). None of these four newly-needed tables has an Eloquent model with FiltersCdcDeletes except zod.public_hotlist (ZodPublicHotlist).",
+    "indexes_relied_on": "NONE usable. Every one of the five is ORDER BY id only -- org_id, vin, hotlist_id, api_key_id and created_at are all absent from the sort key, so no primary-index pruning is available for any predicate this query needs. This is the mechanical reason for the ~32s cold figure and why the caching rule is load-bearing."
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "A new app/Clickhouse/Queries/* class joining production-scale CDC mirrors, driven from a Filament dashboard widget rendered on every Company Metrics page load. The ticket itself names this the epic's most expensive card.",
+    "driving_tables": [
+      {
+        "table": "hotlist",
+        "source": "zod.public_hotlist",
+        "prod_rows": 136362585,
+        "prod_rows_basis": "FINAL + _peerdb_is_deleted = 0, driver-measured 2026-09-08",
+        "prod_rows_raw": 154553066,
+        "group_by": "org_id",
+        "largest_group_rows": 17302217
+      },
+      {
+        "table": "hotlist_status_log",
+        "source": "zod.public_hotlist_status_log",
+        "prod_rows": 389287068,
+        "prod_rows_basis": "raw == FINAL + not-deleted, identical, driver-measured",
+        "group_by": "hotlist_id",
+        "largest_group_rows": 1077
+      },
+      {
+        "table": "billing_events",
+        "source": "zod.public_billing_events",
+        "prod_rows": 38018542,
+        "prod_rows_basis": "raw == FINAL + not-deleted, identical, driver-measured",
+        "group_by": "api_key_id",
+        "largest_group_rows": 23129766
+      },
+      {
+        "table": "orgs",
+        "source": "zod.public_orgs",
+        "prod_rows": 726859,
+        "group_by": null,
+        "largest_group_rows": null
+      },
+      {
+        "table": "api_keys",
+        "source": "zod.public_api_keys",
+        "prod_rows": 4138,
+        "group_by": null,
+        "largest_group_rows": null
+      }
+    ],
+    "growth": "hotlist and hotlist_status_log are live, continuously growing. Port rule 4 already records that DB repos reads live hotlist and drifts upward. No case-claim-specific growth curve was obtainable; carrying the repo's standing caution (PG-027 precedent: the fleet moved 29->43 kits and 11->12 orgs in a single day) against sizing to today's maximum.",
+    "schedule": {
+      "expression": null,
+      "interval_seconds": null,
+      "without_overlapping_minutes": null
+    },
+    "allocation_sketch": "Not a scheduled command or job, so there is no accumulation risk -- PHP-side allocation is O(1), one integer, no per-row loop. The risk is per-execution QUERY cost. Per distinct (resolved window, org) cache key, Cache::flexible([3600, 86400]) allows at most one fresh computation per hour with stale-serve for 24h. The claims leg is bounded by the ts range (~15K claim rows/month platform-wide per the ticket's own cross-check). The recoveries leg must stay bounded to the small set of agent orgs present in that org's deduped claims -- backyard's recoveriesCte() docblock states this discipline explicitly ('never scan all status=3 hotlists for the agent orgs -- that is tens of millions of rows') and the port MUST preserve it. Since no sort key prunes, a careless port degrades to a near-full scan of 389M + 136M rows. Measured cost inputs: ~32s cold / 8.65s warm client wall clock for the whole funnel; a bare FINAL count on hotlist alone is 12.5s.",
+    "oracle_status": "ok",
+    "unresolved": [
+      "Server-side read_rows / read_bytes / peak memory: UNKNOWN. readonly_user lacks READ ON REMOTE, so clusterAllReplicas(system.query_log) is denied. Only client wall clock has ever been measured. See q12.",
+      "Concurrency envelope: how many distinct orgs can independently cache-miss a ~32s query within the same fresh window has never been modelled or measured.",
+      "The added cost of FINAL on the hotlist leg, if q3 concludes it is required. A bare count already costs 12.5s; inside the join it is unmeasured.",
+      "The cost of any wide GROUP BY month sparkline query (q2 option c) is entirely unmeasured on the same 389M-row join."
+    ]
+  },
+  "derivation_log": [
+    {
+      "query_shape": "SELECT count() FROM zod.public_hotlist  [three variants: raw; WHERE _peerdb_is_deleted = 0; FINAL WHERE _peerdb_is_deleted = 0]",
+      "param_classes": "none -- bare counts, no user input, identifiers composed locally",
+      "aggregate_result": "raw 154,553,066 (428ms) / not-deleted 148,369,106 (1,122ms) / FINAL+not-deleted 136,362,585 (12,476ms)",
+      "why": "Settle the candidate-1-vs-candidate-2 disagreement on whether FINAL is needed, and test whether the ticket's cited 156,096,149 is a raw count. Both answered: hotlist needs the discipline (13.3% overcount) and the ticket's figure is on the raw lineage.",
+      "run_by": "driver, read-only as readonly_user via chlocal tools/compare.py"
+    },
+    {
+      "query_shape": "SELECT count() FROM zod.public_hotlist_status_log  [raw; FINAL WHERE _peerdb_is_deleted = 0]",
+      "param_classes": "none",
+      "aggregate_result": "both exactly 389,287,068 (231ms raw vs 2,488ms FINAL)",
+      "why": "Same disagreement, other table. Candidate 2 was right: append-only, no duplicates or soft-deletes today, and FINAL costs 10x for zero benefit.",
+      "run_by": "driver, read-only"
+    },
+    {
+      "query_shape": "SELECT count() FROM zod.public_billing_events  [raw; FINAL WHERE _peerdb_is_deleted = 0]",
+      "param_classes": "none",
+      "aggregate_result": "both exactly 38,018,542 (282ms vs 320ms)",
+      "why": "Confirm the table really is mirrored in production despite being absent from the CI schema dump, and establish whether it needs the FINAL discipline (it does not, today).",
+      "run_by": "driver, read-only"
+    },
+    {
+      "query_shape": "prod-cardinality.sh --app clarity --table hotlist:org_id --table hotlist_status_log:hotlist_id --table billing_events:api_key_id --table orgs --table api_keys",
+      "param_classes": "identifier-validated table:group_col pairs only; the script composes its own SQL and structurally cannot mutate",
+      "aggregate_result": "largest hotlist org_id group 17,302,217; largest hotlist_status_log hotlist_id group 1,077 (small fan-out, favourable for the indexed join); largest billing_events api_key_id group 23,129,766 of 38.0M (~61%, almost certainly our own org, matching comment 39129's finding that Location Services LLC is the largest forwarder); orgs 726,859; api_keys 4,138",
+      "why": "Resource-envelope largest-single-group requirement. Run independently by all three candidates with agreeing results.",
+      "run_by": "prep candidates 1, 2 and 3 independently"
+    },
+    {
+      "query_shape": "git show origin/deploy:app/Models/Core/Extended/RepoReport.php  (backyard, 1235 lines) -- read claimsCte/recoveriesCte/funnelSql/orgDbReposSql/rejectInternalOrgs/isExternalRepoSystem/decorateRow/dbReposForOrg/monthToDateDbRepos/totalDbRepos",
+      "param_classes": "n/a -- source read, no data",
+      "aggregate_result": "Dedup key confirmed as the 3-column (forwarder_org_id, agent_org_id, vin), contradicting the class docblock's 'distinct (vin, agent)'. event_type confirmed as the discriminator. ts window confirmed inclusive BETWEEN on the integer epoch. Recovery window confirmed as repo_date >= claim_date - INTERVAL '7 days', evaluated per deduped pair. orgDbReposSql() confirmed to return a scalar db_repos only.",
+      "why": "The spec source lives in another repo and the ticket's prose about it has been wrong at least once by its own admission.",
+      "run_by": "prep candidates 1, 2 and 3 independently, agreeing"
+    }
+  ],
+  "tests": [
+    {
+      "file": "tests/Feature/Clickhouse/LprRepossessionsQueryTest.php",
+      "what_it_pins": "The port RULES, not the production number: dedup on the full (forwarder, agent, vin) triple; insightlpr excluded and titlemax NOT excluded; event_type not type; UTC calendar-month inclusive BETWEEN on integer ts; org axis OR-match; a repo_date exactly at claim_date-7d counts and one second earlier does not; a claim with a NULL agent_org_id never counts. Blocked on b1/b2."
+    },
+    {
+      "file": "tests/Feature/Clickhouse/LprRepossessionsQueryTest.php",
+      "what_it_pins": "One query per resolved window -- a literal query-count assertion, not an inference from code shape."
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/LprRepossessionsTest.php",
+      "what_it_pins": "Card contract: getCardKey() == 'lpr-repossessions'; canViewCardData() gated on the existing COMPANY_METRICS feature; lockedStat() renders the placeholder and executes NO query; an explicit non-gray colour."
+    },
+    {
+      "file": "tests/Filament/Pages/DashboardCardExpansionTest.php",
+      "what_it_pins": "The card-order array with the new key at index 2, and that the four hit cards stay contiguous."
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php",
+      "what_it_pins": "assertCount 9->10 and the explicit $expectedGated allowlist including the new key."
+    },
+    {
+      "file": "tests/e2e/lpr-repossessions.spec.ts",
+      "what_it_pins": "Renders the number for a Pro org and the locked state for a non-Pro org."
+    }
+  ],
+  "test_execution_notes": [
+    "Full suite MUST be `php -d memory_limit=2G vendor/bin/phpunit`. `php artisan test` OOMs during test DISCOVERY at the default 128M and still exits 0 -- it reports a clean pass on a suite that never ran.",
+    "A `.env.testing` with CLICKHOUSE_DRIVER=pgsql makes RequiresClickhouse markTestSkipped EVERY ClickHouse test -- all-green having executed nothing. Check the driver first if a CH suite looks suspiciously fast.",
+    "Local CH databases must use the LITERAL names clarity and zod -- RequiresClickhouse TRUNCATEs fully-qualified literals, so per-worktree names truncate a different database than the app writes to.",
+    "Expect roughly 8 pre-existing full-suite failures; do not assume they are yours. Verify a suspected regression by running the class alone and against the base commit."
+  ],
+  "notes": [
+    "Do not port LprRepossessionCountQuery / LprRepossessions from claude/DEV-2409 -- they implement the definition Oscar rejected outright (DEV-2409 comment 38627). The measurement work that accompanied them is preserved in docs/investigations/DEV-2409/number-validation.md and was correct for the old definition only.",
+    "No Clarity code references billing_events anywhere today. This ticket introduces a genuinely new data source to the app, not an extension of an existing one.",
+    "Closest in-repo precedent for the recoveries leg's shape (a hotlist_status_log transition inside a window, joined to hotlist) is app/Clickhouse/Queries/Client/CohortDeclinedQuery.php / CohortClosedQuery.php. Model the SQL on those rather than re-deriving CDC mechanics.",
+    "clarity.hotlist_status_aggregate was evaluated as a cheaper substitute for the raw status-log join and REJECTED: it has no vin column and no per-hotlist grain (only a uniq-merge count per hour bucket), so it cannot support the per-(vin, agent_org_id) join. It is also independently off-limits for schema changes.",
+    "Heading collision risk: RecoveryCounts already renders 'Total Repossessions' for a different metric and sits immediately before this card at index 1. 'LPR Repossessions' needs clearly distinct copy so two adjacent repossession-themed cards are not confused.",
+    "ClickhouseQuery::query() swallows Throwable to [] in production and testing, so a failed query renders 0 -- indistinguishable from the legitimately-zero case that 83% of orgs will hit. Prefer the bespoke-class pattern with its own try/catch + Log::error so failures are observable.",
+    "Grid alignment: the cards() docblock warns that at 9 cards the four hit cards do not render as one row, with the rule count(preceding built cards) % columns == 0. Today 5 precede them; a 10th card at index 2 makes it 6, and lg is 6 columns -- so this card may RE-ALIGN the row DEV-2461 de-aligned. The docblock claims it re-aligns at 12. One of those is wrong: MEASURE, do not reason, and correct the docblock to match.",
+    "getCardKey() is only defaulted by DashboardWidget. A card that bypasses it (the q5 driver pick) must implement getCardKey() explicitly, as StagingLiveHitLeader does even though the computed value would be identical.",
+    "Prefer binding a real Array(String) for the event_type IN-list. backyard's `event_type = ANY(string_to_array(?, ','))` is a Postgres prepared-statement workaround; ClickHouse has no such limitation and reimplementing it via splitByChar just carries the workaround forward.",
+    "PHP 8.3 compatibility is required in app code (production runs 8.3) even though local/CI run newer.",
+    "No okf/ page documents CompanyMetricsOverview or the DashboardWidget card system -- grounding for this ticket came from reading code directly. That is a real wiki gap worth landing AFTER merge/QA, per CLAUDE.md's WRITE-after-approval rule. Do not write to okf/ while this work is in flight.",
+    "Run composer format (Pint) before finishing; okf/concepts/laravel-boost-guidelines.md governs the new classes' shape."
+  ],
+  "missed_caller_candidates_resolved": "The grep backstop surfaced 6 referencing files absent from the fast pass inventory. The driver checked the 3 non-test ones directly and all are SAFE: Dashboard.php delegates wholesale to expandableCards() with no card-key branch; KitUsers.php's 'kit-users' key was removed from cards() by DEV-2460 and resolves to nothing; HotlistCount.php's mention is a docblock. The 3 test/e2e siblings are the pattern templates, already in scope. No app/ inventory gap.",
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "DB repos matches Brek's Repo Report",
+        "kind": "human",
+        "intent": "Re-run the funnel read-only against production, snapshot-pinned, BOTH with and without FINAL on the hotlist leg (q3), and compare to 9,116-9,117."
+      },
+      {
+        "ac": "Exactly one query per resolved window",
+        "kind": "agent",
+        "intent": "Query-count assertion across a cold and a warm render, for each of the four filter states."
+      },
+      {
+        "ac": "Date filter respected",
+        "kind": "agent",
+        "intent": "Toggle all four arms; assert distinct cache keys and distinct window bounds reach the query."
+      },
+      {
+        "ac": "Non-Pro orgs do not see the value",
+        "kind": "agent",
+        "intent": "Toggle the COMPANY_METRICS entitlement; assert lockedStat() renders and no query executes."
+      },
+      {
+        "ac": "Sparkline",
+        "kind": "human",
+        "intent": "Cannot be planned until q2 is answered."
+      },
+      {
+        "ac": "Existing metrics unaffected",
+        "kind": "agent",
+        "intent": "DashboardCardExpansionTest + DashboardCardVisibilityTest + both sibling card suites stay green."
+      }
+    ],
+    "seed_scenario": "One forwarder org with an api_key and several successful case-claim billing_events rows carrying distinct VINs, including one VIN claimed through TWO forwarders by the same agent (the case the docblock's 2-column prose would under-count). Two or more agent orgs, each with hotlist rows at status = 3 and hotlist_status_log transitions to new_status = 3 both inside and outside the 7-day window, spanning a UTC month boundary. Plus: one insightlpr-named org (must be excluded), one titlemax-named org (must NOT be excluded, only flagged), one claim with a NULL agent_org_id (must never count), and a soft-deleted / duplicated hotlist row to exercise the CDC discipline from q3.",
+    "personas": [
+      "ADMIN on a CLARITY_PRO or CLARITY_PRO_PLUS org -- sees the value",
+      "ADMIN on a BASIC or PRO_LITE org -- sees the locked placeholder",
+      "InsightLPR admin_impersonator -- bypasses the gate"
+    ],
+    "pg_tables": [],
+    "ch_tables": [
+      "zod.public_billing_events",
+      "zod.public_api_keys",
+      "zod.public_hotlist",
+      "zod.public_hotlist_status_log",
+      "zod.public_orgs"
+    ]
+  },
+  "blast_radius": [
+    "tests/Concerns/RequiresClickhouse.php -- the shared truncation list used by every ClickHouse-backed test class in the suite.",
+    "database/schema/clickhouse-schema.sql -- the CI-wide ClickHouse schema fixture; regenerating it affects every CH test in CI, not just this ticket's.",
+    "Billing-adjacent: this number sits on the same (forwarder OR agent) axis that backyard's ClarityCommercialFeeSummary bills customers off. A definitional bug here eventually surfaces as a billing disagreement. Read-only awareness for this ticket, but it raises the cost of getting the definition wrong."
+  ],
+  "confidence": 88,
+  "escalate": {
+    "recommend": true,
+    "reason": "Already escalated: 3 blind candidates plus a grep backstop were run and reconciled. The gate is BLOCKED on 11 open questions and 4 blockers, two of which (q3's validation-evidence doubt and q2's sparkline tension) were discovered by this prep rather than carried in from the ticket."
+  },
+  "perf_measurement": {
+    "verdict": "go",
+    "approach": "ClickHouse port of claimsCte + deduped + recoveriesCte + orgDbReposSql, one Cache::flexible([3600,86400]) query per resolved window, sparkline as a 3-month toStartOfMonth grouping in that same query.",
+    "measured_at": "2026-09-08",
+    "correctness": "deduped 11,975 total and 7,230 for the largest forwarder -- both EXACT against the ticket's targets, with FINAL applied. DB repos 9,135 vs 9,116-9,117 target (+18, live-hotlist drift, rate-reconciled across three readings).",
+    "cost": "org 165 worst case, interleaved n=8: 1-month median 5.04s p90 5.54s max 16.52s; 3-month grouped median 5.40s p90 6.22s max 33.65s. ~6x cheaper than the ~32s comment 39117 recorded, due to query shape.",
+    "residual_risk": "Fat tail (max 16.5-33.7s on shared Cloud, CLICKHOUSE_TIMEOUT_QUERY=60) keeps the caching rule load-bearing. Server-side read_rows/read_bytes/peak memory still unobtainable (q12). Concurrency unmeasured."
+  },
+  "hold": {
+    "reason": "Operator resequenced: DEV-2463 ships first (2026-09-08).",
+    "resumes_when": "DEV-2463 is merged, so DEV-2464 can build on its claims/deduped query instead of duplicating the port.",
+    "carry_forward": "perf-measurement.md (validated port + timings), okf-findings.md, driver-verification.md, and the 6 answered questions all transfer to DEV-2463 directly -- it queries the same billing_events/api_keys tables and the same claims CTE."
+  },
+  "rescope": {
+    "merged": "origin/main at 539124bc (2026-09-09)",
+    "note": "docs/investigations/DEV-2464/rescope-after-main-merge.md",
+    "scope_now": "Replace the three data methods in the existing LprRepossessions stub (#394 already shipped the class, the cards() registration at index 3, the registry-test updates, the getStatColor() arm and the Pro-gate shape).",
+    "code_diff_vs_main": "empty -- DEV-2463 cherry-picked both infra fixes byte-identically"
+  },
+  "design_consequences": [
+    {
+      "id": "dc1",
+      "surfaced_by": "q8 measurement, 2026-09-09",
+      "finding": "The org filter does not reduce the scan AT ALL -- A1 reads 664,270,998 rows whether scoped to one org or platform-wide, because every table involved is ORDER BY id and nothing prunes (matches okf/concepts/billing-events.md for billing_events). Per-org computation is therefore the worst possible shape: N orgs cache-missing = N x 15 GB and N x 2.5 GB memory for a query whose cost is identical to computing every org at once.",
+      "implication": "Phase 3 should consider a BATCH shape -- one pass emitting all orgs (arrayJoin over [forwarder_org_id, agent_org_id] to attribute each claim to both sides, grouped by org and month), cached as a map, as ClientRankedMetricsBatch and BatchMonthlySparklineData already do. Turns N x 15 GB into 1 x 15 GB. Does not change the metric, only how often the scan is paid for. Interacts with q13: a shared batch map is a different caching object than a per-org Cache::flexible key.",
+      "operator_decision_needed": false
+    },
+    {
+      "id": "dc2",
+      "surfaced_by": "q13 research, 2026-09-09",
+      "finding": "heldFlexible(), flexibleCreatedKey() and MIN_TTL_SECONDS are PRIVATE to UniqueLprCaseClaims; flexibleRefreshLock() is protected. DEV-2464 needs all of it and DEV-2463's docblock names DEV-2465 as a third user.",
+      "implication": "Extract to a shared concern (e.g. Concerns/HeldFlexibleCache.php) rather than write a second copy -- the Redis-cluster two-key subtlety is exactly what rots in a duplicate. Constants stay per-card, calibrated per query. Code-organisation call; operator can veto.",
+      "operator_decision_needed": true
+    },
+    {
+      "id": "dc3",
+      "surfaced_by": "q13 research, 2026-09-09",
+      "finding": "DEV-2464 inherits DEV-2463's deliberate TWO-CALENDAR seam: UTC month axis (the AC reproduces a UTC-calendar-month figure) but viewer-local today/last_7d from resolveCardRange(), so toggling the filter can make the headline FALL near a month boundary.",
+      "implication": "Must also override getGraphLabels(), getHighlightedMonthsFromFilter() and getDescription() to move the LABEL axis to UTC with the data axis -- okf company-metrics-dashboard.md checklist item 6 names mismatching them as a real defect class. DEV-2463 already carries all three; mirror them.",
+      "operator_decision_needed": false
+    }
+  ],
+  "comment_ids": {
+    "oscar_question": "39323"
+  },
+  "gate_basis": "All 14 questions answered. Both shared-infra blockers (b1 CI schema dump, b2 RequiresClickhouse truncate list) are fixed and already on main via DEV-2463. b3 retired by measurement. b4 (sparkline vs one-query) resolved by q2. q10/q11 answered by Oscar 2026-09-09, neither adding work.",
+  "corrections": [
+    {
+      "what": "rescope-after-main-merge.md claimed #394 shipped the Pro-gate shape.",
+      "correct": "It did not. LprRepossessions has NO canViewCardData() and inherits the trait default, which returns true for an authenticated non-entitled ADMIN. #394's commit message says the Pro gate arrives with each card's own ticket. So the 'non-Pro orgs do not see the value' AC is unimplemented and is this ticket's work, and it also requires adding the key to DashboardCardVisibilityTest's deliberately-explicit $expectedGated allowlist.",
+      "caught_by": "Phase 3 plan arbiter, 2026-09-09; verified by the driver against the stub, the trait and the commit message."
+    }
+  ]
+}

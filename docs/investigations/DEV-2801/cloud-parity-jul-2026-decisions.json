@@ -1,0 +1,106 @@
+{
+  "status": "final",
+  "decision": "KEEP",
+  "collapse": false,
+  "final_on_clarity_hotlist": null,
+  "floor": "KEEP",
+  "q_locks": {
+    "Q1_parity_bar": "100% agreement + db_repos/deduped Δ0; memory ~190→245MB OK if read_bytes ≤ baseline (DEV-2660)",
+    "Q2_window": "Jul 2026 UTC platform-wide only (org=0)",
+    "Q3_cloud_ro_env": "Galadriel box-side via /workspace/first-glance/secrets/ch-cloud-readonly.env (Frodo does not source creds)"
+  },
+  "ac1_agreement": {
+    "candidate_a": {
+      "base_n": 9159,
+      "cand_n": 9159,
+      "both_n": 9159,
+      "agreement_pct": 100.0,
+      "base_only": 0,
+      "cand_only": 0
+    },
+    "candidate_b": {
+      "base_n": 9159,
+      "cand_n": 9159,
+      "both_n": 9159,
+      "agreement_pct": 100.0,
+      "base_only": 0,
+      "cand_only": 0
+    }
+  },
+  "counts": {
+    "m0_baseline": {
+      "deduped": 11975,
+      "db_repos": 9159,
+      "read_rows": 267215682,
+      "read_bytes": 6315077036,
+      "memory_usage": 237551691
+    },
+    "candidate_a": {
+      "deduped": 11975,
+      "db_repos": 9159,
+      "read_rows": 103544499,
+      "read_bytes": 1890248207,
+      "memory_usage": 21392322
+    },
+    "candidate_b": {
+      "deduped": 11975,
+      "db_repos": 9159,
+      "read_rows": 105949829,
+      "read_bytes": 6666238834,
+      "memory_usage": 225365606
+    }
+  },
+  "diagnostics": {
+    "m1_stale_status3_ids": 12,
+    "m2_clarity_live_missing_or_not_status3_in_public": 0,
+    "m2_public_live_missing_or_not_in_clarity_floor": 15327684,
+    "m3_vin_mismatch": 0,
+    "m3_org_mismatch": 0,
+    "m3_clarity_empty_vin": 5,
+    "m3_public_empty_vin": 5,
+    "m3_paired_ids": 870568,
+    "m4_h_matched_triples": 9204,
+    "m4_h_matched_ch_missing": 273,
+    "m4_h_and_ch_matched": 9159
+  },
+  "deltas": {
+    "db_repos_a": 0,
+    "db_repos_b": 0,
+    "deduped": 0,
+    "read_bytes_a_vs_m0": -4424828829,
+    "read_bytes_b_vs_m0": 351161798
+  },
+  "window": {
+    "ts_from": 1782864000,
+    "ts_to": 1785542399,
+    "event_date_from": "2026-07-01",
+    "event_date_to": "2026-07-31",
+    "floor": "2026-06-24",
+    "org": 0,
+    "event_type": "case-claim",
+    "databases": [
+      "clarity",
+      "zod"
+    ],
+    "note": "Q2 locked Jul 2026 UTC platform-wide; DEV-2660 precedent"
+  },
+  "cloud_touched": true,
+  "cloud_ch_writes": false,
+  "select1_ok": true,
+  "show_databases_ok": true,
+  "host": "zd69ju2h8d.us-east-2.aws.clickhouse.cloud:8443",
+  "user": "readonly_user",
+  "measured_at": "2026-10-07T02:32:11Z",
+  "measured_at_ct": "2026-10-06 21:32:11 CT",
+  "checkout_sha": "e8657f123a4e817213e0905fa67081d7a1da4790",
+  "branch": "cursor/dev-2801-cm-lpr-hotlist-single-join",
+  "pr": 504,
+  "measure_raw": "/workspace/docs/investigations/DEV-2801/measure-raw/",
+  "why": "A meets Q1 (100% / Δ0) and read_bytes ≪ M0, but m1 stale_status3_ids=12 (mutable-status CDC — prefer B if A fails stale). B also meets Q1 but read_bytes 6,666,238,834 > M0 baseline 6,315,077,036. Neither candidate clears both parity and the bytes bar after the stale fixture → KEEP dual-join.",
+  "note": "Gate 1 KEEP dual-join: A fails m1 stale=12; B read_bytes > M0. Valid complete outcome.",
+  "gate1_owner_exit": true,
+  "formal_status": "KEEP dual-join (Gate 1 EXIT complete)",
+  "implement_tip": "e8657f123a4e817213e0905fa67081d7a1da4790",
+  "measure_raw_committed": false,
+  "measure_raw_note": "Raw HTTP dumps + SQL scratch live on investigation disk only; not committed to the product PR. Soft #25 cite is this JSON + cloud-parity-jul-2026.md."
+}

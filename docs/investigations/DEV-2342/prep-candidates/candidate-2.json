@@ -1,0 +1,501 @@
+{
+  "synthesis": "Production incident: scout:record-check-ins (DEV-2313, scheduled every 5 min) exhausted production host memory (~29GB marginal against ~30GB headroom) and forced a full host reboot on 2026-08-12. Root-cause chain: (1) sc_positions is read via lower(kit_mapping), which cannot use the table's case-sensitive (kit_mapping, timestamp_utc) ORDER BY, so every position-window read scans ~3056/32732 granules instead of ~13/32732 (chlocal-owned, W1, out of scope here); (2) one org has ~255k open order addresses, chunked at 2000/kit; (3) the ACTUAL amplifier is that the recorder pulls that whole per-org address list into a PHP array and re-serializes it as a ClickHouse values() SQL literal for every kit -> ~5,500 CH queries per cycle; (4) cycles run 36-209 min against a 5-min schedule whose withoutOverlapping(10) is a lock EXPIRY, not a duration cap, so a new process spawns roughly every 10 minutes once cycles outlive it, driving concurrency to ~17 simultaneous processes; (5) each process holds its own O(addresses_per_org) PHP array (re-copied whole by array_chunk() per kit, plus an unbounded $matches[] accumulator), so total host memory is O(addresses x concurrent processes) with concurrency itself unbounded -- that product took the host down. The schedule has been disabled in production since commit 11bc23e2 and stays disabled until concrete criteria are met.\n\nThe intended outcome of this PR (W2+W3 of the plan of record) is to rewrite the matcher so the entire match -- address enumeration, GPS proximity join, and dedup -- happens in ONE ClickHouse statement per org/kit, lifting ScoutCheckInRollupQuery's already-proven CTE architecture (adapted from clarity.scans_hot/cold + org_id/kit_id to clarity.sc_positions + lower(kit_mapping)), so PHP only ever receives the handful of actual matches (~40/cycle) instead of the full address list, plus a hard concurrency ceiling that holds independent of runtime (replacing the ineffective withoutOverlapping(10) TTL). The chlocal-owned sc_positions projection (W1) and the operational schedule re-enable + host-memory verification (W4) are explicitly out of scope for this repo/PR.",
+  "scope": {
+    "summary": "Rewrite ScoutCheckInMatchQuery to do address enumeration (hotlist FINAL -> public_hotlist_address -> public_address) and the sc_positions proximity match in one ClickHouse CTE chain per the ScoutCheckInRollupQuery pattern, eliminating the PHP-side address array and the values()-injection round trip entirely (AC1). Add a hard, runtime-independent concurrency ceiling to the command (AC4). Fix the silent-failure problem so a failed ClickHouse read is distinguishable from a legitimately empty one (AC7) -- by having the recorder call the query classes' handle() directly instead of query(), since query()'s catch(\\Throwable) swallows to [] in production/testing and a prior attempt at this exact problem (an 'advance-on-clean-pass' watermark guard, see notes) was proven dead code for exactly that reason. Add a peak-memory regression test at prod-representative scale (AC6) and a parity test against ScoutCheckInRollupQuery (AC9). W1 (the chlocal sc_positions projection) and W4 (re-enabling the schedule in production + host verification) are out of scope for this repo.",
+    "proposed_changes": [
+      {
+        "file": "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php",
+        "change": "Rewrite handle()/matchChunk() to remove the addresses-array parameter and the values()-injection CTE, replacing it with a self-contained CTE chain lifted from ScoutCheckInRollupQuery: open_hotlists (clarity.hotlist FINAL, org/staging filter) -> address_links (zod.public_hotlist_address) -> pruned addresses (zod.public_address, id IN (subquery) + extract()/toFloat64OrNull, NOT readWKTPoint) -> bbox-prefiltered against position_window (clarity.sc_positions, lower(kit_mapping)) -> geoDistance join -> GROUP BY (address_id, hour_bucket). Keep the existing outer SELECT's direct-preference argMin(hotlist_id, (toUInt8(is_staged), hotlist_id)) / min(is_staged) logic verbatim -- it is already correct and does not need to change. Prefer self::zodDb() dynamically (like ScoutOpenOrderAddressesQuery) rather than hardcoding 'zod.' the way ScoutCheckInRollupQuery does.",
+        "reason": "AC1 -- this is the ticket's designated 'architecture to lift' (the docblock's own DEV-1758 lift point) and the direct fix for the PHP round-trip amplifier.",
+        "ref": "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php:39-196; app/Clickhouse/Queries/ScoutCheckInRollupQuery.php:44-47,83-151"
+      },
+      {
+        "file": "app/Clickhouse/Queries/ScoutOpenOrderAddressesQuery.php",
+        "change": "Becomes unused by the recorder once enumeration moves inside the combined match query -- no other caller exists anywhere in the repo. Recommend removing it (with its docblock's {@see} references updated) or clearly marking it orphaned; do not leave dead code silently.",
+        "reason": "AC1 explicitly forbids any per-org address list crossing PHP, which is this class's entire purpose for the recorder.",
+        "ref": "app/Clickhouse/Queries/ScoutOpenOrderAddressesQuery.php:1-131"
+      },
+      {
+        "file": "app/Console/Commands/ScoutRecordCheckIns.php",
+        "change": "Remove openOrderAddressesForOrg() and the per-org address cache. Call the rewritten ScoutCheckInMatchQuery::handle() DIRECTLY (bypassing ::query()'s try/catch swallow) so a genuine ClickHouse failure propagates into the existing per-org/per-kit catch blocks instead of silently becoming []. Replace the per-match firstOrCreate() loop with a single ScoutCheckIn::insertOrIgnore($rows) bulk write per kit/org against the existing unique(kit_id,address_id,hour_bucket) index (insertOrIgnore returns the inserted-row count, so the existing $recorded accounting still works, but created_at/updated_at must now be stamped manually since insertOrIgnore bypasses model events). Add the W3 concurrency ceiling at the top of handle().",
+        "reason": "AC1, AC4, AC7.",
+        "ref": "app/Console/Commands/ScoutRecordCheckIns.php:42-149,184-240"
+      },
+      {
+        "file": "config/scout.php",
+        "change": "address_cache_ttl_minutes becomes dead config once the enumeration cache disappears; remove or repurpose and document the decision.",
+        "reason": "Avoid a config knob with no reader -- this file's own comment already warns against exactly this class of drift ('a value can never disagree with itself').",
+        "ref": "config/scout.php:12-14"
+      },
+      {
+        "file": "routes/console.php",
+        "change": "Correct the stale comment inside the still-commented schedule block ('the concurrency is currently what keeps the recorder up ... Bounding cycle duration has to come first') -- this is the exact reasoning CLAUDE.md flags as reverted/wrong and 'contributed to an outage'. Decide and encode the W3 ceiling here if the chosen mechanism is lock-based, and decide whether to keep the block commented per the W4 guardrail.",
+        "reason": "A stale comment in a file this PR touches for W3 will actively mislead the next reader; also needed to resolve the currently-red schedule test (see blockers).",
+        "ref": "routes/console.php:59-71 (introduced by commit 11bc23e2)"
+      },
+      {
+        "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+        "change": "Update fixtures/assertions for the new query call signature (no addresses array crossing PHP). the_matcher_merges_results_across_address_chunks's premise (a chunk_size override on a PHP-side address array) disappears with the values() injection -- replace with a test proving the new single-statement match still works correctly with a large open-order book. an_org_enumeration_failure_skips_that_orgs_ drivers_without_killing_the_run and a_per_kit_failure_is_skipped_and_logged_without_ killing_the_run both currently exercise the old two-query split under app.env=local; rewrite them against the new single-query shape and, critically, add a PRODUCTION-env variant proving the AC7 distinguishing signal actually fires (today those tests only reach the catch block by forcing app.env=local, which is the rethrow branch -- the production swallow path is exactly what AC7 must fix).",
+        "reason": "AC1, AC6, AC7, AC9.",
+        "ref": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php:401-517,598-632"
+      },
+      {
+        "file": "tests/Feature/Console/ScoutRecordCheckInsScheduleTest.php",
+        "change": "it_registers_the_scout_check_in_schedule_with_a_finite_overlap_expiry currently asserts the schedule IS registered (assertNotNull($event)), but the schedule has been commented out since commit 11bc23e2 (predates this PR) -- this test is presently RED at HEAD, independent of this ticket's diff. Must be resolved: either rewrite to assert the intentional disabled state, or re-enable the schedule as part of this PR (a decision this prep leaves open -- see questions/blockers).",
+        "reason": "Blocks a clean merge regardless of W2/W3 scope; not caused by this ticket but must be resolved by it.",
+        "ref": "tests/Feature/Console/ScoutRecordCheckInsScheduleTest.php:21-40"
+      },
+      {
+        "file": "tests/ (new) \u2014 AC6 memory regression",
+        "change": "Add a memory_get_peak_usage()-based test asserting bounded PHP memory at a prod-representative match volume (not address volume, since addresses no longer reach PHP after W2) and at the measured 43-kit/12-org production shape.",
+        "reason": "AC6 -- zero such assertions exist anywhere in the suite today (confirmed by repo-wide grep).",
+        "ref": "n/a (new file)"
+      },
+      {
+        "file": "tests/ (new) \u2014 AC9 parity",
+        "change": "Add a parity test seeding both a clarity.scans_hot row and a clarity.sc_positions fix at the same location/time and asserting the rewritten ScoutCheckInMatchQuery and the untouched ScoutCheckInRollupQuery agree (same radius, same hour bucket, same is_staged/hotlist tie-break).",
+        "reason": "AC9 -- no dedicated ScoutCheckInRollupQuery test exists to build this from (see notes); must be built fresh.",
+        "ref": "n/a (new file); sibling fixtures in tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php:875-1010"
+      }
+    ],
+    "target_files": [
+      "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php",
+      "app/Clickhouse/Queries/ScoutOpenOrderAddressesQuery.php",
+      "app/Console/Commands/ScoutRecordCheckIns.php",
+      "config/scout.php",
+      "routes/console.php",
+      "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+      "tests/Feature/Console/ScoutRecordCheckInsScheduleTest.php",
+      "tests/Feature/Console/ScoutRecordCheckInsOverrunSignalTest.php (verify unaffected)",
+      "tests/ (new AC6 memory regression test)",
+      "tests/ (new AC9 parity test)",
+      "app/Jobs/Scout/* (conditional \u2014 only if W3's chosen mechanism is queued-job dispatch, not a semaphore)"
+    ],
+    "out_of_scope": [
+      "W1: clarity.sc_positions lower(kit_mapping) projection DDL \u2014 chlocal-owned, platform is SELECT-only (explicit in evidence-38238).",
+      "W4: uncommenting the schedule for live production traffic + pct_usable host verification \u2014 operational, prod-only; brief states 'not fully doable in this pipeline'.",
+      "DEV-2309 (CloseInactiveShifts PG timeout) \u2014 separate defect.",
+      "Changing check-in storage away from PostgreSQL platform.scout_check_ins.",
+      "ScoutCheckInRollupQuery's own scans-based dashboard tile (ClarityScoutDashboardController::checkInCounts) \u2014 read and reused as an architecture reference only, not modified; it stays scans_hot/scans_cold-based and unaffected.",
+      "Any change to CLARITY_SCOUT Pennant/permission gating or the (hidden) Scout portal UI.",
+      "Re-litigating the cap/watermark/planner machinery from the earlier DEV-2342 attempts \u2014 twice built, twice explicitly descoped (see notes); do not resurrect without a fresh reason."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "AC1: Match computed server-side in CH; no per-org address list crosses PHP; no re-serialization to SQL.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Core of W2; directly fixes the measured amplifier (~5,500 CH queries/cycle -> the values() round trip)."
+    },
+    {
+      "item": "AC2: Duration \u2014 full cycle at prod cardinality < 5-min cadence, measured.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "The code change targets this, but 'measured' at true production cardinality cannot be fully closed from this repo/PR \u2014 it needs either a chlocal-side EXPLAIN/query_log comparison or a staged prod-like run, and Design Risk 2 (bbox selectivity vs GPS density, unmeasured) means the code change alone does not guarantee the number. Implement the code; treat the measurement as a follow-up gate before AC8's re-enable."
+    },
+    {
+      "item": "AC3: Memory \u2014 peak RSS O(matches), budget stated; peak x plausible concurrency fits ~30GB headroom.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Achieved architecturally by removing the PHP address array (O(addresses) -> O(matches)); needs a stated budget number backed by AC6's test."
+    },
+    {
+      "item": "AC4: Concurrency \u2014 hard ceiling independent of runtime; lookback invariant holds.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Required by the incident's own root-cause chain (concurrency is what turned a memory-per-process cost into a host-level OOM); mechanism (semaphore vs queued jobs) left open, see questions."
+    },
+    {
+      "item": "AC5: Projection proven \u2014 single-kit 15-min EXPLAIN granules in tens; matcher query_log p50 << 400ms, read_rows << ~500k.",
+      "source": "ticket",
+      "decision": "defer",
+      "reason": "Explicitly depends on the chlocal-owned W1 ALTER TABLE ... ADD PROJECTION, a separate repo/ticket; platform is SELECT-only here per evidence-38238."
+    },
+    {
+      "item": "AC6: Regression tests \u2014 a peak-memory assertion at prod-representative address cardinality (not the current 3-address fixtures).",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Zero such assertions exist in the suite today (confirmed by grep); this is the direct test-gap the incident report calls out."
+    },
+    {
+      "item": "AC7: Silent-failure guard \u2014 ClickhouseQuery::query() swallows \\Throwable to [] in prod, so a failed match looks identical to an empty one; the recorder must distinguish 'ran, empty' from 'failed'.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Recommended approach: call the query classes' handle() directly (bypassing query()'s swallow) so the recorder's own existing try/catch sees the real exception. A prior attempt that stayed behind query() (a watermark 'advance-on-clean-pass' guard) was proven dead code in this exact repo's history for this exact reason \u2014 see notes."
+    },
+    {
+      "item": "AC8: Host verified \u2014 pct_usable flat across a full cycle after re-enable.",
+      "source": "ticket",
+      "decision": "defer",
+      "reason": "Explicitly operational/prod-only per the brief; cannot be satisfied from a code PR."
+    },
+    {
+      "item": "AC9: Parity \u2014 rewritten matcher and ScoutCheckInRollupQuery agree on the same inputs (one domain rule).",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "No existing dedicated test for ScoutCheckInRollupQuery to extend (confirmed by search) \u2014 must be built fresh, seeding both scans_hot and sc_positions fixtures at the same location/time."
+    }
+  ],
+  "questions": [
+    {
+      "q": "IN (per-org batch, ~12 queries/cycle) vs equality (per-kit, ~43 queries/cycle) on lower(kit_mapping) for the rewritten matcher's position_window scope \u2014 which shape does W2 use?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    },
+    {
+      "q": "Does the lifted bbox prefilter (tuned against LPR scans in ScoutCheckInRollupQuery) stay selective enough against sc_positions' much denser ~3s GPS fix rate, or does it need re-tuning for the recorder specifically?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    },
+    {
+      "q": "What mechanism implements the W3 hard concurrency ceiling \u2014 an N-slot semaphore (e.g. Cache::lock) acquired at command start, or per-org queued jobs (reviving DEV-2347's dispatcher now that W2 shrinks per-org cost)? Neither has any existing precedent in this codebase (confirmed: zero Cache::lock() usage in app/Console/Commands or app/Jobs, zero WithoutOverlapping job-middleware usage anywhere).",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    },
+    {
+      "q": "Should ScoutOpenOrderAddressesQuery be deleted now that no caller remains, or kept unused for a future consumer?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    },
+    {
+      "q": "Should the schedule be re-enabled (uncommented) as part of this PR once W2/W3 land, or does it need to wait for W1 (the chlocal projection) given Design Risk 2's note that BOTH the IN and equality shapes are slow on the current, unprojected sc_positions table? This directly determines how to resolve the currently-red ScoutRecordCheckInsScheduleTest.",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    },
+    {
+      "q": "Is bypassing ClickhouseQuery::query() (calling ::handle() directly from the recorder) the accepted AC7 fix, or should ClickhouseQuery itself gain an opt-in rethrow mode for callers that need to react to failure?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human \u2014 but see notes: a prior exception-based guard that stayed behind ::query() was proven dead code (git 2cd844090), so any design that keeps routing through ::query() should be treated with suspicion."
+    },
+    {
+      "q": "Does insertOrIgnore()'s return value (count of rows actually inserted) suffice to keep the existing 'recorded' counter semantics, given the switch away from per-row firstOrCreate()/wasRecentlyCreated?",
+      "answered": true,
+      "answer": "Yes \u2014 Laravel's Eloquent/query-builder insertOrIgnore() returns an int count of rows successfully inserted, which is a direct drop-in replacement for the current wasRecentlyCreated-based increment.",
+      "source": "code (Laravel framework convention, not repo-specific)"
+    }
+  ],
+  "blockers": [
+    "tests/Feature/Console/ScoutRecordCheckInsScheduleTest.php::it_registers_the_scout_check_in_schedule_with_a_finite_overlap_expiry currently fails at HEAD (assertNotNull($event) against a null event) because commit 11bc23e2 commented out the schedule without updating this test. This predates this PR but must be resolved by it \u2014 either by rewriting the test to assert the intentional disabled state, or by re-enabling the schedule as part of this PR (see the corresponding question). Left as-is it will show as a failing test in this PR's CI regardless of what this ticket touches.",
+    "AC5 (projection proven) and AC8 (host verified) are structurally unsatisfiable from within this repo/PR alone \u2014 AC5 depends on a separate chlocal ticket shipping and being EXPLAIN-verified against Cloud; AC8 depends on production host observation after a real re-enable. Neither blocks writing the W2/W3 code, but neither can be closed by this ticket in isolation.",
+    "Design Risk 2 raises a real possibility that W2 alone (before W1 lands) cannot bring cycle duration under the 5-minute cadence at production cardinality, since the sc_positions PK bypass (the single largest measured cost) is orthogonal to query shape. If true, AC2/AC8 cannot be met and the schedule cannot be safely re-enabled until W1 ships in chlocal, regardless of how well W2/W3 are implemented here \u2014 this is a sequencing/scope question for a human, not a code blocker."
+  ],
+  "notes": [
+    "okf/concepts/scout-check-in-recorder.md's Performance section currently states, unqualified, 'The concurrency is load-bearing.' This is the exact conclusion CLAUDE.md's WRITE-gate warning calls out as reverted/withdrawn and 'reasoning that contributed to an outage' \u2014 the incident report (evidence-38240-incident.md) is unambiguous that unbounded concurrency IS the OOM mechanism. Do not cite that wiki sentence as support for any W3 design choice; per the WRITE rule, do not edit the wiki now, but the ticket/PR should flag it for correction once the fix lands.",
+    "routes/console.php's own comment inside the (currently commented-out) schedule block repeats a milder version of the same claim ('the concurrency is currently what keeps the recorder up ... Bounding cycle duration has to come first') \u2014 also stale once W2 lands, since the throughput/latency trade-off it describes assumed the old O(addresses x chunks) per-cycle cost.",
+    "Two earlier DEV-2342 attempts (git 2cd844090, aedc2f525) already built and reverted a per-org watermark/'advance-on-clean-pass' guard aimed at exactly AC7's problem \u2014 a driver-added failing test proved it was dead code because ClickhouseQuery::query()'s swallow makes the failure flag unreachably false in production. Any AC7 design that still routes through ::query() will very likely reproduce this exact failure mode; treat AC7 as higher-risk than its one-line description suggests.",
+    "No dedicated unit test for ScoutCheckInRollupQuery exists in this repo today (confirmed by search) \u2014 the existing command test's comment 'Mirrors ScoutCheckInRollupQueryTest' (ScoutRecordCheckInsCommandTest.php:86) references a file that does not exist. Coverage of that query lives entirely in tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php's HTTP-level tests. The AC9 parity test has no existing fixture pair to extend and must be built fresh.",
+    "ScoutCheckInRollupQuery.php hardcodes the 'zod.' database prefix literally (zod.public_hotlist_address, zod.public_address) instead of using self::zodDb() as ScoutOpenOrderAddressesQuery does \u2014 a known ~15-class local-CH-QA limitation. When lifting the CTE into the rewritten ScoutCheckInMatchQuery, prefer the dynamic self::zodDb() pattern (matching the class this rewrite absorbs) rather than reproducing the hardcode in new code.",
+    "Zero memory_get_peak_usage()/memory_limit assertions exist anywhere in the test suite today (confirmed by repo-wide grep) \u2014 AC6 introduces a wholly new test pattern for this codebase.",
+    "No existing command or job anywhere in this repo uses Cache::lock() or the WithoutOverlapping job middleware (confirmed by grep) \u2014 W3 has no in-repo sibling pattern to copy; whichever mechanism is chosen will be a first.",
+    "config/horizon.php's HORIZON_SUPERVISOR_1_PROCESSES / _2_PROCESSES both default to maxProcesses=1. If W3 goes the queued-job route, it will serialize by default unless a dedicated supervisor/queue with an explicit higher maxProcesses is configured \u2014 this default is exactly why DEV-2347's original job-dispatch design was reverted in commit 102a3430, though that revert predates W2 shrinking per-org cost, so the trade-off may look different now.",
+    "Kit::query()->find($driver->kit_id) inside the per-driver loop is an N+1 (one Postgres query per driver, ~43/cycle) \u2014 trivial next to the ClickHouse cost and not memory-relevant; out of scope for this ticket but a one-line eager-load opportunity if this loop is being touched anyway.",
+    "This ticket's own history is a caution against scope creep: three restarts, a 7-node DAG parked by a sizing gate (11 files/3 concerns vs threshold 6), and a 62-finding review-round failure (min score 64/100) all preceded the 'STRIP TO OBSERVABILITY ONLY' descope that shipped as PR #323. Keep this pass to W2+W3+AC6/AC7/AC9 and resist rebuilding the planner/watermark/cap machinery that was already tried and explicitly descoped twice.",
+    "Per Laravel Boost guidelines (okf/concepts/laravel-boost-guidelines.md, read in full): new/changed methods need explicit return types and constructor property promotion where applicable; run vendor/bin/pint --dirty --format agent before finalizing; comments should stay sparse per repo convention (user preference, also matches CLAUDE.md's 'keep comments minimal' memory note) even though the existing Scout query classes carry unusually dense docblocks \u2014 match the existing Scout-class density (it is load-bearing domain rationale, not decoration) rather than the generic minimal-comment default."
+  ],
+  "tests": [
+    {
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+      "what_it_pins": "End-to-end recorder behavior (direct+staging matching, idempotency, hour-bucket splitting, direct-preference tie-break, multi-driver/org handling, since-option, CH-outage graceful degrade) \u2014 needs updating for the new no-address-array query signature and the AC7 production-env failure-signal path."
+    },
+    {
+      "file": "tests/Feature/Console/ScoutRecordCheckInsScheduleTest.php",
+      "what_it_pins": "The registered schedule shape (cron expression, withoutOverlapping expiry, onOneServer/runInBackground) \u2014 currently RED at HEAD; needs a decision-driven rewrite."
+    },
+    {
+      "file": "tests/Feature/Console/ScoutRecordCheckInsOverrunSignalTest.php",
+      "what_it_pins": "The post-hoc overrun log+report() signal \u2014 CH-free by design, should be unaffected by W2/W3 but must be re-verified once handle() is restructured."
+    },
+    {
+      "file": "tests/ (new) \u2014 AC6 memory regression",
+      "what_it_pins": "PHP peak memory stays within a stated budget at a prod-representative match/kit/org volume, replacing the current 3-address fixture as the only coverage of scale."
+    },
+    {
+      "file": "tests/ (new) \u2014 AC9 parity",
+      "what_it_pins": "The rewritten ScoutCheckInMatchQuery and the untouched ScoutCheckInRollupQuery agree on the same seeded location/time (same 160.934m radius, same UTC hour bucket, same direct-preference tie-break) despite reading different source tables (sc_positions vs scans_hot/cold)."
+    },
+    {
+      "file": "tests/ (new) \u2014 AC7 production-env failure signal",
+      "what_it_pins": "With app.env=production (not local) and ClickHouse unreachable, the recorder's own log/report() output is distinguishable from a clean empty cycle \u2014 the gap the existing clickhouse_unreachable_degrades_gracefully_without_crashing test does not close today."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Console/Commands/ScoutRecordCheckIns.php:36-240 (the command being rewritten)",
+      "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php:39-196 (the per-kit matcher \u2014 the amplifier)",
+      "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php:1-183 (the architecture to lift; docblock:44-47 names the DEV-1758 lift point)",
+      "app/Clickhouse/Queries/ScoutOpenOrderAddressesQuery.php:1-131 (the enumeration W2 absorbs; becomes orphaned)",
+      "app/Clickhouse/Queries/ClickhouseQuery.php:11-38 (query() swallows \\Throwable to [] in production|testing \u2014 AC7's core obstacle)",
+      "app/Models/ScoutCheckIn.php:32-59 (unique(kit_id,address_id,hour_bucket) backs idempotent insertOrIgnore)",
+      "config/scout.php:1-27 (the 3 tunables; address_cache_ttl_minutes becomes dead once enumeration moves server-side)",
+      "routes/console.php:59-71 (the commented-out schedule + its now-partially-stale rationale comment)",
+      "database/migrations/2026_08_10_170314_create_scout_check_ins_table.php (unique + index backing the write path)",
+      "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php:1-633 (the only coverage of ScoutCheckInMatchQuery/ScoutOpenOrderAddressesQuery \u2014 no separate unit tests exist for either)",
+      "tests/Feature/Console/ScoutRecordCheckInsScheduleTest.php:21-40 (currently RED at HEAD)"
+    ],
+    "code_flow": "routes/console.php Schedule::command (currently commented) -> ScoutRecordCheckIns::handle() -> scoutEnabledDrivers() (Postgres: users/kit_settings/permissions/Pennant) grouped by org_id -> [TODAY] openOrderAddressesForOrg() -> ScoutOpenOrderAddressesQuery::query(cache:true) (ClickHouse: clarity.hotlist FINAL + zod.public_hotlist_address + zod.public_address, cached 15 min) -> PHP address array -> per kit: recordCheckInsForKit() -> ScoutCheckInMatchQuery::query(cache:false) (re-injects the address array as a values() literal, chunked at 2000, against clarity.sc_positions via lower(kit_mapping)) -> per match: ScoutCheckIn::firstOrCreate() (PostgreSQL platform schema). [POST-W2] the two ClickHouse calls collapse into one ScoutCheckInMatchQuery::handle() call per kit/org that does enumeration + proximity match + dedup entirely in ClickHouse, returning only matches; ScoutCheckIn::insertOrIgnore() replaces the per-row firstOrCreate() loop; a W3 concurrency-ceiling check gates entry to handle().",
+    "tables": [
+      "platform.scout_check_ins (PostgreSQL, write target, unique(kit_id,address_id,hour_bucket), index(org_id,address_id))",
+      "clarity.sc_positions (ClickHouse, ~268M rows/6.5GiB per evidence-38238, TTL 120d, ORDER BY (kit_mapping,timestamp_utc) case-sensitive)",
+      "clarity.hotlist (ClickHouse, FINAL read, ReplacingMergeTree)",
+      "zod.public_hotlist_address (ClickHouse CDC mirror of Postgres, ~318.5M rows oracle-verified, ORDER BY id \u2014 cannot prune on hotlist_id)",
+      "zod.public_address (ClickHouse CDC mirror, ~196.2M rows oracle-verified, pruned via id IN (subquery))",
+      "platform.kit_settings, platform.approval_lists (or equivalent), orgs, kits, users (PostgreSQL, driver/org resolution \u2014 unchanged by this PR)"
+    ],
+    "related_components": [
+      "App\\Http\\Middleware\\ClarityScoutMiddleware (the portal-access rule scoutEnabledDrivers() mirrors)",
+      "Laravel\\Pennant\\Feature (CLARITY_SCOUT flag, per-user persisted resolution \u2014 pennant:purge gotcha, unaffected by this PR)",
+      "App\\Models\\Org::stagingOrgIds() (2h-cached small int list \u2014 unaffected, does not violate AC1's address-list rule)",
+      "App\\Http\\Controllers\\Api\\ClarityScoutDashboardController::checkInCounts (the only other ScoutCheckInRollupQuery caller \u2014 untouched, separate surface)",
+      "Laravel\\Horizon (config/horizon.php maxProcesses=1 default \u2014 relevant only if W3 chooses queued-job dispatch)",
+      "Illuminate\\Console\\Scheduling\\Schedule (routes/console.php withoutOverlapping(10) TTL \u2014 the mechanism W3 replaces/supplements)"
+    ],
+    "kb": {
+      "dir": "okf",
+      "pages_consulted": [
+        "okf/concepts/check-in.md",
+        "okf/concepts/scout-check-in-recorder.md",
+        "okf/concepts/scout-clickhouse-queries.md",
+        "okf/concepts/platform-gotchas.md",
+        "okf/concepts/laravel-boost-guidelines.md"
+      ],
+      "docblocks_read": [
+        "app/Console/Commands/ScoutRecordCheckIns.php:21-35",
+        "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php:11-38",
+        "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php:11-48",
+        "app/Clickhouse/Queries/ScoutOpenOrderAddressesQuery.php:11-41",
+        "app/Clickhouse/Queries/ClickhouseQuery.php (class-level, no formal docblock; behavior read directly, lines 1-121)",
+        "app/Models/ScoutCheckIn.php:11-31"
+      ],
+      "names_searched": [
+        "ScoutCheckInMatchQuery",
+        "ScoutOpenOrderAddressesQuery",
+        "ScoutCheckInRollupQuery",
+        "ScoutRecordCheckIns",
+        "ScoutCheckIn",
+        "sc_positions",
+        "scout:record-check-ins",
+        "public_hotlist_address",
+        "public_address",
+        "hotlist"
+      ],
+      "no_match": []
+    }
+  },
+  "exhaustiveness": {
+    "grep_patterns_used": [
+      "grep -rn \"ScoutCheckInMatchQuery\" --include=*.php app/ tests/ routes/ database/",
+      "grep -rn \"ScoutOpenOrderAddressesQuery\" --include=*.php app/ tests/ routes/ database/",
+      "grep -rn \"ScoutCheckInRollupQuery\" --include=*.php app/ tests/ routes/ database/",
+      "grep -rn \"ScoutRecordCheckIns\" --include=*.php app/ tests/ routes/ database/",
+      "grep -rn \"scout:record-check-ins\" --include=*.php app/ tests/ routes/",
+      "grep -rln \"ScoutCheckIn::\" --include=*.php app/ tests/",
+      "grep -rln \"sc_positions\" --include=*.php app/",
+      "grep -rn \"check-in-counts|CheckInCounts|checkInCounts\" --include=*.php routes/ app/Http",
+      "find tests -iname \"*ScoutCheckIn*\" -o -iname \"*CheckInRollup*\"",
+      "find tests -iname \"*ScoutOpenOrderAddresses*\" -o -iname \"*ScoutCheckInMatch*\"",
+      "grep -rln \"Cache::lock|->lock(\" app/Console/Commands app/Jobs",
+      "grep -rln \"WithoutOverlapping\\b\" app/Jobs",
+      "grep -rn \"memory_get_peak_usage|memory_limit\" tests/ app/"
+    ],
+    "sites": [
+      {
+        "site": "app/Console/Commands/ScoutRecordCheckIns.php:204 (ScoutCheckInMatchQuery::query call)",
+        "status": "buggy",
+        "reason": "This is the exact call site producing the values()-injection amplifier; being rewritten."
+      },
+      {
+        "site": "app/Console/Commands/ScoutRecordCheckIns.php:188 (ScoutOpenOrderAddressesQuery::query call)",
+        "status": "buggy",
+        "reason": "The per-org enumeration this rewrite folds into the combined query; also swallows failures via ::query() (AC7)."
+      },
+      {
+        "site": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php:620 (ScoutCheckInMatchQuery::handle direct call)",
+        "status": "safe",
+        "reason": "Test-only, no production blast radius, but needs updating for the new signature once the addresses parameter is removed."
+      },
+      {
+        "site": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php:537 (ScoutOpenOrderAddressesQuery::query direct call)",
+        "status": "safe",
+        "reason": "Test-only; needs removal/update if the class is retired."
+      },
+      {
+        "site": "app/Http/Controllers/Api/ClarityScoutDashboardController.php:254 (ScoutCheckInRollupQuery::query call)",
+        "status": "safe",
+        "reason": "Separate surface (on-read dashboard tile over scans_hot/scans_cold, not sc_positions); not modified by this PR \u2014 only its query SHAPE is being lifted, not the class itself or its caller."
+      },
+      {
+        "site": "routes/console.php:60 (Schedule::command(ScoutRecordCheckIns::class), currently commented out)",
+        "status": "safe",
+        "reason": "Inert in its current state (cannot run/OOM), but the accompanying rationale comment is stale/misleading and the block's fate is an open question for this PR."
+      },
+      {
+        "site": "No other production caller of ScoutCheckInMatchQuery, ScoutOpenOrderAddressesQuery, or ScoutRecordCheckIns exists anywhere in app/, routes/, or database/",
+        "status": "safe",
+        "reason": "Confirmed via repo-wide grep across all four class/command names \u2014 the recorder is a closed, self-contained subsystem with exactly one production call path."
+      },
+      {
+        "site": "ScoutCheckIn model referenced only from ScoutRecordCheckIns.php and its own test",
+        "status": "safe",
+        "reason": "Confirmed via grep -rln \"ScoutCheckIn::\" \u2014 no other consumer exists yet (per okf/concepts/check-in.md, DEV-1758/DEV-2258/DEV-1757 are named FUTURE consumers, not present in code today)."
+      },
+      {
+        "site": "Other sc_positions/lower(kit_mapping) readers: KitHistoricPositionsQuery, KitScanPathsQuery, OrgScanPathPositionsQuery, KitRangePathsQuery, OrgLivePathsQuery, OrgLivePositionsQuery, HistoricPathBuilder, KitUserPathController, ClarityScoutBirdsEyeController, ClarityScoutMapController, BuildShiftSummary, CloseInactiveShiftsCommand",
+        "status": "safe",
+        "reason": "None call the recorder's query classes; independent readers of the same source table, listed in evidence-38238 as beneficiaries of W1's projection with zero rewrite required \u2014 out of scope for this PR, confirmed via grep -rln \"sc_positions\" --include=*.php app/."
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [
+      "platform.scout_check_ins (write target; unchanged shape, unique(kit_id,address_id,hour_bucket), index(org_id,address_id))",
+      "users, kits, kit_settings, orgs, approval_lists (or equivalent) \u2014 read-only, unchanged"
+    ],
+    "ch_tables": [
+      "clarity.sc_positions (read; native ClickHouse, ReplacingMergeTree, no FINAL, dedup via argMin/argMax; ORDER BY (kit_mapping,timestamp_utc))",
+      "clarity.hotlist (read FINAL; native ClickHouse)",
+      "zod.public_hotlist_address (read; PeerDB CDC mirror of Postgres, ORDER BY id, no FINAL \u2014 dedup via DISTINCT/_peerdb_is_deleted=0)",
+      "zod.public_address (read; PeerDB CDC mirror, id-pruned via IN (subquery), EWKT geo parsed with extract()+toFloat64OrNull)"
+    ],
+    "mv_or_cdc_implications": "public_hotlist_address and public_address are PeerDB CDC mirrors of production Postgres (zod.* naming under the real driver, zod_<wt> under local-CH QA) and rely on _peerdb_is_deleted/_peerdb_version rather than FINAL for correctness \u2014 dropping the DISTINCT/argMax conventions the sibling queries already establish would reintroduce stale-duplicate rows. clarity.hotlist and clarity.sc_positions are native ClickHouse tables (not CDC), with FINAL required only for the former (ReplacingMergeTree with an explicit version). No new materialized view is introduced by this PR; the rewrite is read-shape only.",
+    "indexes_relied_on": [
+      "sc_positions ORDER BY (kit_mapping, timestamp_utc) \u2014 case-sensitive, so every lower(kit_mapping) read bypasses it (W1/chlocal territory, unresolved by this PR).",
+      "public_address's id primary key, ridden via `id IN (subquery)` \u2014 a bare JOIN would hash/full-scan ~196M rows and time out (documented in both sibling classes' docblocks).",
+      "public_hotlist_address is ORDER BY id and CANNOT prune on hotlist_id under any query shape this PR could write \u2014 that side of the join full-scans regardless of W2's design (a fixed cost independent of Design Risk 1's outcome).",
+      "platform.scout_check_ins's unique(kit_id,address_id,hour_bucket) \u2014 backs the idempotent insertOrIgnore this PR introduces in place of firstOrCreate."
+    ]
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "app/Console/Commands/ScoutRecordCheckIns.php is a scheduled command (routes/console.php) iterating orgs and kits and calling ClickHouse query classes (App\\Clickhouse\\Queries\\ScoutCheckInMatchQuery / ScoutOpenOrderAddressesQuery) per cycle; today's implementation also contains array_chunk(.",
+    "driving_tables": [
+      {
+        "table": "sc_positions",
+        "source": "clarity.sc_positions (native ClickHouse table \u2014 NOT a zod.public_* CDC mirror, so outside prod-cardinality.sh's oracle scope)",
+        "prod_rows": 268000000,
+        "group_by": "lower(kit_mapping)",
+        "largest_group_rows": null,
+        "note": "Row count and per-query read-row figures (p50 read ~0.25-1.3M rows/query at the current unprojected state) are taken from evidence-38238-projection.md; not independently re-verified by the oracle probe in this prep."
+      },
+      {
+        "table": "hotlist_address",
+        "source": "zod.public_hotlist_address",
+        "prod_rows": 318486438,
+        "group_by": "hotlist_id",
+        "largest_group_rows": 296459,
+        "note": "Oracle-verified 2026-08-13. This is the largest SINGLE HOTLIST's address count, not a per-org total; the ticket's own cited '~255k open addresses for the largest org' is a further org-level aggregation (an org can have multiple open hotlists) that this prep did not independently re-derive."
+      },
+      {
+        "table": "address",
+        "source": "zod.public_address",
+        "prod_rows": 196203125,
+        "group_by": null,
+        "largest_group_rows": null,
+        "note": "Oracle-verified 2026-08-13; consistent with sibling docblocks' '100M+' estimate (now higher, i.e. continued growth)."
+      }
+    ],
+    "growth": "kits_processed went 29-32 -> 43 and orgs_processed 11 -> 12 within a single 4-hour production window (DEV-2342 evidence); any duration/memory budget must assume continued growth, not the current snapshot.",
+    "schedule": {
+      "everyFiveMinutes": true,
+      "interval_seconds": 300,
+      "without_overlapping_minutes": 10
+    },
+    "allocation_sketch": "Current (pre-fix): O(addresses_per_org) PHP array held per process across the 43-kit loop, re-copied whole by array_chunk() per kit (~128 chunks for the largest org), plus an unbounded $matches[] accumulator \u2014 measured 1.5-3 GB/process x up to 17 concurrent processes = ~29 GB marginal, which emptied a ~30 GB headroom and forced the host reboot. Post-W2 (this PR): PHP never materializes an address array at all \u2014 each ClickHouse call returns only the ~40 matches/cycle the ticket cites, so per-process memory should be O(matches), a small constant independent of org size. W3's job is to put a hard, runtime-independent ceiling on how many of those (now-cheap) processes can run at once, since W2 does not by itself bound concurrency \u2014 a fast-but-unbounded recorder is still exploitable if ClickHouse itself slows down for an unrelated reason.",
+    "oracle_status": "ok",
+    "unresolved": [
+      "sc_positions row density per kit/org under the 15-min lookback window was not measured \u2014 needed to judge whether the lifted bbox prefilter stays selective against GPS's ~3s fix rate (Design Risk 2).",
+      "The largest single ORG's total open-address count (aggregated across all its open hotlists, not just the largest single hotlist) was not independently re-measured; the ticket's ~255k figure was taken as given.",
+      "No EXPLAIN could be run from this read-only prep against the current, unprojected sc_positions table to quantify IN-vs-equality granule cost (Design Risk 1) \u2014 this needs a dedicated spike, ideally alongside the chlocal team already doing the W1 EXPLAIN work in evidence-38238."
+    ]
+  },
+  "derivation_log": [
+    "prod-cardinality.sh --app clarity --table address --table hotlist_address:hotlist_id --table hotlist:org_id --timeout 60 (read-only against the zod.public_* CDC mirror) -> address: COUNT(*) = 196,203,125 (no group-by); hotlist_address: COUNT(*) = 318,486,438 GROUP BY hotlist_id, largest single group (hotlist_id=2161945) = 296,459 rows; hotlist: COUNT(*) = 133,581,887 GROUP BY org_id, largest single group (org_id=366924) = 17,229,567 rows \u2014 cited for order-of-magnitude org skew only, since this is ALL hotlists ever (any status), not the Open-only subset the recorder actually filters to. No raw rows were returned or inspected; aggregates only."
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC1",
+        "kind": "agent",
+        "intent": "Grep the shipped ScoutCheckInMatchQuery for any addresses-array parameter or values(...) literal-injection code path; assert it is gone and the query is self-contained."
+      },
+      {
+        "ac": "AC2",
+        "kind": "human",
+        "intent": "Cannot be verified pre-merge without production-scale ClickHouse; flag for post-deploy observation once W1 also ships."
+      },
+      {
+        "ac": "AC3",
+        "kind": "agent",
+        "intent": "Run the AC6 memory regression test and confirm the stated budget."
+      },
+      {
+        "ac": "AC4",
+        "kind": "agent",
+        "intent": "Invoke the command twice concurrently (or simulate a held lock/slot) and assert the second invocation exits without doing org/kit work."
+      },
+      {
+        "ac": "AC5",
+        "kind": "human",
+        "intent": "Cross-repo (chlocal) EXPLAIN verification \u2014 not reachable from this repo."
+      },
+      {
+        "ac": "AC6",
+        "kind": "agent",
+        "intent": "The new peak-memory regression test itself."
+      },
+      {
+        "ac": "AC7",
+        "kind": "agent",
+        "intent": "Force a ClickHouse failure under app.env=production (dead port, as the existing clickhouse_unreachable_degrades_gracefully_without_crashing test does under app.env=testing) and assert the recorder logs/report()s something distinguishable from a clean empty cycle."
+      },
+      {
+        "ac": "AC8",
+        "kind": "human",
+        "intent": "Production-only host memory watch after a real re-enable."
+      },
+      {
+        "ac": "AC9",
+        "kind": "agent",
+        "intent": "The new parity test comparing the rewritten matcher against ScoutCheckInRollupQuery."
+      }
+    ],
+    "seed_scenario": "One org with an open Direct hotlist and an open Staging hotlist (via ApprovalList), each with a geocoded zod.public_address linked through zod.public_hotlist_address; one Scout-enabled kit (kit_settings + team-scoped clarity-scout permission + active CLARITY_SCOUT Pennant feature) with a clarity.sc_positions fix inside 160.934m of each address within the lookback window. This mirrors ScoutRecordCheckInsCommandTest's existing setUp()/insertHotlist()/insertOpenAssignmentAddress()/insertScPosition() helpers, which any new AC6/AC7/AC9 tests should reuse rather than reinvent.",
+    "personas": [
+      "Scout driver/kit \u2014 the entity whose GPS is matched against open orders",
+      "Org admin \u2014 owns the open Direct order book being matched against",
+      "Staging partner org \u2014 supplies OPEN Staging orders visible via ApprovalList"
+    ],
+    "pg_tables": [
+      "platform.scout_check_ins",
+      "kit_settings",
+      "approval_lists (or equivalent)",
+      "orgs",
+      "kits",
+      "users"
+    ],
+    "ch_tables": [
+      "clarity.sc_positions",
+      "clarity.hotlist",
+      "zod.public_hotlist_address",
+      "zod.public_address",
+      "clarity.scans_hot/scans_cold (for the AC9 parity fixture)"
+    ]
+  },
+  "confidence": 72,
+  "escalate": {
+    "recommend": true,
+    "reasons": [
+      "Multiple genuinely material, ticket-acknowledged design risks remain unresolved and cannot be closed from a read-only prep: IN-vs-equality index pruning (Design Risk 1), GPS density vs bbox selectivity (Design Risk 2), and the W3 concurrency mechanism (no in-repo precedent for either candidate approach).",
+      "A currently-red pre-existing test (ScoutRecordCheckInsScheduleTest) sits directly on this ticket's surface and its resolution is entangled with an open sequencing question (whether the schedule can be safely re-enabled before W1/chlocal ships) that this prep cannot settle alone.",
+      "AC7's fix touches a shared base class's failure-swallowing contract in spirit even if not in code, and this exact problem has already produced two failed/reverted attempts earlier in this same ticket's history (a watermark guard proven dead code, plus a broader planner/cap design descoped twice) \u2014 high risk of the same failure mode recurring under a different name.",
+      "Cross-repo dependency: two of the nine ACs (AC5, AC8) are structurally owned outside this repo (chlocal projection, production host verification), which is one of the explicit escalate triggers.",
+      "Per the task's own guardrails, this class of design ambiguity (both design risks, the W3 mechanism, per-org-vs-per-kit batching, and the schedule-timing question) was flagged as 'genuinely open... treat as needs-human' rather than something a single prep pass should resolve unilaterally."
+    ]
+  }
+}

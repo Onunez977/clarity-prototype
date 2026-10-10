@@ -1,0 +1,1 @@
+CREATE FUNCTION pointInFeatureCollection AS (p_lng, p_lat, fc) -> arrayExists(feature -> pointInPolygon((p_lng, p_lat), arrayMap(c -> (c[1], c[2]), JSONExtract(feature, 'geometry', 'coordinates', 'Array(Array(Array(Float64)))')[1])), JSONExtractArrayRaw(fc, 'features'));

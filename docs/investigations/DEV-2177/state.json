@@ -1,0 +1,230 @@
+{
+  "key": "DEV-2177",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2177",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 1023
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 835
+    },
+    {
+      "slot": "implement:t1-rn2fix",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 641
+    },
+    {
+      "slot": "review-rn2",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 751
+    },
+    {
+      "slot": "implement:t1-dedup",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 442
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [],
+  "escalated": false,
+  "escalation_triggers": [],
+  "best_of_n": false,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [],
+  "perf_validation": {
+    "required": true,
+    "ch_tables": [
+      "clarity.sc_positions"
+    ],
+    "approach": "Flavor A + distance-dedup (Dalton-directed after the 1200-cap re-measure): 3s decimation + groupArray-per-(kit,hour) + arraySort + arrayFold distance-dedup (drop points <~5m/16ft from the last KEPT point; collapses idle-scanner dwell, keeps moving routes full-fidelity) + 1200 hard-ceiling cap; HistoricPathBuilder in PHP over the bounded result.",
+    "measurement": "Read-only prod CH (Cloud, clarity DB, v26.2). Worst-case multi-kit window = 40 busiest kit_mappings over 7d (incl. a 2.23M-row/7d always-on idle scanner). Query SHAPE: 3s-decimation inner (argMin coords per toStartOfInterval(timestamp_utc, INTERVAL 3 SECOND), lower(kit_mapping) IN(?) + timestamp_utc range) -> outer GROUP BY (mapping, toStartOfHour(ts)) materializing arraySlice(arraySort(x->x.1, groupArray(tuple(ts,lng,lat))), 1, 200). AGGREGATES: 6.40M raw rows / 1.58M decimated points collapse to 2,401 grouped (kit,hour) rows to PHP; server-side 200-cap bounds payload to 452,622 coords (~11.7MB JSON); CH query 462ms. All SQL functions execute on prod CH. Consistent with Dalton's org-14 All-Kits/30d guidance numbers (~4,066 rows / ~750k coords / ~90MB). BUILD NOTE: cap MUST be applied IN the SELECT (materialize only the capped sorted array) so only bounded coords cross the wire/into PHP. No raw rows recorded.",
+    "verdict": "guarded-by-measured-point-budget",
+    "measured_at": "2026-07-24",
+    "php_memory_measurement": "Measured the ACTUAL controller assembly path (flat points -> HistoricPathBuilder::build -> rows -> json_encode) in tinker: 100,000 points => 143.9 MB peak (~1,509 bytes/point); 300,000 points OOM'd the process. PHP memory_limit here = 256M (repo sets no web limit; prod FrankenPHP unknown). So the safe ceiling ~= 140K points (200MB). Extrapolated: org-14 All-Kits/30d (2.3M points) ~= 3.3 GB -> hard OOM (heavier than the guidance's ~300MB because the real end-to-end PHP path uses assoc arrays + intermediate copies, ~1.5KB/point). NORMAL use is safe: single kit/shift ~3K pts ~5MB; single kit/7d ~21K ~32MB; single kit/30d ~90K ~135MB. Danger is only multi-kit x long-range. Cause = sc_positions (continuous, 5-10x the old scan-only kit_scan_paths point count; the old sparse source never OOM'd — that sparseness was the bug). Dalton-approved fix: replace the kit-days guard with a memory-safe pre-flight point-count guard (MAX_RENDER_POINTS ~120K ~= 180MB, under 256M) that refuses over-budget selections BEFORE the heavy data enters PHP; dedup + 1200 cap retained. Will re-confirm empirically in agent QA (drive a large selection, watch peak memory).",
+    "approach_swap_note": "Re-measured the dedup'd shipped query at prod scale (40 busiest mappings/30d, same heavy proxy): 9,915 kit-hour rows, 6,114,184 coords (vs 7,024,657 pre-dedup \u2014 only 13% reduction), ~525MB PHP est, CH query 5,868ms. WHY ONLY 13%: the busiest mappings are MOVING-heavy, not dwell-heavy; dedup correctly collapses stationary dwell (verified: 100 stationary+10 moving -> 11; slow crawl 30@3m -> 15) but has little to remove on genuine movement. Realistic largest REAL org (org-14 ~39 kits, per Dalton's guidance) All-Kits/30d ~= 2.3M coords ~= ~300MB (the 'no-cap' number Dalton already measured/accepted), survivable, and dedup helps more there if org-14 has idle kits. The moving-heavy pessimistic proxy (~525MB/6s) is NOT a real single org and is bounded by MAX_KIT_DAYS=2000. dedup is a correctness win (no redundant dwell) + helps idle-heavy orgs, but is NOT a magic bound for busy fleets. Further levers = lossy coarsening or a tighter guard. SURFACED TO DALTON for proceed-vs-tighten decision.",
+    "remeasure_1200_cap": "After RN1 forced the cap 200->1200 (to fix the continuity truncation), re-measured the SHIPPED 1200-cap read-only on prod CH: 40 busiest mappings / 30d = 9,822 kit-hour rows, 7,024,657 coords (vs 1,852,419 at cap=200), ~600MB PHP est, CH query 9,122ms. Scales to ~1GB / ~15s near the MAX_KIT_DAYS=2000 guard boundary. The 1200-cap effectively removes the memory bound for heavy/idle-scanner-heavy selections (idle scanners tick ~1200 near-identical stationary pts/hour). Normal selections unaffected. SURFACED TO DALTON: the Option-1 (1200-cap + breadth guard) bound is weaker than the estimate the decision was based on; recommend distance-based dedup (collapse stationary points) as the reconciling fix. Awaiting decision before QA."
+  },
+  "diff_base": "ea5a9d705949da3146b42d50feab5e136341f4ec",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "REPO_PATH (single-node fast path)",
+      "branch": "claude/DEV-2177",
+      "complexity": "complex",
+      "model": "sonnet",
+      "commit": "b6c9191c"
+    }
+  ],
+  "review_number": 4,
+  "pr": {
+    "number": 287,
+    "url": "https://github.com/insight-lpr/platform/pull/287",
+    "draft": true
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": "already-in-progress @ 2026-07-23 (ticket was In Progress at Phase 4 entry \u2014 rebuild continues; no transition needed)",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "undraft did not auto-transition (no draft-aware GH action fired); pipeline transitioned To Do->In Code Review via Atlassian MCP (transition id 4) @ 2026-08-04.",
+  "assumed": [],
+  "comment_ids": {
+    "status": "37234",
+    "build_record": "37468"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": "",
+    "ac_results": ".context/qa-ac-results.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "verdict": "PASS",
+    "torn_down": true,
+    "provisioned_early": true,
+    "provision_mode": "full",
+    "seed": {"ch_seed_sql": ".context/qa-ch-seed.sql", "pg_seed": ".context/qa-seed.tinker.php", "runtime_ch_db": "clarity_claude_dev_2177", "pg_db": "zod_claude_dev_2177", "persona": "user 2 qa-2177@tester.com / org 7", "browser_visual": "CONFIRMED — agent-browser CLI lane 4/4 (in-app preview_start timed out; agent-browser CLI 0.27.0 worked). Screenshots in .context/qa-screenshots/."},
+    "browser_lane": {"tool": "agent-browser CLI 0.27.0", "result": "4/4 PASS", "screenshots": [".context/qa-screenshots/A1-continuous-drive-route-zoomed.png", ".context/qa-screenshots/A4-continuous-drive-full-extent-v2.png", ".context/qa-screenshots/A2-single-point-no-data.png", ".context/qa-screenshots/A3-big-fleet-422-guard.png"], "non_blocking": ["deck.gl layer not cleared on empty [] (JS, out of scope)", "422 toast generic message (JS, out of scope)"]},
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "n/a (CH deferred)",
+      "ch_container": "n/a (CH deferred)",
+      "frontend_build": "n/a",
+      "postgres_db": "zod_claude_dev_2177_a2ef6d (+ testing zod_testing_claude_dev_2177_a2ef6d)",
+      "ch_strategy": "docker (Phase 4 lazy-ensure; shared container reused; .env.testing -> literal clarity/zod)",
+      "herd_site": "clarity-claude_dev_2177_a2ef6d.test"
+    }
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact --filter='KitRangePathsQueryTest|KitUserPathControllerTest'",
+        "passed": 13,
+        "failed": 0
+      },
+      {
+        "cmd": "sibling regression (KitHistoricPositionsQueryTest etc.)",
+        "passed": 21,
+        "failed": 0
+      }
+    ],
+    "deviations": [
+      {
+        "source": "qa-loop",
+        "edit": "Dalton-requested during human QA: helpful error messages. Edited resources/js/components/kit-user-path.js — (1) the /paths .catch now surfaces the server's error.response.data.error (so the 422 shows 'Selection too large — narrow the kits or shorten the date range' instead of the generic 'Invalid response from server'); (2) clears the deck.gl path layer on an empty [] result so a stale route doesn't linger under 'No Data Found'. Adds a JS change to the previously no-JS-change diff. Built assets rebuilt at finalize (post main-merge) to avoid stale-Scout-asset churn on the 81-behind branch. Needs a focused RN4 review of the JS before done.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "implement",
+        "edit": "Worker committed the implementation directly (commit b6c9191c) rather than via checkpoint.sh \u2014 a working commit on the branch; PII/no-raw-data verified post-hoc by the driver (only the 4 files; no cloud creds/hosts).",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "implement",
+        "edit": "Shared CH container clarity-qa-clickhouse had been torn down by a concurrent worktree's down.sh mid-run; worker recreated it identically (same image/port/flags) + re-applied the raw clickhouse-schema.sql (literal clarity/zod), verified via a sibling test before writing code. Env-only, no code impact.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "implement",
+        "edit": "Controller uses HistoricPathBuilder::build() directly (not OrgLivePathsQuery::segmentByMapping, which strips trip_date) and the cap is head-cap arraySlice (not even-subsample). Both per explicit driver spec \u2014 supersede the earlier plan.json/segmentByMapping wording.",
+        "ac_ref": null,
+        "ac_delta": null
+      }
+    ],
+    "review": {
+      "rounds": [
+        {"rn": 1, "lanes": ["claude1", "claude2", "claude3"], "scores": [94, 84, 94], "gate": "FAIL (MIN 84 < 90)"},
+        {"rn": 2, "lanes": ["rn2verify", "rn2fresh"], "scores": [100, 100], "gate": "PASS (core validated)"},
+        {"rn": 3, "lanes": ["rn3verify", "rn3fresh"], "scores": [100, 100], "gate": "PASS (dedup + memory-guard additions validated)"},
+        {"rn": 4, "lanes": ["rn4"], "scores": [100], "gate": "PASS (QA-driven JS UX fix + controller guard fail-safe validated)"}
+      ],
+      "lanes": ["rn4"],
+      "scores": [100],
+      "gate_final": "PASS (RN4 MIN 100 >= 90)",
+      "findings_fixed": [
+        "[HIGH, RN1 all 3 lanes] 200-pt/kit-hour cap truncated continuous drives >10min/hour -> fixed: cap raised to full-hour 1200 (RN2), then distance-dedup + memory-safe guard added.",
+        "[MEDIUM, RN1 lane2] cache key omitted org_id + ambiguous '-' delimiter -> fixed: org_id + md5 mappings_key + excluded _mappings (RN2 verified 100).",
+        "[MEDIUM, RN1 lane2] no GLOBAL memory bound -> fixed: prod-scale re-measure showed the 1200-cap didn't bound memory; added arrayFold distance-dedup + a measured pre-flight countPoints/MAX_RENDER_POINTS=120K guard that refuses over-budget selections before PHP materialization (RN3 verified 100)."
+      ],
+      "findings_residual": [
+        "[NON-SCORING/accepted] lower(kit_mapping) defeats the PK on the sc_positions scan (inherited verbatim from OrgLivePathsQuery/KitHistoricPositionsQuery idiom; not a new regression).",
+        "[NON-SCORING/by-design] countPoints() is uncached (a cached count could go stale as data grows and slip an over-budget selection past the guard); so every request re-runs the CH assembly to sum lengths even on a data-cache hit. Correct-by-design per RN3 fresh lane; follow-up only if map refresh frequency is high at prod scale.",
+        "[NON-SCORING/accepted tradeoff] a genuinely-driving (non-idle) All-Kits/30d selection won't compress under dedup and will hit the 120K guard -> 422 (Dalton-directed: refuse rather than OOM). Real use (single kit / small group over a shift/week) is well under budget.",
+        "[NON-SCORING/UX] the 422 body {error:...} is not surfaced with its specific message by kit-user-path.js (shows a generic notice); would need a JS change (out of this ticket's no-JS-change scope). Candidate follow-up.",
+        "[NON-SCORING/tuning] budget headroom ~200MB total under the 256M limit is defensible but 'thinner than comfortable' for an all-moving fleet deduping near the cap; MAX_RENDER_POINTS could be lowered to ~100K if agent-QA's large-selection memory measurement shows it's tight.",
+        "[NIT] docblock-only @see imports (KitUserPathController/HistoricPathBuilder in KitRangePathsQuery); pint+phpstan clean, harmless."
+      ],
+      "lane_sources": [
+        {"lane": "rn3verify", "source": "in-session-agent"},
+        {"lane": "rn3fresh", "source": "in-session-agent"}
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "0a55ab6c8e00960c891e98e1ecf54e797def62bc",
+      "rework_pivot": false
+    },
+    "ac": [
+      {"item": "AC-1 continuous driven route (not scan-event only)", "status": "SATISFIED", "evidence": "E2E HTTP: kit qadrive2177/30d -> 200, 2 segments/2400 pts from sc_positions."},
+      {"item": "AC-2 route resembles the GPS hardware track", "status": "SATISFIED", "evidence": "Raw sc_positions @3s full fidelity; final pixel-match = human-QA visual."},
+      {"item": "AC-3 continuous-GPS source consistent with the Scout map", "status": "SATISFIED", "evidence": "Reads clarity.sc_positions (kit_trips premise verified-stale); kit_scan_paths dropped from paths()."},
+      {"item": "AC-4 optional scan-event dot overlay", "status": "N/A", "evidence": "Out of scope -> DEV-2223 (optional MAY)."},
+      {"item": "AC-5 single/zero-point windows no silent gaps", "status": "SATISFIED", "evidence": "E2E HTTP: kit qasingle2177 single pt -> 200, 0 rows -> 'No Data Found', not a 500."},
+      {"item": "Memory-bounded at any selection (DEV-2221 absorbed)", "status": "SATISFIED", "evidence": "E2E HTTP: kit qabig2177 (130k)/30d -> 422 'Selection too large' cleanly, no OOM. Pre-flight countPoints guard (120K, ~1.5KB/pt measured vs 256M)."},
+      {"item": "Response shape unchanged (no JS change)", "status": "SATISFIED", "evidence": "Row keys exactly {kit_id,name,color,path,layerId,trip_date}."},
+      {"item": "Idle dwell collapses, moving routes preserved (dedup)", "status": "SATISFIED", "evidence": "Backend: qaidle2177 1200->600 (dwell collapsed)."}
+    ]
+  },
+  "notes": "REBUILD run. Prior attempt (PR #285, branch claude/DEV-2177 old) discarded per Dalton's 'Rebuild guidance' comment (id 37534): PHP point-assembly OOM'd on All-Kits/30d. Rebuild does the assembly inside ClickHouse (read-only groupArray + server-side cap), keeping HistoricPathBuilder in PHP over the small bounded result. DEV-2221 (perf bound) absorbed into this ticket."
+}

@@ -1,0 +1,39 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "REV2 (pure-CH pivot): read hotlist client/lienholder lists from ClickHouse (clarity.hotlist) instead of the slow Postgres read-replica; keep cache()->flexible() + a ClickHouse-failure resilience catch",
+      "approach": "REVISION 2 — Dalton pivoted mid-review from the Postgres catch-only mitigation to reading these lists from ClickHouse. Rewrite Org::getHotlistClients()/getHotlistLienholders() so the cache()->flexible([now()->endOfDay(), now()->addDay()->endOfDay()], fn) closure queries App\\Clickhouse\\Models\\Hotlist (connection clarity_clickhouse; ApplyFinal + FiltersCdcDeletes global scopes ALREADY applied by the model) for DISTINCT client_org_id + client_org_name (lienholder variant: lienholder_org_id + lienholder_org_name), filtering: where('org_id',$this->id), whereNotNull(id col), AND whereNotNull(name col) + name != '' (live-verified ~0.17% of client rows have null/empty name — filtering avoids blank dropdown options), orderBy(name), then pluck(name, id) -> same Illuminate\\Support\\Collection<int,string> [id=>name] shape all ~9 callers expect. Broaden the resilience catch from Postgres QueryException(57014) to LaravelClickhouseEloquent\\Exceptions\\ClickhouseException (query no longer hits Postgres; a CH outage/timeout must still degrade gracefully): catch around cache()->flexible(); if config('app.debug') rethrow, else Log::channel('db-error')->error('...',['org_id'=>$this->id,...]) + logDatadogCount('clarity.query_timeout',1,['category'=>'database_timeout','item'=>'hotlist_clients_cache_warm'|'hotlist_lienholders_cache_warm']) and return collect(). REMOVE the obsolete isStatementTimeout()/57014 helper + the Illuminate\\Database\\QueryException import (no Postgres query anymore); import LaravelClickhouseEloquent\\Exceptions\\ClickhouseException + keep Log. Keep flexible() so a warmed org serves stale over empty. Do NOT change the ~9 callers. TDD: rewrite tests for the CH source (happy path seeds CH via Database\\Factories\\Clickhouse\\HotlistFactory and asserts the [id=>name] result incl. name-null filtering; resilience mocks the clarity_clickhouse connection to throw ClickhouseException -> asserts empty degrade + rethrow-in-debug; keep the flexible stale-serve test). Needs local Docker ClickHouse (re-provisioned QA_PROVISION_CH=yes).",
+      "target_files": [
+        "app/Models/Org.php",
+        "tests/Feature/Jobs/Org/CacheOrgHotlistClientsTest.php",
+        "tests/Feature/Jobs/Org/CacheOrgHotlistLienholdersTest.php",
+        "tests/Models/OrgHotlistCacheTest.php"
+      ],
+      "intended_diffs": "Org.php: +2 imports; +1 private isStatementTimeout() helper; each getter's `return cache()->remember(...)` wrapped in try/catch that logs+returns collect() on a 57014 timeout (non-debug) and rethrows otherwise. Tests: add a timeout-path test to each job test file (force the zod connection select to throw a QueryException whose message contains 'statement timeout'; Config::set('app.debug', false); assert the job completes without throwing and cache()->get(key) stays null); new tests/Models/OrgHotlistCacheTest.php asserting a direct getHotlistClients()/getHotlistLienholders() call returns an empty Collection on timeout (protects the ~9 Filament/console callers), that a non-timeout QueryException still propagates, and that the happy path (real data) still returns the correct [id=>name] Collection.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "Hotlist",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "composite index on public.hotlist(org_id,client_org_id)/(org_id,lienholder_org_id)", "reason": "EXPLICITLY OUT OF BOUNDS — Dalton: 'We cannot change any database schema.' The durable perf fix is out of band; not in this PR."},
+    {"site": "bounded SET LOCAL statement_timeout", "reason": "Rejected by Dalton — approach is catch-only."},
+    {"site": "short-TTL negative cache", "reason": "Rejected by Dalton — leave cache unset on failure."},
+    {"site": "query reshape to JOIN/EXISTS", "reason": "Won't help without the index (Postgres already semi-joins the whereIn(subquery)); already DEV-1898's shape."},
+    {"site": "app/Jobs/Org/CacheOrgHotlistClients.php / CacheOrgHotlistLienholders.php", "reason": "Thin one-line wrappers; they inherit the resilience from the Org getters. No job-level change needed (fix in Org.php covers both jobs AND the ~9 synchronous callers)."},
+    {"site": "whereNotNull('client_org_id') dead no-op", "reason": "Cosmetic only; left in to keep the diff minimal and avoid changing the query text pinned by existing tests. Not requested."},
+    {"site": "8 other cache()->remember / whereIn(subquery) sites across app/", "reason": "Prep exhaustiveness confirmed none combine whereIn(DISTINCT subquery) over a large skewed zod table; not this bug."}
+  ],
+  "notes": [
+    "Single-node fast path (1 subtask): implement on the ticket branch in REPO_PATH; capture DIFF_BASE before the fix.",
+    "No blast-radius glob touched (no migrations/**, billing, auth/Shield, CH purge). No human node-approval required.",
+    "Perf gate (WS6) N/A — Postgres, not a >1B-row ClickHouse surface. perf_validation.required=false.",
+    "Sizing gate: 1 source file + 3 test files, single concern — well under the 6-file / multi-concern split threshold.",
+    "CH not touched (data_impact.ch_tables empty) → Phase 4/6 keep ClickHouse deferred (QA_PROVISION_CH=no).",
+    "Test technique: mirror tests/Filament/Concerns/HasRetryQueryTest.php — Config::set('app.debug', false) + a constructed QueryException carrying a 'statement timeout' message; force it via the zod connection's select. Existing happy-path job tests must stay green."
+  ]
+}

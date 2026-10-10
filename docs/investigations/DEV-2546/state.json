@@ -1,0 +1,404 @@
+{
+  "key": "DEV-2546",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "default main; base-resolve found 10 candidates, all stale or unrelated (stack-otto-hits 220 behind); sub-agent picked main conf=75",
+  "branch": "claude/DEV-2546",
+  "main_checkout": "/Users/daltonmccleery/Herd/platform",
+  "run_root": "/Users/daltonmccleery/Herd/platform/.claude/worktrees/DEV-2546",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "implement:rn5-fix",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 1554,
+      "tokens_total": 257051
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "no_spawn": false,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false,
+    "eli5": true
+  },
+  "knowledge_cards_loaded": [
+    "clarity/scout.md",
+    "clarity/analytics.md",
+    "clickhouse/core.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "confidence<80",
+    "escalate.recommend",
+    "3 unanswered questions",
+    "scale_relevant unresolved"
+  ],
+  "best_of_n": false,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [],
+  "perf_validation": {
+    "required": true,
+    "ch_tables": [
+      "clarity.hits_hot",
+      "clarity.hits_cold"
+    ],
+    "approach": "Live read-only ClickHouse Cloud, 3 interleaved rounds per query shape, heaviest orgs by hit volume (1271 hot, 1143 cold); server envelope via X-ClickHouse-Summary.",
+    "measurement": "hits_hot today 135ms / 7d 150ms / 30d 177ms (org 1271, 85 kits). hits_cold 2025Q1 133ms / full-year 174ms / all-time 241ms (org 1143). Server: all-time reads 23.4M rows / 448MB, 34MB peak memory, 144ms. hits_cold is 24.7M rows, not the 318M in prep (that was zod.public_hits).",
+    "verdict": "pass",
+    "measured_at": "2026-09-15",
+    "postgres_branch": {
+      "measured_at": "2026-09-15",
+      "method": "plan-only EXPLAIN on the prod read replica (pg-read...rds.amazonaws.com); no ANALYZE",
+      "results_doc": "docs/investigations/DEV-2546/prod-measurement-results.md",
+      "table_rows": {
+        "hits": 228575936,
+        "scans_metadata": 3409680896,
+        "hotlist": 133567408,
+        "kits": 5631
+      },
+      "cost_by_window": {
+        "today_default": 17438,
+        "last_30_days": 835659,
+        "last_1_year": 5370764,
+        "no_date_filter": 6174173
+      },
+      "rows_driven_off_hits": {
+        "today_default": 404,
+        "last_30_days": 18939,
+        "last_1_year": 249030,
+        "no_date_filter": 356492
+      },
+      "seq_scans_on_big_tables": 0,
+      "statement_timeout": "30s on both platform and zod",
+      "verdict": "MIXED \u2014 the lanes' stated mechanism (seq scan over 318M rows, no bound) is refuted; the structural asymmetry (aggregate cannot stop early, table can) is confirmed and a 1-year window provably exceeds the 30s statement_timeout (observed SQLSTATE 57014 on a strictly cheaper query)."
+    }
+  },
+  "diff_base": null,
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "claude/DEV-2546",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 6,
+  "pr": {
+    "number": 409,
+    "url": "https://github.com/insight-lpr/platform/pull/409",
+    "draft": false
+  },
+  "pr_urls": {},
+  "spawned_sessions": [
+    {
+      "segment": "build",
+      "session_id": "5fceb3e2",
+      "at": "2026-09-15T13:35:00Z"
+    }
+  ],
+  "jira_in_progress_by": "pipeline-mcp @ 2026-09-15T18:10:10Z (Phase 2.5 backstop \u2014 the build session never transitioned it; ticket was still To Do)",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "pipeline-mcp @ 2026-09-21T17:10:00Z \u2014 undraft did not transition (still In Progress); MCP transition id 4 to In Code Review",
+  "assumed": [],
+  "comment_ids": {
+    "status": "39877",
+    "build_record": "40762"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "provisioned_early": true,
+    "provisioning": {
+      "provision_mode": "full",
+      "postgres": {
+        "dev_db": "zod_claude_dev_2546",
+        "testing_db": "zod_testing_claude_dev_2546",
+        "site": "https://clarity-claude_dev_2546.test",
+        "reused": true
+      },
+      "clickhouse": {
+        "strategy": "docker",
+        "host": "127.0.0.1",
+        "port": 18123,
+        "runtime_dbs": [
+          "clarity_claude_dev_2546",
+          "zod_claude_dev_2546"
+        ],
+        "testing_dbs": [
+          "clarity_claude_dev_2546_test",
+          "zod_claude_dev_2546_test"
+        ],
+        "reused": true,
+        "seeded_rows": 0,
+        "note": "CH DBs empty; customer Hits path is Postgres (clickhouse:hits slug bug). CH branch only via admin_impersonator."
+      },
+      "postgis_patch": "applied",
+      "seeded": "1 admin (test@tester.com), viewany-hit; PG hits scoped L5/H3/S2/Z2 (+F1/P1 unscoped); 15 kits; CH hits_hot/cold empty",
+      "herd_site": "https://clarity-claude_dev_2546.test",
+      "caps": {
+        "dev_login": "on",
+        "persona_links": "off",
+        "postgis_patch": "applied",
+        "herd": "on",
+        "clickhouse": "docker"
+      }
+    },
+    "resource_envelope": {
+      "verdict": "not-measured",
+      "basis": "n/a"
+    },
+    "human_guide": ".context/qa-human-guide.html"
+  },
+  "record": {
+    "tests": [
+      "tests/Filament/Resources/HitsResourceTest.php: 8 cases (card identity/order, per-type counts, plate dedupe vs raw total, filter reactivity, addFilter() bypass, hit-date filter, widget render, widget standalone). PASS in CI.",
+      "tests/Filament/Resources/HitsResourceMetricCardsClickhouseTest.php: 3 cases on the ClickHouse branch. RUN and PASS against CI's real ClickHouse (shard 1 reports 0 skipped).",
+      "RN5 filtered run: 18 passed, 0 failed (HasHitMetricCardsTest + the two widget tests). NOT a full-suite run. ~29 of HitsResourceTest.php and all of HitsResourceMetricCardsClickhouseTest.php cannot execute in this worktree (pgsql bridge lacks clarity.hotlist.client_org_name, so any full ListHits render throws in Org::getHotlistClients()) \u2014 pre-existing; CI has the real ClickHouse service."
+    ],
+    "deviations": [
+      "No app/Clickhouse/Queries/HitMetricCardsQuery.php: a static-SQL ClickhouseQuery class cannot consume Filament's filtered builder; counts are aggregated over the page's own getFilteredTableQuery() so AC-4 holds structurally.",
+      "One StatsOverviewWidget with four Stats instead of four widget classes: four Livewire widgets would mean four queries; prep required one grouped query.",
+      "HasClickableFilter left untouched and handleTableFilterUpdates() not hooked: the page computes the counts and passes them down via getWidgetData() + #[Reactive], which covers the chip bypass and every other filter path.",
+      {
+        "source": "rn5-fix",
+        "edit": "#[Reactive] pin drives Livewire's SupportReactiveProps hydration path rather than a full-page render; a full-page end-to-end pin is impossible because Livewire emits a bare child stub on every render after the first, so the DOM is identical with or without the attribute.",
+        "ac_ref": "AC-3",
+        "ac_delta": null
+      },
+      {
+        "source": "rn5-fix",
+        "edit": "One shared TTL ladder (10s / 3s impersonating) for BOTH the success cache and the failure marker, instead of a separate shorter-than-60s failure constant. Justified: the aggregate's own wait is now capped at 5s, so a retry after failure is cheap.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "rn5-fix",
+        "edit": "Fifth \"Other Hits\" card REMOVED per the operator's AC-1-literal decision. Accepted and documented consequence: Type = F or P leaves all four cards reading 0 over a populated table.",
+        "ac_ref": "AC-1",
+        "ac_delta": "AC-4 previously read as requiring every listed row to be counted by some card; the operator resolved the AC-1/AC-4 conflict in favour of AC-1, so AC-4 is now scoped to filter sync, not total coverage."
+      },
+      {
+        "source": "qa-loop",
+        "edit": "OUT OF SCOPE, fixed on operator instruction: app/Providers/Filament/App.php \"Org Map\" nav item now requires config(app.experimental.clarity_scout) in visible(), matching routes/web.php:105 which registers the route under that flag. Pre-existing bug (neither App.php nor routes/web.php is in this ticket diff); QA scenario L 500d on it under impersonation with the flag off.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "qa-loop",
+        "edit": "Cache::partialMock() -> Cache::spy() + Cache::shouldHaveReceived(put) at three sites in HasHitMetricCardsTest.php. partialMock proxies to the real CacheManager and blew up at HasHitMetricCards.php:208 on QA image. This is the fix an RN4 lane recommended for the sibling Log::shouldReceive and that was filed Low and left.",
+        "ac_ref": null,
+        "ac_delta": null
+      }
+    ],
+    "review": {
+      "lanes": 1,
+      "scores": [
+        94
+      ],
+      "gate_score": 94,
+      "gate_score_src": "arbitration",
+      "rounds": [
+        {
+          "rn": 1,
+          "reason": "gate",
+          "at": "2026-09-15T14:30:00Z"
+        },
+        {
+          "rn": 2,
+          "reason": "scope",
+          "at": "2026-09-15T15:20:00Z"
+        },
+        {
+          "rn": 3,
+          "reason": "gate",
+          "at": "2026-09-15T16:05:00Z"
+        },
+        {
+          "rn": 4,
+          "reason": "gate",
+          "at": "2026-09-15T16:40:00Z",
+          "note": "OPERATOR OVERRIDE of the 1-fix-cycle bound. The rule would have parked this run after RN=3; Dalton directed a further fix round. Recorded as gate-driven, not relabelled as scope, so the override stays visible in the audit."
+        },
+        {
+          "rn": 5,
+          "reason": "gate",
+          "at": "2026-09-15T19:00:00Z",
+          "note": "SECOND operator override of the 1-fix-cycle bound (Dalton, 2026-09-15). Unlike RN4 this round is grounded in a production measurement taken BEFORE any code was written (docs/investigations/DEV-2546/prod-measurement-results.md), which is the explicit reason the operator authorised it. Recorded as gate-driven so the override stays visible."
+        },
+        {
+          "rn": 5,
+          "reason": "gate",
+          "at": "2026-09-17T21:01:06Z",
+          "note": "resume 2026-09-17: RN5 adversarial review of operator-directed fixes (prior park was before review dispatched). Second override of 1-fix-cycle bound, already authorised."
+        },
+        {
+          "rn": 6,
+          "reason": "gate",
+          "at": "2026-09-17T21:26:38Z",
+          "note": "In-session driver review after RN5 High fix; no spawned agents per operator."
+        }
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "in-session-agent"
+        }
+      ],
+      "findings_residual": [
+        "LOW: level-0 read-PDO path not exercised under RefreshDatabase (mock pin would help)",
+        "MEDIUM (late RN5 lanes, still live): success/failure cache TTL is 10s, equal to Live Polling / HasRetryQuery poll('10s') \u2014 claimed rate bound on those polls is marginal; longer failure TTL or single-flight would harden it. Operator-accepted 10s ladder; not re-opened after RN6 High fix.",
+        "LOW (late RN5): colour/key mapping duplicated vs DashboardWidget/SharedHitStatsData \u2014 non-blocking drift risk",
+        "OUT OF SCOPE (late RN5 L5): ClarityScoutTripsController bare count() sibling \u2014 operator deferred siblings"
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "dbb247ec94248cd5c4c61d088e3eee7df62c27d1",
+      "rework_pivot": false,
+      "prep_premise_contested": "prep-context note 'hits_hot is clean' is contested by code: HitPlateStatsBatchQuery.php:11-13 says hits_hot is a 90-day TTL copy of the same schema, and RdnHitHourCountQuery.php:38 reads hits_hot FINAL. The Hit Date filter defaults to today, which routes to hits_hot \u2014 so if hot is not clean, the inflated number is the DEFAULT view, not an edge case.",
+      "findings_fixed": [
+        "RN2 H1: uniqExact(id) replaces the forbidden bare count() on the ClickHouse branch.",
+        "RN4: aggregate REPEAT RATE bounded by a 30s shared cache keyed on the compiled SQL + bindings + org + connection, with a 60s negative marker. The query itself stays unbounded.",
+        "RN4: conditional fifth \"Other Hits\" card folded from the same aggregate (AC-4 coverage of F/P/M/O).",
+        "RN4: SQL dialect now follows config(...clarity_clickhouse.driver) rather than the model class, so the pgsql bridge is covered without skipping.",
+        "RN5 HIGH: beginTransaction forced aggregate onto write PDO \u2014 production path now caps on read PDO without top-level transaction",
+        "RN5 LOW: TTL docblock no longer mis-cites PG-009",
+        "RN5 LOW: uncounted types documented as M/F/P",
+        "RN5 LOW: removed wall-clock cancel assertion",
+        "RN5 LOW: Probable Match assertion uses [0,0,0,0] not array_sum"
+      ],
+      "needs_human": false,
+      "arbitration_file": ".ai/arbitration-4-DEV-2546.json",
+      "head_sha_at_rn4": "c7aa7ce456acc9bd4cbf5b220d7b547e08603fe4",
+      "unresolved_premises": [
+        {
+          "claim": "wall-clock cost of the aggregate on the DEFAULT (today) window",
+          "premise": "cost estimate 17,438 / ~404 rows has not been converted to milliseconds",
+          "verify_by": "EXPLAIN (ANALYZE, BUFFERS) on the default window only, under SET LOCAL statement_timeout (stage 4) \u2014 deliberately not run without an explicit go-ahead"
+        }
+      ],
+      "resolved_premises": [
+        "REFUTED - StatsOverviewWidget::$cachedStats is protected (vendor/filament/widgets/src/StatsOverviewWidget.php:20), not Livewire-persisted, so the cards cannot freeze across renders. claude1 M5 dropped.",
+        "REFUTED - Table::getQuery() returns $query->clone() (vendor/filament/tables/src/Table/Concerns/HasQuery.php:71,75), so applyHitMetricAggregate()'s in-place mutation cannot corrupt the table's own query. Dropped.",
+        "REFUTED (prod) \u2014 statement_timeout is 30s on BOTH platform and zod. The lane claim \"there is no statement_timeout on the platform connection (config/database.php:98-121)\" read the Laravel config only; the bound is set server/role-side.",
+        "REFUTED (prod) \u2014 no sequential scan on hits/hotlist/scans_metadata at ANY filter width. kit_id_created_at_idx drives every plan; hits.kit_id IN (org kits) bounds the query to one org. Widest filter for the busiest org drives 356,492 hit rows, not 228M.",
+        "REFUTED (prod) \u2014 config(cache.default) = redis, so RN4 cache was never a Postgres write per filter change.",
+        "CONFIRMED AND WORSE (prod) \u2014 the Postgres branch is not merely hot, it is the ONLY branch customers reach: ListHits.php:123 checks the literal \"clickhouse:hits\" while Pennant defines \"clickhouse-hits\", so the flag can never be true. CH branch is admin_impersonator-only. PRE-EXISTING since dd2213685 (2026-02-26), not in this ticket's diff.",
+        "CORRECTED (prod) \u2014 hits is 228,575,936 rows, not the 318M carried through prep and every review round (that was zod.public_hits). scans_metadata is 3,409,680,896 rows / 705 GB and was never named by any lane."
+      ],
+      "lane_sources_pending": [
+        {
+          "lane": "claude1",
+          "source": "in-session-agent",
+          "agent_id": "314682bd-bf3b-4d0e-bc54-cc2add59fc92"
+        },
+        {
+          "lane": "claude2",
+          "source": "in-session-agent",
+          "agent_id": "68667fd7-2306-4a45-a81c-c4008a5845e5"
+        },
+        {
+          "lane": "claude3",
+          "source": "in-session-agent",
+          "agent_id": "a7f4b824-1f48-4ab0-baec-6c7698bb0503"
+        }
+      ],
+      "late_lane_arrivals": [
+        {
+          "at": "2026-09-17T21:28:20Z",
+          "lanes": [
+            {
+              "id": "314682bd-bf3b-4d0e-bc54-cc2add59fc92",
+              "score": 62,
+              "file": ".ai/review-5-DEV-2546-task-claude1-late.md"
+            },
+            {
+              "id": "a7f4b824-1f48-4ab0-baec-6c7698bb0503",
+              "score": 76,
+              "file": ".ai/review-5-DEV-2546-claude3-late.md"
+            }
+          ],
+          "note": "Arrived after RN6 PASS. Confirmed same High (write-PDO) already fixed. No re-gate."
+        }
+      ],
+      "post_review_qa_fix": {
+        "at": "2026-09-23",
+        "files": [
+          "app/Providers/Filament/App.php",
+          "tests/Filament/Concerns/HasHitMetricCardsTest.php"
+        ],
+        "reviewed": false,
+        "note": "UN-REVIEWED. Both files changed after reviewed_sha dbb247ec94248cd5c4c61d088e3eee7df62c27d1; App.php has never been seen by ANY review round of this ticket. Under the materiality guard this is 2 files (threshold 3), no sensitive glob, no architecture pivot \u2014 so it is a light-path QA edit, not an automatic re-review. rework-gate.sh will still refuse `done` until a newer round covers it.",
+        "not_run_locally": "No PHPUnit executed: the recreated worktree has no vendor/ and no .env. Pint (main-checkout binary) passes; php -l clean. CI on this push is the first execution."
+      }
+    },
+    "ac": [
+      {
+        "id": "AC-1",
+        "text": "Four metric cards appear above the hits table: Live Hits, Direct Historical Hits, Staging Live Hits, Staging Historical Hits",
+        "status": "SATISFIED",
+        "evidence": "Browser data-hit-metric-card \u00d74 with correct labels; Livewire::test card keys/order"
+      },
+      {
+        "id": "AC-2",
+        "text": "Each card displays the filtered count and a secondary \"X total hits\" label",
+        "status": "SATISFIED",
+        "evidence": "Browser secondary label format; Livewire totals L4/H3/S2/Z2"
+      },
+      {
+        "id": "AC-3",
+        "text": "Cards update whenever any left-pane filter is applied, changed, or reset",
+        "status": "SATISFIED",
+        "evidence": ".context/_ac3-probe.txt Type=L \u2192 only Live non-zero; PHPUnit filter reactivity tests"
+      },
+      {
+        "id": "AC-4",
+        "text": "Cards and table always reflect the same underlying filtered dataset",
+        "status": "SATISFIED",
+        "evidence": "Counts from getFilteredTableQuery(); Livewire filtered_count aligns with card buckets; browser cards sync with table"
+      },
+      {
+        "id": "AC-5",
+        "text": "Cards display correctly across all screen sizes without layout overflow",
+        "status": "SATISFIED",
+        "evidence": "Desktop browser: four-card row, no overflow; narrow viewport left to human QA hp-6"
+      }
+    ]
+  },
+  "notes_spawn": "No 'gate' row recorded DELIBERATELY. Session A here is the operator's long-running pipeline-work session, not a session dedicated to DEV-2546. Recording it would make Phase 7 archive the operator's main working session. Omitted on purpose, not by failure."
+}

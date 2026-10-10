@@ -1,0 +1,489 @@
+{
+  "key": "DEV-2414",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "reconcile": {
+    "method": "insightlpr:multi-candidate-merge applied by the Opus driver over 4 independent passes (1 fast pass + 3 blind candidates) plus the driver's own first-hand read of both query classes, the recorder, the migration and routes/console.php",
+    "candidates": 3,
+    "best_of_n": true,
+    "note": "Union additive content deduped; agreement = settled; disagreement = explicit question or an explicitly-reasoned driver decision; grounded beats confident; conservative on 'resolved'."
+  },
+  "synthesis": "A Scout check-in is meant to assert 'this kit was at this location'. ScoutCheckInMatchQuery currently GROUP BYs address_id, so it actually asserts 'this kit was near this address record' \u2014 N distinct address rows sharing one exact coordinate each produce their own persisted scout_check_ins row for a single physical visit. Measured on the live book, ~48% of open-order address rows share a geo with at least one other row, so this fan-out is systemic, not an edge case. The fix regroups on the address's exact geo and uses ROW_NUMBER() to elect one canonical address per (geo, hour_bucket) \u2014 Direct-wins, then lowest address_id \u2014 whose address_id/hotlist_id/is_staged persist. The dashboard tile (ScoutCheckInRollupQuery) must move in lockstep on the geo-dedup but must NOT adopt Direct-wins: it deliberately counts a Direct+Staging shared location once in each bucket, so its dedup runs independently per is_staged bucket. No migration, no backfill, no schedule re-enable.",
+  "scope": {
+    "summary": "Restructure the CTE chain in both ClickHouse query classes to dedup on exact address geo instead of address_id, electing one canonical address per (geo, hour_bucket) via ROW_NUMBER(). Layer the new geo-level rank ON TOP of today's existing per-address collapse rather than replacing it. Update both class docblocks. No PHP-side logic, schema, schedule or config changes.",
+    "proposed_changes": [
+      {
+        "file": "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php",
+        "change": "Add `a.addr_lng` / `a.addr_lat` to the `matches` CTE projection (it does not carry them today). Insert a new `address_hour` CTE that is EXACTLY today's final aggregate \u2014 unchanged `argMin(hotlist_id, (toUInt8(is_staged), hotlist_id))`, `min(is_staged)`, single-tuple `argMin((lng,lat), timestamp_utc)`, `min(timestamp_utc)` \u2014 but GROUP BY (address_id, addr_lng, addr_lat, hour_bucket). Then a `ranked` CTE adding ROW_NUMBER() OVER (PARTITION BY addr_lng, addr_lat, hour_bucket ORDER BY toUInt8(is_staged) ASC, address_id ASC) AS rn. Final SELECT reads `FROM ranked WHERE rn = 1`, projecting the same out_* column names/shape as today.",
+        "reason": "Required changes #1/#2/#3. The two-level nesting is REQUIRED, not stylistic: today's argMin resolves one address_id sitting on MULTIPLE hotlists (Direct-wins, then lowest hotlist_id). A single-pass rank ordered only by (is_staged, address_id) ties on BOTH keys for those rows and picks arbitrarily, regressing a documented semantic and making the parity test flaky. Layering keeps the change a strict superset of current behavior.",
+        "ref": "ScoutCheckInMatchQuery.php:121-144",
+        "agreement": "4/4 passes plus the driver's own source read independently reached the layered design"
+      },
+      {
+        "file": "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php",
+        "change": "Update the class docblock: replace the '(address, hour-bucket)' / 'Positions are grouped by (address_id, toStartOfHour(timestamp_utc))' grain language with the (address geo, hour-bucket) grain and the two-level priority rule (intra-address hotlist tie-break unchanged; new inter-address Direct-wins-then-lowest-address_id geo election). State the accepted residual gap in one line.",
+        "reason": "Required change #5. Keep it tight \u2014 this repo's owner prefers sparse docblocks.",
+        "ref": "ScoutCheckInMatchQuery.php:11-47"
+      },
+      {
+        "file": "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php",
+        "change": "Add `a.addr_lng` / `a.addr_lat` to the `matches` CTE (today it selects DISTINCT address_id, is_staged, hour_bucket). Add a `ranked` CTE: ROW_NUMBER() OVER (PARTITION BY is_staged, addr_lng, addr_lat, hour_bucket ORDER BY address_id ASC) AS rn. Final SELECT becomes countIf(is_staged = false AND rn = 1) / countIf(is_staged = true AND rn = 1) FROM ranked. Leave the `addresses` CTE untouched \u2014 its DISTINCT serves book-row dedup, a different concern.",
+        "reason": "Required change #4. Putting is_staged IN the partition key is what preserves the both-buckets semantic: each partition holds only one is_staged value, so Direct and Staging each elect their own winner and a shared location still counts once in EACH bucket. No Direct-wins ordering here \u2014 that would silently delete staging counts.",
+        "ref": "ScoutCheckInRollupQuery.php:106-119",
+        "driver_decision": "Passes split on shape: the fast pass proposed a one-line `SELECT DISTINCT addr_lng, addr_lat, is_staged, hour_bucket` swap; candidates 1/2/3 proposed the ROW_NUMBER mirror. All FOUR are arithmetically identical for a COUNT output (DISTINCT over the 4-tuple == rn=1 over the same partition). Driver picks ROW_NUMBER for two grounded reasons: (a) the ticket's own wording asks for 'the geo-dedup + address_id ASC pick within each bucket', and DISTINCT performs no pick; (b) ScoutCheckInMatchQueryParityTest exists precisely to bind these two classes' architecture, so structural symmetry is the maintained invariant. Recorded as a decision, not a silent pick."
+      },
+      {
+        "file": "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php",
+        "change": "Update the class docblock grain description to the geo grain + per-bucket-independent dedup, keeping the existing note that a shared Direct+Staging address counts in both buckets.",
+        "reason": "Required change #5.",
+        "ref": "ScoutCheckInRollupQuery.php:10-39"
+      },
+      {
+        "file": "tests/Unit/Clickhouse/Queries/ScoutCheckInMatchQueryParityTest.php",
+        "change": "ADD: distinct address_ids at identical coordinates -> exactly 1 match, lowest address_id wins. ADD priority test: co-located Direct + Staging (distinct address_ids) -> the Direct row persists EVEN WHEN the Staging row has the lower address_id (isolates Direct-wins as outranking address_id). ADD: co-located Directs seeded so hotlist_id ordering alone would elect the WRONG winner -> proves address_id, not hotlist_id, is the inter-address decider. ADD rollup-side: 2 Direct address_ids at one geo -> direct_bucket == 1, not 2.",
+        "reason": "Ticket's named NEW priority test, plus the extension of test_duplicate_book_rows_for_one_address_produce_one_match. The rollup-side co-located case is an ADDITION beyond the ticket's list: candidate 3 correctly identified that the existing shared-address test covers ONE address_id split across is_staged, which this change does not affect \u2014 so nothing in the current suite actually exercises the rollup's new within-bucket geo collapse.",
+        "ref": "ScoutCheckInMatchQueryParityTest.php:116-192"
+      },
+      {
+        "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+        "change": "ADD an end-to-end volume test: N (>=3) co-located Direct addresses (distinct address_ids, identical lng/lat) + one GPS fix -> exactly 1 persisted platform.scout_check_ins row. RENAME it_records_multiple_in_radius_addresses_in_one_cycle to it_records_multiple_distinct_geo_addresses_in_one_cycle and LEAVE ITS ASSERTION AT 3.",
+        "reason": "AC1 needs an end-to-end assertion through the Postgres insert, not only a query-level one. The rename corrects a misleading name; the assertion must NOT change \u2014 see questions.q1.",
+        "ref": "ScoutRecordCheckInsCommandTest.php:529-545"
+      }
+    ],
+    "target_files": [
+      "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php",
+      "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php",
+      "tests/Unit/Clickhouse/Queries/ScoutCheckInMatchQueryParityTest.php",
+      "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php"
+    ],
+    "out_of_scope": [
+      "database/migrations/** \u2014 platform.scout_check_ins unique(kit_id, address_id, hour_bucket) stays exactly as-is; the accepted residual gap DEPENDS on it not becoming geo-keyed",
+      "routes/console.php \u2014 Schedule::command(ScoutRecordCheckIns) stays commented out (disabled twice: ae909163, then 4aec6244)",
+      "app/Console/Commands/ScoutRecordCheckIns.php \u2014 no logic change; already calls ::handle() (AC7). Docblock left as-is: its '(kit, address, hour)' wording still accurately describes the STORAGE identity, which is unchanged. (Candidate 3 proposed a docblock touch; driver declines per smallest-coherent-change and this repo owner's sparse-docblock preference.)",
+      "No data purge / backfill of pre-fix rows",
+      "PROXIMITY_METERS / BBOX_PAD_DEGREES / hotlistOrgFilter() stay duplicated verbatim across the two classes \u2014 the ticket relies on the parity test to bind them; no shared-base refactor",
+      "chlocal migration 111 / clarity.scout_open_addresses_mv \u2014 sibling-repo owned",
+      "okf/ wiki updates \u2014 land AFTER merge per the repo WRITE rule (see notes: two pages are already stale)"
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "AC1 One check-in per (kit_id, address geo, hour_bucket); N co-located addresses -> 1 row",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Structural consequence of the geo GROUP BY + ROW_NUMBER election; needs a genuinely new test since no existing fixture is co-located."
+    },
+    {
+      "item": "AC2 Persisted address_id/hotlist_id/is_staged are the Direct-wins-then-lowest-address_id winner",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "ROW_NUMBER ORDER BY toUInt8(is_staged) ASC, address_id ASC, applied AFTER address_id is already unique per geo from the first-level collapse \u2014 a deterministic total order."
+    },
+    {
+      "item": "AC3 A kit visiting genuinely distinct locations in one hour still records one check-in per location",
+      "source": "ticket",
+      "decision": "implement (already true; pinned by an existing test)",
+      "reason": "Exact-Point equality cannot collapse distinct coordinates. Pinned by the renamed multi-distinct-geo test whose fixtures measure ~14.7-29.4km apart."
+    },
+    {
+      "item": "AC4 Volume ~1 check-in per active kit per 15-min window vs the 2.07 baseline; report the observed figure on the ticket",
+      "source": "ticket",
+      "decision": "implement mechanism / DEFER measurement",
+      "reason": "The code drives the outcome and the new volume test proves the mechanism, but the AC's actual number is a live production measurement. The schedule stays disabled by design, so it must be gathered the same way the baseline was \u2014 manual runs. Ownership/timing is questions.q3."
+    },
+    {
+      "item": "AC5 Dashboard tile stays consistent; ScoutCheckInMatchQueryParityTest green",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Rollup moves in the same PR; all existing parity scenarios hand-traced green by 3 independent passes."
+    },
+    {
+      "item": "AC6 A shared Direct+Staging location still counts once in EACH rollup bucket",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "is_staged is IN the rollup partition key, so the two sides never compete."
+    },
+    {
+      "item": "AC7 ScoutRecordCheckIns still calls ::handle(), never ::query()",
+      "source": "ticket",
+      "decision": "implement (no-op; guard at review)",
+      "reason": "Already true at ScoutRecordCheckIns.php:271, verified first-hand by the driver. The file is not a target file, so regression risk is near zero; confirm in the diff."
+    },
+    {
+      "item": "AC8 No migration in the diff; the schedule stays commented out",
+      "source": "ticket",
+      "decision": "implement (constraint)",
+      "reason": "Verified current state; enforce at the blast-radius re-check and in review."
+    }
+  ],
+  "questions": [
+    {
+      "id": "q1",
+      "q": "The ticket says it_records_multiple_in_radius_addresses_in_one_cycle 'REVERSES' and must become a distinct-geo test. Is that correct?",
+      "answered": true,
+      "answer": "No \u2014 the ticket's premise is factually wrong about this fixture. Its three spots are (-97.70,30.30) / (-97.80,30.40) / (-97.90,30.50), measured ~14.7-29.4 km apart pairwise \u2014 orders of magnitude beyond both the 160.934m radius and the ~330m bbox pad. The test ALREADY exercises AC3 and its assertion of 3 rows must NOT change. Only the NAME is misleading. The scenario the ticket actually describes (co-located, distinct address_ids at one geo) has no coverage under any existing test name and must be added fresh. Following the ticket literally here would have damaged a correct test.",
+      "source": "code",
+      "agreement": "independently measured by all three blind candidates"
+    },
+    {
+      "id": "q2",
+      "q": "Must the existing per-address argMin(hotlist_id, ...) tie-break be retained, or does the ticket's one-line ROW_NUMBER replace it outright?",
+      "answered": true,
+      "answer": "It MUST be retained as a first stage. It resolves one address_id sitting on multiple hotlists (Direct-wins, then lowest hotlist_id). Under a single-pass rank ordered only by (toUInt8(is_staged), address_id), two such rows tie on BOTH sort keys and ClickHouse elects arbitrarily \u2014 regressing a documented semantic and destabilising test_duplicate_book_rows_for_one_address_produce_one_match. The ticket's phrase 'address_id ASC replaces the current hotlist_id tie-break as the address-level decider' means it decides among DIFFERENT addresses at one geo; it does not remove the within-address decider.",
+      "source": "code",
+      "agreement": "4/4 passes plus the driver's own read"
+    },
+    {
+      "id": "q3",
+      "q": "Does ClickHouse support ROW_NUMBER() in this CTE-then-filter shape, and does this repo already do it?",
+      "answered": true,
+      "answer": "Yes on both. ROW_NUMBER() has been supported since ClickHouse ~21.3 (pinned version here is 26.2), and window functions are already used in-repo: RecoveryLeaderQuery.php:24 (sum(...) OVER (PARTITION BY recovery_id)), plus row_number() OVER in Hit.php:416-417 and LeaderboardTableWidget.php:42. Both target classes are ClickHouse-only and exercised solely under RequiresClickhouse, so no pgsql-bridge dialect branch is needed.",
+      "source": "code"
+    },
+    {
+      "id": "q4",
+      "q": "EXACT-geo dedup at real production scale: the live book holds a single exact coordinate carrying 20,396 open-order address rows (org 165, ~north Texas) and a second carrying 6,482 rows at a point in American Samoa; ~48% of all 4.53M book rows share a geo with at least one other row. The ticket justifies exact-Point equality as 'deliberately conservative', on the premise that identical coordinates mean genuine co-location (duplicated geocode, apartment complex, multi-unit lot). Clusters of 20k+ and an implausible-territory point look like geocoder-fallback centroids or sentinels, not real co-location. Is collapsing such a cluster to ONE check-in per kit-hour the intended behavior, or should the matcher exclude/deprioritise mass-shared coordinates?",
+      "answered": true,
+      "answer": "INVESTIGATED (2026-08-24) \u2014 see docs/investigations/DEV-2414/cluster-investigation.md. VERDICT: the mega-clusters are geocoder-fallback / sentinel artifacts, not real shared addresses. Decisive evidence is the multi-org signature: C1 (-96.808028, 33.083789) carries 20,402 addresses across 17,722 hotlists and 32 DISTINCT ORGS; C2 is Pago Pago, American Samoa (-170.701384, -14.273749) with 6,482 addresses across 49 orgs. No real building hosts open repo orders for 32-49 unrelated repo companies, and no company has 6,482 open orders in American Samoa. DESIGN CONSEQUENCE: at a fallback centroid there is NO true location signal to preserve, so exact-Point dedup cannot 'hide' genuine orders there. Today a kit within 160.934m of C1 records 20,402 false check-ins in one kit-hour; after the change it records 1. The dedup is STRICTLY PROTECTIVE at exactly the clusters that raised the concern -> ship exact-Point as the ticket specifies, no mass-shared-coordinate guard in the matcher. EXPOSURE IS LATENT, NOT ACTIVE: the largest baseline run recorded 138 across 44 kits, so no kit came within 160.934m of these clusters during the 2h window; none of the 2.07/kit figure is attributable to them. FOLLOW-UP ELSEWHERE: excluding fallback coordinates belongs upstream in chlocal's scout_open_addresses_mv (migration 111), alongside the status=Open / length(plate)>3 / EWKT filters -- separate ticket.",
+      "source": "human:Dalton McCleery 2026-08-24 (decision) + driver investigation (finding)",
+      "materiality": "MATERIAL \u2014 data semantics. Cannot be auto-answered (non-negotiable 1).",
+      "driver_framing": "The risk runs BOTH ways and that sharpens rather than blocks the change. Under TODAY's code a kit passing within 160.934m of that point with those orders open fans out to ~20,396 rows in a single insertOrIgnore for one kit-hour \u2014 a latent incident the current grain already carries. The new dedup caps it at 1, so this change is strictly protective on volume. The open question is only the semantic one: whether collapsing to one row unacceptably HIDES genuinely distinct open orders. Note also that address geocoding and the book rebuild are chlocal-owned, so an exclusion rule would likely belong upstream, not here.",
+      "investigation_artifact": "docs/investigations/DEV-2414/cluster-investigation.md"
+    },
+    {
+      "id": "q5",
+      "q": "AC4's volume figure requires a post-deploy manual production measurement (the schedule stays disabled by design). Who owns that run, and is it a merge gate or a follow-up after merge?",
+      "answered": true,
+      "answer": "FOLLOW-UP AFTER MERGE. Merge on code + tests + agent QA; the operator runs the manual production cycles afterwards and posts the observed recorded/kits_processed figure on the ticket. The new volume test proves the mechanism pre-merge. AC4 does NOT gate Done.",
+      "source": "human:Dalton McCleery 2026-08-24",
+      "materiality": "MATERIAL \u2014 AC ambiguity. The ticket says 'Report the observed figure on this ticket' without saying whether Done requires it."
+    },
+    {
+      "id": "q6",
+      "q": "platform.scout_check_ins will carry a permanent semantic discontinuity at the deploy boundary \u2014 rows recorded before the fix follow the old address_id grain (including the 818 rows from the 2026-08-21 baseline runs), rows after follow the geo grain \u2014 because backfill is explicitly out of scope. Should that boundary be recorded anywhere for future consumers?",
+      "answered": true,
+      "answer": "DOCBLOCK + BUILD RECORD. One line in the ScoutCheckInMatchQuery docblock noting the deploy-boundary grain discontinuity, plus a note in the Jira Build Record. No okf/ wiki line beyond the already-queued post-merge pass.",
+      "source": "human:Dalton McCleery 2026-08-24",
+      "materiality": "MATERIAL-adjacent \u2014 data semantics for downstream readers. Raised by candidate 3; the ticket does not mention it."
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "STALE WIKI (do NOT fix mid-flight): okf/concepts/scout-check-in-recorder.md and okf/concepts/platform-gotchas.md (PG-023) state 'The schedule is live' / 'DEV-2386 re-enabled the schedule; do not re-comment it'. Code disagrees \u2014 routes/console.php:59-65 is fully commented out as of 4aec6244 (2026-08-21). Per repo precedence code wins on executable behavior; per the WRITE rule the correction lands AFTER merge. Queue it, do not edit now.",
+    "Blast radius is currently LOW: the recorder schedule is disabled, so nothing in production runs this SQL on a cadence, and the rollup tile is 'present but not surfaced' in the PWA per okf/concepts/scout-dashboard-stats.md.",
+    "Independent side-finding (candidate 2, out of scope): clarity.sc_positions already carries PROJECTION proj_kit_mapping_lc ORDER BY (lower(kit_mapping), timestamp_utc) in database/schema/clickhouse-schema.sql:149 \u2014 this may already implement the 'W1' lower(kit_mapping) PK-bypass fix the wiki still describes as outstanding, which would also make PG-024's duration characterization stale. Separate ticket.",
+    "Co-located argMin equivalence (driver-verified): geoDistance is evaluated against the ADDRESS coordinates, so byte-identical (addr_lng, addr_lat) rows have IDENTICAL qualifying position sets \u2014 identical argMin coords and identical min(timestamp_utc). Electing the winner's own aggregate therefore loses nothing; only address_id/hotlist_id/is_staged differ between co-located rows.",
+    "Persisted lat/lng are the earliest POSITION fix, not the address geo (ScoutRecordCheckIns writes $match['lat']/$match['lng']). This is why the residual gap cannot be closed without storing the address geo on the row \u2014 consistent with the ticket's accept-do-not-fix.",
+    "Test fixtures must use the existing insertBookAddress / insertOpenAssignmentAddress helper patterns in both test files rather than new fixture helpers; CH tests run under RequiresClickhouse against real ClickHouse.",
+    "Run `vendor/bin/pint --dirty --format agent` before finishing (non-negotiable repo convention).",
+    "FOLLOW-UP TICKET (chlocal, not this repo): clarity.scout_open_addresses_mv should exclude geocoder-fallback centroids. Evidence in docs/investigations/DEV-2414/cluster-investigation.md.",
+    "q6 decision: add ONE line to the ScoutCheckInMatchQuery docblock recording the deploy-boundary grain discontinuity (pre-fix rows on the address_id grain, post-fix on the geo grain, no backfill), and repeat it in the Build Record."
+  ],
+  "tests": [
+    {
+      "file": "tests/Unit/Clickhouse/Queries/ScoutCheckInMatchQueryParityTest.php",
+      "what_it_pins": "NEW: distinct address_ids at identical coordinates -> 1 match, lowest address_id wins"
+    },
+    {
+      "file": "tests/Unit/Clickhouse/Queries/ScoutCheckInMatchQueryParityTest.php",
+      "what_it_pins": "NEW priority: co-located Direct+Staging -> Direct persists even when Staging holds the LOWER address_id; co-located Directs seeded so hotlist_id order would elect the wrong winner -> address_id decides"
+    },
+    {
+      "file": "tests/Unit/Clickhouse/Queries/ScoutCheckInMatchQueryParityTest.php",
+      "what_it_pins": "NEW rollup-side: 2 Direct address_ids at one geo -> direct_bucket == 1 (the ONLY test that exercises the rollup's new within-bucket collapse)"
+    },
+    {
+      "file": "tests/Unit/Clickhouse/Queries/ScoutCheckInMatchQueryParityTest.php",
+      "what_it_pins": "UNCHANGED: test_duplicate_book_rows_for_one_address_produce_one_match and test_shared_address_is_direct_wins_on_matcher_and_counted_in_both_rollup_buckets must both stay green untouched (AC6)"
+    },
+    {
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+      "what_it_pins": "NEW volume: N co-located Direct addresses -> exactly 1 persisted row end-to-end"
+    },
+    {
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+      "what_it_pins": "RENAMED ONLY (assertion stays 3): it_records_multiple_distinct_geo_addresses_in_one_cycle"
+    },
+    {
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+      "what_it_pins": "UNCHANGED regression pins: it_records_a_direct_and_staging_check_in_for_positions_within_the_radius (~1.47km apart, stays 2 rows); it_records_one_check_in_per_hour_when_parked_across_an_hour_boundary (stays 2 rows)"
+    },
+    {
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsMemoryTest.php",
+      "what_it_pins": "MUST RUN \u2014 asserts assertSame(1, ScoutCheckIn::count()) plus an RSS budget; the resource-envelope regression guard"
+    },
+    {
+      "file": "tests/Feature/Console/ScoutRecordCheckInsOverrunSignalTest.php",
+      "what_it_pins": "MUST RUN \u2014 overrun signalling, unaffected"
+    },
+    {
+      "file": "tests/Feature/Console/ScoutRecordCheckInsScheduleTest.php",
+      "what_it_pins": "MUST RUN \u2014 lookback_minutes config plumbing, unaffected"
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php:121-144 (matches CTE + final GROUP BY address_id \u2014 the bug)",
+      "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php:11-47 (docblock to update)",
+      "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php:106-119 (matches CTE DISTINCT on address_id \u2014 same bug, read side)",
+      "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php:10-39 (docblock to update)",
+      "app/Console/Commands/ScoutRecordCheckIns.php:269-303 (recordCheckInsForKit; ::handle() at :271 \u2014 AC7, unchanged)",
+      "app/Http/Controllers/Api/ClarityScoutDashboardController.php:236-274 (checkInCounts \u2014 rollup's only consumer, shape unchanged)",
+      "database/migrations/2026_08_10_170314_create_scout_check_ins_table.php:27 (unique(kit_id,address_id,hour_bucket) \u2014 unchanged)",
+      "routes/console.php:59-65 (schedule commented out \u2014 must stay)",
+      "app/Clickhouse/Queries/RecoveryLeaderQuery.php:24 (in-repo window-function precedent)",
+      "app/Clickhouse/Queries/HotlistAddressGeohashQuery.php:135 (in-repo exact-geo DISTINCT precedent)"
+    ],
+    "code_flow": "manual `artisan scout:record-check-ins` (schedule disabled) -> ScoutRecordCheckIns::handle() enumerates Scout-enabled drivers grouped by org -> per kit ScoutCheckInMatchQuery::handle() runs ONE ClickHouse statement (sc_positions bbox-prefiltered, geoDistance <= 160.934m join to scout_open_addresses, [NEW] per-address collapse then per-geo ROW_NUMBER election) -> ScoutCheckIn::insertOrIgnore() into platform.scout_check_ins. Separately on read: ClarityScoutDashboardController@checkInCounts -> ScoutCheckInRollupQuery::query() (scans_hot|cold FINAL x scout_open_addresses, [NEW] per-bucket geo election) -> {direct_bucket, staging_bucket}.",
+    "tables": [
+      "platform.scout_check_ins (PG, write)",
+      "clarity.scout_open_addresses (CH, read)",
+      "clarity.sc_positions (CH, read)",
+      "clarity.scans_hot / clarity.scans_cold (CH, read)"
+    ],
+    "related_components": [
+      "ScoutCheckInMatchQueryParityTest (sole cross-class safety net)",
+      "ClarityScoutDashboardController@checkInCounts",
+      "Org::stagingOrgIds() -> hotlistOrgFilter()",
+      "ClickhouseQuery::query() Throwable-swallow (why AC7 exists)",
+      "clarity.scout_open_addresses_mv / chlocal migration 111 (book owner, sibling repo)"
+    ]
+  },
+  "exhaustiveness": {
+    "root_cause_idiom": "Deduping a geo-proximity check-in match by address_id rather than by the address's exact geo.",
+    "grep_patterns_used": [
+      "GROUP BY address_id",
+      "DISTINCT.*address_id",
+      "argMin(hotlist_id",
+      "scout_open_addresses",
+      "geoDistance\\(",
+      "ROW_NUMBER|OVER \\(PARTITION",
+      "160\\.934",
+      "0\\.003",
+      "hotlistOrgFilter"
+    ],
+    "sites": [
+      {
+        "site": "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php:143 GROUP BY address_id, hour_bucket",
+        "verdict": "buggy",
+        "reason": "the root-cause site \u2014 dedups on address_id, not geo"
+      },
+      {
+        "site": "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php:136 argMin(hotlist_id, (toUInt8(is_staged), hotlist_id))",
+        "verdict": "safe \u2014 RETAIN",
+        "reason": "resolves one address_id across multiple hotlists; must be kept as stage 1, NOT replaced (see questions.q2)"
+      },
+      {
+        "site": "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php:106-114 SELECT DISTINCT a.address_id, a.is_staged, s.hour_bucket",
+        "verdict": "buggy",
+        "reason": "same fan-out on the dashboard side; co-located distinct addresses each inflate their bucket"
+      },
+      {
+        "site": "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php:92-105 addresses CTE SELECT DISTINCT book.address_id",
+        "verdict": "safe",
+        "reason": "dedups duplicate BOOK SNAPSHOT rows for one address_id \u2014 a different, pre-existing concern; leave untouched"
+      },
+      {
+        "site": "app/Clickhouse/Queries/LprVisitCountQuery.php:15-28 (uses 160.934)",
+        "verdict": "safe",
+        "reason": "proximity to ONE caller-supplied point, grouped only by hour_block; no address-book set to fan out over"
+      },
+      {
+        "site": "app/Clickhouse/Queries/HotlistAddressGeohashQuery.php:135,161 count(DISTINCT lat, lng)",
+        "verdict": "safe",
+        "reason": "already dedups by exact geo \u2014 the correct pre-existing pattern this ticket brings the check-in path in line with"
+      },
+      {
+        "site": "app/Clickhouse/Queries/KitRangePathsQuery.php:177,243 geoDistance",
+        "verdict": "safe",
+        "reason": "GPS path segmentation, not address-book matching"
+      },
+      {
+        "site": "app/Clickhouse/Queries/RecoveryLeaderQuery.php:24; Hit.php:416-417; LeaderboardTableWidget.php:42 (window functions)",
+        "verdict": "safe",
+        "reason": "unrelated domains; cited only as in-repo precedent that OVER (PARTITION BY ...) works here"
+      },
+      {
+        "site": "app/Console/Commands/ScoutRecordCheckIns.php",
+        "verdict": "safe",
+        "reason": "calls ::handle() (AC7); holds no address list in PHP; untouched"
+      },
+      {
+        "site": "No shared trait/base for the duplicated PROXIMITY_METERS / BBOX_PAD_DEGREES / hotlistOrgFilter()",
+        "verdict": "safe by design",
+        "reason": "the ticket relies on the parity test to bind them rather than asking for a refactor"
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [
+      "platform.scout_check_ins \u2014 schema and index unchanged; only WHICH address_id is elected as the persisted winner changes, plus a large drop in row volume"
+    ],
+    "ch_tables": [
+      "clarity.scout_open_addresses",
+      "clarity.sc_positions",
+      "clarity.scans_hot",
+      "clarity.scans_cold"
+    ],
+    "mv_or_cdc_implications": "None. clarity.scout_open_addresses_mv (chlocal migration 111) is untouched and out-of-repo; this ticket only changes how two platform-owned query classes group rows the MV already materialised. No new CDC dependency. scout_open_addresses is a plain MergeTree book, not a CDC replica, so no _peerdb_is_deleted / FINAL concern applies to it.",
+    "indexes_relied_on": [
+      "platform.scout_check_ins unique(kit_id, address_id, hour_bucket) \u2014 stays load-bearing for insertOrIgnore idempotency across the recorder's ~3x overlapping re-matches; it is NOT geo-aware, which is precisely the source of the accepted residual gap",
+      "clarity.scout_open_addresses ORDER BY (org_id, is_staged, hotlist_id, address_id) \u2014 no geo prefix, so the bbox CROSS JOIN prefilter remains load-bearing; unchanged by this ticket"
+    ]
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "Both target files are app/Clickhouse/Queries/*Query.php classes driven by app/Console/Commands/ScoutRecordCheckIns.php over production-cardinality data. Same surface that caused the DEV-2342 production OOM.",
+    "driving_tables": [
+      {
+        "table": "clarity.scout_open_addresses (the actual book both queries read)",
+        "source": "queried directly \u2014 NOT a zod.public_* CDC mirror, so prod-cardinality.sh does not reach it",
+        "prod_rows": 4534601,
+        "group_by": "org_id",
+        "largest_group_rows": 849394
+      },
+      {
+        "table": "clarity.scout_open_addresses (by exact geo \u2014 sizes the NEW ROW_NUMBER partition)",
+        "source": "same direct query",
+        "prod_rows": 4534601,
+        "group_by": "(tupleElement(geo,1), tupleElement(geo,2))",
+        "largest_group_rows": 20396
+      },
+      {
+        "table": "hotlist_address (upstream of the book, context only)",
+        "source": "zod.public_hotlist_address",
+        "prod_rows": 320069575,
+        "group_by": "hotlist_id",
+        "largest_group_rows": 296459
+      },
+      {
+        "table": "address (upstream, context only)",
+        "source": "zod.public_address",
+        "prod_rows": 197786365,
+        "group_by": "geo",
+        "largest_group_rows": 184045
+      }
+    ],
+    "growth": "Fleet grew 29->43 kits and 11->12 orgs in a single day (DEV-2342). The book tracks open Direct+Staging order volume, independent of kit/org count. zod.public_hotlist_address grew ~318M (2026-08-13) -> 320.07M (2026-08-24), consistent organic ingest.",
+    "schedule": {
+      "expression": "everyFiveMinutes() \u2014 DEFINED BUT COMMENTED OUT at routes/console.php:59-65 (4aec6244); nothing runs this on a cadence today",
+      "interval_seconds": 300,
+      "without_overlapping_minutes": 10
+    },
+    "allocation_sketch": "No new PHP-side allocation. The recorder's per-org/per-kit loop is untouched and stays O(matches) per DEV-2342/PG-026; this ticket adds no accumulator, chunk, or PHP-side collection. The new ROW_NUMBER runs ENTIRELY server-side in ClickHouse over the set already narrowed by the per-kit ~330m bbox pad and the 160.934m geoDistance join \u2014 not the 4.53M-row fleet book, not the 849k-row largest-org slice. Geo-dedup can only SHRINK the row count crossing the PHP boundary versus today, never grow it, so this change strictly reduces the recorder's memory profile. Worst-case new partition size is bounded by the largest exact-geo cluster that can fall inside one kit's bbox: measured at 20,396 rows fleet-wide, which ClickHouse ranks trivially. This is NOT a DEV-2342-class allocation risk; the material finding this envelope surfaced is a data-semantics one (questions.q4), not an allocational one.",
+    "oracle_status": "ok",
+    "unresolved": [
+      "Whether the 20,396-row single-geo cluster (org 165, ~north Texas) and the 6,482-row American Samoa point are legitimate shared addresses or geocoder-fallback/sentinel artifacts. Address geocoding and the book rebuild are chlocal-owned, so this is not resolvable from this repo. It is a correctness/product question (questions.q4), not a performance one \u2014 see the driver framing there for why the change is still strictly protective on volume.",
+      "AC4's post-change volume figure requires a manual production run and cannot be produced pre-merge (questions.q5)."
+    ]
+  },
+  "derivation_log": [
+    {
+      "query_shape": "SELECT count() FROM clarity.scout_open_addresses",
+      "param_classes": "fleet-wide open Direct+Staging book, all orgs",
+      "aggregate_result": "4,534,601 rows",
+      "why": "size the book both query classes bbox-prefilter against"
+    },
+    {
+      "query_shape": "SELECT org_id, count() AS n FROM clarity.scout_open_addresses GROUP BY org_id ORDER BY n DESC LIMIT 10",
+      "param_classes": "per-org count desc",
+      "aggregate_result": "largest org 849,394 rows; 2nd 515,723; 3rd 324,346",
+      "why": "PG-027 requires the LARGEST GROUP, not just a total \u2014 sizes the per-org ceiling before the per-kit bbox cut"
+    },
+    {
+      "query_shape": "SELECT count(DISTINCT (tupleElement(geo,1), tupleElement(geo,2))), count() FROM clarity.scout_open_addresses",
+      "param_classes": "fleet-wide",
+      "aggregate_result": "2,369,371 distinct geos among 4,534,601 rows (~48% of rows share a geo)",
+      "why": "quantifies how systemic the fan-out is \u2014 this is the number that justifies the ticket"
+    },
+    {
+      "query_shape": "SELECT tupleElement(geo,1), tupleElement(geo,2), count() AS n FROM clarity.scout_open_addresses GROUP BY 1,2 ORDER BY n DESC LIMIT 10",
+      "param_classes": "fleet-wide exact-geo clusters",
+      "aggregate_result": "largest 20,396 rows at one point (north TX); 2nd 6,482 at a point in American Samoa",
+      "why": "sizes the new ROW_NUMBER partition AND surfaces the mass-shared-coordinate risk in questions.q4"
+    },
+    {
+      "query_shape": "SELECT count() FROM zod.public_hotlist_address FINAL WHERE _peerdb_is_deleted = 0; + GROUP BY hotlist_id ORDER BY n DESC LIMIT 10",
+      "param_classes": "upstream CDC mirror, context only",
+      "aggregate_result": "320,069,575 total; largest hotlist_id group 296,459",
+      "why": "upstream context for growth; NOT the set the new window function iterates"
+    },
+    {
+      "query_shape": "SELECT geo, count() AS n FROM zod.public_address FINAL WHERE _peerdb_is_deleted = 0 GROUP BY geo ORDER BY n DESC LIMIT 10",
+      "param_classes": "upstream CDC mirror, all addresses regardless of hotlist status",
+      "aggregate_result": "197,786,365 total; largest exact-geo group 184,045; next four 90,081 / 75,272 / 65,606 / 54,714",
+      "why": "corroborates that mass-shared fallback coordinates exist upstream at even larger scale than in the filtered open book"
+    },
+    {
+      "query_shape": "haversine arithmetic over test-fixture coordinate literals (no DB query)",
+      "param_classes": "test fixture literals",
+      "aggregate_result": "multi-address fixture ~14.7-29.4 km apart pairwise; Direct/Staging fixture ~1.47 km apart",
+      "why": "verify the ticket's claim that a named test 'REVERSES' \u2014 it does not (questions.q1)"
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC1",
+        "kind": "agent",
+        "intent": "seed 3-5 open Direct addresses (distinct address_ids/hotlist_ids) at ONE exact (lng,lat) + a GPS fix within 160.934m; run scout:record-check-ins; assert exactly 1 persisted row"
+      },
+      {
+        "ac": "AC2",
+        "kind": "agent",
+        "intent": "co-located Direct + Staging where Staging holds the LOWER address_id -> Direct persists; co-located Directs where hotlist_id order would elect the wrong one -> lowest address_id persists"
+      },
+      {
+        "ac": "AC3",
+        "kind": "agent",
+        "intent": "the renamed distinct-geo fixture (~14.7km apart) still yields 3 rows"
+      },
+      {
+        "ac": "AC4",
+        "kind": "human",
+        "intent": "post-deploy manual scout:record-check-ins runs over representative 15-min windows; compare recorded/kits_processed against the 2.07 baseline (comment 38511) and report on the ticket"
+      },
+      {
+        "ac": "AC5",
+        "kind": "agent",
+        "intent": "run ScoutCheckInMatchQueryParityTest incl. the new cases"
+      },
+      {
+        "ac": "AC6",
+        "kind": "agent",
+        "intent": "shared Direct+Staging at one geo -> direct_bucket == 1 AND staging_bucket == 1, even with co-located duplicates added on each side"
+      },
+      {
+        "ac": "AC7",
+        "kind": "agent",
+        "intent": "confirm ::handle() call site intact; the existing ClickHouse-failure tests still surface a failure rather than an empty success"
+      },
+      {
+        "ac": "AC8",
+        "kind": "agent",
+        "intent": "diff review: no database/migrations/** file; routes/console.php schedule block still commented"
+      }
+    ],
+    "seed_scenario": "One org with an approved staging partner and one Scout-enabled kit/driver (kit_settings + clarity-scout permission + CLARITY_SCOUT feature). In clarity.scout_open_addresses seed: (a) 3 open Direct addresses with distinct address_ids/hotlist_ids at ONE identical (lng,lat); (b) 1 open Staging address at that SAME geo, given a LOWER address_id than the Directs so Direct-wins is isolated from address_id ordering; (c) 1 open Direct address at a geo >1km away. In clarity.sc_positions seed fixes within 160.934m of both geos inside one UTC hour. Expect exactly 2 persisted rows: one Direct winner for the shared geo, one for the distinct geo.",
+    "personas": [
+      "Scout driver / kit \u2014 the GPS source (backend-only flow, no UI surface)",
+      "org admin \u2014 eventual consumer of the still-unsurfaced check-in-counts tile"
+    ],
+    "pg_tables": [
+      "platform.scout_check_ins"
+    ],
+    "ch_tables": [
+      "clarity.scout_open_addresses",
+      "clarity.sc_positions",
+      "clarity.scans_hot",
+      "clarity.scans_cold"
+    ]
+  },
+  "confidence": 88,
+  "escalate": {
+    "recommend": false,
+    "reason": "Escalation already performed: 3 blind candidates + reconcile. The design is settled 4/4 on every structural point and the two remaining unknowns are human decisions, not gaps in analysis."
+  },
+  "gate_note": "All questions answered. q4 resolved by the operator-requested cluster investigation, which cleared exact-Point dedup to ship as specified. q5: AC4 is a post-merge follow-up, not a Done gate. q6: grain discontinuity noted in the matcher docblock + Build Record."
+}

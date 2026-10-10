@@ -1,0 +1,128 @@
+name: Kamal PR Preview Teardown
+
+# Auto-teardown when a PR closes (merged or not) or converts back to draft, plus a
+# manual workflow_dispatch path for orphaned previews (PR force-closed, runner
+# outage, etc.). Uses SCOPED removal (`kamal accessory remove` + `kamal app remove`)
+# only — never the top-level `kamal remove`, which would also tear down the SHARED
+# host-wide kamal-proxy + docker login on .13 (where pre-platform also runs). The
+# scoped commands touch only platform-pr-<N>.
+# PROTOTYPE: automatic teardown is disabled.
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to tear down"
+        required: true
+        type: string
+      remove_volume:
+        description: "Also remove the per-PR storage Docker volume"
+        required: false
+        default: true
+        type: boolean
+
+# Share the per-PR concurrency group with deploy. cancel-in-progress: false so a
+# teardown waits for any in-flight deploy to finish, then removes everything.
+concurrency:
+  group: kamal-pr-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  teardown:
+    # Auto path is gated on the kill-switch + same-repo. Manual dispatch always
+    # runs so orphans can be reaped even with previews disabled.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        vars.PREVIEW_ENABLED == 'true' &&
+        github.event.pull_request.head.repo.full_name == github.repository
+      )
+    name: Teardown PR-${{ github.event.pull_request.number || inputs.pr_number }} preview
+    environment: preview
+    runs-on: [self-hosted, kamal]
+    timeout-minutes: 20
+
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+      KAMAL_PREVIEW: "true"
+      KAMAL_SERVICE: platform-pr-${{ github.event.pull_request.number || inputs.pr_number }}
+      KAMAL_SERVER: ${{ vars.QA_KAMAL_SERVER }}
+      KAMAL_PROXY_HOST: pr-${{ github.event.pull_request.number || inputs.pr_number }}-platform.internal.insightlpr.io
+      KAMAL_PROXY_SSL: "false"
+      KAMAL_SSH_USER: ${{ vars.KAMAL_SSH_USER || 'ubuntu' }}
+      KAMAL_STORAGE_VOLUME: platform_pr_${{ github.event.pull_request.number || inputs.pr_number }}_storage
+
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-2' }}
+      AWS_DEFAULT_REGION: ${{ vars.AWS_REGION || 'us-east-2' }}
+      AWS_ECR_REPOSITORY: ${{ vars.PLATFORM_AWS_ECR_REPOSITORY || 'insight-lpr/platform' }}
+      # AWS_ACCOUNT_ID/region/repo are non-secret config the Kamal ERB needs to
+      # render the registry URL. No AWS credentials: teardown only runs scoped
+      # `kamal app/accessory remove`, which makes no AWS/ECR call and builds no image.
+
+    steps:
+      - name: Validate PR number input
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if ! [[ "${PR_NUMBER}" =~ ^[0-9]+$ ]]; then
+            echo "Invalid pr_number: ${PR_NUMBER}" >&2
+            exit 1
+          fi
+
+      - name: Checkout (base branch ok for teardown)
+        uses: actions/checkout@v4
+
+      - name: Kamal setup (Ruby, Kamal, SSH)
+        uses: ./.github/actions/kamal-setup
+        with:
+          kamal-server: ${{ env.KAMAL_SERVER }}
+          ssh-key: ${{ secrets.KAMAL_SSH_KEY }}
+          ssh-known-hosts: ${{ secrets.KAMAL_SSH_KNOWN_HOSTS }}
+          # No AWS or composer creds: teardown only runs scoped `kamal app/accessory
+          # remove`, which neither builds the image nor calls AWS/ECR. kamal-setup
+          # skips its AWS + composer steps when those inputs are empty.
+
+      - name: Remove preview Redis accessory + app (scoped)
+        # SCOPED removal only. The top-level `kamal remove` additionally invokes
+        # proxy:remove (the SHARED host-wide kamal-proxy that pre-platform + prod
+        # route through) and registry:remove (host-wide `docker logout`). These two
+        # commands operate strictly on the platform-pr-<N> service.
+        # `kamal accessory remove` takes -y (--confirmed); `kamal app remove` has no
+        # such flag in Kamal 2.x and runs non-interactively as-is.
+        run: |
+          kamal accessory remove redis -y || echo "redis accessory not present; continuing"
+          kamal app remove || echo "kamal app remove failed or nothing to remove; continuing"
+
+      - name: Remove preview storage volume
+        # `kamal remove` drops containers but not the named storage volume. The
+        # runner is colocated with the Kamal host, so its local Docker daemon
+        # holds the volume — no SSH-to-self needed. Skipped only if explicitly
+        # opted out via the manual dispatch input.
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.remove_volume }}
+        run: docker volume rm "${KAMAL_STORAGE_VOLUME}" 2>/dev/null || true
+
+      - name: Comment teardown on PR
+        if: github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: kamal-pr-preview
+          number: ${{ env.PR_NUMBER }}
+          message: |
+            ### 🧹 Preview torn down
+
+            `${{ env.KAMAL_SERVICE }}` and its per-PR Redis removed
+            (PR ${{ github.event.pull_request.merged && 'merged' || 'closed' }}).
+
+      - name: Teardown summary
+        if: always()
+        run: |
+          {
+            echo "## PR-${PR_NUMBER} preview teardown"
+            echo ""
+            echo "- Service: \`${KAMAL_SERVICE}\`"
+            echo "- Host:    \`${KAMAL_SERVER}\`"
+            echo "- Volume:  \`${KAMAL_STORAGE_VOLUME}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

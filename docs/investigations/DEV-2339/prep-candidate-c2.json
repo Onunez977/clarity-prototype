@@ -1,0 +1,258 @@
+{
+  "synthesis": {
+    "problem": "ScoutOpenOrderAddressesQuery exceeds ClickHouse's 30-second limit. Its address_links CTE is referenced by both INNER JOIN and IN, and ClickHouse inlines and executes ordinary CTEs per reference, duplicating the approximately 311M-row public_hotlist_address scan.",
+    "decision": "Removing IN is logically equivalent but not performance-safe by inspection. The IN predicate enables public_address.id primary-key pruning; the repository's ClickHouse 26.2 baseline does not provide join-driven primary-key pruning by default. Implement a two-phase lookup: resolve and direct-prefer address-link metadata once, then fetch public_address coordinates in bounded ID chunks and merge metadata in PHP.",
+    "outcome": "Eliminate duplicate link scans without replacing indexed address lookups with a full public_address scan. Do not raise timeouts."
+  },
+  "scope": {
+    "summary": "Refactor ScoutOpenOrderAddressesQuery into one metadata query plus chunked primary-key address lookups while preserving its return contract and 15-minute cache.",
+    "proposed_changes": [
+      {
+        "file": "app/Clickhouse/Queries/ScoutOpenOrderAddressesQuery.php",
+        "change": "First query open hotlists and public_hotlist_address once, grouped by address_id with direct-preferred lowest hotlist_id metadata. Then chunk those integer IDs, query public_address with explicit id IN (...) predicates, retain argMax coordinate versioning and geo guards, and merge coordinates with metadata.",
+        "reason": "Avoids both ordinary-CTE re-execution and an unpruned public_address join."
+      },
+      {
+        "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+        "change": "Add focused coverage for coordinate-version selection and chunk merging; retain existing direct/staging preference and end-to-end recorder assertions.",
+        "reason": "Pins the behavior most exposed by splitting metadata and coordinates."
+      }
+    ],
+    "target_files": [
+      "app/Clickhouse/Queries/ScoutOpenOrderAddressesQuery.php",
+      "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php"
+    ],
+    "out_of_scope": [
+      "DEV-2342 lock expiry, overlap, or schedule changes.",
+      "Global or per-query timeout increases.",
+      "Changing the 15-minute address cache TTL.",
+      "Changing check-in identity, radius, or downstream persistence.",
+      "Changing HotlistAddressGeohashQuery.",
+      "Changing ScoutCheckInRollupQuery without separate production evidence."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Address enumeration completes below the existing 30-second production limit for the largest affected org.",
+      "source": "ticket",
+      "decision": "implement"
+    },
+    {
+      "item": "public_hotlist_address is scanned once per uncached org enumeration.",
+      "source": "derived",
+      "decision": "implement"
+    },
+    {
+      "item": "public_address remains restricted through an id primary-key predicate rather than a full-table join read.",
+      "source": "derived",
+      "decision": "implement"
+    },
+    {
+      "item": "The output remains one row per address with direct preferred over staging, then lowest hotlist_id, and latest valid CDC coordinates.",
+      "source": "code contract",
+      "decision": "implement"
+    },
+    {
+      "item": "Open status, plate-length, org, approved-staging, deletion, malformed-geo, and zero-coordinate filters remain unchanged.",
+      "source": "code contract",
+      "decision": "implement"
+    },
+    {
+      "item": "No ClickHouse timeout setting is increased.",
+      "source": "request",
+      "decision": "implement"
+    }
+  ],
+  "questions": [
+    {
+      "q": "What ClickHouse version and join-runtime-filter settings are active in production?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-infra",
+      "impact": "A newer server with enable_join_runtime_filters_index_analysis enabled could make join-only pruning viable, but that is not established by repository configuration."
+    },
+    {
+      "q": "Which org and address-link cardinality produced the timeout?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-production-query-log",
+      "impact": "Required for representative EXPLAIN and elapsed/read-row validation."
+    }
+  ],
+  "blockers": [
+    "A one-line IN deletion cannot be accepted as a proven performance fix without production-version EXPLAIN and query-log metrics.",
+    "No blocker prevents the deterministic two-phase rewrite."
+  ],
+  "notes": [
+    "INNER JOIN and IN are semantically redundant for membership, but not physically redundant: the join carries is_staged/hotlist_id while IN exposes an id predicate to the MergeTree primary index.",
+    "Ordinary ClickHouse CTEs are inlined and re-executed for every reference. The current query therefore expands address_links twice.",
+    "ClickHouse 26.2 enables ordinary join runtime filters by default, but join-runtime-filter index analysis is a later, separately gated feature. Runtime filtering alone can reduce post-read rows without pruning public_address granules.",
+    "MATERIALIZED CTE is not a repository-baseline solution: it arrived after 26.2 and remains experimental/settings-gated.",
+    "A single-statement 'IN-first, then join metadata' rewrite still evaluates the expensive link derivation twice unless it relies on unavailable materialized-CTE behavior.",
+    "HotlistAddressGeohashQuery is safe because it needs membership only: one nested IN chain prunes public_address and no metadata join is required.",
+    "ScoutCheckInRollupQuery contains the same JOIN-plus-IN CTE shape. It should not receive a blind IN deletion; record it as a same-risk sibling and benchmark separately.",
+    "Tiny CI fixtures prove result semantics but cannot prove absence of a 100M-row full scan."
+  ],
+  "tests": [
+    {
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+      "what_it_pins": "Existing direct and approved-staging addresses still enumerate and produce check-ins."
+    },
+    {
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+      "what_it_pins": "Existing shared direct/staging address test remains one deterministic direct row with the expected hotlist_id."
+    },
+    {
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+      "what_it_pins": "New regression: duplicate public_address CDC versions select coordinates from the latest valid _peerdb_version."
+    },
+    {
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+      "what_it_pins": "New regression: an injectable small chunk size merges all coordinate chunks without loss or duplication."
+    },
+    {
+      "kind": "performance",
+      "what_it_pins": "EXPLAIN indexes = 1 shows a PrimaryKey id condition and sharply reduced public_address granules for every coordinate chunk."
+    },
+    {
+      "kind": "integrity_risk",
+      "what_it_pins": "Do not treat a passing functional suite or empty-table EXPLAIN as proof of production performance."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Clickhouse/Queries/ScoutOpenOrderAddressesQuery.php:55-97",
+      "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php:102-137",
+      "app/Clickhouse/Queries/HotlistAddressGeohashQuery.php:126-163",
+      "app/Clickhouse/Queries/ClickhouseQuery.php:11-37",
+      "app/Console/Commands/ScoutRecordCheckIns.php:68-114,173-205",
+      "database/schema/clickhouse-schema.sql:25,43",
+      "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php:130-294",
+      ".github/workflows/lint_check_and_test.yml:51-65"
+    ],
+    "code_flow": "scout:record-check-ins groups drivers by org -> ScoutOpenOrderAddressesQuery::query(cache=true) -> timeout is swallowed to [] in production -> every kit in that org sees no addresses -> no check-ins are persisted.",
+    "schema_facts": [
+      "zod.public_address is ReplacingMergeTree, PRIMARY KEY/ORDER BY id, index granularity 8192.",
+      "zod.public_hotlist_address is ReplacingMergeTree, PRIMARY KEY/ORDER BY id, so filtering or joining by hotlist_id cannot prune its scan.",
+      "CI uses ClickHouse 26.2."
+    ],
+    "external_semantics": [
+      "ClickHouse ordinary CTE references are independently expanded and re-executed.",
+      "EXPLAIN indexes = 1 reports PrimaryKey conditions and selected/before granule counts.",
+      "Join-driven primary-key granule pruning requires enable_join_runtime_filters_index_analysis and cannot be assumed from ordinary join runtime filtering."
+    ]
+  },
+  "exhaustiveness": {
+    "grep_patterns_used": [
+      "ScoutOpenOrderAddressesQuery|openOrderAddressesForOrg",
+      "address_links",
+      "INNER JOIN address_links",
+      "id IN (SELECT address_id FROM address_links)",
+      "public_address|public_hotlist_address",
+      "HotlistAddressGeohashQuery|ScoutCheckInRollupQuery",
+      "EXPLAIN|TIMEOUT_EXCEEDED|max_execution_time|join_algorithm"
+    ],
+    "sites": [
+      {
+        "site": "app/Clickhouse/Queries/ScoutOpenOrderAddressesQuery.php",
+        "status": "affected",
+        "reason": "References expensive address_links twice and is the reported timeout."
+      },
+      {
+        "site": "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php",
+        "status": "same-risk-sibling",
+        "reason": "Uses the same JOIN-plus-IN CTE idiom; leave unchanged for DEV-2339 but do not characterize its IN as redundant."
+      },
+      {
+        "site": "app/Clickhouse/Queries/HotlistAddressGeohashQuery.php",
+        "status": "safe-precedent",
+        "reason": "Uses one membership-only IN chain and preserves public_address primary-key pruning without needing metadata."
+      },
+      {
+        "site": "app/Console/Commands/ScoutRecordCheckIns.php",
+        "status": "caller-safe",
+        "reason": "Already caches per org and consumes the existing output contract; no caller change is required."
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [
+      "platform.scout_check_ins (downstream writes resume; schema unchanged)"
+    ],
+    "ch_tables": [
+      "clarity.hotlist",
+      "zod.public_hotlist_address",
+      "zod.public_address"
+    ],
+    "mv_or_cdc_implications": "Read-only ClickHouse change. Preserve _peerdb_is_deleted filtering and latest-valid-coordinate selection by _peerdb_version. No schema, materialized-view, or CDC changes.",
+    "indexes_relied_on": [
+      "zod.public_address PRIMARY KEY id",
+      "No useful hotlist_id index on zod.public_hotlist_address"
+    ]
+  },
+  "derivation_log": [
+    {
+      "query_shape": "Current address_links CTE referenced by JOIN and IN",
+      "aggregate_result": "Two independent expansions of open_hotlists -> public_hotlist_address were visible in local EXPLAIN.",
+      "why": "Explains why a query previously measured at 2.5-12 seconds can cross 30 seconds after duplication and production variance."
+    },
+    {
+      "query_shape": "Join-only candidate",
+      "aggregate_result": "Removes one address_links expansion but also removes the explicit public_address.id primary-key predicate.",
+      "why": "It may reduce total rows read, but it replaces deterministic pruning with version/settings-dependent join behavior."
+    },
+    {
+      "query_shape": "Two-phase metadata plus chunked coordinate lookup",
+      "aggregate_result": "One unavoidable public_hotlist_address scan followed by bounded public_address ID lookups.",
+      "why": "Deterministically removes the duplicate expensive scan while retaining the proven Geohash-style pruning mechanism."
+    },
+    {
+      "query_shape": "Local ClickHouse 25.8 empty-schema EXPLAIN",
+      "aggregate_result": "Current plan contained both a main address_links join subtree and a CreatingSet subtree; join-only contained one subtree.",
+      "why": "Confirms CTE expansion structurally, but empty data and an older engine make it non-authoritative for runtime performance."
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "Semantic parity",
+        "kind": "agent",
+        "intent": "Run the focused ScoutRecordCheckInsCommandTest against real ClickHouse, including direct/staging preference, latest coordinate version, and forced multi-chunk merging."
+      },
+      {
+        "ac": "Index pruning",
+        "kind": "human",
+        "intent": "Run EXPLAIN indexes = 1 for old, join-only, and two-phase coordinate SQL on the production engine. Confirm public_address PrimaryKey id conditions and compare selected/before granules."
+      },
+      {
+        "ac": "Runtime budget",
+        "kind": "human",
+        "intent": "Benchmark the largest affected org at least three times per shape and compare total elapsed, read_rows, read_bytes, and peak_memory_usage from system.query_log. Sum every chunk for the two-phase candidate."
+      },
+      {
+        "ac": "No hidden cache advantage",
+        "kind": "human",
+        "intent": "Separate cold and warm runs and disable query-condition/skip-index caches where supported when collecting EXPLAIN evidence."
+      }
+    ],
+    "seed_scenario": "One org with direct and approved-staging open hotlists; a shared address linked to both; multiple address CDC versions; malformed, deleted, zero-coordinate, closed, short-plate, and unauthorized-staging decoys; enough valid addresses to force multiple chunks.",
+    "personas": [
+      "Scout operations relying on persisted automated check-ins",
+      "On-call engineer validating ClickHouse query cost"
+    ],
+    "ch_tables": [
+      "clarity.hotlist",
+      "zod.public_hotlist_address",
+      "zod.public_address"
+    ]
+  },
+  "confidence": 86,
+  "escalate": {
+    "recommend": true,
+    "reasons": [
+      "The ticket's one-line proposal conflicts with the repository's explicit, previously validated primary-key-pruning guidance.",
+      "Production engine version/settings and affected-org query metrics are unavailable.",
+      "Only production-scale EXPLAIN and query-log measurements can prove whether join-only execution remains below 30 seconds."
+    ]
+  }
+}

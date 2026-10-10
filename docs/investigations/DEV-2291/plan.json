@@ -1,0 +1,26 @@
+{
+  "key": "DEV-2291",
+  "sizing": "1 subtask, 4 files (2 events + 2 test files), single concern — no split needed (well under the >6-file / multi-concern gate).",
+  "excluded_sites": [],
+  "excluded_sites_note": "Every buggy site from the prep exhaustiveness sweep (ManageZones save/delete, ZoneReassignAction apply/table/bulk, ZoneQuickEditAction, ZoneResource bulk-delete/delete/restore) is covered TRANSITIVELY by the event-level ShouldRescue change — no site is left unaddressed, so excluded_sites is empty.",
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "ShouldRescue on the two Scout zone broadcast events",
+      "approach": "Add `implements Illuminate\\Contracts\\Broadcasting\\ShouldRescue` to ZoneAssignmentsChanged and ZoneUpdated, keeping ShouldBroadcastNow. Laravel's BroadcastManager::queue() then wraps each synchronous ShouldBroadcastNow dispatch in rescue() (report()+swallow) because the events now implement ShouldRescue — so a Pusher/Reverb delivery failure is reported to the error handler and never propagates. Effect: ManageZones::save()'s DB transaction no longer rolls back on a broadcast failure (the reported bug); the 7 non-transactional zone actions no longer show a false error toast; and because rescue() is per-dispatch, the bulk reassign/delete loops complete. Silent + logged (no admin-facing warning), per Dalton's gate decision. TDD: (1) write a failing test that forces a THROWING broadcaster (not Event::fake) during an assignment save and asserts the zone + zone_user row persist and save() surfaces no exception; confirm red before the fix; (2) add the ShouldRescue markers → green; (3) add a cheap regression guard asserting both events implement ShouldRescue; (4) confirm the existing test_save_rolls_back_and_does_not_broadcast_when_geometry_rebuild_fails still passes (proves genuine in-transaction data errors STILL roll back — the fix must isolate only the broadcast dispatch).",
+      "target_files": [
+        "app/Events/Scout/ZoneAssignmentsChanged.php",
+        "app/Events/Scout/ZoneUpdated.php",
+        "tests/Filament/Pages/ManageZonesTest.php",
+        "tests/Feature/Events/ZoneAssignmentsChangedTest.php"
+      ],
+      "intended_diffs": "ZoneAssignmentsChanged.php: `use Illuminate\\Contracts\\Broadcasting\\ShouldRescue;` + `class ZoneAssignmentsChanged implements ShouldBroadcastNow, ShouldRescue`. ZoneUpdated.php: same two-line change. ManageZonesTest.php: new test forcing a broadcaster that throws (e.g. bind a fake Broadcaster/BroadcastManager via the container, or swap config('broadcasting.default') to a connection whose broadcaster throws) while a driver is assigned, asserting the zone + zone_user pivot persist and no exception escapes save(); assert the failure is report()'d (Exceptions::fake()->assertReported or a log spy) to prove it's observable, not silent-to-ops. ZoneAssignmentsChangedTest.php (or ZoneUpdatedTest.php): assert `$this->assertInstanceOf(ShouldRescue::class, new ZoneAssignmentsChanged(...))` and same for ZoneUpdated — a marker regression guard.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "Zone",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ]
+}

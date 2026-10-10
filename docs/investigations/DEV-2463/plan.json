@@ -1,0 +1,104 @@
+{
+  "key": "DEV-2463",
+  "authored_by": "driver (Opus) inline, not a dispatched sub-agent",
+  "authored_note": "Phase 3 normally dispatches a TICKET_PLAN_ARBITER_MODEL=opus sub-agent whose only inputs are prep-context.json + the knowledge cards. Authored on the driver instead, at the same model and effort, because the driver ran this ticket's own production measurements and holds the reconciled prep in working context -- a dispatch would re-read a 50KB prep-context to reach the same judgement. Recorded so the routing metrics are not misread as a dispatched plan.",
+  "execution": "sequential-in-repo",
+  "execution_note": "DELIBERATE DEVIATION from the worktree fan-out path, flagged rather than taken silently. The DAG is strictly serial (t2 consumes t1's query API), so there is no parallelism to win, and 2 worktree bootstraps (vendor copy + migrate:fresh each) would be pure cost. Both nodes run sequentially on the ticket branch in REPO_PATH against the standing Phase-3.5 env, exactly as the single-node fast path does. DIFF_BASE is captured before t1.",
+  "driver_presteps": [
+    {
+      "id": "t0",
+      "title": "Cherry-pick the two shared-infra fixes from DEV-2464 cc34c05c",
+      "why": "Operator-approved at question-gate q8. Both are PREREQUISITES: without the schema line CI cannot create the table t1's query reads, so t1's feature test cannot run in CI at all.",
+      "files": ["database/schema/clickhouse-schema.sql", "tests/Concerns/RequiresClickhouse.php"],
+      "method": "Carry DEV-2464's EXACT diff (git show cc34c05c / cherry-pick the relevant hunks). Do NOT re-author -- two sessions writing the same CREATE TABLE line differently is the failure this avoids.",
+      "blast_radius": ["shared CI ClickHouse schema fixture (affects every CH test in CI)", "shared test truncation list (used by every CH-backed test class)"],
+      "human_approval": "GRANTED by the operator at q8 on 2026-09-08"
+    }
+  ],
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "UniqueLprCaseClaimsQuery -- the single-pass ClickHouse claims funnel",
+      "approach": "New bespoke query class. Port claimsCte() + deduped from backyard RepoReport.php (origin/deploy), using the ALREADY PRODUCTION-VALIDATED SQL in docs/investigations/DEV-2463/measure-claims-card.sql verbatim rather than re-deriving it. Hard requirements, each measured or read from source: (1) SINGLE PASS -- count()/countIf(success)/uniqExactIf((forwarder,agent,vin), success AND vin != '') from ONE scan; three CTE references cost 3x the read_rows (119.8M vs 39.9M, measured). (2) Dedup on the FULL 3-column key, not the docblock's stale 2-column prose. (3) event_type from BillingEventType::CASE_CLAIM->value (already vendored in black-adam), never a string literal; ls-claim excluded. (4) insightlpr excluded by an EXPLICIT SQL org-name predicate -- LEFT JOIN zod.public_orgs FINAL on both axes, lower(replaceRegexpAll(name,'[^a-zA-Z0-9]','')) then a position() needle. It is a no-op against today's data (only org 1 has ever been a case-claim forwarder, 0 successful), which is exactly why it must be explicit and tested. titlemax NEVER filtered. (5) FINAL + _peerdb_is_deleted=0 on api_keys and orgs (small); _peerdb_is_deleted=0 WITHOUT FINAL on billing_events (raw==FINAL, and FINAL costs real time for nothing -- but the filter is still correctness-required because that table's engine carries no _peerdb_is_deleted merge argument). (6) Explicit 'UTC' in every date function. (7) Bucketed by toStartOfMonth over 13 months in the SAME query -- measured FREE (read_rows byte-identical across 1/3/13-month spans). (8) Runs on the clarity_clickhouse connection with fully-qualified zod.public_* names, for its max_bytes_before_external_group_by = 10 GB. (9) Does NOT extend the ClickhouseQuery base class -- its query() swallows Throwable to [], and a genuine 0 is a known-normal reading on this card (12 of 29 entitled orgs on the Today filter), so a failure MUST be distinguishable. Own try/catch + report().",
+      "target_files": [
+        "app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php",
+        "tests/Feature/Clickhouse/UniqueLprCaseClaimsQueryTest.php"
+      ],
+      "intended_diffs": "New query class exposing two entry points: a 13-month bucketed series for the sparkline and a single-window scalar for today/last_7d, both one round trip. New feature test using RequiresClickhouse, seeding zod.public_billing_events + zod.public_api_keys + zod.public_orgs.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "UniqueLprCaseClaimsQueryTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex",
+      "tdd": "Write the feature test FIRST and confirm red->green. It pins the RULES, not the production number (15,128 is not reproducible in CI): the 3-column dedup key -- specifically that one agent claiming the same VIN through TWO forwarders counts as TWO groups, the case the stale docblock prose under-counts; insightlpr excluded even in a success=true/vin-set fixture production cannot currently produce; titlemax NOT excluded; ls-claim excluded; event_type not type; UTC calendar-month inclusive BETWEEN on integer ts; the either-side org axis; a NULL agent_org_id counting on the forwarder side only without double-counting; and that a ClickHouse failure raises rather than returning 0."
+    },
+    {
+      "id": "t2",
+      "title": "UniqueLprCaseClaims card -- extend DashboardWidget, override getMonthlyData, register at slot 2",
+      "approach": "OPERATOR DECISION at q6: EXTEND DashboardWidget (this overrode the driver's bypass recommendation, so the ticket's literal card-contract instruction applies as written). Three things follow. (a) Add an explicit 'unique-lpr-case-claims' arm to getStatColor() -- CONFIRMED to be the sole definition at DashboardWidget:299; the grep backstop's claim that it also lives at RendersDashboardStat:165 was WRONG (that line is lockedStat). default => 'gray' fails silently, so the arm is required. (b) OVERRIDE getMonthlyData(bool $formatted = true): array so it returns the same 13-element oldest->newest array from ONE Cache::flexible([3600,86400]) call on t1's grouped query, instead of the base class's 13 separate cache()->remember + getModelQueryForDates() calls. Preserve the $this->monthlyDataMemo contract and the formatMonthlyData() hook so getCardTotal(), chartSeries() and getDescription() keep working untouched. (c) getCardTotal() routes 'today'/'last_7d' through currentPeriodTotal(), a DIFFERENT path from getMonthlyData -- that path needs its own single-window one-query implementation, or the one-query AC is only half met. Register 'unique-lpr-case-claims' => UniqueLprCaseClaims::class at cards() array index 2 (after 'recovery-counts', before 'staging-live-hit-leader') -- mockup-relative, NOT appended. Zero state: show 0, no special treatment (operator decision q7).",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/UniqueLprCaseClaims.php",
+        "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+        "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php",
+        "tests/Filament/Widgets/Dashboard/UniqueLprCaseClaimsTest.php",
+        "tests/Filament/Pages/DashboardCardExpansionTest.php",
+        "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php",
+        "tests/e2e/helpers/company-metrics.ts",
+        "tests/e2e/unique-lpr-case-claims.spec.ts"
+      ],
+      "intended_diffs": "New card widget extending DashboardWidget with an overridden getMonthlyData() and a single-window path. One new match arm in getStatColor(). One array insert at index 2 in cards() plus the mockup docblock un-bracketed. New widget test + new e2e spec. Registry edits: the layout-order assertSame array and the hardcoded card count 9->10 in DashboardCardExpansionTest; the $expectedGated allowlist plus its assertCount 9->10 in DashboardCardVisibilityTest; the CARD_KEY/HEADING pair in the e2e helper.",
+      "depends_on": ["t1"],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex",
+      "tdd": "Widget test first, red->green. Pins getCardKey(); the canViewCardData() gating matrix (guest short-circuit / BASIC / PRO_LITE / CLARITY_PRO / CLARITY_PRO_PLUS / admin_impersonator); that lockedStat() renders the placeholder and executes NO query; the explicit non-gray colour from getStatColor(); that a ClickHouse failure does not render as 0; and -- the load-bearing one -- that EXACTLY ONE query runs per resolved window for all four filter states, asserted through a protected seam (DB::listen never fires for the ClickHouse driver, so a listener-based assertion silently passes). test_filter is null: run the FULL suite after this node, because it edits three shared test files and the shared DashboardWidget concern."
+    }
+  ],
+  "excluded_sites": [
+    {"site": "app/Clickhouse/Queries/Client/BatchMonthlySparklineData.php", "reason": "The okf 'house pattern' DEV-2464 cited for sparklines. Grep backstop confirmed it is CLIENT-panel only and no admin dashboard widget imports it, so it is a precedent to learn the SHAPE from, not a class to call. Untouched."},
+    {"site": "app/Enums/FeatureEnum.php / ProTierEnum.php / PennantServiceProvider.php", "reason": "COMPANY_METRICS already exists at both target tiers and is already the gate DEV-2461 ships. Adding a case would also break assertCount(18) in FeatureEnumTest. Jira comment 39129's instruction to add one is stale relative to shipped code. Reused unchanged."},
+    {"site": "app/Filament/Widgets/Client/ClientTable.php", "reason": "Carries a known-unfixed unclamped-page defect (knowledge card clarity/filament-tables). This ticket touches no Filament table, only a stats/chart card. Explicitly ruled out rather than silently skipped."},
+    {"site": "tests/Filament/Widgets/Dashboard/MissedOpportunitiesTest.php and the other sibling card suites", "reason": "They read cards()/expandableCards() DYNAMICALLY, so an index-2 insert does not break them. Verified by the grep backstop's per-site sweep. No edit needed -- but the full suite runs after t2 to confirm."},
+    {"site": "tests/Filament/Pages/DashboardCardExpansionTest.php::test_all_four_hit_cards_are_contiguous", "reason": "Measures array adjacency via array_search rather than hardcoded indices, so an insert at index 2 leaves the four hit cards contiguous at their new positions. Must be VERIFIED green after the insert, not assumed -- the ticket calls it out by name."},
+    {"site": "okf/ pages for CompanyMetricsOverview, DashboardWidget, billing_events, api_keys, RepoReport", "reason": "All three prep candidates grep-confirmed these pages do not exist -- a real wiki gap for the whole Company Metrics epic. CLAUDE.md forbids writing to okf/ while work is in flight; QUEUED for after merge/QA."}
+  ],
+  "open_risks_carried_into_implementation": [
+    {
+      "risk": "TIMEZONE CONFLICT, found while planning -- not in prep, not in the ticket. DashboardWidget::getMonthlyData() builds its month boundaries from `auth()->user()->timezone ?? 'UTC'` (line 218), but this metric's port rule 2 requires a UTC calendar month to reproduce Brek's figures. So the overridden getMonthlyData() MUST bucket by UTC, which means this card's monthly buckets are defined differently from every other card's on the same dashboard (user-tz).",
+      "resolution": "Bucket by UTC -- the AC that the card reproduce 15,128/14,288/11,975 is explicit and the reproduction is UTC-anchored. Document the divergence in the class docblock and the Build Record. Do NOT quietly inherit the user-tz boundary: for a user in America/Chicago that shifts the month by 5-6 hours and silently breaks the cross-check.",
+      "severity": "must-get-right"
+    },
+    {
+      "risk": "Epoch bounds must be derived from Carbon's UTC-anchored ->timestamp, never hand-computed. The driver's own first measurement hand-computed them, landed silently 2 days off, and returned 14,313/13,492/11,433 -- close enough to look plausible.",
+      "resolution": "Derive from Carbon; assert the boundary in the feature test.",
+      "severity": "must-get-right"
+    },
+    {
+      "risk": "Cache::flexible has ZERO prior uses in this repo (grep backstop). This card introduces the pattern to Clarity.",
+      "resolution": "It is a Laravel 12 API and the ticket mandates it by name. Note it in the PR body so review sees it as intentional.",
+      "severity": "note"
+    },
+    {
+      "risk": "Heading collision: RecoveryCounts renders 'Total Repossessions' at index 1, immediately before this card at index 2.",
+      "resolution": "Give this card clearly distinct copy so two adjacent similarly-themed cards are not confused.",
+      "severity": "note"
+    },
+    {
+      "risk": "CompanyMetricsOverview's docblock claims the four hit cards re-align to one row at 12 cards. This insert makes it the 10th.",
+      "resolution": "The docblock instructs MEASURING rather than reasoning. Measure at the QA stage and correct the docblock if the claim is wrong.",
+      "severity": "note"
+    },
+    {
+      "risk": "Contention tail: an identical query measured a 0.31s median in a quiet window and a 3.6s median / 9.3s max in a busy one.",
+      "resolution": "Already mitigated by the mandated Cache::flexible([3600,86400]). Size expectations against the 9.3s maximum, not the 0.31s median.",
+      "severity": "note"
+    }
+  ],
+  "sizing_gate": {
+    "verdict": "pass -- no split recommended",
+    "reasoning": "12 files, but the shape is one coherent card: 2 new app classes, 1 new match arm, 1 array insert, and 8 test/registry files that every sibling card on this dashboard also had to touch. The two infra files are a pre-approved carry of an existing validated diff, not new design. This is the same footprint DEV-2461 and DEV-2462 shipped."
+  }
+}

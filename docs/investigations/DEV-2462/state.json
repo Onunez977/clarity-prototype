@@ -1,0 +1,457 @@
+{
+  "key": "DEV-2462",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "base-resolve.sh returned 5 candidates, all otto-family (otto, stack-otto-hits, stack-otto-hotlist, stack-otto-scout, stack-otto-kb) and unrelated to Company Metrics. The epic branch origin/company-metrics is 0 ahead / 1 behind main (fully merged via PR #384 = base commit d46b5a6f), and the Company Metrics foundation (PR #383) is inside that merge -- verified on HEAD: app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php exists and the lockedStat() seam is present in CompanyMetricsOverview.php + Concerns/DashboardMetricCard.php + Concerns/RendersDashboardStat.php. So main already carries the dependency; no stacking needed.",
+  "branch": "claude/DEV-2462",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "prep-candidate:1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 872
+    },
+    {
+      "slot": "prep-candidate:2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 872
+    },
+    {
+      "slot": "prep-candidate:3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 872
+    },
+    {
+      "slot": "reconcile",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 0
+    },
+    {
+      "slot": "plan-arbiter",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "plan",
+      "dur_s": 0
+    },
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 678
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 23
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false,
+    "eli5": true
+  },
+  "knowledge_cards_loaded": [
+    "clarity/testing.md",
+    "clickhouse/core.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "confidence 62 < 80",
+    "escalate.recommend=true from the fast pass",
+    "2 answered:false questions (one material: the expanded-detail wiring)"
+  ],
+  "best_of_n": true,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [
+    {
+      "file": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php",
+      "symbol": "CompanyMetricsOverview::cards",
+      "referenced_at": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php:52,144,346",
+      "verdict": "REAL MISS relative to the ticket text - see driver-verified.json V3"
+    }
+  ],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [
+      "clarity.missed_opportunities"
+    ],
+    "approach": "Eloquent model scopes, per-render widget read on a 624k-row table; ticket states no perf gate needed and the driver's own probe corroborates",
+    "measurement": "see derivation-log-driver.json",
+    "verdict": "pending",
+    "measured_at": "2026-09-03",
+    "note": "NOT a >1B-row surface (624,070 rows), so the WS6 CH-at-scale gate does not apply. required=false."
+  },
+  "diff_base": "e919eecd3d90aa645659e36a5334f6e6951a5829",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "(none - single-node fast path, worked on the run branch)",
+      "branch": "claude/DEV-2462",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 2,
+  "pr": {
+    "number": 386,
+    "url": "https://github.com/insight-lpr/platform/pull/386",
+    "draft": false
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": "already-in-progress (no transition posted). NOTE: every transition in this workflow is isGlobal:true, so 'In Progress' appears in the available list regardless of current status -- the flow's idempotency assumption ('its presence means the ticket isn't there yet') does NOT hold here. The ticket was already In Progress at intake, so posting it would have been a redundant write.",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "Transitioned to In Code Review via the Atlassian MCP at 2026-09-04. NOT gh-action: undrafting PR #386 did not move the ticket (verified - the status was still In Progress after the undraft), so the pipeline's designed MCP fallback did it. This is the fallback working, not a manual intervention.",
+  "assumed": [],
+  "comment_ids": {
+    "status": "39094",
+    "build_record": "39121"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "resource_envelope": {
+      "path": ".context/qa-resource-envelope.json",
+      "verdict": "PASS",
+      "peak_rss_bytes": null,
+      "wall_clock_seconds": null,
+      "plausible_concurrency": "dashboard page-load fan-out, not a job spawn rate",
+      "projected_marginal_gb": null,
+      "headroom_gb": null,
+      "host_ram_gb": 68,
+      "extrapolation_factor": null,
+      "basis": "measured (read-only production probe) + structural analysis",
+      "note": "No command or job exists in this change, so the resource lane had nothing to execute -- recorded as N/A BY SHAPE rather than inventing a cadence to produce a tidy verdict. Production cardinality driver-measured: 624,070 live rows, largest hotlist_org_id group 413,790 (66.3%), 328 orgs. Each query terminates in ->value() so PHP holds 13 integers; rules 3 and 4 clean by construction. All three review lanes graded it independently and found no defect."
+    },
+    "provisioning": {
+      "provision_mode": "full",
+      "plans_written": true,
+      "provisioned_phase": "3.5 (early, /ticket)",
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "n/a",
+      "ch_container": "n/a (deferred; an unrelated clarity-qa-clickhouse from an earlier run is up on :18123 and was left untouched)",
+      "frontend_build": "n/a",
+      "postgres_db": "zod_claude_dev_2462_55fb8c (dev) + zod_testing_claude_dev_2462_55fb8c (testing)",
+      "ch_strategy": "docker (lazy-ensured at Phase 4). Literal databases clarity (33 tables) + zod (46) already existed on the running clarity-qa-clickhouse container at 127.0.0.1:18123 with the production schema, INCLUDING clarity.missed_opportunities as ReplacingMergeTree with sort key (hotlist_org_id, toYYYYMM(scanned_at), scanned_at, id) -- which independently confirms driver-verified V1/S7. 0 rows locally. Both .env and .env.testing now point there with the LITERAL names, and .env.testing's CLICKHOUSE_DRIVER was flipped pgsql -> clickhouse (without that, RequiresClickhouse skips every CH test while reporting green).",
+      "herd_site": "clarity-claude_dev_2462_55fb8c",
+      "postgis_patch": "applied (simplified_geom was MISSING) -> triggered a baseline db:seed --force, which succeeded",
+      "probe": "/__qa/login = 200, / = 200",
+      "caveats": [
+        "ClarityScoutClickhouseSeeder skipped - CLICKHOUSE_DRIVER is not pgsql. Expected while CH is deferred.",
+        "This change TOUCHES ClickHouse (clarity.missed_opportunities), so Phase 4 MUST run qa-prep with QA_PROVISION_CH=yes, using the LITERAL database names clarity and zod (a per-worktree CH name truncates the wrong database).",
+        ".env.testing still has CLICKHOUSE_DRIVER=pgsql, which makes RequiresClickhouse SKIP every ClickHouse test while reporting all-green. Must become clickhouse in Phase 4 or the grain-fix test proves nothing.",
+        "Phase 4 flipped .env.testing CLICKHOUSE_DRIVER pgsql -> clickhouse and pointed both env files at the local container using LITERAL clarity/zod. Those literal databases are SHARED across worktrees and RequiresClickhouse TRUNCATEs them, so (a) teardown must never DROP them, and (b) a test run wipes any QA seed -- re-apply the CH seed before human QA."
+      ]
+    },
+    "provisioned_early": true,
+    "human_guide": ".context/qa-human-guide.html",
+    "human_qa": {
+      "status": "complete",
+      "by": "driver-run verification lanes on the operator's instruction",
+      "at": "2026-09-04",
+      "lane1_pro": "6/6 green - position, 3, 3/3/3/1, red sparkline, expanded agrees, clean console",
+      "lane2_nonpro_upsell": "5/5 green via the OTP form (bypass never used) - em dash, padlock + 'Upgrade to Pro', link lands on /app/subscription naming the feature, no sparkline, does not expand",
+      "screenshots": ".context/qa-screenshots/ (V1, V5, V7-V8, V8-annotate, V9, V11 added to the original A1/A7/A10/A11)",
+      "note": "The operator's own pass was inconclusive through no fault of theirs: at that moment .env had been re-keyed to a different near-empty Postgres DB, a different herd site, and nonexistent ClickHouse databases, so every card read 0. All three repaired before these lanes ran."
+    },
+    "receipt": ".context/qa-complete.md",
+    "teardown": {
+      "mode": "qa-complete QA_TEARDOWN_ONLY=1",
+      "at": "2026-09-04",
+      "postgres_dropped": [
+        "zod_claude_dev_2462_55fb8c",
+        "zod_testing_claude_dev_2462_55fb8c"
+      ],
+      "herd_unlinked": "clarity-claude_dev_2462_55fb8c",
+      "env_keys_restored": 11,
+      "clickhouse": "NO ACTION - ledger names the bare shared clarity/zod, which fail the clarity_/zod_ per-worktree shape guard; down.sh not invoked, container clarity-qa-clickhouse left running for the sibling Company Metrics worktrees",
+      "leftovers_not_in_ledger": "zod_claude_dev_2462, zod_testing_claude_dev_2462, herd link clarity-claude_dev_2462 - created by a later bootstrap re-run, outside the ledger mandate, left in place and coherent with the surviving .env; reclaim commands are in the receipt",
+      "ledger_deleted": true
+    }
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "PHPRC=<ini with memory_limit=2G> php vendor/bin/phpunit --filter 'MissedOpportunitiesTest|MissedOpportunityClientGraphTest'",
+        "passed": 16,
+        "failed": 0,
+        "detail": "OK (16 tests, 26 assertions). These RAN, they did not skip - both classes use RequiresClickhouse, and .env.testing's CLICKHOUSE_DRIVER is now clickhouse against the literal clarity/zod databases. Had it stayed pgsql, all 16 would have silently skipped while reporting green."
+      },
+      {
+        "cmd": "php artisan test  (NOT USED for the full suite - recorded as a trap)",
+        "passed": 0,
+        "failed": 0,
+        "detail": "Deliberately avoided. At the default 128M limit it OOMs during test DISCOVERY and STILL EXITS 0, reporting a clean pass on a suite that never ran. -d does not reach the phpunit child; PHPRC does. The worker hit this on a FILTERED run too, which contradicts the knowledge card's claim that filtered runs are safe at the default limit."
+      },
+      {
+        "cmd": "PHPRC=<ini memory_limit=2G> php vendor/bin/phpunit --filter 'DashboardCard|MissedOpportunit'  (post-upsell)",
+        "passed": 110,
+        "failed": 0,
+        "detail": "110 tests, 499 assertions, 0 failures, 4 skipped (pre-existing MissedOpportunityResourceTest TODOs). Run AFTER repairing .env.testing back to the literal clarity/zod -- an earlier run showed 43 UNKNOWN_DATABASE errors purely because both env files had been re-keyed to per-worktree ClickHouse databases that do not exist.",
+        "test_count_question": "RESOLVED. The scheduled task's '106 pass' was different accounting, not a lost test: DashboardCardVisibilityTest went from 12 to 15 test methods (three ADDED - test_a_locked_card_carries_no_upsell_unless_it_opts_in, test_the_locked_card_offers_an_upsell_and_a_subscription_link_without_computing_anything, test_the_upsell_does_not_reach_the_cards_value). Nothing was removed from any of the four files; the other three are unchanged at 13/6/16."
+      },
+      {
+        "cmd": "PHPRC=<ini memory_limit=2G> php vendor/bin/phpunit   (FINAL FULL SUITE, post-upsell)",
+        "passed": 1737,
+        "failed": 8,
+        "detail": "Tests: 1750, Assertions: 7061 - 3 errors, 5 failures, 4 skipped, 1 incomplete, 1 risky.",
+        "failures_verdict": "NONE attributable to DEV-2462. Classified, not assumed: (a) 3 KNOWN PRE-EXISTING - CloseInactiveShiftsCommandTest x2 (timezone) and EnsureOpenShiftTest, all verified failing at base commit e919eecd earlier in this run. (b) 3 ERRORS were all ClickHouse error 241 MEMORY_LIMIT_EXCEEDED raised from RequiresClickhouse's TRUNCATE setup - the documented container-degradation mode; after docker restart clarity-qa-clickhouse (3.4 GiB -> 2.1 GiB) those same classes pass in isolation (91 tests / 496 assertions). (c) 2 HasStatDrillDownTest failures ('Client A' vs 'Client B'; 105 vs expected 6) - this class fails at the BASE COMMIT too with 2 errors + 2 failures, so it is pre-existing and CH-data-order dependent, not caused by this change. The ticket's own filtered suite is clean: 110 passed / 0 failed / 4 skipped.",
+        "note": "The 105-vs-6 shape was partly self-inflicted: re-applying the CH seed adds rows rather than replacing them, because scanned_at sits in the ReplacingMergeTree sort key, so FINAL cannot dedupe re-seeded rows. Worth knowing before re-seeding repeatedly."
+      }
+    ],
+    "deviations": [
+      {
+        "source": "worker",
+        "edit": "The implementation worker committed fa8aaaad DIRECTLY with git, bypassing checkpoint.sh (so no PII scan and no journal append on that commit).",
+        "ac_ref": null,
+        "ac_delta": null,
+        "remediation": "Driver ran scripts/pii-scan.sh over the working tree afterwards - clean. The subsequent commit 59aba200 went through checkpoint.sh normally. Flagging because non-negotiable 2 requires all commits to go through checkpoint.sh."
+      },
+      {
+        "source": "driver",
+        "edit": "Corrected 5 off-by-one counts in CompanyMetricsOverview's docblock and its copy in DashboardCardExpansionTest ('9 GAPS'->'8 REMAINING GAPS', 'nine later tickets', '7 of 16'->'8 of 16', 'the 9 sibling cards'). Filling row3col3 left 8 bracketed slots; verified by counting them.",
+        "ac_ref": null,
+        "ac_delta": null,
+        "remediation": "The worker correctly reported these as out of its literal instruction scope rather than silently fixing or ignoring them. They were factually wrong in a load-bearing docblock, so the driver fixed them in an already-touched file."
+      },
+      {
+        "source": "operator",
+        "edit": "Sparkline getRgbColor changed from indigo [99,102,241] to amber-500 [245,158,11].",
+        "ac_ref": "AC-1",
+        "ac_delta": null,
+        "remediation": "Driver measured that in THIS app Filament resolves 'primary' 500 and 'warning' 500 to the byte-identical oklch(0.769 0.188 70.08) (= Tailwind amber-500), with no custom palette registered. So the gate-time recommendation of 'primary' was worse than described: the card renders the SAME as the two staging-hit cards, not merely close. Surfaced with the measurement; operator chose to keep 'primary' and align the sparkline to amber, accepting that the three cards look alike, rather than add a 9th file to register a custom colour."
+      },
+      {
+        "source": "qa-loop",
+        "edit": "getRgbColor() amber [245,158,11] -> [255,102,102]",
+        "ac_ref": "AC-1",
+        "ac_delta": null,
+        "why": "CORRECTS A DRIVER ERROR. The driver told the operator that 'primary' and 'warning' resolve to a byte-identical colour, measured via FilamentColor::getColors() in tinker. That is WRONG for the rendered page -- tinker reads framework defaults outside a panel request. Agent QA measured the real DOM: primary = oklch(0.704 0.187 23.186) = rgb(255,102,102) (red), warning = oklch(0.828 0.189 84.429) = rgb(255,185,0) (amber). Both screenshots confirm. The operator's Q3 decision ('keep primary, make the sparkline amber to match') was therefore taken on bad information; the amber sparkline did NOT match, leaving one card drawn in two colours (red compact, amber expanded). Operator reconfirmed 'consistent' after being shown the measurement, so the sparkline now matches the rendered primary.",
+        "materiality": "LIGHT PATH - 1 file, 3 integers, zero logic change, no test touched, no sensitive glob, no architecture pivot. Below the >3-file materiality threshold, so it does not require re-entering Phase 5."
+      },
+      {
+        "source": "qa-loop",
+        "edit": "enable_genetech_hotlist set true on QA orgs 337/338/339 + the fix appended to the persisted seed script",
+        "ac_ref": null,
+        "ac_delta": null,
+        "why": "Seed gap, not a code defect. User::canAccessPanel() requires org->isRepo() && org->enable_genetech_hotlist for the 'app' panel; the seeded orgs had the flag falsy so both personas 403'd and lane 1 was fully blocked. Real working org 2 carries the flag, so setting it makes the QA orgs match a genuine org rather than bypassing the check. The browser lane correctly refused to set it itself.",
+        "materiality": "Test-fixture data only. No application code changed."
+      },
+      {
+        "source": "qa-loop",
+        "edit": "Locked dashboard cards can now carry an upsell. Added an OPT-IN seam to the shared trait RendersDashboardStat -- lockedStatDescription() and lockedStatUrl(), both defaulting to null -- and lockedStat() now applies ->description()/->descriptionIcon('heroicon-m-lock-closed', Before)/->descriptionColor('info') when the first is non-null, and ->url() unconditionally (url(null) leaves Filament's stat blade on its div tag). MissedOpportunities overrides both: 'Upgrade to Pro' and route('upgrade.from', MISSED_OPPORTUNITY->slug()).",
+        "ac_ref": "AC-5",
+        "ac_delta": "AC-5 still holds as written (locked card keeps its slot, shows no value). It gains an affordance it did not have; nothing it asserted is withdrawn.",
+        "why": "Operator request during human QA: 'For non-Pro users, there should be some way for them to see the Missed Op card itself (no query and no data) but something that encourages them to upgrade and a link to the Subscription page.' This CLOSES the obligation RendersDashboardStat's lockedStat() docblock had recorded as OPEN -- twice deferred, most recently by this same run.",
+        "scope_judgement": "SHARED SEAM, deliberately, but only the MECHANISM. The 8 sibling cards inherit two null-returning hooks, i.e. byte-identical output to before; they inherit no copy and no link. Rejected the pure per-card override (the next gated card would not inherit the affordance at all) and rejected putting the copy IN the trait (the trait cannot know WHICH entitlement gated a card -- the upgrade.from link must name the feature, and a blanket 'Upgrade to Pro' would be wrong for a card ever gated on something else). Pinned by test_a_locked_card_carries_no_upsell_unless_it_opts_in, which MUTATION-VERIFIED: making the trait default a literal fails it.",
+        "no_query_proof": "lockedStat() still takes no value argument and calls neither getCardTotal() nor chartSeries(); both new hooks return literals (a string and a route() URL). Proven by a new UpsellingStubCard that opts IN to the upsell and carries GatedStubCard's $valueWasComputed tripwire -- it stays false. Rendered HTML verified out-of-band: 0 occurrences of fi-wi-stats-overview-stat-chart, 0 <canvas>, 0 wire:click, value still the em dash.",
+        "qa_evidence_note": "The padlock is an inline SVG, so agent QA's AC-5 evidence line 'svgCount: 0 on the locked card vs 2 on an unlocked sibling' is now stale as a no-sparkline proof (it will read 1). The invariant it stood for -- no chart strip -- still holds and is asserted directly. qa-ac-results.json was NOT rewritten: it recorded a true measurement at the sha it measured. hp-5 in the human plan carries the correction.",
+        "materiality": "LIGHT PATH. 3 files changed since reviewed_sha 57a36c28 (RendersDashboardStat.php, MissedOpportunities.php, DashboardCardVisibilityTest.php) -- at, not over, the threshold of 3. No sensitive/scoring glob matches. No architecture pivot: the seam's contract (gate precedes toStat, no value computed, not expandable) is unchanged. rework-gate.sh verdict recorded below."
+      },
+      {
+        "source": "qa-loop",
+        "edit": "Repaired .env and .env.testing back to the LITERAL clarity/zod ClickHouse database names",
+        "ac_ref": null,
+        "ac_delta": null,
+        "why": "Both had been re-keyed to per-worktree names that do not exist on the container, which broke the filtered suite (43 UNKNOWN_DATABASE errors) and silently broke the live QA site -- the CH layer swallows the exception and returns empty, so the failure was cached as a zero and looked like real data. Environment repair only; no application code touched."
+      }
+    ],
+    "review": {
+      "lanes": 3,
+      "scores": [
+        90,
+        94,
+        94
+      ],
+      "min_score": 90,
+      "review_number": 2,
+      "lane_sources": [
+        {
+          "lane": "claudeA",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "claudeB",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "claudeC",
+          "source": "in-session-agent"
+        }
+      ],
+      "provenance": "review.sh attempted FIRST at RN=1 -> ERROR manifest, all 3 lanes 'Not logged in / Please run /login', terminal_reason=api_error, script fail-closed 0/3. Blessed in-session fallback used. NO manifest was hand-authored to fake a pass. RN=1 burned and preserved at /private/tmp/claude-501/dev2462/failed-rn1/. review-gate.sh printed 'sources=in-session-agent:3' so the substitution is visible.",
+      "rerun_required": false,
+      "rework_pivot": false,
+      "reviewed_sha": "427048b070f6c1fe787259bd7b91f428d86b8486",
+      "findings_fixed": [
+        {
+          "id": "M1 (lane C, MEDIUM) - authorization scope",
+          "what": "canViewCardData() REPLACED the seam's role term instead of narrowing it. On a Pro org a role-less viewer had every other card filtered out of expandableCards() but kept this one -- the only expandable card for someone entitled to no card values. It also falsified the Company Metrics foundation's role-less tripwire, which only still passed because its fixture org is non-Pro.",
+          "fix": "Gate is now auth()->check() && parent::canView() && (Feature::active || impersonator), in that order. auth()->check() must stay FIRST because parent::canView() dereferences auth()->user() unguarded -- which also closes lane B's L5 (canView() was not guest-total). canView() now delegates to canViewCardData(); the recursion trap lane C warned about is documented in the docblock.",
+          "pinned_by": "NEW test test_can_view_card_data_false_for_a_pro_org_viewer_holding_no_role. MUTATION-VERIFIED: removing the parent::canView() term makes it fail ('Failed asserting that true is false'); restoring it passes."
+        },
+        {
+          "id": "M2/M1a/L1 (ALL THREE LANES, MEDIUM/MEDIUM/LOW) - inverted docblock conclusion",
+          "what": "DRIVER-CAUSED. The driver's own off-by-one 'fix' bumped '7 of 16'->'8 of 16' mechanically and left the derived conclusion intact, making the CAPS claim 'THEY DO NOT CURRENTLY RENDER AS ONE ROW' FALSE. Alignment is count(preceding)%columns==0: at 8 cards exactly 4 precede the hit block, so at lg it occupies precisely visual row 2. Same stale claim echoed in the test file the diff also edited.",
+          "fix": "Re-derived the whole passage: states that the block now aligns at 4 columns BY ACCIDENT, will de-align at 9 and re-align at 12, and still splits at default/md/3-col, with an explicit 'do not read the current alignment as a target to preserve'. Test-file comment rewritten to say it measures ARRAY adjacency only, which holds at every count.",
+          "note": "This is exactly the the Company Metrics foundation failure mode ('fixed the two numbers my own padding fix invalidated') repeated. Caught only because three independent lanes all flagged it."
+        },
+        {
+          "id": "M1b (lane B, MEDIUM) + L1 (lane C, LOW) - contract not amended",
+          "what": "RendersDashboardStat:100 still declared 'MUST be total with NO authenticated user' -- the rule this card's guest=false deliberately departs from -- with no recorded exception, in the docblock DashboardMetricCard:36-38 names as 'the authority' for the eight remaining siblings. Plus three more stale statements: ':84 no-op for all 7 cards shipping today', 'DashboardMetricCard:41 No card overrides it today', and the visibility test's 'No production card is gated yet'.",
+          "fix": "Added a DEV-2462 NOTE distinguishing TOTAL (must return a bool, not error) from the VALUE returned, stating this card deliberately answers false while remaining total, and telling the next implementer to copy the GUARD ORDERING not the return value. Corrected all three stale statements."
+        },
+        {
+          "id": "L3 (lane B, LOW) - AC-2 had no tripwire",
+          "what": "prep-context promised 'the four date-filter windows'; only 'today' was exercised. Nothing pinned that the four resolve to DIFFERENT cache keys -- the exact defect a buildWidgetCacheKey() collision produces.",
+          "fix": "Added test_can_switch_stats_across_all_four_date_windows with four distinctive 6-digit sentinels. Took three attempts because the mechanisms differ: today/last_7d use currentPeriodTotal()'s flat key and ARE rendered by getDescription(); this_month/last_month come from the getMonthlyData() bucket array (keyed 'this_month' for the current month but 'Y-m' for prior ones) and surface only through CompanyMetricsOverview's Stat -- so those two are asserted on getCardTotal() directly. The earlier attempts failed honestly rather than being weakened to pass."
+        },
+        {
+          "id": "L4 (lane C, LOW) - locked-stat test was a near-tautology",
+          "what": "It called lockedStat() DIRECTLY, which takes no value argument by construction, so assertSame('em-dash') could not fail for any implementation. Lane C proved it hollow: hardcoding toStat() for this card in getStats() left the whole file green.",
+          "fix": "Added test_the_real_grid_renders_the_card_locked_for_a_non_pro_org, which drives the REAL CompanyMetricsOverview::getStats() as a non-Pro ADMIN with all four cache buckets poisoned with 987654, and asserts the locked placeholder is present, 987654 is absent, the key is absent from expandableCards() and present in cards()."
+        }
+      ],
+      "findings_residual": [
+        {
+          "id": "notNicb() NULL-safety (lane B L4; lane A non-scoring #3)",
+          "decision": "NOT FIXED - deliberate",
+          "why": "DRIVER MEASURED IT against production, read-only: 12 of 624,154 live rows have integration_id IS NULL, covering 12 distinct hotlists = 0.0019%. Mechanism proved locally: 'WHERE integration_id != 5' keeps 0 of 1 NULL rows; the NULL-safe form keeps 1. But scopeNotNicb is PRE-EXISTING and SHARED -- changing it would silently move the numbers on the client-portal widget, ClientRankedMetricsBatch, BatchMonthlySparklineData and HasStatDrillDown too. Moving four other surfaces' numbers is not this ticket's mandate. Recorded with the measurement; belongs in a follow-up that can QA all consumers."
+        },
+        {
+          "id": "RequiresClickhouse at class level (all 3 lanes)",
+          "decision": "NOT FIXED - not a defect introduced here",
+          "why": "Lane A settled it: THIRTY-FIVE test classes use the trait at class level, so it is the repo's established convention. CI sets CLICKHOUSE_DRIVER=clickhouse so nothing is hidden from CI. Worth a repo-wide follow-up (the ClickHouse-free sibling-class test pattern of putting CH-free guarantees in a sibling class), not a churn in this ticket."
+        },
+        {
+          "id": "Dashboard.php's stale '9 not-yet-built slots'",
+          "decision": "NOT FIXED - operator ruled the file out of scope (Q2)",
+          "why": "All three lanes flagged it stale and all three declined to score it for the same reason. A one-word docblock fix, zero runtime effect. Not overriding an explicit scope instruction for a cosmetic gain; surfaced to the operator instead."
+        },
+        {
+          "id": "Pre-existing tz-ordering bug in the graph's YTD window",
+          "decision": "NOT FIXED - operator froze the window (Q2)",
+          "why": "MissedOpportunityClientGraph:71-72 calls ->utc() BEFORE startOfYear()/endOfMonth(), so the boundaries are computed in UTC and the $timezone argument is inert (Carbon::parse on a Carbon instance preserves the instant). For a user east of UTC on Jan 1 local, $start lands in the previous year. Recorded so the eventual wire-up ticket does not inherit it silently."
+        },
+        {
+          "id": "The metric now has two definitions under one name (lane B non-scoring #2)",
+          "decision": "NOT FIXED - belongs in the Build Record",
+          "why": "The new admin card applies notNicb(); the client-portal widget, ClientRankedMetricsBatch and LifetimeMissedOpportunitiesWidget omit it. For an org with NICB-sourced rows the two surfaces show different numbers for the same window. Internally consistent with its sibling graph and with the okf page, so nothing contradicts the record -- but it is user-reachable and must be stated."
+        },
+        {
+          "id": "Locked-state copy (lane C L2; lane B non-scoring #1)",
+          "decision": "RESOLVED by operator - re-deferred, record amended",
+          "why": "Operator chose to keep the bare LOCKED_VALUE placeholder rather than have the implementer invent user-facing upsell copy. The RendersDashboardStat paragraph that had assigned the decision to 'whichever sibling ticket first gates a real card' is now amended: it records that DEV-2462 WAS that ticket, that the obligation is OPEN rather than discharged, that it must not be re-assigned to 'the first card to gate', and names MissedOpportunityResource's literal 'Pro' badge as the precedent to copy. So the obligation is visible, not dropped."
+        },
+        {
+          "id": "The no-FINAL justification is narrower than recorded (lane C non-scoring)",
+          "decision": "RECORD ONLY",
+          "why": "countDistinct is immune to VERSION duplicates but NOT to unmerged SOFT-DELETE duplicates (a _peerdb_is_deleted=1 version that has not merged leaves the old =0 row visible to FiltersCdcDeletes, over-counting that hotlist by one). The driver's 169,488==169,488 measurement covers it empirically TODAY so the decision is sound, but the recorded REASON is incomplete and eight sibling tickets will cite it. One sentence in the wiki, post-approval."
+        }
+      ],
+      "reviewed_sha_restamp": "Re-stamped from 57a36c280fc82c8f4ff205c7bb5148194ad81abc at Phase 7 closeout. That SHA belongs to a stale-base duplicate lineage of this same branch (preserved at tag dev-2462-prereconcile-lineage) and is NOT an ancestor of HEAD, so rework-gate's three-dot diff fell back to the fork point d46b5a6f and reported .deploy/authorization_main.txt.asc as an unreviewed sensitive change. That file was written by GHA deploy commit 8feaa75b (run 33766650969), never by this ticket. 427048b0 is the same commit message on the live lineage and differs from 57a36c28 only in the two GHA .asc artifacts - zero difference across app/, tests/, routes/, database/ and config/. Same reviewed code, reachable SHA."
+    },
+    "ac": [
+      {
+        "item": "AC-1",
+        "status": "SATISFIED",
+        "evidence": "Card present in its exact mockup slot: observed order Scan Count -> Total Repossessions -> Missed Opportunities -> LPR Recovery Leaderboard -> the four hit cards, verified twice (visually and via a DOM query of .fi-wi-stats-overview-stat-label). Sparkline renders (non-flat SVG path). Stat colour is not gray. getCardKey()='missed-opportunities' and getStatColor()='primary' confirmed by direct construction. NOTE: lane 1 correctly flagged that 'primary' renders rgb(255,102,102) (red), NOT the amber the driver had claimed -- the driver's tinker measurement was wrong for the rendered panel. That left the compact sparkline red and the expanded chart amber; fixed in-session (getRgbColor -> [255,102,102]) with the operator's confirmation, so the card is now internally consistent."
+      },
+      {
+        "item": "AC-2",
+        "status": "SATISFIED",
+        "evidence": "All four filter windows cycled with a networkidle wait between each: Today 3, Last 7d 3, This Month 3, Last Month 1 -- exactly the seeded expectation. Last Month differing from the other three is the signal that the windows do NOT share a cache key. URL filter params also changed per window, confirming a real re-query rather than a stale render."
+      },
+      {
+        "item": "AC-3",
+        "status": "SATISFIED",
+        "evidence": "The grain fix is proven in BOTH directions. Backend B3 (read-only, org 337): raw count()=7 vs countDistinct(hotlist_id)=5, so the two grains genuinely differ and the fixture actually tests the fix; the NICB row is excluded (8 rows -> 7) and org 339's rows do not leak in. Backend B4: MissedOpportunityClientGraph::clients() returns 2 for the client holding two distinct hotlists -- not 3 (the old bug) and not 1 (an over-correction collapsing per-client). Browser A11: the expanded region reads 'Current Month: 3 | Last Month: 1', matching the compact card and independently cross-checking A4's filter readings. The 'expanded detail agrees with the compact card' half holds by construction (same class, same query)."
+      },
+      {
+        "item": "AC-4",
+        "status": "SATISFIED",
+        "evidence": "Measured with the repo's cache-sentinel idiom, not a DB::listen counter (which never fires for the ClickHouse driver). B5 seeded the real key missed-opportunities:today:org=337 with 987654 -- a value the query cannot produce -- and getCardTotal() returned 987654, proving the render served from cache rather than re-querying; the real value 3 returned once the sentinel was forgotten. The missed-opportunities:* key namespace is new and class_basename-derived, so it cannot alias any of the 7 sibling cards. R1: there is no command or job to execute, so the resource lane has nothing to run; the envelope was graded structurally against driver-measured production cardinality instead of inventing a cadence (see .context/qa-resource-envelope.json)."
+      },
+      {
+        "item": "AC-5",
+        "status": "SATISFIED",
+        "evidence": "Verified through the REAL login form, not the dev-login link -- critical, because routes/web.php:186 makes /__qa/login/{id} set admin_impersonator unconditionally, which bypasses the gate and would have shown a value and produced a false failure. Via the OTP form as the non-Pro persona: the card holds its grid slot (8 slots intact) but shows only the em dash, with data-dashboard-locked='true' set only on that card; no cursor-pointer and no wire:click, and clicking it does nothing while a sibling card expands normally; svgCount 0 vs a sibling's 2, so no sparkline leaks the data shape. A10 then confirmed the inverse: via the dev-login link (admin_impersonator set) the same card returns a real computed value and its sparkline, so the bypass survives the new gate. POST-UPSELL RE-VERIFIED (2026-09-04, driver lane via the OTP form): the locked card now also renders a padlock plus 'Upgrade to Pro' linking to /upgrade/from/missed-opportunity, which lands on /app/subscription with the page naming 'Missed Opportunity' and the Clarity Pro plan. Still no number, still no sparkline, still not expandable (sibling control confirmed expanding). The operator's requested upsell is therefore satisfied without weakening any part of the gate."
+      },
+      {
+        "item": "AC-6",
+        "status": "SATISFIED",
+        "evidence": "All 8 cards present and none blank or showing an error string. Read via DOM for the This Month window: Scan Count 0, Total Repossessions 0, Missed Opportunities 3, LPR Recovery Leaderboard 0, Live Hits 0, Direct Historical Hits 0, Staging Live Hits 0, Staging Historical Hits 0 -- the zeros are consistent with an org whose only seeded ClickHouse data is the missed-opportunity rows. No console errors and no 4xx/5xx on any render in either lane. One INTENDED visual change to note for sign-off: at 8 cards live-hits moves from the end of visual row 1 to the start of row 2, so the four hit cards now form one row at desktop width."
+      }
+    ]
+  },
+  "env_notes": {
+    "repo_path_is_worktree": true,
+    "worktree_dir_name": "release-skill-vpn-monitoring-8c2bc8",
+    "branch_renamed_from": "claude/dev-2462-55fb8c",
+    "orphan_pg_dbs_from_old_branch_name": "CORRECTED at Phase 3.5: NOT orphans. zod_claude_dev_2462_55fb8c and zod_testing_claude_dev_2462_55fb8c already existed AND were migrated, so qa-prep took the warm path and kept using them. They are genuine per-worktree databases (isolated from the shared zod/zod_testing), which is what this phase needs; the _55fb8c suffix is cosmetic. Deliberately not re-keyed to the new branch name - that would have created a second, unseeded pair and broken dev-login.",
+    "stale_artifacts_moved_out": "/private/tmp/claude-501/stale-DEV-2462 (a prior .ai review manifest plus the foundation PR .context QA artifacts)",
+    "env_ch_misset_fixed_at_intake": "removed CLICKHOUSE_DATABASE_CLARITY/_ZOD=zod_claude_dev_2462_55fb8c (a per-worktree name pointed at ClickHouse Cloud, where it does not exist); .env CH block now matches the main checkout. Pre-fix copy at /private/tmp/claude-501/stale-DEV-2462/env-intake-before-ch-fix.backup"
+  },
+  "parked": {
+    "at": "2026-09-03",
+    "by": "Phase 7 step 1 \u2014 awaiting human QA (normal mode parks here by design)",
+    "phase_reached": "handoff \u2014 human QA guide rendered, PR still draft, env still up",
+    "resume_command": "say \"I've completed QA\" in session, or /ticket DEV-2462 --resume",
+    "guide": "file:///Users/daltonmccleery/Herd/platform/.claude/worktrees/release-skill-vpn-monitoring-8c2bc8/.context/qa-human-guide.html",
+    "what_remains": [
+      "Phase 7 step 1 (repeat): operator human QA of the re-rendered guide, now including the upsell affordance (hp-5, hp-7)",
+      "Phase 7 step 2: undraft PR #386 and retitle (strip the [WIP] prefix)",
+      "Phase 7 step 3: post the Build Record to Jira (REQUIRED - build-record-gate.sh is fail-closed)",
+      "Phase 7 step 4: Jira transition to In Code Review",
+      "Phase 7 step 5: post-mortem / knowledge-pack offer",
+      "Phase 7 step 6: rework-gate + build-record-gate, then MANDATORY QA teardown, then done"
+    ],
+    "sign_off_question": "hp-5 + the new hp-7: non-Pro orgs now see the 'Missed Opportunities' card with an em dash, a padlock and 'Upgrade to Pro', and clicking it lands on Subscription with Missed Opportunities named as the source feature. The copy decision the code record twice deferred is now MADE (operator request, applied this pass) -- so the question is no longer 'is a bare dash acceptable' but 'is this the right copy and the right landing'. The guide is the last look before it reaches real orgs."
+  }
+}

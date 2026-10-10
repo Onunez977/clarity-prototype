@@ -1,0 +1,50 @@
+{
+  "key": "DEV-2255",
+  "authored_by": "driver (Opus) acting as the Phase 3 single arbiter; no separate arbiter sub-agent dispatched - see plan.md rationale",
+  "sizing_gate": "pass - 3 files, one coherent concern (403 rendering on the Scout set-password guard)",
+  "human_approval": "Dalton approved this exact change at the Phase 2 gate on 2026-09-01, with the intended diff shown in the option preview. This is the approval line Phase 3 requires before the auth blast-radius node may start.",
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Render the friendly invalid-link page for ScoutSetPasswordController::guardUser() failures",
+      "approach": "guardUser() currently calls abort_if/abort_unless(403) three times, which surfaces Laravel's bare 403. Replace each with a throw of Illuminate\\Http\\Exceptions\\HttpResponseException wrapping response()->view('auth.scout.invalid-link', [...], 403). HttpResponseException DOES pass through Illuminate\\Foundation\\Exceptions\\Handler::render(), whose match arm `$e instanceof HttpResponseException => $e->getResponse()` returns the prepared response verbatim (it is not re-rendered, not mapped by prepareException(), and is in $internalDontReport so it is not logged) - review lanes A and B corrected an earlier, inaccurate 'bypasses the handler' phrasing here. Critically it lets guardUser() keep its `void` return type so show() and update() keep their declared `View` return types unchanged (an additive change, not a signature change). Pass a new OPTIONAL $reason to the view: 'used' for the already-verified one-shot case, 'ineligible' for the missing-org_id and missing-clarity-scout-permission cases. In the Blade template, read it as ($reason ?? null) and keep the existing $expired boolean branch fully intact, so ValidateScoutSignedUrl (which passes only $expired) needs no edit and its behaviour is untouched. PRESERVE THE EXISTING GUARD ORDER: setPermissionsTeamId($user->org_id) sits between the org_id guard and the permission guard, so the org_id guard must still short-circuit first or the permission check would evaluate against the wrong permissions team.",
+      "target_files": [
+        "app/Http/Controllers/Auth/ScoutSetPasswordController.php",
+        "resources/views/auth/scout/invalid-link.blade.php",
+        "tests/Feature/Http/Controllers/Auth/ScoutSetPasswordControllerTest.php"
+      ],
+      "intended_diffs": {
+        "app/Http/Controllers/Auth/ScoutSetPasswordController.php": "Import Illuminate\\Http\\Exceptions\\HttpResponseException. Add a small private helper (e.g. rejectWith(string $reason): never) that throws HttpResponseException(response()->view('auth.scout.invalid-link', ['expired' => false, 'reason' => $reason], 403)). In guardUser(): if ($user->hasVerifiedEmail()) rejectWith('used'); if (! $user->org_id) rejectWith('ineligible'); setPermissionsTeamId($user->org_id); if (! $user->hasPermissionTo('clarity-scout')) rejectWith('ineligible'). Keep the existing one-shot explanatory comment. No change to the authorization CONDITIONS - only to how a failure is rendered.",
+        "resources/views/auth/scout/invalid-link.blade.php": "Compute $reason = $reason ?? null at the top. Extend the <title> and the h1/p copy with two new branches ahead of the existing $expired branch: reason==='used' -> 'You have already set your password' + guidance to open Clarity Scout and sign in normally, or ask an admin to resend if they cannot get in; reason==='ineligible' -> 'This account cannot use Clarity Scout' + guidance to ask an admin to check the Scout Users setup. Leave the $expired and default-invalid branches' TEXT as they are. Precise post-review statement (lane A): the middleware-path output is byte-identical EXCEPT for added leading whitespace inside <h1>, because the new @if wrapper indents it; the asserted substrings stay contiguous so DEV-2246's tests remain green.",
+        "tests/Feature/Http/Controllers/Auth/ScoutSetPasswordControllerTest.php": "TDD: first extend the existing already-verified guard test to assert the friendly page content (see() the new 'already set your password' copy) and assert it does NOT show Laravel's bare 403; confirm RED. Add coverage for the missing-org_id and missing-clarity-scout-permission guards asserting the 'ineligible' copy, on both the GET show and POST update routes. Follow the file's existing conventions: #[Group('clarity-scout')] and the makeScannerUser() helper. Do NOT weaken the DEV-2246 signature tests - they must stay green."
+      },
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "ScoutSetPasswordControllerTest",
+      "ui_impact": true,
+      "blast_radius": [
+        "auth"
+      ],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {
+      "site": "app/Mail/Hits/NewNotification.php:66,75 + app/Mail/MissedOpportunities/NewNotification.php:51,60 + app/Http/Controllers/EmailController.php:17,37",
+      "reason": "Absolute-signature idiom present but operationally safe behind DEV-2246's global ForceHttpsRequest + trustProxies. Dalton explicitly declined hardening these in this ticket at the Phase 2 gate; recorded as a latent risk in the Build Record, with no new Jira ticket."
+    },
+    {
+      "site": "app/Notifications/ScoutOnboardingNotification.php:28 + app/Http/Middleware/ValidateScoutSignedUrl.php:22",
+      "reason": "Already correct as of DEV-2246 (relative mint; validates absolute OR relative and renders the friendly page). Out of scope by explicit prep decision - re-touching them risks regressing a shipped hotfix."
+    },
+    {
+      "site": "app/Models/Invite.php, app/Http/Controllers/InviteRedemptionController.php, app/Enums/InviteTypeEnum.php, app/Mail/Invites/*",
+      "reason": "Verified unrelated - email + 6-character DB code, no signed URL, and Scout drivers never route through it."
+    },
+    {
+      "site": "tests/**/*.php temporarySignedRoute occurrences",
+      "reason": "Fixture construction, not production signature sites."
+    }
+  ],
+  "perf_gate": "not required - no ClickHouse surface; resource_envelope.scale_relevant = false"
+}

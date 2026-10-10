@@ -1,0 +1,251 @@
+{
+  "key": "DEV-2278",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "only main-ahead candidates were DEV-2246 signed-URL hotfix branches, unrelated to this map-layer-loading bug",
+  "branch": "claude/DEV-2278",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "prep-candidate:1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 474
+    },
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 278
+    },
+    {
+      "slot": "review-lane:1",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 577
+    },
+    {
+      "slot": "review-lane:2",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 577
+    },
+    {
+      "slot": "review-lane:3",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 577
+    },
+    {
+      "slot": "agent-qa",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "verify",
+      "dur_s": 171
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "knowledge/clarity/scout.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "answered:false questions (2, needs-human)",
+    "confidence<80 (fast-pass 68)",
+    "escalate.recommend=true",
+    "competing options (revert Direct clip vs keep; Staging fallback)"
+  ],
+  "best_of_n": true,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+      "symbol": "heatmapOrders",
+      "referenced_at": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:400",
+      "note": "out-of-scope (run-area clip)"
+    },
+    {
+      "file": "app/Models/User.php",
+      "symbol": "zones()/zone_user",
+      "referenced_at": "app/Models/User.php:144"
+    },
+    {
+      "file": "app/Models/Zone.php",
+      "symbol": "intersectingGeohashes",
+      "referenced_at": "app/Models/Zone.php:130"
+    },
+    {
+      "file": "resources/js/clarity-scout/stores/map.js",
+      "symbol": "fetchOrdersHeatmap",
+      "referenced_at": "resources/js/clarity-scout/stores/map.js:188"
+    },
+    {
+      "file": "resources/js/clarity-scout/components/ScannerMap.vue",
+      "symbol": "fetchOrdersHeatmap",
+      "referenced_at": "resources/js/clarity-scout/components/ScannerMap.vue:934"
+    }
+  ],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "cd4f7e7e165c5310e2b44cb4d6ddf0e6247ef716",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 1,
+  "pr": {
+    "number": 298,
+    "url": "https://github.com/insight-lpr/platform/pull/298",
+    "draft": false
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": "already In Progress at intake (skipped self-transition; global transition list)",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "undraft did not trigger a GH-action transition (ticket still In Progress); pipeline transitions via MCP",
+  "assumed": [],
+  "comment_ids": {
+    "status": "37962",
+    "oscar_decision": "37964",
+    "build_record": "37992"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "n/a",
+      "ch_container": "reused (clarity-qa-clickhouse)",
+      "frontend_build": "ran",
+      "postgres_db": "zod_claude_dev_2278 (+ testing zod_testing_claude_dev_2278)",
+      "ch_strategy": "docker (literal clarity/zod on shared clarity-qa-clickhouse:18123)",
+      "herd_site": "clarity-claude_dev_2278.test"
+    },
+    "provisioned_early": true,
+    "human_guide": ".context/qa-human-guide.html"
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact --filter=ClarityScoutMapControllerTest",
+        "passed": 68,
+        "failed": 0
+      }
+    ],
+    "deviations": [
+      {
+        "source": "implement",
+        "edit": "Full local suite not run (CLAUDE.md: CI runs tests after commit; local full suite can't finish under 128M memory cap). Relied on filtered class (68 green) + clean blast-radius re-check.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "teardown",
+        "edit": "Controlled manual teardown instead of qa-complete down.sh: this run used LITERAL shared clarity/zod CH DBs on a container shared with DEV-2177/DEV-2253, so ran a surgical teardown (dropped only zod_claude_dev_2278/_testing, unlinked both worktree Herd sites, restored .env, deleted ledger) that preserves the shared container + other worktrees. Verified shared resources intact.",
+        "ac_ref": null,
+        "ac_delta": null
+      }
+    ],
+    "review": {
+      "lanes": 3,
+      "scores": [
+        100,
+        100,
+        100
+      ],
+      "findings_fixed": [],
+      "findings_residual": [
+        "non-scoring: redundant zones() query (exists() + pluck()) when a zoned driver has both layers active \u2014 trivial micro-opt, not worth changing",
+        "non-scoring: optional combined 'both layers active, zero zones' union test \u2014 coverage nicety"
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "claude2",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "claude3",
+          "source": "in-session-agent"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "55380c60e01df1391a78fa809c6a171ddb60d54b",
+      "rework_pivot": false
+    },
+    "ac": [
+      {
+        "item": "Direct Orders renders for a driver with zero assigned zones (org-wide), and still clips to zone(s) when the driver has any.",
+        "status": "SATISFIED",
+        "evidence": "Backend B1 (heatmapOrders direct=1 cell for zone-less user 2) + browser A1 (200 JSON, cell rendered over Dallas). Regression guard B3: Direct clips to empty with a non-covering zone. Unit tests both directions green."
+      },
+      {
+        "item": "Staging Orders unchanged \u2014 zone-clipped, empty for a zone-less driver.",
+        "status": "SATISFIED",
+        "evidence": "Backend B2 (staging=0) + browser A2 (no new cells). Staging tests unchanged."
+      },
+      {
+        "item": "Live Hit Density / Teammate Activity unaffected.",
+        "status": "N/A",
+        "evidence": "Untouched path (3x adversarial review confirmed); deferred to human QA hp-4."
+      }
+    ]
+  }
+}

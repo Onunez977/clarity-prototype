@@ -1,0 +1,47 @@
+{
+  "recall_method": "direct driver recall (git log on origin/main + sibling worktree artifact read), NOT the haiku offload sub-agent. Reason: the decisive precedent (DEV-2464) is a live HOLD branch in a sibling worktree whose prep-context.json had to be read in full; a JQL/summary sweep would have returned only its title. Recorded so the routing metrics are not misread as an offload run.",
+  "precedents": [
+    {
+      "key": "DEV-2460",
+      "status": "QA Complete (merged to main via PR #383 -> company-metrics -> PR #384)",
+      "age": "landed 2026-09",
+      "relevance": "The foundation ticket this one is BLOCKED BY. Ships the mockup grid layout, 2 relabels, the Kit Users move, and the lockedStat() Pro-gate seam this card must use.",
+      "applicable": "APPLICABLE - verified merged on origin/main; the blocker is satisfied. The lockedStat() seam is a hard dependency of this ticket's card contract."
+    },
+    {
+      "key": "DEV-2461",
+      "status": "merged (b6df2039)",
+      "age": "landed 2026-09",
+      "relevance": "Staging Live Hit Leaderboard card - the immediately preceding sibling card on the same dashboard.",
+      "applicable": "APPLICABLE - the closest shipped template for a Company Metrics card: it BYPASSES DashboardWidget and hardcodes ->color() in its own toStat(), and it is the card that actually ships FeatureEnum::COMPANY_METRICS as its Pro gate."
+    },
+    {
+      "key": "DEV-2462",
+      "status": "merged (8d1cadd6)",
+      "age": "landed 2026-09",
+      "relevance": "Missed Opportunities card + MissedOpportunityClientGraph grain fix.",
+      "applicable": "APPLICABLE - a shipped Company Metrics card gated behind a dashboard-analytics FeatureEnum at CLARITY_PRO+, the nearest tier analogue."
+    },
+    {
+      "key": "DEV-2464",
+      "status": "In Progress, branch claude/DEV-2464 on HOLD at cc34c05c (PR #390, retitled [HOLD])",
+      "age": "held 2026-09-08 by operator resequencing",
+      "relevance": "The LPR Repossessions sibling. Held SPECIFICALLY so DEV-2463 ships first. Carries a production-validated ClickHouse port of the shared claims CTE, prod-scale perf measurements, 7 answered questions, and TWO shared-infra fixes that are stranded on that branch.",
+      "applicable": "APPLICABLE AND DECISIVE - its prep-context.json hold.carry_forward names this ticket as the direct beneficiary. Both infra fixes (zod.public_billing_events in the CI CH schema dump; 4 zod.public_* tables added to RequiresClickhouse) are PREREQUISITES for testing this card and must be carried onto this branch."
+    },
+    {
+      "key": "DEV-2424",
+      "status": "Done (closed on a factually wrong blocker)",
+      "age": "2026-08",
+      "relevance": "This ticket's predecessor. Closed as 'no case-claim data exists in Clarity' after sweeping for a case-claim COLUMN rather than billing EVENTS.",
+      "applicable": "APPLICABLE AS A CAUTION - do not re-derive the data-availability question; the ticket body already records the production verification that refutes it."
+    },
+    {
+      "key": "DEV-2466",
+      "status": "merged (ad29de3b, spike)",
+      "age": "landed 2026-09",
+      "relevance": "Plate-level unique-scan feasibility spike on clarity.scans_cold. Established that the X-ClickHouse-Summary response header returns read_rows/read_bytes/memory_usage server-side WITHOUT needing READ ON REMOTE.",
+      "applicable": "APPLICABLE - this is the technique that can close DEV-2464's one unresolvable resource-envelope item (readonly_user lacking READ ON REMOTE for clusterAllReplicas(system.query_log)). Worth trying here rather than re-declaring the envelope unmeasurable."
+    }
+  ]
+}

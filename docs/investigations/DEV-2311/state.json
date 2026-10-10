@@ -1,0 +1,178 @@
+{
+  "key": "DEV-2311",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2311",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 103
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 247
+    },
+    {
+      "slot": "agent-qa",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "verify",
+      "dur_s": 568
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "clarity/scout.md"
+  ],
+  "escalated": false,
+  "escalation_triggers": [],
+  "best_of_n": false,
+  "needs_human_interview": false,
+  "missed_caller_candidates": [],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "ca953ca30375bb9c57b89840bbd7341d30bc9e50",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "claude/DEV-2311",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 1,
+  "pr": {
+    "number": 316,
+    "url": "https://github.com/insight-lpr/platform/pull/316",
+    "draft": false
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": "already-in-progress @ intake (Dalton set it)",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "MCP transition id=4 (In Code Review) \u2014 undraft did not trigger a GH Action; pipeline transitioned @ 2026-08-10",
+  "assumed": [],
+  "comment_ids": {
+    "status": "38138",
+    "build_record": "38139"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "already-running",
+      "ch_container": "reused (shared clarity-qa-clickhouse)",
+      "frontend_build": "ran",
+      "postgres_db": "zod_claude_dev_2311",
+      "ch_strategy": "docker (repointed Cloud->local literal clarity/zod)",
+      "herd_site": "clarity-claude_dev_2311"
+    },
+    "human_guide": ".context/qa-human-guide.html"
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "npm run build",
+        "passed": 1,
+        "failed": 0
+      }
+    ],
+    "deviations": [],
+    "review": {
+      "lanes": 1,
+      "scores": [
+        100
+      ],
+      "findings_fixed": [],
+      "findings_residual": [
+        "non-scoring/pre-existing: resetDriverLive() doesn't reset positionsLoaded (driver-selection refetch window)",
+        "non-scoring/pre-existing: App.vue bottom pill lacks !noticeDismissed guard"
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "in-session-agent"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "e8329fcc3c826b44b4c0183006146b500e58e7c0",
+      "rework_pivot": false
+    },
+    "ac": [
+      {
+        "item": "AC-1: notice must not appear before initial positions fetch resolves",
+        "status": "SATISFIED",
+        "evidence": "Re-run: immediate-post-nav DOM read showed spinner present + notice absent; notice appeared only after networkidle. No premature flash."
+      },
+      {
+        "item": "AC-2: spinner shown during initial admin Live-mode load",
+        "status": "SATISFIED",
+        "evidence": "Re-run CAUGHT THE SPINNER LIVE in a screenshot (A2-spinner-immediate.png) \u2014 centered animate-spin in a fixed inset-0 z-30 container; gate App.vue:41 adminMode&&liveMode&&!positionsLoaded confirmed in source."
+      },
+      {
+        "item": "AC-3: notice still appears when genuinely empty after load",
+        "status": "SATISFIED",
+        "evidence": "Genuine-empty org (scans_today=1, roster 15, sc_positions=0): notice card + amber pill render after settle; logic preserved, only timing gated."
+      },
+      {
+        "item": "AC-4: driver (non-admin) Scout view unaffected",
+        "status": "SATISFIED",
+        "evidence": "Driver view via force-login/1: 0 animate-spin, notice string absent; driver chrome only. (unrelated PWA update prompt, out of scope)"
+      }
+    ]
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "key": "DEV-2123",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "escalated": false,
+  "escalation_note": "Single-pass prep; confidence 82 with comprehensive grounding (full code_flow + exhaustive sweep). prep recommended escalation, but the residual items are product/design DECISIONS (env-var split, retries value), not exploration gaps — a 3-candidate reconcile cannot answer them, so they route directly to the Question Gate per non-negotiable 1.",
+  "synthesis": "TrackAnalytics inserts to ClickHouse Cloud intermittently hit a 2s TCP/TLS connect timeout (0 of 0 bytes received = connection never established). The clarity_clickhouse_write connection sets timeout_connect=2 and retries=0 (config/database.php), so a TLS handshake or CH-Cloud idle-scaling wake exceeding 2s throws immediately with no in-client retry. DEV-2102 (propagate+retry) and DEV-2003 (dispatch-time UUID dedup) already make these survivable & exactly-once; this is the root-cause follow-up to stop the recurrence. Fix is config-only: raise timeout_connect to ~5 (the package's own default) and retries to >=1, made env-driven and documented. All three CH connections share the same two env vars, so the key decision is whether to split out write-path-specific env vars or raise the shared ones for all paths.",
+  "scope": {
+    "summary": "Config-only change to the clarity_clickhouse_write connect-timeout + retries defaults, made env-driven and documented in .env.example and the OKF wiki. No schema/migration/job-logic change. Blast radius: config only.",
+    "proposed_changes": [
+      {"file": "config/database.php", "change": "On clarity_clickhouse_write ONLY: timeout_connect => env('CLICKHOUSE_WRITE_TIMEOUT_CONNECT', 5), retries => env('CLICKHOUSE_WRITE_RETRIES', 1). Read connections (clarity_clickhouse, public_clickhouse) keep env('CLICKHOUSE_TIMEOUT_CONNECT', 2)/env('CLICKHOUSE_RETRIES', 0) unchanged.", "reason": "2s too tight for CH Cloud TLS on the write path; retries=0 gives a single connect attempt before the 10s job backoff. Write-specific keys keep the read path's fast-fail (Dalton's Q1 decision).", "ref": "config/database.php (clarity_clickhouse_write block ~line 188-210)"},
+      {"file": ".env.example", "change": "Document CLICKHOUSE_WRITE_TIMEOUT_CONNECT and CLICKHOUSE_WRITE_RETRIES (and, since they were also undocumented, the shared CLICKHOUSE_TIMEOUT_CONNECT/CLICKHOUSE_RETRIES read-path keys) with their default values, near the existing CLICKHOUSE_WRITE_USERNAME/PASSWORD block.", "reason": "AC: values must be env-driven AND documented; the timeout/retries keys are absent today.", "ref": ".env.example:89-90"},
+      {"file": "okf/concepts/clickhouse-integration.md", "change": "Update the line stating timeout_connect=2 is 'intentionally low for fast failure' to reflect the new value + rationale.", "reason": "Canonical wiki must not contradict the code or invite a re-revert.", "ref": "okf/concepts/clickhouse-integration.md:28"},
+      {"file": "tests/Feature/Jobs/TrackAnalyticsTest.php", "change": "Add a config-resolution test asserting the write connection resolves timeout_connect>=5 and retries>=1. Leave the existing propagation test untouched.", "reason": "Pin the new defaults so CI catches a silent reset; a real timeout reduction can't be unit-tested.", "ref": "tests/Feature/Jobs/TrackAnalyticsTest.php:76-102"}
+    ],
+    "target_files": ["config/database.php", ".env.example", "okf/concepts/clickhouse-integration.md", "tests/Feature/Jobs/TrackAnalyticsTest.php"],
+    "out_of_scope": [
+      "Persistent keep-alive/connection reuse in the clickhouse-eloquent HTTP client (no CURLOPT_TCP_KEEPALIVE) — deeper root cause, larger change, follow-up.",
+      "CH Cloud side investigation (idle-scaling, network) — ops/infra, not repo.",
+      "Quantifying failed_jobs loss over the weekend — ops query, not a code change.",
+      "Migrations / DDL / job-logic changes."
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "Connect-timeout error rate on the analytics write path materially reduced (~0 over a comparable weekend).", "source": "ticket", "decision": "implement", "reason": "Raise timeout_connect->5 + retries->1 on the write connection."},
+    {"item": "No analytics events lost to failed_jobs from connect timeouts.", "source": "ticket", "decision": "implement", "reason": "Already protected by DEV-2102 retry + DEV-2003 dedup; this lowers the frequency of reaching the retry ceiling. Verified via failed_jobs check (human QA / ops)."},
+    {"item": "Timeout/retry values are env-driven and documented.", "source": "ticket", "decision": "implement", "reason": "Add keys to .env.example + update OKF wiki."}
+  ],
+  "questions": [
+    {"q": "Env-var strategy: raise the SHARED CLICKHOUSE_TIMEOUT_CONNECT/CLICKHOUSE_RETRIES defaults (lifts read paths clarity_clickhouse + public_clickhouse too), OR introduce WRITE-specific keys (CLICKHOUSE_WRITE_TIMEOUT_CONNECT / CLICKHOUSE_WRITE_RETRIES) scoped to clarity_clickhouse_write only?", "answered": true, "answer": "WRITE-specific keys: add CLICKHOUSE_WRITE_TIMEOUT_CONNECT (default 5) and CLICKHOUSE_WRITE_RETRIES (default 1) scoped to clarity_clickhouse_write only. Read paths (clarity_clickhouse, public_clickhouse) keep their 2s/0 fast-fail behavior unchanged.", "source": "human:Dalton 2026-06-30"},
+    {"q": "Retries value on the write path: 1 (minimal, matches '>=1'), or higher (2-3)?", "answered": true, "answer": "1 — one fast in-client re-attempt before the job's 3x/10s backoff.", "source": "human:Dalton 2026-06-30"},
+    {"q": "timeout_connect target value?", "answered": true, "answer": "5s — the package's own default ($config['timeout_connect'] ?? 5) and exactly what the ticket proposes ('~5s, the package default').", "source": "ticket"},
+    {"q": "Does the existing no-swallow propagation test need changes?", "answered": true, "answer": "No — it overrides timeout_connect=1/retries=0 via config()+DB::purge(), self-contained, unaffected by default changes.", "source": "code"},
+    {"q": "Is the OKF 'intentionally 2s' line a deliberate owner decision needing sign-off, or stale docs?", "answered": true, "answer": "The ticket reporter (Dalton) explicitly proposes raising it, so the decision-owner has already signaled intent; treat the wiki line as docs to update in-band.", "source": "ticket"}
+  ],
+  "blockers": [],
+  "notes": [
+    "All three CH connections (clarity_clickhouse, clarity_clickhouse_write, public_clickhouse) currently share CLICKHOUSE_TIMEOUT_CONNECT (default 2) and CLICKHOUSE_RETRIES (default 0) — confirmed in config/database.php.",
+    "Package default timeout_connect is 5s (ClickhouseHttpClient.php:32); app deliberately overrode to 2.",
+    "ClickhouseHttpClient retry semantics: attempts = 1 + max(0, retries); cURL errors (incl. connect timeout) trigger retry, 4xx breaks out — so retries=1 => 2 connect attempts.",
+    "CURLOPT_TIMEOUT = queryTimeout + connectTimeout, so +3s wall-clock budget per request when connect goes 2->5; acceptable (queryTimeout=60).",
+    "Write-connection consumers verified: app/Clickhouse/Models/Analytics.php (TrackAnalytics) + app/Jobs/SyncDispositionToClickhouse.php. No missed callers.",
+    "TrackAnalytics job: tries=3, backoff=10, timeout=120 — 3 attempts at 5s connect each still fit the 120s job timeout."
+  ],
+  "tests": [
+    {"file": "tests/Feature/Jobs/TrackAnalyticsTest.php", "what_it_pins": "config('database.connections.clarity_clickhouse_write.timeout_connect') >= 5 AND 'retries' >= 1 — catches a future regression resetting the connect budget below the CH Cloud TLS window."}
+  ],
+  "grounding": {
+    "key_files": ["config/database.php:188-210", "app/Jobs/TrackAnalytics.php:53", "app/Clickhouse/Models/Analytics.php:11", "app/Jobs/SyncDispositionToClickhouse.php:46", "vendor/insight-lpr/laravel-clickhouse-eloquent/src/ClickhouseHttpClient.php:32-34,393-438", "tests/Feature/Jobs/TrackAnalyticsTest.php:76-102", ".env.example:89-90", "okf/concepts/clickhouse-integration.md:28"],
+    "code_flow": "TrackAnalytics::handle() -> Analytics::insertAssoc() (connection clarity_clickhouse_write) -> BaseModel::insertAssoc() -> ClickhouseHttpClient::request() with CURLOPT_CONNECTTIMEOUT=timeout_connect, loop (1+retries) attempts; exhausted -> throw ClickhouseException -> queue retry 3x/10s -> dispatch-UUID dedup keeps exactly-once.",
+    "tables": ["clarity.analytics"],
+    "related_components": ["app/Jobs/SyncDispositionToClickhouse.php (shares the write connection; inherits the change)", "tests/Feature/Jobs/SyncDispositionToClickhouseTest.php (parallel no-swallow test, unaffected)"]
+  },
+  "exhaustiveness": {
+    "grep_patterns": ["CLICKHOUSE_TIMEOUT_CONNECT", "CLICKHOUSE_RETRIES", "timeout_connect", "'retries'", "CURLOPT_CONNECTTIMEOUT", "clarity_clickhouse_write"],
+    "sites": [
+      {"file": "config/database.php (clarity_clickhouse read)", "status": "shared-env", "reason": "timeout_connect/retries via CLICKHOUSE_TIMEOUT_CONNECT/CLICKHOUSE_RETRIES — lifted too if shared vars are raised (Q1)."},
+      {"file": "config/database.php (clarity_clickhouse_write)", "status": "buggy", "reason": "Primary offender: 2s/0 retries on the failing write path."},
+      {"file": "config/database.php (public_clickhouse read)", "status": "shared-env", "reason": "Same shared env vars (Q1)."},
+      {"file": ".env.example:89-90", "status": "buggy", "reason": "Missing the timeout/retries keys — violates 'documented' AC."},
+      {"file": "okf/concepts/clickhouse-integration.md:28", "status": "buggy", "reason": "States 2s is intentional — will be stale after the fix."},
+      {"file": "ClickhouseHttpClient.php:32-34,393-438", "status": "safe", "reason": "Package defaults (5s/0) + retry loop correct; no vendor change."},
+      {"file": "tests/Feature/Jobs/TrackAnalyticsTest.php:91-93 & SyncDispositionToClickhouseTest", "status": "safe", "reason": "Override timeout/retries locally; unaffected by default change."}
+    ]
+  },
+  "data_impact": {"pg_tables": [], "ch_tables": ["clarity.analytics"], "mv_or_cdc_implications": "None — config-only; clarity.analytics is a direct MergeTree insert target. No DDL, no CDC change.", "indexes_relied_on": "None affected."},
+  "derivation_log": [],
+  "missed_caller_candidates": [],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "AC-1 connect-timeout rate reduced", "kind": "human", "intent": "Compare prod connect-timeout ClickhouseException count on TrackAnalytics over a post-deploy weekend vs the 19-occurrence 2026-06-27/28 baseline."},
+      {"ac": "AC-2 no events lost to failed_jobs", "kind": "human", "intent": "Query failed_jobs for TrackAnalytics connect-timeout rows post-weekend; expect zero."},
+      {"ac": "AC-3 env-driven + documented", "kind": "agent", "intent": "Assert write-connection config resolves timeout_connect>=5 / retries>=1; verify .env.example documents the keys; verify OKF wiki line updated."}
+    ],
+    "seed_scenario": "No data seed needed for the config-resolution test. Production verification is ops-side (Horizon/failed_jobs over a weekend).",
+    "personas": ["Horizon operator (failed_jobs/queue depth)", "Backend engineer (config resolution + .env.example diff)"],
+    "pg_tables": [],
+    "ch_tables": ["clarity.analytics"]
+  },
+  "confidence": 82
+}

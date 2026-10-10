@@ -1,0 +1,96 @@
+{
+  "key": "DEV-2736",
+  "generated_at": "2026-09-25T15:29:05Z",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "confidence": 88,
+  "base_sha": "b999329615174f5e3c6bfe7f77e5c592f01c021a",
+  "jira": {
+    "url": "https://insightlpr-team.atlassian.net/browse/DEV-2736",
+    "id": "31244",
+    "summary": "Company Metrics, reshape LPR Recovery leaderboard to match Scans and Staging Live Hits",
+    "type": "Story",
+    "priority": "Medium",
+    "status": "To Do",
+    "sprint": "Sprint 41",
+    "application": "Clarity",
+    "assignee": "Dalton McCleery",
+    "first_glance_comment": "41855",
+    "branch_path": "main→main",
+    "verdict": "Ready",
+    "hardness": "Med",
+    "relates": {
+      "DEV-2654": "QA Complete"
+    },
+    "reget_at": "2026-09-25T15:24:00Z"
+  },
+  "reconcile": {
+    "method": "Single prep pass on origin/main b999329615174f5e3c6bfe7f77e5c592f01c021a. Live Jira re-GET matches the intake on type, status, sprint, assignee, and acceptance criteria. Comment 41855 is the only comment.",
+    "candidates": 1,
+    "driver_verified": [
+      "Company Metrics cards() order in okf/concepts/company-metrics-dashboard.md lists unique-scans-leaderboard, recovery-leader, staging-live-hit-leader as keys 9, 10, and 11. Code is the grid. This plan does not reorder it.",
+      "RecoveryLeader heading is 'LPR Recovery Leaderboard' at app/Filament/Widgets/Dashboard/RecoveryLeader.php:30. getCardKey is recovery-leader at line 155. getType is bar at line 261.",
+      "RecoveryLeader::getData at lines 264-296 builds one dataset per kit across 13 monthly buckets and passes stack recoveries. Labels come from getGraphLabels, which are month strings.",
+      "RecoveryLeader::getOptions at lines 100-111 sets y.stacked and x.stacked true. interaction.mode is index.",
+      "RecoveryLeader::leaderboardForSelectedRange at lines 188-208 reads one window for today, last_7d, and last_month. this_month reads the last getMonthlyData bucket, which is the full calendar month, not month-to-date.",
+      "RecoveryLeader::chartSeries is the trait BuildsDateFilterChartSeries::chartSeries at lines 60-76. It sums each getMonthlyData bucket.",
+      "RecoveryLeaderQuery::handleSql at app/Clickhouse/Queries/RecoveryLeaderQuery.php:24-50 reads clarity.recovery_scans FINAL and clarity.recoveries FINAL, keeps _peerdb_is_deleted = 0, weights kit_count / total_count, groups by k.id and k.name, and ends with ORDER BY total DESC LIMIT 10. handle at lines 56-60 keys the map by name.",
+      "repo_date filters are Y-m-d strings. assertDate at lines 69-74 rejects anything else. okf/concepts/lpr-assist.md records the same fractional credit and says to filter repo_date.",
+      "docs/investigations/DEV-2654/recovery-scans-audit.md finds that query accurate-as-is. The view-without-FINAL gap on clarity.lpr_assists is a different read and stays closed out of this story.",
+      "StagingLiveHitLeader::getData at app/Filament/Widgets/Dashboard/StagingLiveHitLeader.php:229-238 returns one dataset. Labels are kit names from leaderboardForSelectedRange. That method at lines 268-289 drops key 0 and array_slices 10.",
+      "StagingLiveHitLeader::getOptions at lines 153-169 still sets stacked true. That is leftover from the old kits-by-month chart.",
+      "UniqueScansLeaderboard::getData at app/Filament/Widgets/Dashboard/UniqueScansLeaderboard.php:234-245 returns one dataset labeled Distinct Plates. getOptions at lines 100-157 has subtitle 'Top 10 kits by distinct plates', interaction mode nearest, and no stacked scales. makeDataset at lines 456-473 paints the max bars in success green and the field in zinc.",
+      "No Blade or JS file builds this chart. resources/css/filament/app/theme.css:67 says chart rules are omitted on purpose. The Chart.js options are the RawJs in getOptions.",
+      "Kit-user ranking is LeaderboardTableWidget at app/Filament/Widgets/KitUserRecoveries/LeaderboardTableWidget.php. It queries RecoveryKitLeaderboard. RecoveryLeaderboardExporter writes Kit Name, Total, and Rank. That page is not the Company Metrics card.",
+      "tests/Filament/Widgets/Dashboard/RecoveryLeaderTest.php:330 asserts the old positional month zip. test_repo_date_sql_compares_y_m_d_strings asserts the calendar-date SQL. The widget tests stub RecoveryLeaderQuery."
+    ]
+  },
+  "okf_cite": {
+    "at": "2026-09-25",
+    "proven_stay": "Fractional kit credit on clarity.recovery_scans FINAL. okf/concepts/lpr-assist.md related-surfaces table.",
+    "unproven": ["what series", "top-N", "kit vs kit-user naming", "rollup or org-total parity with Scans and Staging"]
+  },
+  "synthesis": "The compact card already headlines the selected-window leader from RecoveryLeaderQuery. The expanded chart still plots 13 months of stacked per-kit series. Dalton answered Q1 B, Q2 Distinct Recoveries / Top 10 kits by recoveries / Distinct recoveries, and Q3 A the existing monthly sum. The fractional FINAL SQL stays.",
+  "shape_diff": {
+    "recovery_expanded_chart": "N datasets, one per kit name, 13 month labels, stack recoveries",
+    "scans_expanded_chart": "1 dataset, kit-name labels, top 10 for the selected window, no stack",
+    "staging_live_hit_expanded_chart": "1 dataset, kit-name labels, top 10 for the selected window. Options still declare stacked true.",
+    "recovery_query": "name => fractional total, SQL LIMIT 10, recovery_scans FINAL + recoveries FINAL, repo_date Y-m-d",
+    "staging_query": "kit_id rollup including key 0, PHP slice 10, hits_cold uniqExactIf",
+    "scans_query": "kit_id rollup including key 0, PHP slice 10, scans_cold distinct plates"
+  },
+  "scope": {
+    "summary": "getData is one selected-window series. Chrome copies UniqueScansLeaderboard with Dalton's Distinct strings. chartSeries stays the monthly top-10 sum. The fractional SQL stays.",
+    "in": [
+      "RecoveryLeader::getData returns one dataset labeled Distinct Recoveries from the selected-window map.",
+      "getOptions and makeDataset copy UniqueScansLeaderboard. Subtitle is Top 10 kits by recoveries. Axis title is Distinct recoveries.",
+      "chartSeries stays BuildsDateFilterChartSeries."
+    ],
+    "out_of_scope": [
+      "RecoveryLeaderQuery SQL and the name-keyed handle map.",
+      "Compact-card headline, fractional number_format, and the DEV-2586 leader name.",
+      "StagingLiveHitLeader, UniqueScansLeaderboard, and the kit-user table.",
+      "okf edits, DEV-2660, DEV-2738, Cloud ClickHouse writes, and provision."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "LPR Recovery leaderboard UI matches Scans / Staging Live Hits (top-10, single-series).",
+      "source": "Jira description",
+      "decision": "implement_after_provision",
+      "reason": "Q2 sets the dataset label to Distinct Recoveries. The list shape is one dataset with kit-name labels. SQL LIMIT 10 already caps the map."
+    },
+    {
+      "item": "Counts remain accurate versus the recovery source used after DEV-2654.",
+      "source": "Jira description",
+      "decision": "implement",
+      "reason": "The bars use the same RecoveryLeaderQuery map the headline already reads. handleSql stays."
+    },
+    {
+      "item": "Visual parity against Scans and Staging Live Hits on the same org and date window.",
+      "source": "Jira description",
+      "decision": "implement_after_provision",
+      "reason": "Q1 B copies UniqueScansLeaderboard getOptions and makeDataset. Subtitle is Top 10 kits by recoveries. Axis title is Distinct recoveries."
+    }
+  ]
+}

@@ -1,0 +1,619 @@
+{
+  "key": "DEV-2252",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "base-resolve sub-agent proposed `otto` (conf 95) but that was WRONG on inspection: main already ships the zip-code zone-creation surface (ZoneZipSearchController, ManageZones, Tiger\\ZipCode5All, resources/js/components/zone-manager.js). `otto` only adds refactored Zone services + Otto AI tools on top, and LACKS main's OrgRunArea/RunArea Materializer. Driver overrode to main.",
+  "branch": "claude/dev-2252-f748a2",
+  "main_checkout": "/Users/daltonmccleery/Herd/platform",
+  "run_root": "/Users/daltonmccleery/Herd/platform/.claude/worktrees/DEV-2252",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "grep-backstop",
+      "model": "haiku",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 193,
+      "tokens_total": 92182
+    },
+    {
+      "slot": "prep-candidate:2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 643,
+      "tokens_total": 119768
+    },
+    {
+      "slot": "prep-candidate:3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 643,
+      "tokens_total": 116664
+    },
+    {
+      "slot": "prep-candidate:1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 885,
+      "tokens_total": 162086
+    },
+    {
+      "slot": "plan-arbiter",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "plan",
+      "dur_s": 122,
+      "tokens_total": 0
+    },
+    {
+      "slot": "implement:t2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 153,
+      "tokens_total": 82959
+    },
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 4376,
+      "tokens_total": 321556
+    },
+    {
+      "slot": "implement:t3",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 111,
+      "tokens_total": 0
+    },
+    {
+      "slot": "review-lane:claude1",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 995,
+      "tokens_total": 151232
+    },
+    {
+      "slot": "review-lane:claude1-rn2",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 879,
+      "tokens_total": 135171
+    },
+    {
+      "slot": "review-lane:claude1-rn3",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 749,
+      "tokens_total": 132633
+    },
+    {
+      "slot": "review-lane:claude1-rn4",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 704,
+      "tokens_total": 133253
+    },
+    {
+      "slot": "review-lane:claude1-rn5",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 738,
+      "tokens_total": 140371
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "no_spawn": false,
+    "start_at": "plan",
+    "stop_at": "review",
+    "only": null,
+    "skip": [],
+    "force": false,
+    "eli5": true
+  },
+  "knowledge_cards_loaded": [
+    "clarity/scout.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "fast-pass confidence 64 (<80)",
+    "escalate.recommend=true",
+    "unmerged-branch dependency DEV-2320 (otto)",
+    "open questions answered:false"
+  ],
+  "best_of_n": true,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [
+    {
+      "file": "app/Services/RunArea/Materializer.php",
+      "symbol": "ST_Union/ST_MakeValid/ST_CollectionExtract",
+      "referenced_at": "app/Services/RunArea/Materializer.php:39,43,80",
+      "note": "SAME geometry-resolution idiom as Zone::rebuildGeometryFromDefinition \u2014 top exhaustiveness candidate"
+    },
+    {
+      "file": "app/Services/Zones/KmlZoneParser.php",
+      "symbol": "rebuildGeometryFromDefinition",
+      "referenced_at": "app/Services/Zones/KmlZoneParser.php:182",
+      "note": "second caller of the rebuild path"
+    },
+    {
+      "file": "app/Filament/Forms/Components/ZoneMapDisplay.php",
+      "symbol": "zipCodes/zcta5_all",
+      "referenced_at": "app/Filament/Forms/Components/ZoneMapDisplay.php:114,133,137",
+      "note": "second UI surface reading the same zip source"
+    },
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutZonesController.php",
+      "symbol": "geom_geojson",
+      "referenced_at": "app/Http/Controllers/Api/ClarityScoutZonesController.php:25,40",
+      "note": "driver-facing read of zone geom; a NULL geom surfaces here too"
+    },
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+      "symbol": "geom_geojson",
+      "referenced_at": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:1067,1072",
+      "note": "admin Bird's Eye read of zone geom"
+    },
+    {
+      "file": "app/Services/Scout/BuildShiftSummary.php",
+      "symbol": "geom_geojson",
+      "referenced_at": "app/Services/Scout/BuildShiftSummary.php:359,370",
+      "note": "shift summary consumes zone geom"
+    },
+    {
+      "file": "app/Filament/Actions/ZoneQuickEditAction.php",
+      "symbol": "Zone::",
+      "referenced_at": "app/Filament/Actions/ZoneQuickEditAction.php:44,63,70",
+      "note": "alternate zone edit entry point"
+    },
+    {
+      "file": "routes/web.php",
+      "symbol": "ZoneZipSearchController/zip-search",
+      "referenced_at": "routes/web.php:24,86",
+      "note": "route + auth gate for the zip search endpoint"
+    }
+  ],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "73472189cf9315ab5c4c344a7f421de7924edae4",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "claude/dev-2252-f748a2",
+      "complexity": "complex",
+      "model": "sonnet"
+    },
+    {
+      "id": "t2",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "claude/dev-2252-f748a2",
+      "complexity": "complex",
+      "model": "sonnet"
+    },
+    {
+      "id": "t3",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "claude/dev-2252-f748a2",
+      "complexity": "complex",
+      "model": "opus (driver-inline)"
+    }
+  ],
+  "review_number": 5,
+  "pr": {
+    "number": 414,
+    "url": "https://github.com/insight-lpr/platform/pull/414",
+    "draft": false
+  },
+  "pr_urls": {},
+  "spawned_sessions": [
+    {
+      "segment": "gate",
+      "session_id": "3efb3249-6381-42f5-848a-9a72631f5a5a",
+      "at": "2026-09-16T17:39:48Z",
+      "note": "CCD desktop session. list_sessions excludes the current session, so this id was DERIVED from the session scratchpad path, not read from the API. Verify before acting on it; session-closeout.sh refuses ids it cannot match anyway. Session A is a desktop session and can only be archived by a desktop session."
+    },
+    {
+      "segment": "build",
+      "session_id": "87619a25-f589-4510-91d8-7ade945389f8",
+      "at": "2026-09-16T17:39:48Z",
+      "note": "CLI background session, short id 87619a25, name 'DEV-2252: Phase B - Implement', cwd = run root. Verified running via `claude agents --json`."
+    },
+    {
+      "segment": "qa",
+      "session_id": "248c8181",
+      "at": "2026-09-16T21:35:00Z",
+      "note": "CLI background session, name 'DEV-2252: Phase C - QA', cwd = run root. Verified running via `claude agents --json`. Its brief instructs it to `claude stop 87619a25-...` as its first act."
+    }
+  ],
+  "jira_in_progress_by": "pre-existing @ observed 2026-09-16T18:05Z (ticket already In Progress; no transition needed)",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "Transition id 4 'In Code Review' posted via Atlassian MCP at 2026-09-17T13:23Z. The undraft of PR #414 did NOT transition it (status was still In Progress after undraft), so this is the designed pipeline fallback, not a human action.",
+  "assumed": [],
+  "comment_ids": {
+    "status": "40032",
+    "build_record": "40077"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "resource_envelope": {
+      "verdict": "not-measured",
+      "basis": "n/a",
+      "note": "Not scale-relevant. qa-prep Step 6b-2's mechanical trigger DID fire on two new ->pluck() calls, so it was examined rather than waved off: both are whereIn(<caller-supplied list>)->distinct(), bounded by the zone's zip list / the run area's reference list, not by table cardinality. No command, job, CH query class, or migration is touched."
+    },
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "n/a",
+      "ch_container": "n/a",
+      "frontend_build": "not-needed (committed bundle already carries the change)",
+      "postgres_db": "zod_claude_dev_2252_f748a2 (+ testing zod_testing_claude_dev_2252_f748a2)",
+      "ch_strategy": "deferred",
+      "herd_site": "clarity-claude_dev_2252_f748a2.test (relinked to the recovered worktree)"
+    },
+    "provisioned_early": true,
+    "guide": ".context/qa-human-guide.html",
+    "screenshots": ".context/qa-screenshots/ (12 shots + manifest.json)",
+    "teardown_detail": "Torn down 2026-09-17 via insightlpr:qa-complete QA_TEARDOWN_ONLY=1. Dropped zod_claude_dev_2252_f748a2 + zod_testing_claude_dev_2252_f748a2, unlinked herd site clarity-claude_dev_2252_f748a2.test, restored .env/.env.testing keys, swept agent-browser sessions. No ClickHouse resources existed (strategy=deferred). Ledger deleted; receipt at .context/qa-complete.md. No GUARD skips."
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test tests/Services/RunArea/MaterializerTest.php",
+        "passed": 10,
+        "failed": 0
+      },
+      {
+        "cmd": "php artisan test tests/Filament/Pages/ManageZonesTest.php",
+        "passed": 28,
+        "failed": 0
+      },
+      {
+        "cmd": "php artisan test tests/Filament/Resources/ZoneResourceTest.php",
+        "passed": 26,
+        "failed": 0
+      },
+      {
+        "cmd": "php artisan test tests/Models/ZoneTest.php",
+        "passed": 12,
+        "failed": 3,
+        "note": "3 PRE-EXISTING failures, identical on pristine HEAD (11 passed there vs 12 here)."
+      },
+      {
+        "cmd": "php artisan test tests/Jobs/Org/MaterializeOrgRunAreaTest.php tests/Models/OrgRunAreaTest.php tests/Feature/Http/Controllers/ZoneZipSearchControllerTest.php tests/Services/Zones",
+        "passed": 26,
+        "failed": 0
+      },
+      {
+        "cmd": "composer format (pint)",
+        "passed": 1,
+        "failed": 0
+      }
+    ],
+    "deviations": [
+      {
+        "source": "implement",
+        "edit": "t1 worker changed tests/Models/ZoneTest.php's pre-existing seedTigerZip from the zod to the platform connection, to fix 2 pre-existing failures. Driver REVERTED it: seeding tiger_data.zcta5_all on `platform` makes the suite HANG INDEFINITELY. Proven via pg_locks: the platform connection waits for AccessShareLock on public.spatial_ref_sys (needed by ST_Transform), which the zod connection holds as AccessExclusiveLock for the life of every test from HasZodDatabase's `DROP EXTENSION ... CASCADE`. ZoneTest is now exactly HEAD + one new test.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "implement",
+        "edit": "ManageZonesTest::test_saves_a_zip_only_zone could not be fixed as planned (seed a resolvable zip + assert non-empty geom) \u2014 same spatial_ref_sys lock makes it hang. Replaced with test_zip_only_zone_with_no_census_boundary_is_rejected, which proves the actual D1/D2 fix (the old test asserted the BUG: success over a NULL geom). The resolvable-zip happy path is not pinnable by the PHP suite in this harness and is documented in the test docblock as browser-QA coverage.",
+        "ac_ref": "AC-1",
+        "ac_delta": null
+      },
+      {
+        "source": "implement",
+        "edit": "Driver tightened the t1 worker's `catch (RuntimeException)` in ManageZones::save(). As written it would have converted ANY RuntimeException raised inside the save transaction into a 'no Census boundary' form error. An existing test (test_save_persists_the_zone_and_assignment_when_broadcasting_throws) deliberately throws RuntimeException in that transaction. Now gated on a sentinel set only by the empty-geometry guard; anything else rethrows.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "implement",
+        "edit": "t3 (Materializer) implemented inline by the driver rather than dispatched to a worker, after the t1/t2 workers left 4 concurrent phpunit processes and orphaned idle-in-transaction Postgres backends contending on the single branch test DB. Node was small and fully specified.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "environment",
+        "edit": "Phases 0-5 ran in the reused, generically-named worktree .claude/worktrees/metric-cards-org-help-27a357. Mid-Phase-6 a concurrent interactive session started DEV-2591, adopted that same tree, checked out claude/dev-2591-651eed and re-keyed its .env \u2014 nothing flagged the collision because the directory name carried no ticket identity. No DEV-2252 work was lost (branch already pushed at eb2c1d7dc; the seeded DB was never touched by the other run). Recovered into a dedicated worktree .claude/worktrees/DEV-2252 WITHOUT modifying the DEV-2591 tree: worktree add, vendor/node_modules copied from the main checkout, .env rewritten to the existing seeded DBs with CLICKHOUSE_HOST re-neutralized, and the herd site relinked (unrelated .test sites verified before and after). herd link's Boost step rewrote CLAUDE.md/AGENTS.md/.junie/guidelines.md \u2014 reverted immediately, since they would have counted as material post-review rework and broken rework-gate.sh. No application code changed at any point.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "process",
+        "edit": "The handoff's first instruction, `claude stop 87619a25-f589-4510-91d8-7ade945389f8`, returned 'No job matching' and was initially read as 'the build session already exited'. That was wrong: `claude stop` takes the SHORT id. `claude agents --json` still listed 87619a25 as running, and `claude stop 87619a25` returned 'stopped 87619a25'. The build session ran unattended for the first part of this segment. Corrected in-session and recorded here rather than left implicit.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "qa-loop",
+        "edit": "AC-4 recorded as N/A rather than SATISFIED. It is the ticket's own QUESTION ('is this data/formatting validation or a lookup/geocoding failure?'), not a behaviour a QA step can verify. The answer is BOTH (D1/D2 server-side validation, D3/D4 client-side lookup), but Q1 was never answered, so this ticket cannot claim which defect produced the reported symptom. Marking it SATISFIED would have overstated what the run actually established.",
+        "ac_ref": "AC-4",
+        "ac_delta": null
+      },
+      {
+        "source": "process",
+        "edit": "Production reads blocked: an attempt to settle the tiger_data.state_all / tl_2019_us_county premises read-only against the ClickHouse Cloud CDC mirror was denied by the environment's permission classifier ('Production Reads'). Respected rather than worked around; the exact queries are carried to the operator in the PR Status block, the Jira mirror, and the Build Record.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "post-done-merge",
+        "edit": "Merged origin/main (66 commits) and reconciled generated build assets so PR #414 became mergeable and CI could run. No reviewed source changed.",
+        "ac_ref": null,
+        "ac_delta": null
+      }
+    ],
+    "review": {
+      "lanes": [
+        "claude1 (RN1)",
+        "claude1 (RN2)",
+        "claude1 (RN3)",
+        "claude1 (RN4)",
+        "claude1 (RN5)"
+      ],
+      "scores": [
+        82,
+        91,
+        93,
+        94,
+        94
+      ],
+      "findings_fixed": [
+        "H1 (high, correctness/AC): a rejected save rendered NOTHING to the admin. ValidationException was attached to data.definition, whose only component is Filament\\Forms\\Components\\Hidden - a bare <input> with no error slot and columnSpan hidden - and throwing ValidationException by hand from save() bypasses Filament's own onValidationError toast. The page blade has zero error surfaces. VERIFIED independently against vendor source. Fixed by also sending a persistent danger Notification.",
+        "M2 (medium, correctness/AC): partial zip resolution was still silent. ST_Union over ARRAY[...] drops NULL members, so polygons + an unresolvable zip produced a non-empty geometry, passed the emptiness guard, and silently discarded the zip. Fixed by checking unresolved zips independently of emptiness. Proven red->green by a new test.",
+        "M3 (medium, test integrity): both new Materializer tests could pass for the wrong reason. (a) expectException(RuntimeException) also accepts QueryException (which extends RuntimeException), so the test would pass if the UPDATE failed before the guard ran - now asserts the message. (b) $this->fail() throws AssertionFailedError, which also extends RuntimeException, so it was being swallowed by the adjacent catch - restructured to assert on the caught message outside the try.",
+        "L1 (low, correctness): the zip-lookup helper could itself throw a QueryException (a RuntimeException) while the sentinel was still null, masking the real cause with an unhandled 500. Now degrades to an empty list via catch (Throwable).",
+        "L2 (low, test adequacy): restored the definition-normalization coverage lost with the replaced test, via the rejection message (duplicates collapsed, integer zip cast to string).",
+        "RN2-M1 (medium, correctness): the NULL-drop insight was applied to ManageZones but NOT to Materializer, which uses the identical ST_Union(ARRAY[...]) construct. A run area of [valid polygon, state 'ZZ'] produced a non-empty geometry, passed the emptiness guard, and was stamped materialized while silently excluding the entire state - which then under-clips every Scout heatmap with no signal. Added unresolvedReferences() checking state/msa references against tiger_data.state_all/tl_2019_us_county (whereNotNull on the geometry column). Proven red->green: the new test does not throw at all against RN=2 code.",
+        "RN2-L1 (low, correctness - REGRESSION introduced by the RN=2 fix): unresolvedZipCodes() swallowed Throwable INSIDE the save transaction. Postgres aborts a transaction on any statement error, so the swallowed error made the subsequent COMMIT come back as a silent ROLLBACK while save() fell through to Analytics::track and the 'Zone saved' success toast - precisely AC-2 inverted, reintroduced by the hardening meant to protect it. Hoisted the lookup ABOVE the transaction (it reads nothing the transaction writes), which also takes the reference-table scan out from under the zones row lock.",
+        "RN2-L2 (low, correctness): unresolvedZipCodes() tested row existence, but zcta5_all.the_geom is nullable and a NULL geometry contributes nothing to the union - so such a zip was reported resolved and silently dropped. Now whereNotNull('the_geom'). Same fix applied to the new Materializer reference check.",
+        "RN2 non-scoring: corrected the H1 comment's rationale (BasePage::$reportValidationErrorUsing is never assigned in this app, so there is no Filament toast to bypass - the real reason is that `definition` has nowhere to render); softened the over-claimed strval assertion in the normalization test's docblock.",
+        "RN3-M1 (medium, incomplete fix): unresolvedReferences() only inspected state/msa entries with a non-empty string reference, so a RECOGNIZED kind that yields no SQL piece slipped through - notably `geometry` supplied as a JSON string (pieceFor returns null because is_array fails), an integer state FIPS, or an empty msa reference. inputs=[polygon-as-JSON-string, state TX] therefore stamped materialized covering Texas only, silently dropping the operator's polygon: the same silent-drop the round-3 guard exists to prevent, through a different door. inputs is Backyard-owned and unvalidated in Clarity, and the SIBLING builder (Zone::rebuildGeometryFromDefinition) explicitly tolerates a JSON-string polygon, so the shape is plausible. Now tracked per-entry and folded into the same rejection. Proven by a new test.",
+        "RN3-L1 (low): the try in unresolvedReferences() wrapped the WHOLE two-kind loop, so a failure on the msa pass discarded an already-collected state finding and returned []. Moved inside the loop - degrade for that kind only, never discard findings already collected.",
+        "RN3-L2 (low, test adequacy): the danger Notification - the only USER-VISIBLE half of the H1 fix - was unpinned by any test; deleting those lines left the suite green while the originally reported symptom returned. Now asserted with ->assertNotified('Zone not saved'), an API this repo already uses in ZoneResourceTest.",
+        "RN4-M1 (medium, incomplete fix): $malformed was collected in the pieceFor loop but the `$pieces === []` early return fired BEFORE it was ever read, so an ALL-malformed input set still no-oped silently. That is the likelier production shape - one bad serialization drops every entry, not just one - and on a re-materialize it left the row holding its OLD geometry and OLD materialized_at while the operator's boundary change was ignored with no signal. Moved the rejection ahead of the no-pieces return. The two documented-contract cases are untouched and still return early silently: empty inputs, and unrecognized-kind-only (kind 'nonsense' produces no $malformed entry). Proven red->green."
+      ],
+      "findings_residual": [
+        "RN2-M2 (medium, PRE-EXISTING, not introduced here): the `definition` ->rule() path (empty polygons AND empty zips) also renders nothing, for the same reason H1 did - the Hidden component has no error slot and the page has no form-level error region. Deliberately NOT fixed: it is a pre-existing validation-display bug on a different trigger than this ticket's zip path, and fixing it properly means a blade/view change outside target_files. This ticket already widened scope once by explicit operator decision (Q5); widening again unasked is not the driver's call. RECOMMEND a follow-up ticket - it is cheap and it is the same 'doesn't register' symptom class users report.",
+        "L3 (low, conditional): the Materializer throw escapes the queued MaterializeOrgRunArea. Under QUEUE_CONNECTION=sync it 500s Backyard's signed webhook; production runs Horizon {low} with tries=1, so it is one failed_jobs row - the intended loud signal. Not fixed: would touch BackyardController, outside target_files. Both review rounds independently agreed this triage is correct.",
+        "PRE-EXISTING, surfaced by the sweep, NOT introduced here: Materializer::polygonPiece() feeds arbitrary Backyard-authored GeoJSON into ST_GeomFromGeoJSON with no ring-arity check, where the Zone side has geoJsonHasValidRing() for exactly that reason.",
+        "Non-scoring: Tailwind 4 auto-source-detection minted/dropped phantom utilities in the built theme CSS because it scans non-source text (gained .invisible, lost .justify-end). Verified harmless - zero justify-end usages in app/ or resources/views. Worth an `@source not` for docs/, .ai/, tests/ in a follow-up.",
+        "Test-adequacy gap (non-scoring): the H1 danger Notification is not pinned by an assertNotified() assertion. Its delivery chain was verified by reading Filament vendor source, and Phase 6 browser QA confirms it visually, but a future deletion of those lines would not fail the suite.",
+        "RN5-M1 (medium, PRE-EXISTING, not introduced here): hydrateZips() silently truncates definition.zip_codes during edit hydration - it drops a zip with no signal on three paths, then syncEditingState $wire.set's the TRUNCATED list back as the authoritative definition, so the in-code comment 'the saved record is still authoritative server-side' is false by design. A transient zip-search failure permanently deletes that zip on the next save under a green 'Zone saved', and for an unresolvable zip the new server guard is unreachable from the browser because the client strips it first. NOT fixed here: pre-existing, and its sibling half (geometryToRings dropping interior rings) is explicitly owned by the unmerged DEV-2557 per prep-context Q4, so a fix would collide with that branch. STRONGLY RECOMMEND a follow-up ticket - this is the same defect class as D1/D4.",
+        "RN5-M2 (medium, test adequacy): no test resolves a REAL state/msa reference, so unresolvedReferences() is only ever proven to fire, never proven to stay quiet on a good reference - while whereNotNull('simplified_geom') is the highest-risk line in the diff. Not closable in this harness (same spatial_ref_sys wall as the zip happy path). Routed to QA as a verify step plus the production premise below, rather than a sixth review round.",
+        "RN5 non-scoring, self-inflicted: the `...$malformed` spread at Materializer.php:78 is dead after the new pre-transaction throw. Harmless clutter; fixing it would invalidate reviewed_sha and force a sixth round for a no-op."
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "claude1-rn2",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "claude1-rn3",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "claude1-rn4",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "claude1-rn5",
+          "source": "in-session-agent"
+        }
+      ],
+      "gate_score": 94,
+      "gate_score_src": "arbitration",
+      "rounds": [
+        {
+          "rn": 1,
+          "reason": "gate",
+          "at": "2026-09-16T19:05:00Z",
+          "note": "RN=1 scored 82/100 (below the 90 threshold) with one HIGH scoring finding. This is the single allowed gate-fix cycle."
+        },
+        {
+          "rn": 2,
+          "reason": "gate",
+          "at": "2026-09-16T19:35:00Z",
+          "note": "fix round for RN=1's scoring findings H1/M2/M3/L1/L2."
+        },
+        {
+          "rn": 3,
+          "reason": "regression",
+          "at": "2026-09-16T20:10:00Z",
+          "note": "RN=2 PASSED at 91/100, so this is NOT a gate-fix cycle and does not consume the 1-fix-cycle budget. Round 3 exists because RN=2 surfaced (a) M1, a real in-scope correctness defect on the Materializer, and (b) L1, a silent-rollback path that THIS PIPELINE's own RN=2 fix introduced. Per the flow's regression rule, parking on a defect the pipeline itself created would leave the tree worse than it started."
+        },
+        {
+          "rn": 4,
+          "reason": "scope",
+          "at": "2026-09-16T20:45:00Z",
+          "note": "RN=3 PASSED at 93/100. Round 4 is a scope round (not a gate-fix cycle, does not consume the budget): it closes the one remaining Medium, which was an incomplete fix in code THIS round authored, plus two Lows. All three fixes are small and inside files already in target_files."
+        },
+        {
+          "rn": 5,
+          "reason": "scope",
+          "at": "2026-09-16T21:10:00Z",
+          "note": "RN=4 PASSED at 94/100. Round 5 closes its one remaining Medium - the last known instance of this ticket's own defect class, in code round 4 authored. FINAL round: anything RN=5 surfaces below HIGH is recorded as residual and handed to QA/human review rather than looped again."
+        }
+      ],
+      "unresolved_premises": [
+        {
+          "claim": "The defect the reporter actually hit is one of D1-D5.",
+          "premise": "Q1 (which zip codes failed for the reporter) was never answered.",
+          "verify_by": "Ask the reporter for the failing zip codes. Not blocking - all four code defects are fixed regardless."
+        },
+        {
+          "claim": "L3 is latent in production and does not 500 Backyard's signed webhook.",
+          "premise": "The deployed QUEUE_CONNECTION is a real queue driver (Horizon/redis), not sync.",
+          "verify_by": "grep -E '^QUEUE_CONNECTION=' on the production .env, or read the Kamal deploy env."
+        },
+        {
+          "claim": "H1 is fully fixed - the admin now sees the rejection in a real browser.",
+          "premise": "The danger Notification renders on the ManageZones page; asserted server-side but not yet seen in a browser.",
+          "verify_by": "Phase 6 browser QA: open /app manage-zones, save a zone whose zip is absent from tiger_data.zcta5_all, confirm the red 'Zone not saved' toast appears."
+        },
+        {
+          "claim": "RN2-L2 is live rather than theoretical.",
+          "premise": "At least one production tiger_data.zcta5_all row has the_geom IS NULL (the column is nullable per okf/models/zcta5_all.md).",
+          "verify_by": "psql -c \"SELECT count(*) FROM tiger_data.zcta5_all WHERE the_geom IS NULL;\" (read-only, prod/staging zod)"
+        },
+        {
+          "claim": "The two Materializer call sites in ClarityScoutMapControllerTest are unaffected by the M1 reference check.",
+          "premise": "Both pass polygon-only inputs, so unresolvedReferences() returns []. All 65 tests in that file SKIPPED locally because the class is RequiresClickhouse and CH is deliberately down for this CH-free change.",
+          "verify_by": "CI runs this file with ClickHouse available (the PR targets main, so Pint & Tests runs); or locally re-run after qa-prep with QA_PROVISION_CH=yes."
+        },
+        {
+          "claim": "The new whereNotNull('simplified_geom') guard will not convert existing state-referencing run areas into hard failed_jobs entries on their next re-materialize.",
+          "premise": "tiger_data.state_all.simplified_geom is populated in production. Genuinely unsettled from this tree: the table is EMPTY locally (0 rows), and nothing in this repo populates that column on that table - StateSeeder.php:36-38 adds simplified_geom to `tiger.state`, a DIFFERENT table, with no backfill. Note the blast radius is narrow: a state-ONLY run area already threw via the emptiness guard, so whereNotNull only changes the MIXED (polygon + state) case, from silently under-clipping to failing loudly - which is the intended fix, but it is an operational change worth knowing before deploy.",
+          "verify_by": "Read-only on prod: SELECT count(*) AS rows, count(simplified_geom) AS with_geom FROM tiger_data.state_all; and SELECT count(*) AS rows, count(geom) AS with_geom FROM tiger_data.tl_2019_us_county;"
+        },
+        {
+          "claim": "L3's triage ('one failed_jobs row, the intended signal') is the production outcome rather than a 500 on Backyard's webhook.",
+          "premise": "Production QUEUE_CONNECTION is redis/Horizon, not sync (.env.example ships sync).",
+          "verify_by": "php artisan tinker --execute=\"echo config('queue.default');\" on a production-config host, or read the deployed env."
+        },
+        {
+          "claim": "No already-persisted NULL-geom zones need remediation.",
+          "premise": "The guard prevents NEW invisible zones; ones created before this fix keep geom=NULL, stay invisible on every map, and are surfaced nowhere (the Zones list never selects geom). Re-saving repairs them, but an admin cannot find them.",
+          "verify_by": "SELECT count(*) FROM platform.zones WHERE deleted_at IS NULL AND (geom IS NULL OR public.ST_IsEmpty(geom));"
+        },
+        {
+          "claim": "The msa half of the new reference guard is safe in production.",
+          "premise": "tiger_data.tl_2019_us_county is populated and its cbsafp values match what Backyard writes into inputs[].reference.",
+          "verify_by": "SELECT count(*) AS rows, count(geom) AS with_geom, count(DISTINCT cbsafp) AS cbsas FROM tiger_data.tl_2019_us_county;"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "d2217b6e41b5e17c60fa0ffd2dcf26170cef7e6b",
+      "rework_pivot": false,
+      "rework_gate_note": "REWORK_GATE fails after the main merge, but the 5 files it names all arrived FROM MAIN (DEV-2521, DEV-2463, a GHA deploy commit) and are absent from `git diff origin/main...HEAD`. The gate uses a two-dot reviewed_sha..HEAD diff, so any base merge trips it. All 6 reviewed files are byte-identical to reviewed_sha d2217b6e4. RN deliberately NOT bumped."
+    },
+    "ac": [
+      {
+        "item": "AC-1 \u2014 Zip-code zone creation reliably works across zip codes that HAVE a Census ZCTA boundary.",
+        "status": "SATISFIED",
+        "evidence": "Browser: 75201 resolved, drew a polygon, saved, and the geometry re-rendered on a fresh re-open (A4, A5). This is the path the PHP harness cannot reach at all."
+      },
+      {
+        "item": "AC-2 \u2014 A zip that cannot be resolved to a boundary fails LOUDLY, never silently 'saves' an invisible zone.",
+        "status": "SATISFIED",
+        "evidence": "A zip with no usable boundary is refused with a visible red persistent 'Zone not saved' toast naming it (A6); a valid zip alongside it does not mask the failure (A8); and the null/empty-geom zone count is still 0 afterwards, independently re-verified (A7)."
+      },
+      {
+        "item": "AC-3 \u2014 Malformed or truncated zip input never silently attaches an unrelated zip's boundary.",
+        "status": "SATISFIED",
+        "evidence": "A 4-digit fragment is rejected as malformed rather than prefix-matched (A2); a 5-digit zip with no row reports no boundary rather than attaching rows[0] (A3); a mixed batch keeps the good token and names both bad ones (A10)."
+      },
+      {
+        "item": "AC-4 \u2014 Confirm whether this is a data/formatting validation issue or a lookup/geocoding failure.",
+        "status": "N/A",
+        "evidence": "Not a verifiable behaviour \u2014 it is the ticket's own question. The answer is BOTH: D1/D2 were server-side validation/guard defects and D3/D4 were client-side lookup defects. It stays N/A rather than SATISFIED because Q1 was never answered: the reporter never said which zip codes failed, so this ticket cannot claim which defect produced the reported symptom."
+      },
+      {
+        "item": "AC-5 \u2014 A zip with no Census boundary shows a clear, actionable error and the admin can draw the zone manually.",
+        "status": "SATISFIED",
+        "evidence": "The error is specific and actionable ('No Census boundary found for ZIP code(s): 75203. Remove them, or draw the zone manually.'), and the admin can act on it in place: after a rejection, removing the zip and drawing the polygon by hand saved successfully without a reload (A9)."
+      },
+      {
+        "item": "AC-6 \u2014 OrgRunArea materialization cannot silently persist a NULL/empty geometry.",
+        "status": "SATISFIED",
+        "evidence": "Materializer throws rather than stamping a NULL/empty geometry for an unresolvable state (B4) or msa reference, and \u2014 the case with no prior coverage \u2014 stays quiet and produces a valid ST_MultiPolygon on a good polygon-only run area (B3). Caveat: both reference tables are empty in this environment, so the state/msa HAPPY path is unverified here."
+      }
+    ]
+  },
+  "run_root_note": "Phases 0-5 ran in .claude/worktrees/metric-cards-org-help-27a357 (a reused, generically-named worktree). During Phase 6 a concurrent session claimed that tree for DEV-2591, so the run was recovered into this dedicated worktree. See journal + .context/qa-prep-ledger.json qa_log.",
+  "handoff": {
+    "parked_at": "phase 7 step 1 \u2014 awaiting human QA",
+    "pr_draft": true,
+    "env_up": true,
+    "build_record": "DRAFTED, NOT POSTED \u2014 docs/investigations/DEV-2252/build-record-draft.md",
+    "why_parked": "Phase 7 step 1 parks in normal mode until human QA is done. Nothing outward-facing moves before then: the PR stays in draft, the ticket is NOT transitioned to In Code Review, the Build Record is held rather than posted, and the QA environment stays UP because the human needs it. This matches the standing operator preference recorded from DEV-2521.",
+    "resume": "/ticket DEV-2252 --resume"
+  },
+  "session_closeout": {
+    "at": "2026-09-17T13:35:00Z",
+    "result": "CLOSEOUT: no background sessions in the run root \u2014 nothing to do",
+    "build": "87619a25 already gone",
+    "qa": "248c8181 still running but its cwd moved to .../worktrees/metric-cards-org-help-27a357; script refused it (guard working). Surfaced to operator.",
+    "gate": "3efb3249 not present in list_sessions; the recorded id was derived, not API-read. Verified, no match, nothing archived."
+  },
+  "ci": {
+    "pint_and_tests": "PASS 3/3 (run 35229611349; 5m43s/5m13s/6m15s)",
+    "other_checks": "Deploy PR-414 preview PASS; OKF wiki health check PASS",
+    "merge_state": "MERGEABLE / CLEAN",
+    "root_cause": "PR #414 was mergeable=CONFLICTING/DIRTY. GitHub could not compute refs/pull/414/merge, and pull_request workflows run against that ref, so Actions never scheduled ANY run. Not [skip ci], not draft state - both earlier hypotheses were wrong.",
+    "fix": "merged origin/main; resolved the generated-file conflicts by keeping main's theme CSS + service worker byte-for-byte and re-pointing only the manifest's zone-manager entry"
+  },
+  "okf_ingest": {
+    "at": "2026-09-17",
+    "pages": [
+      "concepts/platform-gotchas.md (PG-031, PG-032)",
+      "concepts/zone.md",
+      "concepts/run-area.md",
+      "index.md",
+      "concepts/index.md",
+      "log.md"
+    ],
+    "lint": "passed (108 files, 0 warnings)",
+    "ci": "OKF wiki health check PASS",
+    "app_code_changed": false
+  }
+}

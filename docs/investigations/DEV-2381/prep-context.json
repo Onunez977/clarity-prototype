@@ -1,0 +1,85 @@
+{
+  "key": "DEV-2381",
+  "app": "clarity",
+  "repo_path": "/workspace",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "confidence": 92,
+  "synthesis": "DEV-2342 W1. After PR 328, scout:record-check-ins matches server-side in one CH statement per kit and PHP memory is O(matches). Duration is still blocked because every Scout reader filters clarity.sc_positions with lower(kit_mapping) against ORDER BY (kit_mapping, timestamp_utc). Cloud EXPLAIN 2026-08-13: 3355/33096 granules vs 20/33096 exact-case. Prod 2026-08-17 skipped kits with CH 159 at ~30s. Locked design (Jeffrey Cobb, DEV-2342 comment 38238): ADD PROJECTION proj_kit_mapping_lc ORDER BY (lower(kit_mapping), timestamp_utc) then off-peak MATERIALIZE (~6.5 GiB). chlocal owns the DDL (DEV-2177). Platform stays SELECT-only until Cloud apply, then schema dump + wiki. PHP keeps lower(kit_mapping). Schedule stays commented (W4).",
+  "scope": {
+    "summary": "No platform application-code change until Cloud apply. This run produces the chlocal operator handoff (exact ALTER, MATERIALIZE, success EXPLAIN), schema-dump instructions, and queued wiki notes. Do not apply Cloud DDL from this agent. Do not put ALTER/MATERIALIZE in a platform migration, PHP, or deploy hook. Do not uncomment scout:record-check-ins.",
+    "proposed_changes": [
+      {
+        "file": "docs/investigations/DEV-2381/operator-handoff.md",
+        "change": "Exact locked SQL, ownership, rejected approaches, W4 gate.",
+        "reason": "chlocal operator packet; platform cannot execute the ALTER.",
+        "ref": "DEV-2342 comment 38238"
+      },
+      {
+        "file": "docs/investigations/DEV-2381/explain-runbook.md",
+        "change": "Canary + post-MATERIALIZE EXPLAIN and query_log pass/fail.",
+        "reason": "Success is tens of granules, not ~3355.",
+        "ref": "docs/investigations/DEV-2342/derivation_log.md"
+      },
+      {
+        "file": "docs/investigations/DEV-2381/wiki-follow-through.md",
+        "change": "Queued okf + /chlocal dump steps; not applied this run.",
+        "reason": "WRITE-after-approval; projection not on Cloud yet.",
+        "ref": "AGENTS.md WRITE rule; .claude/commands/chlocal.md"
+      }
+    ],
+    "target_files": [
+      "docs/investigations/DEV-2381/operator-handoff.md",
+      "docs/investigations/DEV-2381/explain-runbook.md",
+      "docs/investigations/DEV-2381/wiki-follow-through.md"
+    ],
+    "out_of_scope": [
+      "ALTER TABLE clarity.sc_positions ADD PROJECTION in platform",
+      "MATERIALIZE from platform PHP or deploy hook",
+      "Applying DDL to ClickHouse Cloud from this agent",
+      "Uncommenting scout:record-check-ins (DEV-2342 W4)",
+      "ALIAS / virtual column / table rebuild / bloom skip index as the shipped fix",
+      "PHP rewrite off of lower(kit_mapping)",
+      "GPS decimation",
+      "okf/ edits this run"
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Projection proj_kit_mapping_lc added and materialized on Cloud sc_positions",
+      "source": "ticket",
+      "owner": "chlocal",
+      "this_run": "handoff only"
+    },
+    {
+      "item": "Single-kit 15-minute EXPLAIN: tens of granules, not ~3355",
+      "source": "ticket",
+      "owner": "chlocal",
+      "this_run": "runbook + DEV-2342 baseline"
+    },
+    {
+      "item": "query_log matcher p50 well below 400ms and read_rows well below ~500k",
+      "source": "ticket",
+      "owner": "chlocal",
+      "this_run": "runbook"
+    },
+    {
+      "item": "Platform PHP unchanged; lower(kit_mapping) stays",
+      "source": "ticket + HARD OWNERSHIP",
+      "owner": "platform",
+      "this_run": "satisfied (no app/ diff)"
+    },
+    {
+      "item": "Schedule stays commented until W4",
+      "source": "ticket + HARD OWNERSHIP",
+      "owner": "platform",
+      "this_run": "confirmed routes/console.php"
+    }
+  ],
+  "needs_human": [],
+  "blockers": [],
+  "blockers_resolved": [
+    "Design locked on comment 38238 — no interview required",
+    "Ownership locked (DEV-2177) — no platform ALTER path"
+  ]
+}

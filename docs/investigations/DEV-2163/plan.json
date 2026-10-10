@@ -1,0 +1,25 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Repoint ScoutCheckInRollupQuery to the open-assignment address path + re-fixture its tests",
+      "approach": "TDD, single node (query + its tests must agree on the new data shape, so they move together). (1) Re-fixture the test file: replace insertRecoveryAddress() with a helper that seeds zod.public_address (EWKT geo string, e.g. 'SRID=4326;POINT (lng lat)', _peerdb_is_deleted=0) + zod.public_hotlist_address (hotlist_id->address_id link, _peerdb_is_deleted=0), and repoint the 6 check-in tests (test_can_get_check_in_counts, test_check_in_counts_respect_radius, _dedupe_within_hour_bucket, _scoped_to_kit, _exclude_non_open_hotlists, _ignore_unauthorized_staging_orgs) + the contract test onto it. Add a new test seeding NULL-geo, empty-geo, and (0,0)-geo address rows alongside a valid nearby address, asserting the malformed/zero rows are excluded and the query does not error. Confirm the suite goes RED against the current recovery_address query. (2) Rewrite the `addresses` CTE in ScoutCheckInRollupQuery::handle(): resolve open-assignment address ids via zod.public_hotlist_address.address_id IN (SELECT id FROM clarity.hotlist FINAL WHERE _peerdb_is_deleted=0 AND status=OPEN_STATUS AND length(plate) > 3 AND (hotlistOrgFilter)); resolve coords from zod.public_address filtered by a.id IN (...) (NO join on the 189M-row table); parse geo with toFloat64OrNull(extract(a.geo,'POINT ?\\(([-0-9.]+) ')) as addr_lng / toFloat64OrNull(extract(a.geo,' ([-0-9.]+)\\)')) as addr_lat; guard a.geo IS NOT NULL AND a.geo != '' AND addr_lng IS NOT NULL AND addr_lat IS NOT NULL AND addr_lng != 0 AND addr_lat != 0; carry hl.is_staged through (the hotlist subquery must expose is_staged so the address rows can be tagged — resolve via a small hotlist CTE that both the address-id membership and the is_staged tag read from). Preserve OPEN_STATUS, PROXIMITY_METERS, the matches-CTE DISTINCT (address_id,is_staged,hour_bucket) dedup, and the outer countIf(is_staged) split unchanged. Do NOT apply FINAL to the two zod tables (rely on _peerdb_is_deleted=0 + the matcher DISTINCT, per HotlistAddressGeohashQuery convention). (3) Add the scan-window bbox prefilter: from the kit's scans in the window compute min/max lng/lat (a scan-bbox CTE), and prefilter the addresses CTE to addr_lng BETWEEN min_lng AND max_lng AND addr_lat BETWEEN min_lat AND max_lat (optionally padded by the proximity radius in degrees) BEFORE the geoDistance join, so a busy kit matches only addresses near where it actually scanned instead of all ~17k org addresses. Document the perf approach in the class docblock. Confirm suite GREEN. (4) recovery_address must remain untouched elsewhere (NearestGivenAddressController); do not remove it from the RequiresClickhouse truncate list.",
+      "target_files": [
+        "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php"
+      ],
+      "intended_diffs": "ScoutCheckInRollupQuery.php: rewrite the addresses CTE (lines 47-62) + add a scan-bbox CTE feeding a BETWEEN prefilter on the addresses CTE + update the class docblock with the perf approach; matches CTE / outer split unchanged. Test file: replace insertRecoveryAddress (95-109) with insertOpenAssignmentAddress (seeds zod.public_address + zod.public_hotlist_address), repoint the 6 check-in tests + contract test, add a malformed-geo guard test.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "ClarityScoutDashboardControllerTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "app/Http/Controllers/NearestGivenAddressController.php", "reason": "separate correct recovery_address consumer (nearest repossession address for a hit) — out of scope"},
+    {"site": "app/Console/Commands/RefreshViews.php", "reason": "recovery_address MV refresh infra — untouched"},
+    {"site": "tests/Concerns/RequiresClickhouse.php", "reason": "already truncates zod.public_address + zod.public_hotlist_address; recovery_address stays for NearestGivenAddressController tests"}
+  ]
+}

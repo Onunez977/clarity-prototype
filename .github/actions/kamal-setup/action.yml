@@ -1,0 +1,140 @@
+name: Kamal setup
+description: >-
+  Installs Ruby + Kamal, configures AWS credentials, writes Composer auth,
+  installs the SSH key, and trusts the Kamal target host. Used by the
+  pre-platform Kamal deploy workflow (and any future PR preview workflows).
+
+inputs:
+  aws-access-key-id:
+    description: >-
+      AWS access key for ECR push + AWS APIs. Leave empty for jobs that only run
+      `kamal remove` (teardown/sweeper) — the AWS-config + CLI-install steps then
+      no-op, since scoped `kamal app/accessory remove` makes no AWS/ECR call.
+    required: false
+    default: ''
+  aws-secret-access-key:
+    description: AWS secret key for ECR push + AWS APIs
+    required: false
+    default: ''
+  aws-region:
+    description: AWS region
+    required: false
+    default: 'us-east-2'
+  kamal-server:
+    description: Target host the runner must trust over SSH
+    required: true
+  ssh-key:
+    description: >-
+      Private SSH key authorized on the target host. Leave empty when the
+      runner is colocated with the Kamal target (or already has an SSH
+      config in ~/.ssh) — the install + known_hosts steps then no-op and
+      Kamal falls back to the runner's own SSH config.
+    required: false
+    default: ''
+  ssh-known-hosts:
+    description: Optional pre-baked known_hosts entries; falls back to ssh-keyscan
+    required: false
+    default: ''
+  composer-github-pat:
+    description: >-
+      GitHub PAT for composer github-oauth (private VCS packages). Only needed for
+      image builds; leave empty for creds-free teardown/sweeper jobs.
+    required: false
+    default: ''
+  kamal-version:
+    description: Kamal gem version constraint
+    required: false
+    default: '~> 2.0'
+
+runs:
+  using: composite
+  steps:
+    # AWS + Composer steps are skipped for creds-free jobs (teardown/sweeper run
+    # only scoped `kamal remove`, which makes no AWS/ECR call and builds no image).
+    - name: Configure AWS credentials
+      if: ${{ inputs.aws-access-key-id != '' }}
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ inputs.aws-access-key-id }}
+        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
+        aws-region: ${{ inputs.aws-region }}
+
+    - name: Install AWS CLI v2
+      if: ${{ inputs.aws-access-key-id != '' }}
+      shell: bash
+      run: |
+        # configure-aws-credentials sets env vars but does not install the AWS CLI
+        # on self-hosted runners (GitHub-hosted images pre-install it). Kamal's
+        # .kamal/secrets shells out to `aws ecr get-login-password`, so we need
+        # the binary on PATH here.
+        if ! command -v aws >/dev/null 2>&1; then
+          if ! command -v unzip >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends unzip
+          fi
+          ARCH="$(uname -m)"
+          TMP="$(mktemp -d)"
+          curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip" -o "${TMP}/awscliv2.zip"
+          unzip -q "${TMP}/awscliv2.zip" -d "${TMP}"
+          sudo "${TMP}/aws/install" --update
+          rm -rf "${TMP}"
+        fi
+        aws --version
+
+    - name: Install Ruby (system, via apt)
+      shell: bash
+      run: |
+        # ruby/setup-ruby@v1 has no pre-built binaries for self-hosted Ubuntu,
+        # so install Ruby from the distro repos. Kamal 2.x needs Ruby >= 3.1,
+        # which is satisfied by ruby-full on Ubuntu 24.04+ (ships 3.2 / 3.3).
+        if ! command -v ruby >/dev/null 2>&1; then
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ruby-full ruby-dev build-essential
+        fi
+        ruby --version
+        gem --version
+
+    - name: Install Kamal
+      shell: bash
+      run: |
+        sudo gem install --no-document kamal -v '${{ inputs.kamal-version }}'
+        kamal version
+
+    - name: Write composer auth.json
+      if: ${{ inputs.composer-github-pat != '' }}
+      shell: bash
+      env:
+        COMPOSER_AUTH_GITHUB_PAT: ${{ inputs.composer-github-pat }}
+      run: |
+        mkdir -p "$HOME/.composer"
+        cat > "$HOME/.composer/auth.json" <<EOF
+        {
+          "github-oauth": {
+            "github.com": "${COMPOSER_AUTH_GITHUB_PAT}"
+          }
+        }
+        EOF
+        chmod 600 "$HOME/.composer/auth.json"
+
+    # SSH-key install + known_hosts seeding are only meaningful when a
+    # job-injected key is provided. When the runner is colocated with the
+    # Kamal target (or otherwise has its own SSH config in ~/.ssh), the
+    # secret is intentionally left unset and these steps are no-ops.
+    - name: Install SSH key
+      if: ${{ inputs.ssh-key != '' }}
+      uses: shimataro/ssh-key-action@v2
+      with:
+        key: ${{ inputs.ssh-key }}
+        known_hosts: ${{ inputs.ssh-known-hosts != '' && inputs.ssh-known-hosts || 'placeholder.invalid' }}
+        if_key_exists: replace
+
+    - name: Trust Kamal target host
+      if: ${{ inputs.ssh-key != '' && inputs.kamal-server != '' }}
+      shell: bash
+      env:
+        KAMAL_SERVER: ${{ inputs.kamal-server }}
+      run: |
+        mkdir -p ~/.ssh
+        ssh-keyscan -H "${KAMAL_SERVER}" >> ~/.ssh/known_hosts 2>/dev/null || true
+        chmod 600 ~/.ssh/known_hosts

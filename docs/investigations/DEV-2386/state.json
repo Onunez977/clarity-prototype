@@ -1,0 +1,412 @@
+{
+  "key": "DEV-2386",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "CANDIDATES were Otto/chore/cloud-image branches; none carry Scout check-in matcher or scout_open_addresses work. DEV-2342 already merged.",
+  "branch": "claude/DEV-2386",
+  "phase": "verified",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "prep-fast",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 394
+    },
+    {
+      "slot": "prep-candidate:1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 691
+    },
+    {
+      "slot": "prep-candidate:2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 691
+    },
+    {
+      "slot": "prep-candidate:3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 691
+    },
+    {
+      "slot": "reconcile",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 372
+    },
+    {
+      "slot": "plan-arbiter",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "plan",
+      "dur_s": 546
+    },
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 748
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 732
+    },
+    {
+      "slot": "review-rn2",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 641
+    },
+    {
+      "slot": "review-rn3",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 641
+    },
+    {
+      "slot": "review-rn4",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 629
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": "verify",
+    "stop_at": "verify",
+    "only": "verify",
+    "skip": [],
+    "force": true
+  },
+  "knowledge_cards_loaded": [
+    "clarity/scout.md",
+    "clickhouse/core.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "answered:false questions",
+    "resource_envelope.scale_relevant with oracle_status=partial and unresolved[]",
+    "CH query classes + scheduled command + routes/console.php",
+    "feature-route design approval",
+    "cross-repo chlocal schema re-export"
+  ],
+  "best_of_n": true,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutDashboardController.php",
+      "symbol": "ScoutCheckInRollupQuery::query",
+      "referenced_at": "254"
+    },
+    {
+      "file": "tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php",
+      "symbol": "zod.public_address fixtures",
+      "referenced_at": "115"
+    }
+  ],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "",
+    "measurement": "",
+    "verdict": "n/a",
+    "measured_at": null
+  },
+  "diff_base": "c984ebba19b745a075749ef800973b882489a793",
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Fixtures, pgsql bridge, seeder, and CI schema dump for clarity.scout_open_addresses",
+      "status": "completed",
+      "model": "sonnet",
+      "complexity": "complex",
+      "depends_on": [],
+      "target_files": [
+        "tests/Concerns/RequiresClickhouse.php",
+        "database/schema/local-clickhouse-schema.sql",
+        "database/seeders/ClarityScoutClickhouseSeeder.php",
+        "database/schema/clickhouse-schema.sql"
+      ],
+      "blast_radius": [
+        "ci-schema-dump"
+      ]
+    },
+    {
+      "id": "t2",
+      "title": "Repoint ScoutCheckInMatchQuery and ScoutCheckInRollupQuery onto clarity.scout_open_addresses",
+      "status": "completed",
+      "model": "sonnet",
+      "complexity": "complex",
+      "depends_on": [
+        "t1"
+      ],
+      "target_files": [
+        "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php",
+        "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php",
+        "tests/Unit/Clickhouse/Queries/ScoutCheckInMatchQueryParityTest.php",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php",
+        "tests/Feature/Console/Commands/ScoutRecordCheckInsMemoryTest.php"
+      ],
+      "blast_radius": []
+    },
+    {
+      "id": "t3",
+      "title": "Book-freshness gate in ScoutRecordCheckIns plus the config knob",
+      "status": "completed",
+      "model": "sonnet",
+      "complexity": "complex",
+      "depends_on": [
+        "t1",
+        "t2"
+      ],
+      "target_files": [
+        "app/Console/Commands/ScoutRecordCheckIns.php",
+        "config/scout.php",
+        "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+        "tests/Feature/Console/ScoutRecordCheckInsOverrunSignalTest.php"
+      ],
+      "blast_radius": []
+    },
+    {
+      "id": "t4",
+      "title": "Re-enable the scout:record-check-ins schedule and flip its pin test",
+      "status": "completed",
+      "model": "sonnet",
+      "complexity": "complex",
+      "depends_on": [
+        "t3"
+      ],
+      "target_files": [
+        "routes/console.php",
+        "tests/Feature/Console/ScoutRecordCheckInsScheduleTest.php"
+      ],
+      "blast_radius": [
+        "schedule-reenable"
+      ]
+    },
+    {
+      "id": "t5",
+      "title": "Update the three okf pages named in AC-7",
+      "status": "completed",
+      "model": "sonnet",
+      "complexity": "complex",
+      "depends_on": [
+        "t2",
+        "t3",
+        "t4"
+      ],
+      "target_files": [
+        "okf/concepts/check-in.md",
+        "okf/concepts/scout-check-in-recorder.md",
+        "okf/concepts/scout-clickhouse-queries.md"
+      ],
+      "blast_radius": []
+    }
+  ],
+  "review_number": 4,
+  "pr": {
+    "number": 353,
+    "url": "https://github.com/insight-lpr/platform/pull/353",
+    "draft": true
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": "skipped \u2014 In Progress already available/global; ticket already In Progress",
+  "jira_transitioned_by": null,
+  "jira_transitioned_detail": null,
+  "assumed": [],
+  "comment_ids": {
+    "status": "38401"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": false,
+    "resource_envelope": {
+      "path": ".context/qa-resource-envelope.json",
+      "verdict": "not-measured",
+      "peak_rss_bytes": 90423296,
+      "wall_clock_seconds": 0.24,
+      "plausible_concurrency": 2,
+      "projected_marginal_gb": 0.17,
+      "headroom_gb": 54,
+      "host_ram_gb": 68,
+      "extrapolation_factor": null,
+      "basis": "0-kit local cycle; AC-4 is prod-host human QA"
+    },
+    "provisioning": {
+      "provision_mode": "full",
+      "plans_written": true,
+      "ch_container": "clarity-qa-clickhouse",
+      "ch_strategy": "docker",
+      "postgres_db": "zod_claude_dev_2386 + zod_testing_claude_dev_2386",
+      "herd_site": "clarity-claude_dev_2386.test",
+      "frontend_build": "n/a",
+      "operator_override": "verify despite unmet review"
+    },
+    "provisioned_early": true
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact --filter=ScoutCheckInMatchQueryParityTest|ScoutRecordCheckInsCommandTest|ScoutRecordCheckInsMemoryTest|ScoutRecordCheckInsOverrunSignalTest|ClarityScoutDashboardControllerTest",
+        "passed": 76,
+        "failed": 1,
+        "note": "empty-book test used unqualified RuntimeException; fixed and re-ran green"
+      },
+      {
+        "cmd": "php artisan test --compact --filter=an_empty_book_skips_the_cycle_with_a_counted_failure",
+        "passed": 1,
+        "failed": 0
+      },
+      {
+        "cmd": "php artisan test --compact --filter=ScoutRecordCheckInsScheduleTest",
+        "passed": 2,
+        "failed": 0
+      },
+      {
+        "cmd": "rg public_address|public_hotlist_address app/Clickhouse/Queries/ScoutCheckIn*.php",
+        "passed": 1,
+        "failed": 0,
+        "note": "AC-1: 0 matches including docblocks"
+      }
+    ],
+    "deviations": [
+      "Herd/chlocal cloud_export lacked scout_open_addresses on 2026-08-18; copied CREATE TABLE only from chlocal migration 111 into database/schema/clickhouse-schema.sql. Did not copy the refresh MV.",
+      "clickhouse-qa up.sh --also-testing failed the leak check because the shared QA container already has plain clarity/zod databases. Created the book table on those DBs via HTTP and pointed local .env.testing at them (not committed).",
+      "DAG is fully serialized; implemented on the ticket branch with no per-node worktrees (Phase 2 Q3 one-PR override).",
+      "php scripts/okf-lint.php fails on pre-existing CLAUDE.md/AGENTS.md laravel-boost-guidelines inlines; the three AC-7 wiki pages are not in that error list. Out of scope.",
+      "Operator override 2026-08-19: skip remaining review gate (RN4 min 72; rerun_required stays true) and enter verify. Residual Highs judged stale incident math + Cloud-live book. --force --only=verify."
+    ],
+    "review": {
+      "lanes": [
+        "claude1",
+        "claude2",
+        "claude3"
+      ],
+      "scores": [
+        78,
+        74,
+        72
+      ],
+      "findings_fixed": [
+        "H1 clock-dependent seedFreshBook: freeze 12:00 UTC in setUp before seeding",
+        "M1 duplicate book rows: both in-range at same coords, assert GROUP BY + lowest hotlist_id",
+        "M2 dashboard tautologies: absent-book / closed-hotlist-still-counts / short-plate-still-counts / zero-geo rename",
+        "M4 schedule pin now asserts withoutOverlapping(10)",
+        "M5 wiki W4 + PG-023/PG-026 no longer say the schedule stays commented",
+        "RN3: rollup addresses CTE SELECT DISTINCT (address_id, is_staged, coords)",
+        "RN3: zero-geo dashboard test seeds a scan near origin so the != 0 guard is load-bearing",
+        "RN3: check-in.md DEV-2386 trail no longer claims a staleness gate"
+      ],
+      "findings_residual": [
+        "RN4 H: schedule everyFiveMinutes + 15-min lookback + 2 slots vs documented 36\u2013209 min cycle duration \u2192 silent GPS gaps (watermark or stay off until W1). Operator left schedule live. DEV-2394",
+        "RN4 H: reviewers claim scout_open_addresses is not in prod cloud_export / chlocal main; Dalton 2026-08-19 assume-book-good, no platform probe. Confirm table live (DEV-2383) vs keep schedule commented until chlocal 111 merged. DEV-2394",
+        "RN4 M: okf WRITE-while-in-flight; dashboard-stats failure-mode sentence. DEV-2394"
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "harness-claude-p"
+        },
+        {
+          "lane": "claude2",
+          "source": "harness-claude-p"
+        },
+        {
+          "lane": "claude3",
+          "source": "harness-claude-p"
+        }
+      ],
+      "rerun_required": true,
+      "reviewed_sha": null,
+      "rework_pivot": false,
+      "residual_ticket": "DEV-2394"
+    },
+    "ac": [
+      {
+        "id": "AC-1",
+        "item": "Both query classes read clarity.scout_open_addresses; no remaining reference to zod.public_hotlist_address / zod.public_address in either.",
+        "status": "SATISFIED",
+        "evidence": "rg on ScoutCheckInMatchQuery.php and ScoutCheckInRollupQuery.php: 0 matches including docblocks. Local book table exists on clarity_claude_dev_2386."
+      },
+      {
+        "id": "AC-2",
+        "item": "Per-kit matcher on real prod kits (org 14): p50 < 400 ms AND read_rows < 2M.",
+        "status": "N/A",
+        "evidence": "Venue is production ClickHouse (Phase 2 Q2). Agent-qa Herd cannot reproduce ticket numbers. Prior Cloud measurement ~113 ms p50 / CROSS JOIN ~1.55M read_rows."
+      },
+      {
+        "id": "AC-3",
+        "item": "Old-vs-new parity diff on kits with real matches before merge.",
+        "status": "N/A",
+        "evidence": "Production ClickHouse only."
+      },
+      {
+        "id": "AC-4",
+        "item": "One full manual scout:record-check-ins prod cycle < 5 min, flat host memory.",
+        "status": "N/A",
+        "evidence": "Prod host human QA. Local 0-kit cycle 0.24s / ~86 MB RSS is not a substitute."
+      },
+      {
+        "id": "AC-5",
+        "item": "Staleness gate: MV paused \u2192 skip with counted, surfaced failure.",
+        "status": "N/A",
+        "evidence": "Withdrawn Dalton 2026-08-19: do not probe scout_open_addresses; chlocal owns rebuild."
+      },
+      {
+        "id": "AC-6",
+        "item": "Schedule re-enabled and ScoutRecordCheckInsScheduleTest updated; host pct_usable flat afterwards.",
+        "status": "SATISFIED",
+        "evidence": "ScoutRecordCheckInsScheduleTest 2 passed (expression */5, withoutOverlapping 10). Host pct_usable remains human QA."
+      },
+      {
+        "id": "AC-7",
+        "item": "okf pages updated and okf-lint green; clickhouse-schema.sql re-exported.",
+        "status": "SATISFIED",
+        "evidence": "check-in.md, scout-check-in-recorder.md, scout-clickhouse-queries.md updated; CREATE TABLE in clickhouse-schema.sql. okf-lint still red on pre-existing CLAUDE.md/AGENTS.md laravel-boost inlines (out of scope; not these pages)."
+      }
+    ]
+  }
+}

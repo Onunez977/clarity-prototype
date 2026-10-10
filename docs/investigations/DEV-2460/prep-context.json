@@ -1,0 +1,199 @@
+{
+  "key": "DEV-2460",
+  "route": "feature",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "provenance": {
+    "method": "best-of-N: 1 fast pass + 3 blind sonnet candidates + 1 haiku grep backstop, reconciled in-session by the opus driver (multi-candidate-merge). Driver independently verified every load-bearing claim against the real code; see driver-verifications.md.",
+    "candidate_confidences": [
+      78,
+      70,
+      74,
+      78
+    ],
+    "reconcile_lane": "in-session-driver-opus"
+  },
+  "synthesis": "DEV-2460 is the scaffolding ticket for the 9-card Company Metrics epic (DEV-2409). No new metric. Four changes: (1) reorder CompanyMetricsOverview::cards() from its append-grown 8 keys to 7 in mockup-relative order, dropping kit-users, with a docblock that records the 9 empty slots as load-bearing so siblings drop in without a second reorder; (2) relabel RecoveryCounts -> 'Total Repossessions' and RecoveryLeader -> 'LPR Recovery Leaderboard'; (3) move Active Kit Users out of the grid into HotlistCount's header row at position 5 of 6, reusing KitUsers' existing cached methods by composition; (4) introduce a canViewCardData()/lockedStat()/expandableCards() Pro-gate seam that gates NO real card yet -- it only establishes the contract 9 siblings will code against. The prior full attempt (claude/DEV-2409, PR #369) reached 4,000+ lines across 28 files over 8 adversarial review rounds and never cleared the >=90 gate, each round finding an unrepaired sibling of the previous fix. This ticket is deliberately small and its dominant risk is the same one: a missed sibling call site.",
+  "settled": [
+    {
+      "fact": "canViewCardData(), expandableCards() and lockedStat() do NOT exist anywhere in the repo today. This ticket introduces all three.",
+      "support": "4/4 candidates + driver-verified (full read of DashboardMetricCard interface and RendersDashboardStat trait)"
+    },
+    {
+      "fact": "getCardLabel() is defined ONLY in DashboardWidget.php:272 -- not in the trait, not on the interface. RecoveryLeader (extends ChartWidget) and KitUsers (extends BaseWidget) use the trait WITHOUT extending DashboardWidget. A lockedStat() in the trait that calls getCardLabel() is therefore a RUNTIME FATAL on recovery-leader, one of the surviving 7. FIX: move getCardLabel() into RendersDashboardStat and delete the DashboardWidget copy.",
+      "support": "candidate 3 found it, candidate 2 hinted at it, DRIVER-VERIFIED by grep; closed DEV-2409 branch independently hit and solved the same gap",
+      "severity": "would ship green and detonate in a sibling ticket -- no card is locked in THIS ticket so it is never exercised here"
+    },
+    {
+      "fact": "RecoveryLeader carries its label in TWO independent places: $heading at :25 (expanded chart title) and a hardcoded Stat::make() literal at :234 inside its own toStat() override (collapsed card). It bypasses getCardLabel() entirely. Both must change in lockstep.",
+      "support": "4/4 candidates"
+    },
+    {
+      "fact": "Active Kit Users goes at HotlistCount header position 5 of 6, between 'Missing Plates Percentage' and 'Staging'.",
+      "support": "read off the mockup by the driver -- mockup-confirmation.md"
+    },
+    {
+      "fact": "The header stat's description is '<N> camera kits' (cameraKitsCount()), NOT KitUsers::toStat()'s current '<N> inactive kits'. This is a genuine VALUE change, not a relocation. A builder trusting current KitUsers behavior gets it backwards.",
+      "support": "mockup-confirmation.md + candidate 3 flagged it explicitly"
+    },
+    {
+      "fact": "KitUsers is UNREGISTERED from cards(), not deleted. HotlistCount composes `new KitUsers` (memoized, never Livewire-mounted -- the same adapter pattern CompanyMetricsOverview already uses) and calls its existing activeKitUsersCount()/cameraKitsCount().",
+      "support": "4/4 candidates; KitUsersTest.php + DashboardWidgetTest.php:286 (KitUsers::isLazy()) both require the class to survive"
+    },
+    {
+      "fact": "Dashboard::cardWidgets() switches from cards() to expandableCards().",
+      "support": "4/4 candidates"
+    },
+    {
+      "fact": "Do NOT add key validation to Dashboard::toggleCard(). It has none today and needs none: expandedCardComponents() already does `cardWidgets()[$key] ?? null` and returns [] on a miss, so an unknown/locked key is already a structural no-op. Adding an `if (! isset(...)) return;` guard introduces a bug -- the early return fires before the close branch, so a card open when it becomes locked can never be closed. lockedStat() must also emit NO wire:click, giving two independent reasons a locked card cannot expand.",
+      "support": "DRIVER-VERIFIED correction of candidate 1, which reported this as an existing bug; it is a hazard the implementer must avoid, not a bug to fix"
+    },
+    {
+      "fact": "canViewCardData() must be STATIC -- expandableCards() filters class-strings without instantiating.",
+      "support": "code-forced; candidates 2 and 3 assume static, candidate 1 raised it as a question"
+    },
+    {
+      "fact": "FOUR stale '8 cards' prose sites must all be rewritten in lockstep: Dashboard.php:84, CompanyMetricsOverview.php:12, CompanyMetricsOverview.php:34, DashboardWidget.php:299.",
+      "support": "each pass found a different subset; candidate 2 found the DashboardWidget one; DRIVER-VERIFIED all four via grep"
+    },
+    {
+      "fact": "test_all_four_hit_cards_are_contiguous() is order-AGNOSTIC (it locates keys rather than asserting positions), so it passes unmodified provided the 4 hit keys stay adjacent -- which they do at indices 3-6 of the new order.",
+      "support": "candidates 2 and 3"
+    },
+    {
+      "fact": "tests/Filament/Widgets/Dashboard/RecoveryLeaderTest.php:214 uses assertSame() -- an EXACT match -- and WILL break on the relabel. tests/.../RecoveryCountsTest.php:27 uses assertSeeText(), a SUBSTRING match that stays green against 'Total Repossessions'.",
+      "support": "4/4 candidates"
+    },
+    {
+      "fact": "DashboardWidget::getStatColor()'s match has no 'kit-users' or 'recovery-leader' arm; both already fall through to default => 'gray'. Removing kit-users cannot break the colour map.",
+      "support": "DRIVER-VERIFIED"
+    },
+    {
+      "fact": "No FeatureEnum / Pennant / ProTier entry gates ANY of today's 7 cards, so canViewCardData() returns true for all 7 and this ticket ships NO visible locked card in production.",
+      "support": "candidates 1 and 2"
+    },
+    {
+      "fact": "AC-7 is satisfiable and testable. KitUsers' two cached queries ALREADY run today because KitUsers is currently a grid card, so relocating them to HotlistCount is net-neutral for the page. The regression AC-7 guards against is specifically a re-implementation that does not reuse the existing 'kit-status:active-ids:org=' / 'kit-status:total:org=' cache keys. DB::listen is dead for the CH driver, so the proof is (a) a code-path audit showing no new CH call site and (b) a test asserting the two pre-existing cache keys are the ones read.",
+      "support": "candidate 2's insight, corroborated by candidates 1 and 3"
+    },
+    {
+      "fact": "resource_envelope.scale_relevant = FALSE. A Filament widget layout/label/visibility change is not a command, job, migration, or data-iterating loop, and no query shape changes.",
+      "support": "4/4 candidates"
+    },
+    {
+      "fact": "BLAST RADIUS IS NON-EMPTY. The Pro-gate seam is the mechanism every future paid card will use to hide its value. If the gate runs AFTER toStat() rather than before, Pro-only data leaks to non-Pro orgs the moment a sibling wires a real gate -- and it ships silently because nothing is gated here. Therefore getStats() must branch on canViewCardData() BEFORE calling toStat(), and review escalates to 3 lanes.",
+      "support": "candidate 2 raised it against candidates 0/1/3 who said empty; driver adjudicated in candidate 2's favour"
+    },
+    {
+      "fact": "Keep KitUsers' now-vestigial DashboardMetricCard/getCardKey()/toStat() surface in place. Repo Working Rules: smallest coherent change; KitUsersTest.php exercises it directly.",
+      "support": "candidate 3; candidates 1 and 2 raised it as a question, resolved on the smallest-change principle"
+    },
+    {
+      "fact": "HotlistCount::getColumns() is RESPONSIVE (default 1 / sm 2 / md 3 / xl 6), not a flat int 6. theme.css's min-h-40 comment must be updated to describe the 6-column reality; visual parity re-checked in human QA.",
+      "support": "gate answer, Dalton 2026-09-01"
+    },
+    {
+      "fact": "Losing Active Kit Users' click-to-expand table is ACCEPTED and must be stated explicitly in the PR and Build Record. KitUsers.php is retained so it can be rehomed later.",
+      "support": "gate answer, Dalton 2026-09-01"
+    },
+    {
+      "fact": "RecoveryCounts::getDatasetLabel() ALSO changes to 'Total Repossessions'.",
+      "support": "gate answer, Dalton 2026-09-01"
+    }
+  ],
+  "questions": [
+    {
+      "id": 1,
+      "q": "HotlistCount goes from 5 stats to 6. Should getColumns() become a plain int 6, or responsive breakpoints? Related and load-bearing: resources/css/filament/app/theme.css sets .big-stat-chart { min-h-40 } = 160px, and its comment states that number was measured as the header row's height AT THE DEFAULT 5-COLUMN WIDTH, closing with 'Revisit here if the top row's copy changes.' This ticket changes both the copy and the column count, so that calibration is invalidated by construction.",
+      "answered": true,
+      "answer": "Responsive breakpoints, and re-check the 160px card-height floor during QA. getColumns() becomes responsive (default 1 / sm 2 / md 3 / xl 6) rather than a flat int 6; theme.css's min-h-40 calibration comment is updated to describe the 6-column reality, and the actual visual parity is verified by eye in human QA.",
+      "source": "human:Dalton 2026-09-01",
+      "material": true,
+      "evidence": "driver found theme.css (absent from every candidate's inventory; surfaced by the grep backstop). Candidate 1 independently reports the closed DEV-2409 branch's QA pass made getColumns() responsive (default 1 / sm 2 / md 3 / xl 6) rather than a flat 6.",
+      "recommendation": "Responsive, and re-check the 160px floor during QA."
+    },
+    {
+      "id": 2,
+      "q": "Moving Active Kit Users to a header stat REMOVES its click-to-expand table (KitUsers::table(), the list of currently-active kit names). HotlistCount's header stats have no click-to-expand chrome at all. Is losing that interactive list acceptable?",
+      "answered": true,
+      "answer": "Accept the loss of the click-to-expand kit-name table. The mockup shows Active Kit Users as a plain header stat with no expand affordance, so this matches the design. It MUST be recorded explicitly in the PR and the Jira Build Record as a deliberate, known consequence -- not left unremarked. KitUsers.php stays in the codebase, so the table can be rehomed later if anyone misses it.",
+      "source": "human:Dalton 2026-09-01",
+      "material": true,
+      "evidence": "candidate 1 raised it. Candidate 3 argues it is out of scope because the mockup shows Kit Users as a plain header stat with no expand affordance. The ticket text does not address it.",
+      "recommendation": "Accept the loss -- the mockup shows it as a plain stat -- but say so explicitly rather than letting it go unremarked."
+    },
+    {
+      "id": 3,
+      "q": "Should RecoveryCounts::getDatasetLabel() (currently 'Repossessions', the expanded chart's dataset/series name) also become 'Total Repossessions'?",
+      "answered": true,
+      "answer": "Yes -- update RecoveryCounts::getDatasetLabel() to 'Total Repossessions' so the internal series name and the visible card title agree.",
+      "source": "human:Dalton 2026-09-01",
+      "material": false,
+      "evidence": "Candidates disagree: fast pass says leave it (the legend is hard-disabled for this widget, so no visible effect); candidate 3 says change it for lockstep consistency; candidates 1 and 2 raised it as a question.",
+      "recommendation": "Change it. It is one line, and leaving the internal label diverged from the card title is exactly the kind of drift that costs a later review round."
+    }
+  ],
+  "resolved_by_driver": [
+    {
+      "q": "Is row 2's inferred left-to-right order confirmable from the DEV-2409 mockup?",
+      "answer": "YES. Read off Jira attachment 24421. The inferred order is correct in every cell. Also settled: Active Kit Users at header position 5 of 6, description 'N camera kits', and a mockup typo ('Uniqe scan counts') the ticket text overrides.",
+      "source": "driver -- mockup-confirmation.md"
+    },
+    {
+      "q": "canViewCardData(): interface addition or trait-only?",
+      "answer": "BOTH -- declare on the DashboardMetricCard interface AND supply defaults in RendersDashboardStat. The interface is the contract 9 sibling tickets code against, which is this ticket's entire purpose; trait defaults keep it compile-safe for all 8 existing implementers with zero per-card edits. 3/4 candidates favoured the interface; candidate 2 wanted trait-only to keep the interface minimal.",
+      "source": "driver adjudication"
+    },
+    {
+      "q": "static or instance canViewCardData()?",
+      "answer": "STATIC -- expandableCards() filters class-strings without instantiating.",
+      "source": "code-forced"
+    },
+    {
+      "q": "Trim KitUsers' vestigial card machinery?",
+      "answer": "NO -- smallest coherent change; its own test suite exercises it.",
+      "source": "repo Working Rules"
+    },
+    {
+      "q": "How is AC-7 measured given DB::listen is dead for ClickHouse?",
+      "answer": "Reframed and settled: prove no NEW CH call site is added, and assert the two pre-existing kit-status cache keys are the ones read. The queries already run today.",
+      "source": "candidate 2's insight, driver-adopted"
+    }
+  ],
+  "target_files": [
+    "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php",
+    "app/Filament/Widgets/Dashboard/Concerns/DashboardMetricCard.php",
+    "app/Filament/Widgets/Dashboard/Concerns/RendersDashboardStat.php",
+    "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+    "app/Filament/Widgets/Dashboard/RecoveryCounts.php",
+    "app/Filament/Widgets/Dashboard/RecoveryLeader.php",
+    "app/Filament/Widgets/Dashboard/HotlistCount.php",
+    "app/Filament/Pages/Dashboard.php",
+    "resources/css/filament/app/theme.css",
+    "tests/Filament/Pages/DashboardCardExpansionTest.php",
+    "tests/Filament/Widgets/Dashboard/RecoveryLeaderTest.php",
+    "tests/Filament/Widgets/Dashboard/HotlistCountTest.php",
+    "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php"
+  ],
+  "out_of_scope": [
+    "Building any of the 9 deferred mockup cards -- each is its own sibling ticket",
+    "Gating any real card with canViewCardData() -- the seam only; nothing is locked in production by this ticket",
+    "Deleting KitUsers.php",
+    "The /client panel's 'Total Repossessions' surfaces (ClientTable.php:202, HasStatDrillDown.php:253) -- separate feature area that coincidentally already uses the phrase",
+    "KitUsersFilter.php and its ~11 consumers -- an unrelated class, name-collision only",
+    "MissedOpportunityClientGraph.php -- not registered in cards()"
+  ],
+  "blockers": [],
+  "blast_radius": [
+    "Pro-gate visibility seam (CompanyMetricsOverview::getStats() + RendersDashboardStat::lockedStat()) -- future paid-card data exposure if the gate runs after value computation"
+  ],
+  "resource_envelope": {
+    "scale_relevant": false,
+    "trigger": "Filament widget layout/label/visibility change; no command, job, migration, or data-iterating loop; no query shape changes",
+    "driving_tables": [],
+    "oracle_status": "not-configured",
+    "unresolved": []
+  },
+  "derivation_log": [],
+  "missed_caller_candidates_verdict": "Backstop swept 25 symbols repo-wide. ZERO hits outside the plan inventory for CompanyMetricsOverview, DashboardMetricCard, RendersDashboardStat, canViewCardData, expandableCards, cardWidgets, lockedStat, 'Recovery Leaderboard' and 'Active Kit Users' -- the surface is genuinely closed. ONE genuine addition to inventory: resources/css/filament/app/theme.css. All KitUsersFilter / AggregateRdnHotlistCountByHour / StagingOrgsHotlistCount / okf / .claude / e2e-gl-kits hits ruled out as name-collision noise."
+}

@@ -1,0 +1,134 @@
+{
+  "key": "DEV-2116",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "synthesis": "Build 'Bird's Eye' — an org-wide, admin-facing view of all Scout drivers' activity that reuses the existing Scout map UI (black/coral look, map style, layer toggles, historical date-range, bottom stats bar) but scoped to the whole org instead of one driver, with a driver selector defaulting to everyone. Today Scout is a driver-authenticated Vue SPA whose every /api/scout/* endpoint is scoped to the single logged-in driver's kit. The work is (1) a new admin-authed, org-scoped data surface and (2) a Bird's-Eye orchestration of the existing Scout Vue components that renders N drivers at once.",
+  "scope": {
+    "summary": "New full-screen Scout-style SPA route (admin-only, Scout-gated, 'Scout' nav group) backed by a new admin org-wide API group. Reuses ScannerMap/MapShell/MapStatsBar/controls; adds a DriverSelector and per-driver markers+trails. New org-wide live-position aggregator + org-wide live-trails + org-wide stats; scan-paths/heatmaps reuse already-org-wide queries.",
+    "proposed_changes": [
+      {"file": "routes/web.php", "change": "Register admin Bird's-Eye web route (SPA shell) + data endpoints ABOVE the scout/{any?} catch-all (web.php:110), inside the clarity_scout config block, gated web+auth+ADMIN+CLARITY_SCOUT.", "reason": "Catch-all swallows anything under scout/; admin endpoints need session-cookie auth not Sanctum.", "ref": "routes/web.php:100-111"},
+      {"file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php", "change": "New controller: drivers(), livePositions(), livePaths(), scanPaths(), hits(), heatmapHits(), heatmapOrders(), stats() — all org-scoped (+ optional kit_ids).", "reason": "Org-wide analogues of the single-kit driver endpoints, admin-authed.", "ref": "app/Http/Controllers/Api/ClarityScoutMapController.php"},
+      {"file": "app/Clickhouse/Queries/OrgLivePositionsQuery.php", "change": "New: latest sc_positions point per kit_mapping for all org mappings; mirror kitPosition() shape (tupleElement geo, lower(kit_mapping), 24h cutoff, argMax/latest-per-mapping), return lat/lng/heading/speed/ts keyed by kit.", "reason": "sc_positions has no org_id/kit_id — must enumerate org mappings and group per mapping.", "ref": "app/Http/Controllers/Api/ClarityScoutMapController.php:397-404"},
+      {"file": "app/Clickhouse/Queries/OrgLivePathsQuery.php", "change": "New (or multi-mapping variant of KitHistoricPositionsQuery): per-kit decimated live trails since a cursor for all/selected org mappings; reuse HistoricPathBuilder.", "reason": "Full-parity per-driver trails; existing reader is single kit_mapping.", "ref": "app/Clickhouse/Queries/KitHistoricPositionsQuery.php"},
+      {"file": "app/Http/Controllers/Api/ClarityScoutDashboardController.php", "change": "Org-wide stats path: drop the ->where('kit_id', $kitId) filter (keep forKitOrg(org)), optionally filter to selected kit_ids; sum across kits.", "reason": "stats() today is single-kit (lines 58,75,91,133-134).", "ref": "app/Http/Controllers/Api/ClarityScoutDashboardController.php:31-134"},
+      {"file": "resources/views/clarity-scout-birds-eye.blade.php", "change": "New SPA shell blade (parallel to clarity-scout.blade.php) injecting config + admin/org-wide flag, loading the new entry.", "reason": "Full-screen Scout look, separate from driver SPA.", "ref": "resources/views/clarity-scout.blade.php"},
+      {"file": "resources/js/clarity-scout/birdseye.js", "change": "New Vite entry mounting a Bird's-Eye app; skips driver auth store; calls admin endpoints with session cookie.", "reason": "Reuse Scout components without driver Sanctum auth.", "ref": "resources/js/clarity-scout/main.js"},
+      {"file": "resources/js/clarity-scout/views/BirdsEyeHome.vue", "change": "New orchestration view (parallel to ScoutHome.vue) driving org-wide fetches + hosting DriverSelector.", "reason": "Org-wide multi-driver orchestration.", "ref": "resources/js/clarity-scout/views/ScoutHome.vue"},
+      {"file": "resources/js/clarity-scout/components/DriverSelector.vue", "change": "New multi-select (default all) that scopes kit_ids/mappings for all layers + stats.", "reason": "Driver selector requirement.", "ref": "app/Filament/Pages/KitUserPath.php:87"},
+      {"file": "resources/js/clarity-scout/components/ScannerMap.vue", "change": "Generalize single kit marker + single liveTrail to N per-driver markers + N trails (per-driver color/label).", "reason": "Core multi-driver rendering — biggest new work.", "ref": "resources/js/clarity-scout/components/ScannerMap.vue"},
+      {"file": "resources/js/clarity-scout/stores/map.js + stores/dashboard.js", "change": "Org-wide / per-kit state (collections of positions+trails) or a dedicated birdsEye store + parameterized endpoint base.", "reason": "Stores assume single-kit endpoints + single position/trail.", "ref": "resources/js/clarity-scout/stores/map.js"},
+      {"file": "app/Filament/Pages/BirdsEye.php (or panel nav item)", "change": "Thin 'Scout'-group nav entry: canAccess = Feature::active(CLARITY_SCOUT) && hasRole(ADMIN); navigation URL → SPA route.", "reason": "Lives under Scout nav group.", "ref": "app/Filament/Resources/ScoutUsersResource.php:45-56"},
+      {"file": "vite.config.js", "change": "Add birdseye.js entry.", "reason": "Bundle the new entry.", "ref": "vite.config.js:14-22"}
+    ],
+    "target_files": [
+      "routes/web.php",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+      "app/Clickhouse/Queries/OrgLivePositionsQuery.php",
+      "app/Clickhouse/Queries/OrgLivePathsQuery.php",
+      "app/Http/Controllers/Api/ClarityScoutDashboardController.php",
+      "resources/views/clarity-scout-birds-eye.blade.php",
+      "resources/js/clarity-scout/birdseye.js",
+      "resources/js/clarity-scout/views/BirdsEyeHome.vue",
+      "resources/js/clarity-scout/components/DriverSelector.vue",
+      "resources/js/clarity-scout/components/ScannerMap.vue",
+      "resources/js/clarity-scout/stores/map.js",
+      "resources/js/clarity-scout/stores/dashboard.js",
+      "app/Filament/Pages/BirdsEye.php",
+      "vite.config.js"
+    ],
+    "out_of_scope": [
+      "Changing driver /api/scout/* endpoints or the driver SPA",
+      "Cross-org / multi-org visibility (admin sees only their own org)",
+      "Trips overlay for Bird's Eye (driver-centric; defer unless asked)",
+      "Shift/notifications/zones-editing surfaces (Bird's Eye is read-only viewing)",
+      "Granting Scout to new orgs (gating reused as-is)"
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "Admin-only, Scout-gated, in the 'Scout' nav group", "source": "ticket", "decision": "implement", "reason": "Reuse Feature::active(CLARITY_SCOUT)+hasRole(ADMIN) on nav item, web route, and API group."},
+    {"item": "Renders the Scout-style map + bottom stats with org-wide data; defaults to all drivers", "source": "ticket", "decision": "implement", "reason": "Reuse ScannerMap/MapStatsBar; default selector = all org Scout kits."},
+    {"item": "Driver selector filters to one/many drivers and back to all", "source": "ticket", "decision": "implement", "reason": "DriverSelector scopes kit_ids/mappings across all layers + stats."},
+    {"item": "Same layer toggles + historical date-range selector as the driver app", "source": "ticket", "decision": "implement", "reason": "Reuse DashboardOverlay toggles + DateRangeControl; org-wide scan-paths/heatmaps."},
+    {"item": "Distinct from Kit User Path (GPS/sc_positions-driven, not scan-data)", "source": "ticket", "decision": "implement", "reason": "Bird's Eye is sc_positions live + kit_scan_paths historical; separate page."},
+    {"item": "Per-driver live position dots AND live trails (full parity)", "source": "derived", "decision": "implement", "reason": "Live-scope decision this session; OrgLivePositions + OrgLivePaths."}
+  ],
+  "questions": [
+    {"q": "View shell: full-screen Scout SPA vs Filament-embedded?", "answered": true, "answer": "Full-screen Scout-style SPA route via a 'Scout' Filament nav item", "source": "human:Dalton 2026-06-29"},
+    {"q": "How to serve org-wide data given driver-Sanctum-only endpoints?", "answered": true, "answer": "New admin-authed org-scoped API group (web session + ADMIN + CLARITY_SCOUT); driver endpoints untouched", "source": "human:Dalton 2026-06-29"},
+    {"q": "Live-data scope for v1?", "answered": true, "answer": "Full parity incl. per-driver live trails (+ dots, historical, heatmaps, org-wide stats)", "source": "human:Dalton 2026-06-29"},
+    {"q": "Base branch?", "answered": true, "answer": "scanner-app (carries all Scout work, 198 ahead of main)", "source": "code 2026-06-29"},
+    {"q": "Org-wide order-density heatmap clip (admins have no assigned zones)?", "answered": true, "answer": "Org run-area only (loadRunAreaForClip); fall back to viewport bbox when no run area", "source": "human:Dalton 2026-06-29"}
+  ],
+  "blockers": [],
+  "notes": [
+    "KitScanPathsQuery already returns per-kit rows with per-kit color ((kit_id % 42)) + name — multi-driver scan paths are nearly free.",
+    "Perf: full-parity trails for every driver every ~10s can be heavy on CH + deck.gl; keep decimation, consider a point cap and scoping trail fetches to selected/visible drivers (tune at review, not a re-scope).",
+    "Route ordering: admin routes MUST be registered above scout/{any?} (web.php:110).",
+    "sc_positions has no org_id/kit_id; org scoping is via enumerating the org's kit_mappings (Kit::getKits) and lower(kit_mapping) IN (...).",
+    "Bird's-Eye SPA uses the admin's existing web session (cookie) — no driver token; ensure axios withCredentials + CSRF for any POST.",
+    "npm run build regenerates Boost docs/CLAUDE.md — revert those before committing."
+  ],
+  "tests": [
+    {"file": "tests/Feature/Scout/BirdsEyeAccessTest.php", "what_it_pins": "Gating: non-admin or CLARITY_SCOUT-off is denied; admin+flag gets 200 on the route + endpoints."},
+    {"file": "tests/Feature/Scout/BirdsEyeOrgScopeTest.php", "what_it_pins": "Org-wide scoping: endpoints return only the caller's org's kits; selector kit_ids subset filters; empty kit_ids = all org kits; cross-org isolation."},
+    {"file": "tests/Feature/Scout/OrgLivePositionsQueryTest.php", "what_it_pins": "OrgLivePositionsQuery shape: latest-per-mapping, lower(kit_mapping) match, geo decode, 24h cutoff, keyed by kit."}
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Http/Controllers/Api/ClarityScoutMapController.php:375-444 (kitPosition single-kit)",
+      "app/Http/Controllers/Api/ClarityScoutMapController.php:40-178 (scanPaths/livePath)",
+      "app/Http/Controllers/Api/ClarityScoutDashboardController.php:31-134 (stats single-kit)",
+      "app/Clickhouse/Queries/KitScanPathsQuery.php:63-97 (org-wide, per-kit color)",
+      "app/Clickhouse/Queries/KitHistoricPositionsQuery.php:28-69 (single-mapping live path)",
+      "app/Clickhouse/Queries/HitDirectHotspotQuery.php (org-wide hits heatmap)",
+      "app/Clickhouse/Queries/HotlistAddressGeohashQuery.php (org-wide order density)",
+      "app/Support/Scout/HistoricPathBuilder.php (segmentation)",
+      "routes/web.php:100-111 (clarity_scout block + catch-all)",
+      "routes/api.php:26-58 (driver scout API group)",
+      "resources/js/clarity-scout/main.js + App.vue + views/ScoutHome.vue + components/ScannerMap.vue + MapShell.vue + MapStatsBar.vue + DateRangeControl.vue + DashboardOverlay.vue + stores/map.js + stores/dashboard.js",
+      "app/Filament/Resources/ScoutUsersResource.php:45-56 (Scout nav + gate)",
+      "app/Filament/Pages/KitUserPath.php:87-95 (multi-kit selector precedent)",
+      "app/Models/Kit.php (getKits / kit_mapping)"
+    ],
+    "code_flow": "Admin opens 'Scout' > Bird's Eye nav item → /scout/birds-eye web route (gated) serves birds-eye blade → birdseye.js mounts BirdsEyeHome.vue (reusing ScannerMap etc.) → fetches admin endpoints (org-scoped) for drivers, livePositions, livePaths, scanPaths, hits, heatmaps, stats → DriverSelector re-scopes kit_ids → ScannerMap renders N driver markers/trails + shared layers; MapStatsBar shows org-wide stats.",
+    "tables": ["clarity.sc_positions", "clarity.kit_scan_paths (MV)", "clarity.hits_cold", "clarity.hotlist", "zod.public_address/public_hotlist_address", "platform.kits", "platform.kit_settings"],
+    "related_components": ["ScannerMap.vue", "MapShell.vue", "MapStatsBar.vue", "DashboardOverlay.vue", "DateRangeControl.vue", "ScoutControlsWidget.vue"]
+  },
+  "exhaustiveness": {
+    "patterns_used": ["grep 'sc_positions' app/", "grep 'kit_mapping' app/Clickhouse app/Http/Controllers/Api/ClarityScout*", "grep 'kit_ids' app/Clickhouse/Queries/*.php", "grep 'kit_id|forKit|where(.kit_id' ClarityScoutDashboardController.php"],
+    "sites": [
+      {"site": "ClarityScoutMapController::kitPosition() 375-404", "status": "single-kit (kit_mapping)", "note": "template for OrgLivePositionsQuery; needs org-wide variant"},
+      {"site": "ClarityScoutMapController::livePath()/scanPaths() 40-178", "status": "single-kit via KitHistoricPositionsQuery", "note": "scanPaths historical can use KitScanPathsQuery (org-wide); live path needs OrgLivePathsQuery"},
+      {"site": "KitHistoricPositionsQuery 28-69", "status": "single kit_mapping", "note": "generalize to multi-mapping or new org variant"},
+      {"site": "ClarityScoutDashboardController::stats()/recentHits() 31-134", "status": "single-kit (where kit_id)", "note": "org-wide variant drops kit filter"},
+      {"site": "KitScanPathsQuery 63-97", "status": "ALREADY org-wide (empty kit_ids = all org kits, per-kit color/name)", "note": "reuse as-is"},
+      {"site": "HitDirectHotspotQuery / HotlistAddressGeohashQuery", "status": "ALREADY org-wide", "note": "reuse as-is"},
+      {"site": "BuildShiftSummary / CloseInactiveShiftsCommand sc_positions reads", "status": "single-kit, OUT OF SCOPE", "note": "shift jobs, not the viewing surface — excluded"}
+    ]
+  },
+  "data_impact": {
+    "pg_tables": ["platform.kits", "platform.kit_settings", "platform.orgs"],
+    "ch_tables": ["clarity.sc_positions", "clarity.kit_scan_paths", "clarity.hits_cold", "clarity.hotlist", "zod.public_address", "zod.public_hotlist_address"],
+    "mv_or_cdc_implications": "Reads only. kit_scan_paths is an MV (read FINAL). hits_cold/hotlist via CDC. No writes, no schema changes.",
+    "indexes_relied_on": ["sc_positions ORDER BY (kit_mapping, timestamp_utc)", "kit_scan_paths org_id/kit_id/timestamp"]
+  },
+  "derivation_log": [
+    {"query_shape": "SELECT tupleElement(geo,1) lng, tupleElement(geo,2) lat, timestamp_utc, speed, heading FROM sc_positions WHERE lower(kit_mapping)=? AND timestamp_utc>=? ORDER BY timestamp_utc DESC LIMIT 1", "param_classes": ["kit_mapping(lowercased)", "24h cutoff"], "aggregate_result": "existing single-kit live dot shape (confirmed in code, not executed)", "why": "Template for the org-wide latest-per-mapping aggregator."},
+    {"query_shape": "SELECT kit_id, color, name, path_points FROM kit_scan_paths FINAL WHERE org_id=? [AND kit_id IN (...)] AND length(path_points)>=2", "param_classes": ["org_id", "optional kit_ids"], "aggregate_result": "per-kit colored paths; empty kit_ids = all org kits (confirmed in code)", "why": "Confirms org-wide historical scan paths are reusable as-is."}
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "Admin-only, Scout-gated, Scout nav group", "kind": "agent", "intent": "Hit route + endpoints as non-admin/flag-off (denied) and admin+flag (200)."},
+      {"ac": "Org-wide map + stats, default all drivers", "kind": "human", "intent": "Load Bird's Eye; confirm all org drivers' dots/paths + org-wide stat tiles."},
+      {"ac": "Driver selector filters and back to all", "kind": "human", "intent": "Select one/many drivers; map + stats re-scope; clear back to all."},
+      {"ac": "Same layer toggles + date-range", "kind": "human", "intent": "Toggle heatmaps + pick 7/15/30/60d; layers update org-wide."}
+    ],
+    "seed_scenario": "One org with ~3-4 Scout-enrolled kits (kit_settings rows + assigned users), each with recent sc_positions points (varied lat/lng/heading), today's kit_scan_paths buckets, and a handful of Live/Staging hits — so all drivers' dots, trails, paths, heatmaps, and summed stats are visible; plus a second org with its own kit to prove cross-org isolation.",
+    "personas": [{"role": "Admin (Scout-enabled org)", "why": "primary Bird's Eye user"}, {"role": "Non-admin / Scout-off user", "why": "negative gating check"}],
+    "pg_tables": ["platform.kits", "platform.kit_settings"],
+    "ch_tables": ["clarity.sc_positions", "clarity.kit_scan_paths", "clarity.hits_cold"]
+  },
+  "confidence": 82,
+  "escalate": {"recommend": false, "reason": "Feature is large but the material design questions (view shell, auth surface, live scope, base branch) are all resolved with the human this session; remaining work is well-grounded in existing reusable code. Size, not ambiguity, is the main risk — handled by the Phase 3 subtask DAG."},
+  "missed_caller_candidates": []
+}

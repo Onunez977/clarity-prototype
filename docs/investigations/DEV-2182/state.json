@@ -1,0 +1,51 @@
+{
+  "key": "DEV-2182",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2182",
+  "phase": "done",
+  "models": {"base": "haiku", "recall": "haiku", "prep": "sonnet", "plan": "opus", "plan_arbiter": "opus", "implement": "sonnet", "implement_simple": "sonnet", "arbitrate": "opus", "offload": "sonnet", "review": "opus"},
+  "efforts": {"prep": "inherit", "plan": "inherit", "plan_arbiter": "inherit", "implement": "inherit", "implement_simple": "inherit", "arbitrate": "inherit", "offload": "inherit", "review": "inherit"},
+  "timings": [],
+  "flags": {"companion": false, "review_policy": "functional", "jira_mirror": true, "start_at": null, "stop_at": null, "only": null, "skip": [], "force": false},
+  "knowledge_cards_loaded": ["clarity/scout.md"],
+  "escalated": false,
+  "escalation_triggers": [],
+  "missed_caller_candidates": [
+    {"file": "app/Models/Org.php", "symbol": "getKits", "referenced_at": "app/Models/Org.php:182", "adjudication": "not-genuine (Kit::getKits caller; getKits unchanged)"},
+    {"file": "app/Models/Scan.php", "symbol": "getKits", "referenced_at": "app/Models/Scan.php:438", "adjudication": "not-genuine"},
+    {"file": "app/Models/User.php", "symbol": "getKits", "referenced_at": "app/Models/User.php:184", "adjudication": "not-genuine"},
+    {"file": "app/Services/Geospatial/Concerns/GeneratesPathData.php", "symbol": "getKits", "referenced_at": "app/Services/Geospatial/Concerns/GeneratesPathData.php:95", "adjudication": "not-genuine (GeospatialGenerator::getKits, unrelated)"},
+    {"file": "app/Services/Geospatial/GeospatialGenerator.php", "symbol": "getKits", "referenced_at": "app/Services/Geospatial/GeospatialGenerator.php:91", "adjudication": "not-genuine (unrelated method)"},
+    {"file": "tests/Filament/Resources/ScoutUsersResourceTest.php", "symbol": "kit_settings", "referenced_at": "tests/Filament/Resources/ScoutUsersResourceTest.php:76", "adjudication": "not-genuine (kit_settings semantics unchanged)"},
+    {"file": "tests/Models/KitSettingsTest.php", "symbol": "kit_settings", "referenced_at": "tests/Models/KitSettingsTest.php:19", "adjudication": "not-genuine"}
+  ],
+  "diff_base": "77fa1cf4dce1410a1461047f01e109f845412aab",
+  "subtasks": [{"id": "t1", "status": "merged", "worktree_path": "(single-node fast path — REPO_PATH branch, no worktree)", "branch": "claude/DEV-2182", "complexity": "simple", "model": "sonnet"}],
+  "review_number": 2,
+  "pr": {"number": 267, "url": "https://github.com/insight-lpr/platform/pull/267", "draft": false},
+  "pr_urls": {"main": "https://github.com/insight-lpr/platform/pull/267"},
+  "jira_in_progress_by": "already In Progress before run (no transition needed) @ 2026-07-13T14:30Z",
+  "jira_transitioned_by": "manual-daltonmccleery@gmail.com (transition id 4 → In Code Review; undraft did not auto-transition)",
+  "assumed": [],
+  "comment_ids": {"status": "35466", "build_record": "35572"},
+  "qa": {"ledger": ".context/qa-prep-ledger.json", "agent_report": ".context/qa-agent-report.md", "ac_results": ".context/qa-ac-results.json", "human_guide": ".context/qa-human-guide.html", "parked_awaiting_human_qa": false, "torn_down": true, "provisioned_early": true,
+         "provisioning": {"bootstrap": "ran", "deps": "via-bootstrap", "migrations": "ran", "docker_daemon": "already-running", "ch_container": "created (clarity-qa-clickhouse; runtime clarity_/zod_<wt> + literal clarity/zod for the RequiresClickhouse test suite)", "frontend_build": "not-needed", "postgres_db": "zod_claude_dev_2182_79afc0 (+ zod_testing_claude_dev_2182_79afc0)", "ch_strategy": "docker", "herd_site": "clarity-claude_dev_2182_79afc0.test"}},
+  "record": {
+    "tests": [{"cmd": "php artisan test --compact --filter=ClarityScoutBirdsEyeControllerTest tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php", "passed": 17, "failed": 0, "note": "TDD red->green for the visibility fix; +stale-settings (user_id NULL) test; +org-kit-list cache test (dev-requested follow-up). 17/17, 57 assertions. Local Docker CH (literal clarity/zod DBs) so the RequiresClickhouse class runs. Full suite deferred to CI (main-based PR)."}],
+    "deviations": [],
+    "post_done_followups": [
+      "Dev-requested: aligned ScoutUsersResource with the org map — added Kit::scopeExcludingDeleted (shared kit_metadata.deleted_at exclusion, one definition) and used it in BOTH orgScoutKits() (replacing the inline leftJoin, behavior-identical) and ScoutUsersResource::getEloquentQuery(); added test_index_excludes_soft_deleted_kits.",
+      "CI fix (pre-existing main breakage, NOT this ticket): commit 95da4d7f 'Remove 20 limit on hits pending' removed ->limit(20) from the driver ClarityScoutDashboardController::recentHits but left test_recent_hits_limited_to_20 asserting 20 (got 25) — failing on main + every PR. Renamed to test_recent_hits_returns_all_pending_hits, assert 25. Affected classes green locally (92 passed)."
+    ],
+    "review": {"lanes": 3, "mode": "in-session adversarial-reviewer (opus) — substituted for rigor review.sh, whose nested claude -p fails 'Not logged in' under the embedded harness", "scores": [100, 100, 100], "min_score": 90, "gate": "pass", "rn2": "1 lane on the dev-requested cache follow-up: 90/100 → the single Low finding (flat 10s TTL ignored the admin_impersonator 3s freshness override that sibling caches honor) FIXED (TTL now 3s impersonating / 10s otherwise + docblock corrected); re-run 17/17 green", "findings_fixed": ["Added test_kit_with_a_settings_row_but_no_assigned_user_still_appears — the ticket's motivating stale-settings (user_id NULL) scenario", "RN2: impersonation-aware TTL on the org-kit-list cache (was flat 10s; now mirrors mapCacheTtl's 3s impersonation override)"], "findings_residual": ["stats kit_ids test is a smoke check (200+structure), not discriminating", "orgScoutKits() uncached (not a regression; caching opportunity for polled endpoints)", "orderBy('name') tiebreak undefined → add orderBy('id') to stabilize kit_ids order / cache hits", "cache keys implode('-',kitIds) grow with the wider kit set (consider hashing for very large fleets)", "ScoutUsersResource admin editor does not exclude soft-deleted kits → intentional manage-vs-visualize divergence, author-confirm", "core drivers test gated behind RequiresClickhouse; mitigated for this main-based PR (CI runs CH) but consider un-gating the Postgres-only assertions"]},
+    "ac": [
+      {"item": "AC-1: org bird's-eye lists all org kits via a getKits-style query (excludes deactivated/deleted)", "status": "SATISFIED", "evidence": "Live /drivers (org 2 admin) returned 49 active kits (pre-fix 1); soft-delete dropped to 48 + excluded. Backend: 16/16 tests."},
+      {"item": "AC-2: a kit renders without a user_id (needs only an optional hit setting for icon/vehicle type)", "status": "SATISFIED", "evidence": "Live: 48/49 kits have no kit_settings row / no user_id yet render (null driver_name/vehicle_type). Test pins the stale-settings user_id=NULL case."},
+      {"item": "AC-3: no reliance on manual kit_settings inserts to make kits appear", "status": "SATISFIED", "evidence": "Live: 48 non-enrolled kits appear with no manual insert; the enrollment-row gate is removed."}
+    ]
+  }
+}

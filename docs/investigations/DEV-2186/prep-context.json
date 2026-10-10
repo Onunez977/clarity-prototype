@@ -1,0 +1,78 @@
+{
+  "key": "DEV-2186",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "escalated": true,
+  "escalation_triggers": ["confidence<80 (55)", "escalate.recommend=true", "cross-branch dependency: DEV-2185 unmerged touches same files", "material UX/scope design question"],
+  "deep_path_note": "Deep 3-candidate fan-out intentionally skipped: escalation is a human-design-decision (which boot behavior Dalton wants), not code-grounding uncertainty. Fast pass is thoroughly grounded and driver-verified against the actual files (dashboard.js:12, map.js:154, DateRangeControl.vue, formatters.js). More prep candidates would re-derive the same architecture and the same unanswerable-without-Dalton question.",
+  "synthesis": "Tune the Scout DRIVER-side default map window to a recent-focused 'Today + Yesterday + last 7 days' framing and drop the heavy 15/30/60-day long-range layers from the driver experience, WITHOUT changing the admin (Bird's Eye) window — the two must stay deliberately decoupled. Driver and admin share one Pinia store (stores/dashboard.js, stores/map.js) + component tree, branched only by mapStore.adminMode (canonical driver-vs-admin signal, DEV-2184).",
+  "scope": {
+    "summary": "Frontend-only (Vue/Pinia) change gated on mapStore.adminMode. No backend change — getDateRange()/range param is already caller-agnostic and 'last_7' already spans today+yesterday+5 more days. public/build must be rebuilt + committed.",
+    "proposed_changes": [
+      {"file": "resources/js/clarity-scout/lib/formatters.js", "change": "Add exported `driverRangeOptions` = rangeOptions filtered to today + last_7 (single source of truth for the driver's recent-focused window set). rangeOptions itself unchanged.", "reason": "AC2/AC3: give driver+admin deliberately-different window lists without duplicating literals.", "ref": "resources/js/clarity-scout/lib/formatters.js:1"},
+      {"file": "resources/js/clarity-scout/components/DateRangeControl.vue", "change": "Render a computed `visibleRangeOptions` = adminMode ? rangeOptions : driverRangeOptions. Admin keeps all 5; driver sees Today + 7d only.", "reason": "AC2: drop 15/30/60 pills from the driver experience.", "ref": "resources/js/clarity-scout/components/DateRangeControl.vue:8"},
+      {"file": "resources/js/clarity-scout/composables/usePrefetch.js", "change": "When mapStore && !adminMode, pass driver range values into both prefetch calls; else pass null (= all).", "reason": "AC2/Q3: skip warming 15/30/60 for drivers; keeps stores decoupled (composable owns the adminMode branch).", "ref": "resources/js/clarity-scout/composables/usePrefetch.js:9"},
+      {"file": "resources/js/clarity-scout/stores/dashboard.js", "change": "prefetchAllRanges(ranges = null): use ranges ?? full 5-list. Default preserves current behavior.", "reason": "Let the composable scope driver prefetch without coupling dashboard store to map store.", "ref": "resources/js/clarity-scout/stores/dashboard.js:85"},
+      {"file": "resources/js/clarity-scout/stores/map.js", "change": "prefetchAllRangePaths(ranges = null): use ranges ?? full 5-list. Default preserves current behavior.", "reason": "Same as dashboard prefetch — accept an explicit range list.", "ref": "resources/js/clarity-scout/stores/map.js:222"},
+      {"file": "public/build/**", "change": "npm run build + commit assets; revert Boost-regenerated docs (CLAUDE.md/AGENTS.md/.junie).", "reason": "public/build is tracked; frontend change ships nothing without a rebuild.", "ref": "package.json"}
+    ],
+    "final_scope_note": "Q1=Keep-Live-boot → NO change to dashboard.js range default (stays 'today') or map.js liveMode (stays true). Boot behavior untouched. Change is purely: driver pill set (Today+7d) + driver prefetch trim, both gated on mapStore.adminMode.",
+    "target_files": ["resources/js/clarity-scout/lib/formatters.js", "resources/js/clarity-scout/components/DateRangeControl.vue", "resources/js/clarity-scout/composables/usePrefetch.js", "resources/js/clarity-scout/stores/dashboard.js", "resources/js/clarity-scout/stores/map.js", "public/build/**"],
+    "out_of_scope": ["Backend ClarityScoutDashboardController / ScoutMapHelpers::getDateRange (already caller-agnostic)", "Admin Bird's Eye default/options/prefetch (must stay byte-for-byte)", "DEV-2185 (unmerged sibling branch touching same files — coordination, not build-around)"]
+  },
+  "acceptance_criteria": [
+    {"item": "Driver map defaults to Today + Yesterday + last 7 days", "source": "ticket", "decision": "implement", "reason": "Maps to the existing 'last_7' bucket (subDays(7)->startOfDay through now->endOfDay). Exact boot behavior pending Q1."},
+    {"item": "Heavy long-range (15/30/60-day) layers not part of the driver default experience", "source": "ticket", "decision": "implement", "reason": "At minimum not the default; likely hide the pills + skip prefetch for drivers. Pending Q2/Q3."},
+    {"item": "Driver and admin windows deliberately decoupled", "source": "ticket", "decision": "implement", "reason": "Every change gated on mapStore.adminMode; admin path untouched."}
+  ],
+  "questions": [
+    {"q": "Q1 (boot behavior): boot into 7-day historical vs keep Live boot + prune pills vs new combined mode.", "answered": true, "answer": "Keep Live boot, just prune pills — driver boot behavior is UNCHANGED (Live/today, kit dot + trail). The only change is which pills the driver sees and prefetches. No liveMode/default-range change.", "source": "human:Dalton 2026-07-14"},
+    {"q": "Q2 (long-range pills): remove 15/30/60 entirely from the driver UI vs keep tappable but not default.", "answered": true, "answer": "Remove entirely for drivers — driver DateRangeControl shows only Today + 7d; admin/Bird's Eye keeps all five.", "source": "human:Dalton 2026-07-14"},
+    {"q": "Q3 (prefetch): trim driver prefetch to skip 15/30/60 vs leave as-is.", "answered": true, "answer": "Trim driver prefetch — skip warming 15/30/60 for drivers (gated on adminMode); admin prefetch unchanged.", "source": "human:Dalton 2026-07-14"}
+  ],
+  "blockers": [],
+  "notes": [
+    "Ticket's 'Currently the driver view is Today (red line) + historical 7 days (black lines)' does NOT match code: code boots into Live (map.js:154 liveMode=true, comments cite DEV-1959/DEV-2076 'Live is always the default on login'). The red/black view is what you get AFTER tapping a 7d+ pill. This discrepancy is what makes Q1 material.",
+    "'Today (red)/history (black)' is per-trip coloring within ONE selected historical range (ScannerMap scanPathColor), NOT stacked named-range layers.",
+    "isRangeActive()/selectRange() couple dashboard.range + mapStore.liveMode; any default change must keep both consistent or the pill highlight contradicts the map.",
+    "DEV-2185 (unmerged, branch claude/DEV-2185) edits map.js/DateRangeControl.vue/usePrefetch.js/ScoutHome.vue for zoom-gating — whichever merges second needs manual conflict resolution. Coordination note.",
+    "public/build committed; npm run build also regenerates Boost docs — revert those before committing (npm-build-regenerates-boost-docs memory)."
+  ],
+  "tests": [
+    {"file": "none (JS-only change; no JS test runner)", "what_it_pins": "Backend range handling already covered by ClarityScoutDashboardControllerTest and is caller-agnostic; the actual change (driver boot range/liveMode + which pills render for !adminMode) has no PHP seam. Verify via QA (agent-qa/human-qa)."}
+  ],
+  "grounding": {
+    "key_files": ["resources/js/clarity-scout/lib/formatters.js:1-7", "resources/js/clarity-scout/stores/dashboard.js:12", "resources/js/clarity-scout/stores/map.js:72,154,651-668", "resources/js/clarity-scout/components/DateRangeControl.vue:41-64", "resources/js/clarity-scout/components/MapShell.vue:12", "resources/js/clarity-scout/components/ScannerMap.vue:979-995,1174-1230", "resources/js/clarity-scout/composables/usePrefetch.js:9-10", "app/Http/Controllers/Api/Concerns/ScoutMapHelpers.php:29-40"],
+    "code_flow": "App.vue -> MapShell.vue + ScoutHome.vue -> DashboardOverlay.vue -> DateRangeControl.vue. dashboard.range + map.liveMode/adminMode are singleton Pinia state shared by driver+admin; adminMode set once from window.__CLARITY_SCOUT_CONFIG__.birdsEye. selectRange() flips liveMode + setRange together; ScannerMap.updateOverlayLayers reads liveMode to render exactly one of {live-trail, historical scan-paths}.",
+    "tables": [],
+    "related_components": ["useKitPositionPolling.js (poll gated on liveMode)", "App.vue driver-only chrome gated on !adminMode"]
+  },
+  "exhaustiveness": {
+    "grep_patterns": ["rangeOptions", "liveMode", "adminMode", "prefetchAllRanges", "prefetchAllRangePaths", "getDateRange", "last_7|last_15|last_30|last_60"],
+    "sites": [
+      {"site": "resources/js/clarity-scout/stores/dashboard.js:12", "verdict": "buggy", "reason": "range default 'today' shared by driver+admin, no adminMode gate — the coupling the ticket calls out."},
+      {"site": "resources/js/clarity-scout/components/DateRangeControl.vue:8", "verdict": "buggy", "reason": "renders all 5 rangeOptions with no adminMode gate."},
+      {"site": "resources/js/clarity-scout/composables/usePrefetch.js:9-10 + dashboard.js:85 + map.js:222", "verdict": "buggy", "reason": "prefetches all 5 ranges unconditionally for driver+admin."},
+      {"site": "resources/js/clarity-scout/stores/map.js:154 + MapShell.vue:12", "verdict": "safe", "reason": "liveMode default + LiveTracking mount gate internally consistent today; only a concern if liveMode default is flipped."},
+      {"site": "app/Http/Controllers/Api/*getDateRange", "verdict": "safe", "reason": "generic/caller-agnostic; no change."}
+    ]
+  },
+  "data_impact": {"pg_tables": [], "ch_tables": ["clarity.kit_scan_paths (KitScanPathsQuery, per selected range)", "clarity.sc_positions (live poll, only affected if liveMode default changes)"], "mv_or_cdc_implications": "None — frontend default/prefetch-scope only.", "indexes_relied_on": []},
+  "derivation_log": [
+    {"query_shape": "git grep rangeOptions / prefetchAllRanges(Paths) / adminMode over resources/js", "param_classes": "symbol names", "aggregate_result": "rangeOptions used only in DateRangeControl+formatters; prefetch callers = usePrefetch/dashboard/map (all in scope); no missed callers", "why": "grep backstop before gate"}
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "Driver default window", "kind": "human", "intent": "Login as driver with recent scan history; confirm boot window matches Q1 decision; login as admin Bird's Eye and confirm default unchanged."},
+      {"ac": "Drop 15/30/60 from driver", "kind": "human", "intent": "Driver: confirm 15/30/60 hidden/never-default per Q2; admin: all 5 present + 'today' default unchanged."},
+      {"ac": "Decoupled", "kind": "agent", "intent": "Grep diff: every touched default/option list gated on mapStore.adminMode; no shared unconditional literal reintroduced."}
+    ],
+    "seed_scenario": "Driver-scoped kit with kit_scan_paths + sc_positions rows across today, yesterday, and 3-4 days back to populate the last_7 legend (fading black trips), plus an admin/org-map session to diff against.",
+    "personas": ["Scout driver (kit user, non-admin)", "Admin/Bird's Eye org-map viewer"],
+    "pg_tables": [],
+    "ch_tables": ["clarity.kit_scan_paths", "clarity.sc_positions"]
+  },
+  "confidence": 90,
+  "escalate": {"recommend": false, "reason": "Design ambiguity resolved by Dalton (Q1=keep-Live-boot, Q2=remove pills, Q3=trim prefetch). Scope now a clean, well-decoupled frontend change. DEV-2185 conflict remains a merge-time coordination note only."},
+  "missed_caller_candidates": []
+}

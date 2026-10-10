@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+>
+    <testsuites>
+        <testsuite name="Unit">
+            <directory>tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Feature">
+            <directory>tests/Feature</directory>
+        </testsuite>
+        <testsuite name="Filament">
+            <directory>tests/Filament</directory>
+        </testsuite>
+        <testsuite name="Roles">
+            <directory>tests/Roles</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>app</directory>
+        </include>
+    </source>
+    <php>
+        <env name="APP_ENV" value="testing" force="true"/>
+        <env name="APP_MAINTENANCE_DRIVER" value="file"/>
+        <env name="PENNANT_STORE" value="array" force="true"/>
+        <env name="BCRYPT_ROUNDS" value="4" force="true"/>
+        <env name="CACHE_STORE" value="array" force="true"/>
+        <env name="MAIL_MAILER" value="array" force="true"/>
+        <env name="PULSE_ENABLED" value="false" force="true"/>
+        <env name="QUEUE_CONNECTION" value="sync" force="true"/>
+        <env name="SESSION_DRIVER" value="array" force="true"/>
+        <env name="TELESCOPE_ENABLED" value="false" force="true"/>
+        <env name="CLARITY_SCOUT_ENABLED" value="true" force="true"/>
+        <env name="CLICKHOUSE_HITS_ENABLED" value="false" force="true"/>
+        <env name="CLICKHOUSE_SCANS_ENABLED" value="false" force="true"/>
+        <env name="PRO_SALES_EMAIL" value="test-sales@insightlpr.com" force="true"/>
+        <!-- Fallback only: .env.testing must still exist. Never force a DB name — worktree isolates use zod_testing_*. -->
+        <!--
+            libpq reads PGTZ and sends it as the connection's startup timezone, so every PDO
+            session in the suite is UTC regardless of the host's postgresql.conf. Without it the
+            session inherits the server default, and Postgres resolves the naive `Y-m-d H:i:s`
+            literals Eloquent writes against that zone before storing them in a `timestamptz`
+            column — silently shifting every write by the server's offset. See DEV-2528, and
+            PostgresConnectionTimezoneTest, which pins this.
+        -->
+        <env name="PGTZ" value="UTC" force="true"/>
+    </php>
+</phpunit>

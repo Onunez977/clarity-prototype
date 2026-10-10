@@ -1,0 +1,189 @@
+{
+  "key": "DEV-1834",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-1834",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [],
+  "escalated": false,
+  "escalation_triggers": [
+    "answered:false questions present (doc-location scope + Phase-2 framing)"
+  ],
+  "best_of_n": false,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "aa4ec00ca0e24c8ca0ce22c9088f7402caa517eb",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "simple",
+      "model": "opus"
+    }
+  ],
+  "review_number": 2,
+  "pr": {
+    "number": 281,
+    "url": "https://github.com/insight-lpr/platform/pull/281",
+    "draft": false
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": "already In Progress at Phase 4 entry (no transition needed; ticket status was In Progress)",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "undraft did not auto-transition (no draft-aware action for clarity); pipeline transitioned To Do path->In Code Review via Atlassian MCP (transition id 4) @ 2026-07-21",
+  "assumed": [],
+  "comment_ids": {
+    "status": "36803",
+    "build_record": "36837"
+  },
+  "qa": {
+    "ledger": "",
+    "agent_report": "",
+    "ac_results": "",
+    "verdict": "PASS",
+    "torn_down": true,
+    "provisioning": {
+      "bootstrap": "",
+      "deps": "",
+      "migrations": "",
+      "docker_daemon": "",
+      "ch_container": "",
+      "frontend_build": "",
+      "postgres_db": "N/A \u2014 docs-only, no tests/DB",
+      "ch_strategy": "N/A \u2014 docs-only, no CH",
+      "herd_site": "N/A \u2014 docs-only, no runtime surface to QA"
+    }
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php scripts/okf-lint.php",
+        "passed": 1,
+        "failed": 0
+      }
+    ],
+    "deviations": [],
+    "review": {
+      "lanes": [
+        3,
+        1
+      ],
+      "scores": [
+        90,
+        90,
+        94,
+        100
+      ],
+      "findings_fixed": [
+        "okf/concepts/rdn-provider-integration.md: 'All-or-nothing per org/hour' overstated the guarantee (confirmed 3/3 lanes) \u2014 rewritten as 'Partial sets are possible' (hit-count computation atomic pre-dispatch; 5 messages deliver independently)",
+        "scans described as 'distinct license-plate scans' -> 'distinct scans (de-duplicated)' (plate dimension unverifiable from the query)",
+        "S/Z rows dropped the unsupported 'sourced from another org' provenance claim -> 'hits against a staged hotlist'"
+      ],
+      "findings_residual": [],
+      "lane_sources": [
+        {
+          "lane": "rn1-1",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "rn1-2",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "rn1-3",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "rn2-1",
+          "source": "in-session-agent"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "d5969097f018c88cbc7ec4dc9a7a13f6541dbab3",
+      "rework_pivot": false,
+      "scores_by_round": {
+        "rn1": [
+          90,
+          90,
+          94
+        ],
+        "rn2": [
+          100
+        ]
+      }
+    },
+    "ac": [
+      {
+        "item": "Doc covers every metric type published to the SQS queue",
+        "status": "SATISFIED",
+        "evidence": "All 5 RdnMetricType cases documented; adversarial review (RN1x3 + RN2) confirmed no metric type missing/extra vs source (grep-verified closed set)."
+      },
+      {
+        "item": "Each field documented: name, type, units, example, nullability",
+        "status": "SATISFIED",
+        "evidence": "Envelope table + data[].count table give type/units/nullability/example for all 6 keys; verified vs RdnMetricsPublisher::publish()."
+      },
+      {
+        "item": "Full example payload per metric type",
+        "status": "SATISFIED",
+        "evidence": "5 complete JSON message bodies, key order matching publisher output."
+      },
+      {
+        "item": "Defines rdn_org_identifier format and metric_range_start/end semantics",
+        "status": "SATISFIED",
+        "evidence": "Dedicated field-reference sections: opaque RDN-issued <=64 chars; half-open [start,end) UTC completed-hour window; verified vs orgs.rdn_id + RdnHitHourCountQuery + DispatchRdnMetricsHourly."
+      },
+      {
+        "item": "Reviewed and shared with RDN",
+        "status": "N/A",
+        "evidence": "External/human step. Internal accuracy review complete (RN2 100/100). Sharing with RDN is a human handoff outside automation."
+      }
+    ]
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "key": "DEV-2659",
+  "track": "product",
+  "base_sha": "a4b5074630771c1f4121a5ca34f255c71afe0755",
+  "precedents": [
+    {
+      "id": "claims-preamble",
+      "file": "app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php",
+      "symbol": "sql",
+      "lines": "214-281",
+      "use": "orgs CTE from zod.public_orgs FINAL, billing scan, needle LEFT JOINs, inline uniqExactIf. The orgs CTE has no other reader."
+    },
+    {
+      "id": "claims-preclaim",
+      "file": "app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php",
+      "symbol": "preClaimSql",
+      "lines": "312-405",
+      "use": "Needs hotlist_id and ts. The view projects both. h.hotlist_id != 0 stays. oc is referenced twice on purpose."
+    },
+    {
+      "id": "repos-deduped",
+      "file": "app/Clickhouse/Queries/LprRepossessionsQuery.php",
+      "symbol": "sql",
+      "lines": "155-222",
+      "use": "deduped CTE read once. Sentinel guards d.agent_org_id != 0 and h.id != 0. Hotlist and status-log legs stay on zod.public_hotlist and zod.public_hotlist_status_log."
+    },
+    {
+      "id": "not-a-clickhouse-query",
+      "file": "app/Clickhouse/Queries/ClickhouseQuery.php",
+      "symbol": "query",
+      "lines": "1-40",
+      "use": "query() swallows Throwable and returns []. Do not move either funnel class onto this base. okf/concepts/clickhouse-query-patterns.md."
+    },
+    {
+      "id": "billing-view",
+      "file": "database/schema/clickhouse-schema.sql",
+      "symbol": "clarity.billing_claim_events_v",
+      "lines": "85",
+      "use": "Sanctioned read. FINAL plus tombstone filter live inside the view."
+    },
+    {
+      "id": "billing-mv",
+      "file": "database/schema/clickhouse-schema.sql",
+      "symbol": "clarity.billing_claim_events_mv",
+      "lines": "102",
+      "use": "Hourly append. is_internal from zod.public_orgs FINAL, all types. case-claim only."
+    },
+    {
+      "id": "clarity-orgs-view",
+      "file": "database/schema/clickhouse-schema.sql",
+      "symbol": "clarity.orgs",
+      "lines": "89",
+      "use": "SELECT * FROM zod.public_orgs WHERE type IN (1, 2). No FINAL. No tombstone filter. CDC columns remain."
+    },
+    {
+      "id": "pg-030",
+      "file": "okf/concepts/platform-gotchas.md",
+      "symbol": "PG-030",
+      "lines": "286-307",
+      "use": "join_use_nulls = 0 fills misses with type defaults. Guard sentinels. Seed a row whose key is the sentinel."
+    },
+    {
+      "id": "billing-events-page",
+      "file": "okf/concepts/billing-events.md",
+      "symbol": "claims funnel",
+      "lines": "134-151",
+      "use": "uniqExact triple, single-pass 3.0x measurement, Jul 2026 figures 15128 / 14288 / 11975. Page still describes the pre-denorm read. Queue the wiki edit. Do not write it now."
+    },
+    {
+      "id": "settle-already-shipped",
+      "file": "app/Filament/Widgets/Dashboard/Concerns/ResolvesDashboardCacheTtl.php",
+      "symbol": "CLOSED_MONTH_SETTLE_FULL_SECONDS",
+      "lines": "19",
+      "use": "8-day settle is already on this base. DEV-2659 does not re-implement it."
+    },
+    {
+      "id": "ac5-docblock-pin",
+      "file": "tests/Unit/Clickhouse/CompanyMetricsCacheScopeTest.php",
+      "symbol": "test_claims_query_has_no_shared_cache_key_and_ac5_is_per_class",
+      "lines": "15-23",
+      "use": "Asserts the claims file contains the strings DEV-2659 and billing_claim_events_v, and declares no shared* method. The SQL body does not read the view yet."
+    }
+  ]
+}

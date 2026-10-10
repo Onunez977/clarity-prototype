@@ -1,0 +1,331 @@
+{
+  "key": "DEV-2654",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_sha": "d8e70005479e14ba3ea4db1d194ab30a332e3e3e",
+  "base_branch_reason": "Rebased onto origin/main d8e70005 (the shared cache-helper work, PR #450). Shared cache helpers are on this base. Separate from the RecoveryCounts batching claim (QA Ready).",
+  "branch": "claude/DEV-2654",
+  "phase": "done",
+  "gate": "CLEAN",
+  "gate_reason": "Tip-fix Jeff D Verify closeout: BR 41815; Review rn=4 PASS; BUILD_RECORD_GATE + REWORK_GATE pass; Agent QA 172/795 @ :18124.",
+  "gate_answer": "A",
+  "waiting_on": null,
+  "provisioned": true,
+  "next": "CI (PM) \u2192 Jeff re-FREEZE\u2192GO \u2192 merge-lane. Hold DEV-2659 until merge. Env UP; teardown on closeout is PM.",
+  "plan_written": true,
+  "product_code_changed": true,
+  "jira": {
+    "key": "DEV-2654",
+    "url": "https://insightlpr-team.atlassian.net/browse/DEV-2654",
+    "type": "Story",
+    "priority": "Medium",
+    "status": "QA Ready",
+    "status_transitioned": false,
+    "sprint": "Sprint 41",
+    "application": "Clarity",
+    "assignee": "Dalton McCleery",
+    "assignee_changed": false,
+    "parent": "the Company Metrics epic",
+    "reget_at": "2026-09-24T22:50:40Z"
+  },
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": false,
+    "no_spawn": true,
+    "start_at": "intake",
+    "stop_at": "provisioned",
+    "only": null,
+    "skip": [],
+    "force": false,
+    "cloud_ch_writes": false,
+    "mac_herd_refused": true,
+    "cloud_touched": false
+  },
+  "needs_human_interview": false,
+  "escalated": false,
+  "escalation_triggers": [],
+  "assumed": [],
+  "subtasks": [
+    "t1",
+    "t2",
+    "t3",
+    "t4",
+    "t5"
+  ],
+  "qa": {
+    "verdict": "PASS",
+    "provisioned_early": false,
+    "note": "Agent QA tip-fix Jeff D re-PASS real Docker CH. CLICKHOUSE_DRIVER=clickhouse @ 127.0.0.1:18124. PHPUnit 172/795/0 skip. Pint 23 files. Live NOT_COVERED (login 200 /app 302). cloud_touched=false. SCHEMA-DRIFT :18125 untouched.",
+    "phpunit": {
+      "tests": 172,
+      "assertions": 795,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0
+    },
+    "pint": {
+      "result": "PASS",
+      "files": 23
+    },
+    "clickhouse_driver": "clickhouse",
+    "clickhouse_host": "127.0.0.1",
+    "clickhouse_port": 18124,
+    "cloud_touched": false,
+    "live": "NOT_COVERED",
+    "product_tip": "f82250c368b585fcccd2bd7361ce445a9c4aa956",
+    "docs_tip": "8479449c559a78944cb9403c2a65d3f0fabc3866",
+    "run": "tip-fix-jeff-d-rn4",
+    "timestamp": "2026-09-24T18:03:27-05:00"
+  },
+  "cli_provision": {
+    "status": "done",
+    "at": "2026-09-24T16:38:37Z",
+    "provision_mode": "provision-only",
+    "fleet_cite": true,
+    "site": "http://127.0.0.1:18082",
+    "site_container": "clarity-qa-app-dev-2654",
+    "postgres": {
+      "host": "127.0.0.1",
+      "port": 15434,
+      "dev_db": "zod_dev_2654",
+      "testing_db": "zod_testing_dev_2654"
+    },
+    "clickhouse": {
+      "strategy": "docker",
+      "container": "clarity-qa-clickhouse-dev-2654",
+      "host": "127.0.0.1",
+      "http_port": 18124,
+      "database": "clarity_dev_2654",
+      "database_clarity_testing": "clarity_testing_dev_2654",
+      "database_zod": "zod_dev_2654",
+      "database_zod_testing": "zod_testing_dev_2654",
+      "billing_claim_events_present": true,
+      "billing_claim": [
+        "billing_claim_events",
+        "billing_claim_events_v",
+        "billing_claim_events_mv"
+      ]
+    },
+    "cloud_ch_writes": false,
+    "mac_herd_refused": true,
+    "cloud_touched": false,
+    "ledger_path": "docs/investigations/DEV-2654/qa-prep-ledger.json",
+    "ledger_handoff": ".context/qa-prep-ledger.json",
+    "ledger_timestamp": "2026-09-24T11:31:19-05:00",
+    "soft_ok_vs": "the RecoveryCounts batching neighbor",
+    "recovery_scans_cite": "the view-without-FINAL gap",
+    "product_php": true
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "vendor/bin/pint --dirty --format agent",
+        "passed": true,
+        "note": "Pint fixed ordered imports and fully-qualified strict types on tests/Unit/Clickhouse/StagingLiveHitLeaderQueryContractTest.php."
+      },
+      {
+        "cmd": "php artisan test --compact tests/Unit/Clickhouse/StagingLiveHitLeaderQueryContractTest.php tests/Feature/Clickhouse/StagingLiveHitLeaderQueryTest.php tests/Filament/Widgets/Dashboard/StagingLiveHitLeaderTest.php tests/Filament/Widgets/Dashboard/StagingLiveHitsTest.php tests/Filament/Widgets/Dashboard/RecoveryLeaderTest.php tests/Filament/Widgets/Dashboard/Concerns/CardQuerySqlFidelityTest.php",
+        "passed": 111,
+        "failed": 0,
+        "skipped": 9,
+        "assertions": 485,
+        "duration_s": 22.65,
+        "env": "Worktree .env.testing: Postgres via the local testing config, CLICKHOUSE_DRIVER is not clickhouse. Six StagingLiveHitLeaderQueryTest methods and three widget methods call RequiresClickhouse and skipped. SQL, cache-key, and zone guards ran in StagingLiveHitLeaderQueryContractTest (the feature class uses the trait, and Laravel invokes setUpRequiresClickhouse for every method). No Cloud ClickHouse writes. AC6 used the fleet seed cite plus the view-without-FINAL Cloud measure; the fleet twin was empty."
+      },
+      {
+        "cmd": "Agent QA real Docker CH (Pippin)",
+        "passed": 122,
+        "failed": 0,
+        "skipped": 0,
+        "assertions": 586,
+        "duration_s": 37.984,
+        "env": "CLICKHOUSE_DRIVER=clickhouse @ 127.0.0.1:18124; PG :15434 zod_testing_dev_2654; classic clarity/zod on Docker; cloud_touched=false; mac_herd_refused=true",
+        "pint": "PASS 11 files"
+      },
+      {
+        "cmd": "vendor/bin/pint --dirty --format agent",
+        "passed": true,
+        "note": "Implement tip-fix D+F. Pint fixed ordered imports and fully-qualified Carbon phpdocs on RecoveryLeader.php and StagingLiveHits.php."
+      },
+      {
+        "cmd": "php artisan test --compact tests/Filament/Widgets/Dashboard/RecoveryLeaderTest.php tests/Filament/Widgets/Dashboard/StagingLiveHitsTest.php tests/Filament/Widgets/Dashboard/StagingLiveHitLeaderTest.php",
+        "passed": 49,
+        "failed": 0,
+        "skipped": 0,
+        "assertions": 347,
+        "duration_s": 14.79,
+        "env": "Worktree .env.testing. CLICKHOUSE_DRIVER is not clickhouse. RecoveryLeaderQuery::handle is faked through the clarity_clickhouse connection. No Cloud ClickHouse writes."
+      },
+      {
+        "cmd": "php artisan test --compact tests/Filament/Widgets/Dashboard/LiveHitsTest.php tests/Filament/Widgets/Dashboard/HistoricalHitsTest.php tests/Filament/Widgets/Dashboard/StagingHistoricalHitsTest.php tests/Filament/Widgets/Dashboard/Concerns/CardQuerySqlFidelityTest.php",
+        "passed": 72,
+        "failed": 0,
+        "skipped": 0,
+        "assertions": 255,
+        "duration_s": 13.49,
+        "env": "Sibling hit cards that share SharedHitStatsData, plus card SQL fidelity. No Cloud ClickHouse writes."
+      },
+      {
+        "cmd": "Agent QA tip-fix D+F re-run real Docker CH",
+        "passed": 127,
+        "failed": 0,
+        "skipped": 0,
+        "assertions": 631,
+        "duration_s": 40.366,
+        "env": "CLICKHOUSE_DRIVER=clickhouse @ 127.0.0.1:18124; PG :15434 zod_testing_dev_2654; classic clarity/zod on Docker; keyed clarity_dev_2654 31 tables; cloud_touched=false; schema-drift :18125 untouched",
+        "pint": "PASS 12 files",
+        "product_tip": "f43af4901eb9d14ea82314c30f8544e5e34fe546"
+      },
+      {
+        "cmd": "vendor/bin/pint --dirty --format agent",
+        "passed": true,
+        "note": "Implement tip-fix Company Metrics monthly timezone. Pint dirty PASS, no formatting edits."
+      },
+      {
+        "cmd": "php artisan test --compact tests/Filament/Widgets/Dashboard/Concerns/DashboardWidgetTest.php tests/Filament/Widgets/Dashboard/CompanyMetricsOverviewTest.php tests/Filament/Widgets/Dashboard/UniqueScansLeaderboardTest.php tests/Filament/Widgets/Dashboard/UniqueLprCaseClaimsWindowSeamTest.php tests/Filament/Widgets/Dashboard/MissedOpportunitiesTest.php tests/Filament/Widgets/Dashboard/UniqueScanCountsTest.php tests/Filament/Widgets/Dashboard/LprRepossessionsTest.php tests/Filament/Widgets/Dashboard/RecoveryCountsTest.php tests/Filament/Widgets/Dashboard/RecoveryLeaderTest.php tests/Filament/Widgets/Dashboard/UniqueLprCaseClaimsTest.php",
+        "passed": 172,
+        "failed": 0,
+        "skipped": 0,
+        "assertions": 706,
+        "duration_s": 29.39,
+        "env": "Cloud agent .env.testing. Postgres 127.0.0.1:5432 zod_testing. CLICKHOUSE local docker. No Cloud ClickHouse writes. Covers DashboardWidget monthly path and CompanyMetricsOverview getStats with users.dti NotAReal/Zone falling back to UTC.",
+        "product_tip": "f82250c368b585fcccd2bd7361ce445a9c4aa956"
+      },
+      {
+        "cmd": "Agent QA tip-fix Jeff D re-run real Docker CH",
+        "passed": 172,
+        "failed": 0,
+        "skipped": 0,
+        "assertions": 795,
+        "duration_s": 50.486,
+        "env": "CLICKHOUSE_DRIVER=clickhouse @ 127.0.0.1:18124; PG :15434 zod_testing_dev_2654; classic clarity/zod on Docker; keyed clarity_dev_2654 31 tables; cloud_touched=false; schema-drift :18125 untouched",
+        "pint": "PASS 23 files",
+        "product_tip": "f82250c368b585fcccd2bd7361ce445a9c4aa956"
+      }
+    ],
+    "review": {
+      "rn": 4,
+      "reviewed_sha": "f82250c368b585fcccd2bd7361ce445a9c4aa956",
+      "product_tip": "f82250c368b585fcccd2bd7361ce445a9c4aa956",
+      "docs_tip": "8479449c559a78944cb9403c2a65d3f0fabc3866",
+      "min_score": 90,
+      "scores": [
+        93,
+        91,
+        90
+      ],
+      "lanes": [
+        "correctness",
+        "conventions",
+        "blast-radius"
+      ],
+      "rerun_required": false,
+      "rework_pivot": false,
+      "act_on": "NONE",
+      "gate": "REVIEW_GATE: pass min=90 threshold=85 lanes=3 rn=4 scores=93/91/90 conventions=91 sources=in-session-review:3 source=lane-min",
+      "next": "CI / Jeff re-FREEZE\u2192GO / merge-lane (PM)",
+      "soft_ok_vs": "platform#462 untouched; RecoveryCounts cache-key raw tz soft; Staging Live rollup unchanged vs f43af490; AdminClickhouseChartWidget out of cards()",
+      "scope": "tip-fix Jeff D Company Metrics monthly timezone (viewerTimezone\u2192safeTimezone)",
+      "d_proved": true,
+      "d_evidence": [
+        "BuildsDateFilterChartSeries.php:14-16 viewerTimezone\u2192safeTimezone",
+        "DashboardWidget.php:240-243 getMonthlyData",
+        "DashboardWidget.php:161-164 getGraphLabels",
+        "UniqueScanCounts.php:469 getRangeTotal",
+        "UniqueScansLeaderboard.php:362 resolveRangeAndTimezone",
+        "MissedOpportunities.php:43,75 between(viewerTimezone)"
+      ]
+    },
+    "ac": [
+      {
+        "id": "AC-1",
+        "status": "SATISFIED",
+        "evidence": "rememberedRange every date arm incl this_month; LEADER_CACHE_PREFIX / fixed 13-mo gone; StagingLiveHitLeaderTest + StagingLiveHitsTest + Contract"
+      },
+      {
+        "id": "AC-2",
+        "status": "SATISFIED",
+        "evidence": "GROUP BY kit_id WITH ROLLUP / GROUPING(kit_id); key 0 org total; StagingLiveHits + Leader share rememberedRange; Feature handle-range org total != sum of kits"
+      },
+      {
+        "id": "AC-3",
+        "status": "SATISFIED",
+        "evidence": "toUtcDatetimeFor + safeTimezone; Jeff D viewerTimezone\u2192safeTimezone on Company Metrics monthly + overview Carbon; Contract + DashboardWidgetTest + CompanyMetricsOverviewTest"
+      },
+      {
+        "id": "AC-4",
+        "status": "SATISFIED",
+        "evidence": "uniqExactIf(ocr,hit_type='S'); kit_org_id scope; kit_id keying; Feature+Contract; 0 RequiresClickhouse skips on real CH"
+      },
+      {
+        "id": "AC-5",
+        "status": "SATISFIED",
+        "evidence": "shared cache helpers; staging-live-hits:range-v1 class-neutral; baseDashboardCacheTTL(0); impersonation 10s tests"
+      },
+      {
+        "id": "AC-6",
+        "status": "SATISFIED",
+        "evidence": "recovery-scans-audit.md accurate-as-is; fleet twin empty; view-without-FINAL Cloud measure delta 0; no new defect ticket"
+      },
+      {
+        "id": "AC-7",
+        "status": "SATISFIED",
+        "evidence": "TZ accepted: assertDate Y-m-d (repo_date calendar); swallow resolved: report+empty without caching failure"
+      },
+      {
+        "id": "PREFLIGHT-18",
+        "status": "SATISFIED",
+        "evidence": "CLICKHOUSE_DRIVER=clickhouse @ 127.0.0.1:18124; 172 passed / 795 asserts / 0 skip; cloud_touched=false; Jeff D tip-fix methods green; RequiresClickhouse tip suites 0 skips"
+      },
+      {
+        "id": "LIVE",
+        "status": "NOT_COVERED",
+        "evidence": "curl login 200 /app 302; authenticated dashboard/OTP not exercised \u2014 soft per steering"
+      }
+    ]
+  },
+  "pr": {
+    "number": 436,
+    "url": "https://github.com/insight-lpr/platform/pull/436",
+    "draft": false,
+    "assignee": "DaltonMcCleery",
+    "head_ref_oid": "8479449c559a78944cb9403c2a65d3f0fabc3866",
+    "product_tip": "f82250c368b585fcccd2bd7361ce445a9c4aa956",
+    "docs_tip": "8479449c559a78944cb9403c2a65d3f0fabc3866",
+    "prior_product_tip": "f43af4901eb9d14ea82314c30f8544e5e34fe546"
+  },
+  "artifacts": [
+    "docs/investigations/DEV-2654/state.json",
+    "docs/investigations/DEV-2654/journal.md",
+    "docs/investigations/DEV-2654/precedents.json",
+    "docs/investigations/DEV-2654/prep-context.json",
+    "docs/investigations/DEV-2654/plan.json",
+    "docs/investigations/DEV-2654/plan.md",
+    "docs/investigations/DEV-2654/qa-prep-ledger.json",
+    "docs/investigations/DEV-2654/recovery-scans-audit.md",
+    "docs/investigations/DEV-2654/build-record.md"
+  ],
+  "updated_at": "2026-09-24T23:03:27Z",
+  "tip_fix": {
+    "scope": "Jeff D",
+    "base_sha": "ae603dbcdc76ec1946395b5dbd180a3d6db38f31",
+    "phase": "done",
+    "note": "Verify closeout complete. BR 41815; rn=4 PASS; gates pass; phase=done. Product tip f82250c intact. Leave #462 alone. Hold DEV-2659. Prior D+F BR 41779 + original 41650 cited.",
+    "reviewed_sha": "f82250c368b585fcccd2bd7361ce445a9c4aa956",
+    "build_record": "41815",
+    "prior_build_record": "41779",
+    "original_build_record": "41650",
+    "product_tip": "f82250c368b585fcccd2bd7361ce445a9c4aa956",
+    "prior_scope": "D+F",
+    "prior_product_tip": "f43af4901eb9d14ea82314c30f8544e5e34fe546"
+  },
+  "reviewed_sha": "f82250c368b585fcccd2bd7361ce445a9c4aa956",
+  "comment_ids": {
+    "build_record": "41815",
+    "prior_build_record": "41779",
+    "original_build_record": "41650"
+  }
+}

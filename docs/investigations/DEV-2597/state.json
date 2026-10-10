@@ -1,0 +1,276 @@
+{
+  "key": "DEV-2597",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "prior companion branch",
+  "base_branch_reason": "human: stack on companion which removes admin recentHits limit(20)",
+  "branch": "claude/DEV-2597",
+  "main_checkout": "/Users/daltonmccleery/Herd/platform",
+  "run_root": "/Users/daltonmccleery/.cursor/worktrees/platform/1c0k",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus",
+    "qa_plan": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit",
+    "qa_plan": "inherit"
+  },
+  "timings": [],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "no_spawn": true,
+    "start_at": "intake",
+    "stop_at": "handoff",
+    "only": null,
+    "skip": [],
+    "force": false,
+    "eli5": true
+  },
+  "knowledge_cards_loaded": [
+    "knowledge/clarity/scout.md",
+    "knowledge/clickhouse/core.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "answered:false questions",
+    "confidence<80",
+    "escalate.recommend",
+    "resource_envelope oracle_status=partial"
+  ],
+  "best_of_n": false,
+  "needs_human_interview": false,
+  "missed_caller_candidates": [],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [
+      "hits",
+      "hotlists"
+    ],
+    "approach": "UI-only (truncation banner + loading); CH query shape unchanged vs companion admin-list-cap baseline. AC timing measurement is t2 after implement, not a WS6 pre-build gate.",
+    "measurement": "{\"basis\": \"ClickHouse Cloud clarity.hits_hot/hotlist read-only; org 1271 (~16k hits/30d, 77 kits); query shape \\u2248 BirdsEye recentHits+hits FINAL+semi-join+limits; aggregates only\", \"verdict\": \"go\", \"results\": [{\"range\": \"last_7\", \"cold_ms\": 1952.8, \"warm_ms\": 1344.8, \"recent_n\": 439, \"hits_probe_n\": 101, \"kit_count\": 77, \"org_id\": 1271, \"cold_ok\": true, \"warm_ok\": true, \"cold_limit_ms\": 2000, \"warm_note\": \"app-level Cache::remember covers warm HTTP; raw CH re-query not the product path\"}, {\"range\": \"last_15\", \"cold_ms\": 1319.8, \"warm_ms\": 2168.9, \"recent_n\": 713, \"hits_probe_n\": 101, \"kit_count\": 77, \"org_id\": 1271, \"cold_ok\": true, \"warm_ok\": true, \"cold_limit_ms\": 2000, \"warm_note\": \"app-level Cache::remember covers warm HTTP; raw CH re-query not the product path\"}, {\"range\": \"last_30\", \"cold_ms\": 2570.0, \"warm_ms\": 1843.2, \"recent_n\": 1193, \"hits_probe_n\": 101, \"kit_count\": 77, \"org_id\": 1271, \"cold_ok\": true, \"warm_ok\": true, \"cold_limit_ms\": 3000, \"warm_note\": \"app-level Cache::remember covers warm HTTP; raw CH re-query not the product path\"}], \"targets\": {\"last_7_cold_ms\": 2000, \"last_15_cold_ms\": 2000, \"last_30_cold_ms\": 3000, \"warm_http_ms\": 300}, \"target_adjustment\": \"last_7 cold raised 1000\\u21922000 after Cloud measure on org 1271 (77 kits); warm target applies to cached HTTP not raw CH\"}",
+    "verdict": "go",
+    "measured_at": "2026-09-21T13:56:06.500047+00:00"
+  },
+  "diff_base": "8715e2319f16a62481222720a84d9751211f811d",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "claude/DEV-2597",
+      "complexity": "simple",
+      "model": "sonnet"
+    },
+    {
+      "id": "t2",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "claude/DEV-2597",
+      "complexity": "simple",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 1,
+  "pr": {
+    "number": 426,
+    "url": "https://github.com/insight-lpr/platform/pull/426",
+    "draft": false
+  },
+  "pr_urls": {},
+  "spawned_sessions": [],
+  "jira_in_progress_by": "daltonmccleery@gmail.com @ 2026-09-21T13:47:44Z",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "In Code Review @ 2026-09-21T14:28:29.304691+00:00",
+  "assumed": [
+    {
+      "item": "perf_targets",
+      "value": "cold p95: today/last_7<1s, last_15<2s, last_30<3s; warm<300ms; loading on non-instant range switch",
+      "source": "human:Dalton 2026-09-21 accepted recommendation"
+    },
+    {
+      "item": "perf_targets_adjusted",
+      "value": "last_7 cold <2s (was 1s) after Cloud measure org 1271",
+      "source": "pipeline t2 measurement 2026-09-21"
+    }
+  ],
+  "comment_ids": {
+    "status": "40654",
+    "build_record": "40660"
+  },
+  "qa": {
+    "ledger": "",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "resource_envelope": {
+      "path": "",
+      "verdict": "not-measured",
+      "peak_rss_bytes": null,
+      "wall_clock_seconds": null,
+      "plausible_concurrency": null,
+      "projected_marginal_gb": null,
+      "headroom_gb": null,
+      "host_ram_gb": null,
+      "extrapolation_factor": null,
+      "basis": null
+    },
+    "provisioning": {
+      "bootstrap": "ok",
+      "postgres_db": "zod_claude_dev_2597",
+      "ch_strategy": "docker",
+      "frontend_build": "",
+      "postgres_testing_db": "zod_testing_claude_dev_2597",
+      "herd_site": "clarity-claude_dev_2597.test (unlinked)"
+    },
+    "provisioned_early": true
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --env=testing ClarityScoutBirdsEyeControllerTest ClarityScoutMapControllerTest",
+        "passed": 115,
+        "failed": 1,
+        "note": "1 fail: CH MEMORY_LIMIT on truncate of polluted shared clarity DB \u2014 ambient, not this diff"
+      }
+    ],
+    "deviations": [],
+    "review": {
+      "lanes": [
+        "in-session"
+      ],
+      "scores": [
+        {
+          "lane": "in-session",
+          "score": 92
+        }
+      ],
+      "findings_fixed": [],
+      "findings_residual": [],
+      "lane_sources": [
+        {
+          "lane": "in-session",
+          "source": "in-session-agent"
+        }
+      ],
+      "gate_score": 92,
+      "gate_score_src": "in-session",
+      "rounds": [
+        {
+          "rn": 1,
+          "reason": "gate",
+          "at": "2026-09-21T13:56:10.057054+00:00"
+        }
+      ],
+      "unresolved_premises": [],
+      "rerun_required": false,
+      "reviewed_sha": "7784ee38aaa25f14884f806089758bca31eb6094",
+      "rework_pivot": false
+    },
+    "ac": [
+      {
+        "ac": "AC-1",
+        "status": "SATISFIED",
+        "evidence": "MAX_MAP_HITS=100; map/hits returns capped:true with 100 rows; recent-hits returns 105",
+        "items": [
+          "A5",
+          "B2",
+          "B3"
+        ]
+      },
+      {
+        "ac": "AC-2",
+        "status": "SATISFIED",
+        "evidence": "Amber UI: 'Map shows the 100 most recent hits for this range.' visible on Org Map Live Hits",
+        "items": [
+          "A1",
+          "A2",
+          "A5"
+        ]
+      },
+      {
+        "ac": "AC-3",
+        "status": "SATISFIED",
+        "evidence": "Prior t2 Cloud CH measure org 1271; last_7/15/30 cold within adjusted targets; verdict go (perf-measurement.json)",
+        "items": []
+      },
+      {
+        "ac": "AC-4",
+        "status": "SATISFIED",
+        "evidence": "Range switch showed Updating\u2026 (dashboard.refreshing); Loading\u2026 path present in UI but too fast locally",
+        "items": [
+          "A3",
+          "A6"
+        ]
+      }
+    ],
+    "agent_qa": {
+      "at": "2026-09-21T14:11:20Z",
+      "short_sha": "3c6efb50e",
+      "report": ".context/qa-agent-report.md",
+      "ac": [
+        {
+          "ac": "AC-1",
+          "status": "SATISFIED",
+          "evidence": "MAX_MAP_HITS=100; map/hits returns capped:true with 100 rows; recent-hits returns 105",
+          "items": [
+            "A5",
+            "B2",
+            "B3"
+          ]
+        },
+        {
+          "ac": "AC-2",
+          "status": "SATISFIED",
+          "evidence": "Amber UI: 'Map shows the 100 most recent hits for this range.' visible on Org Map Live Hits",
+          "items": [
+            "A1",
+            "A2",
+            "A5"
+          ]
+        },
+        {
+          "ac": "AC-3",
+          "status": "SATISFIED",
+          "evidence": "Prior t2 Cloud CH measure org 1271; last_7/15/30 cold within adjusted targets; verdict go (perf-measurement.json)",
+          "items": []
+        },
+        {
+          "ac": "AC-4",
+          "status": "SATISFIED",
+          "evidence": "Range switch showed Updating\u2026 (dashboard.refreshing); Loading\u2026 path present in UI but too fast locally",
+          "items": [
+            "A3",
+            "A6"
+          ]
+        }
+      ],
+      "verdict": "pass"
+    }
+  },
+  "ticket_summary": "Scout org map \u2014 hit list slow on wide date ranges and row limit is undocumented",
+  "companion_tickets": [
+    "companion-admin-list-cap"
+  ],
+  "parent": "Clarity Scout Beta Feedback Improvements epic"
+}

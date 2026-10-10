@@ -1,0 +1,117 @@
+{
+  "key": "DEV-2891",
+  "uat_needed": false,
+  "policy_decisions": {
+    "guard_expression": "(jsonb_typeof(settings->'notifications'->'<ch>') in ('array', 'object') and settings->'notifications'->'<ch>' not in ('[]'::jsonb, '{}'::jsonb))",
+    "guard_verified": "Checked against local Postgres using JSON literals only. Results: non-empty array and non-empty object are true; [], {}, JSON null, the strings \"555\" and \"\", and the number 5 are false; a missing key, a string notifications and a missing notifications are NULL, which WHERE excludes. No input throws. Neither function can raise, so correctness does not depend on the order Postgres evaluates the AND.",
+    "current_emitted_sql": "Laravel 12 PostgresGrammar::compileJsonLength compiles whereJsonLength('settings->notifications->sms','>',0) to jsonb_array_length((\"settings\"->'notifications'->'sms')::jsonb) > ?. The cause is wrapJsonSelector plus str_replace('->>','->'). The column is jsonb (create_alert_settings migration :17), so the ::jsonb cast does nothing and the raw path settings->'notifications'->'<ch>' gives the same jsonb value.",
+    "scalar_policy": "A non-empty JSON scalar (e.g. \"555\") is NOT configured. The SQL excludes it, and the DTO normaliser maps any non-array value (null, '', scalar) to []. Reason: this keeps the stored shape, the form fill and the alert reader in agreement, so the UI never shows a recipient the reader won't alert. No writer in the repo produces scalars, and the prod error is the object variant (prep notes[0]).",
+    "no_placeholder_char": "The raw SQL contains no '?' (it is not the jsonb ? operator, and there are no bindings). The channel names are hardcoded literals from ['sms','emails','slack'], so nothing is interpolated from user input."
+  },
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Enforce the list-shape invariant on alert_settings channels: a no-throw reader guard plus writer/DTO normalisation",
+      "approach": "This is one coherent concern: channel values must be JSON lists, and the reader must survive when they are not. It stays one subtask because the reader guard, DTO normaliser and writer ->values() share one invariant and one test matrix. Splitting would mean duplicated fixtures and a DTO change that alters what the reader tests see. Five app files each get a small edit (about 40 lines in total). (1) HitAlertSettings::kitAlertSettings (app/Models/Concerns/HitAlertSettings.php:36-42): swap the three whereJsonLength/orWhereJsonLength calls for orWhereRaw(self::channelHasContentSql($ch)) over sms/emails/slack, using the guard in policy_decisions. Keep the orWhere('settings->webhook_url','!=','') branch, the cache key 'alert_settings:t:{type}:k:{kit}', the [10m,30m] TTL and the query shape exactly as they are. (2) AlertSettingSettingsDto (app/Dto/AlertSettingSettingsDto.php:19-42): add private static toList(mixed): array, which returns array_values for arrays and [] otherwise. Apply it to types, clients and the three channels in both fromArray and toJson. Guard a non-array 'notifications'. Leave webhook_url and the constructor unchanged. (3) AlertSetting::removeSms/removeEmail (app/Models/AlertSetting.php:122-136): add ->values() before ->toArray(). removeSms must read routeNotificationForSms() (human decision 2026-09-30). (4) AlertSettingsForm::formatSms/formatEmails/formatSlack (app/Filament/Forms/AlertSettingsForm.php:334-372): add ->values() before ->toArray(). (5) AlertSettingsCast::get (app/Casts/AlertSettingsCast.php:15): pass fromArray(is_array($decoded) ? $decoded : []) so a stored JSON null cannot TypeError. Leave set() alone; the array path is raw json_encode, and tests rely on it to seed bad shapes. Tests use the RefreshDatabase TestCase helpers (createUser(pro: true), makeOrgPro, factories). Seed malformed rows by creating them through AlertSetting::factory() and then overwriting the raw column with DB::table('alert_settings')->where('id',$id)->update(['settings' => '<literal json>']), because the DTO now normalises on write. Call Cache::flush() before each getSubscribers/notifySubscribers case and freezeTime() in the multi-case tests so the flexible window is deterministic. No ClickHouse is involved. Add sparse comments only, keep the code PHP 8.3-safe, and run composer format.",
+      "target_files": [
+        "app/Models/Concerns/HitAlertSettings.php",
+        "app/Dto/AlertSettingSettingsDto.php",
+        "app/Models/AlertSetting.php",
+        "app/Filament/Forms/AlertSettingsForm.php",
+        "app/Casts/AlertSettingsCast.php",
+        "tests/Feature/Models/Concerns/HitAlertSettingsTest.php",
+        "tests/Feature/Models/AlertSettingTest.php",
+        "tests/Unit/Dto/AlertSettingSettingsDtoTest.php",
+        "tests/Unit/Casts/AlertSettingsCastTest.php",
+        "tests/Feature/Http/Controllers/EmailControllerTest.php",
+        "tests/Filament/Forms/AlertSettingsFormTest.php"
+      ],
+      "intended_diffs": [
+        {
+          "file": "app/Models/Concerns/HitAlertSettings.php",
+          "diff": "Inside the ->where(function (Builder $query): void { ... }) closure: foreach (['sms', 'emails', 'slack'] as $channel) { $query->orWhereRaw(self::channelHasContentSql($channel)); } then $query->orWhere('settings->webhook_url', '!=', ''). A leading 'or' inside a nested group is stripped by Grammar::removeLeadingBoolean. Add private static function channelHasContentSql(string $channel): string that returns \"(jsonb_typeof({$path}) in ('array', 'object') and {$path} not in ('[]'::jsonb, '{}'::jsonb))\" with $path = \"settings->'notifications'->'{$channel}'\". Add one short PHPDoc line: non-empty array or object counts as configured, and the expression never throws, unlike jsonb_array_length. The cache key, TTL and the whereIn/alertable_type/whereJsonContains(types) lines do not change."
+        },
+        {
+          "file": "app/Dto/AlertSettingSettingsDto.php",
+          "diff": "fromArray: $notifications = \\is_array($data['notifications'] ?? null) ? $data['notifications'] : []; then types: self::toList($data['types'] ?? null), clients: self::toList($data['clients'] ?? null), and notifications sms/emails/slack: self::toList($notifications['<ch>'] ?? null). webhook_url stays $data['webhook_url'] ?? ''. toJson: 'types' => self::toList($this->types), 'clients' => self::toList($this->clients), 'notifications' => ['sms' => self::toList($this->notifications['sms'] ?? null), 'emails' => ..., 'slack' => ...]. Add private static function toList(mixed $value): array { return \\is_array($value) ? \\array_values($value) : []; }."
+        },
+        {
+          "file": "app/Models/AlertSetting.php",
+          "diff": "In removeSms, change $this->routeNotificationForMail() to $this->routeNotificationForSms() and add ->values() before ->toArray(). In removeEmail, add ->values() before ->toArray(). Nothing else changes; routeNotificationFor*, alertsEmail/SmsIsSubscribedTo and the widget query are out of scope."
+        },
+        {
+          "file": "app/Filament/Forms/AlertSettingsForm.php",
+          "diff": "Add ->values() between ->unique() and ->toArray() in formatSms, formatEmails and formatSlack. save() does not change, because types and clients are normalised by the DTO."
+        },
+        {
+          "file": "app/Casts/AlertSettingsCast.php",
+          "diff": "In get(): $decoded = \\json_decode($value ?? '{}', true); return AlertSettingSettingsDto::fromArray(\\is_array($decoded) ? $decoded : []); set() does not change."
+        },
+        {
+          "file": "tests/Feature/Models/Concerns/HitAlertSettingsTest.php (new)",
+          "diff": "Use #[Group('alerts')]. Create one pro org (createUser(pro: true)) and add siblings with User::factory()->forOrg($org). Seed these rows. A: valid list (emails ['a@x.com'], types [L,S,M]). B: raw emails {\"1\":\"b@x.com\"}. C: raw sms \"555\" (scalar policy pin). D: raw slack null. E: raw emails {} and sms []. F: notifications key missing. G: webhook-only through the factory webhookNotification. H: valid emails plus raw sms \"555\". Use a #[DataProvider] over Hit::factory()->live()/stagingLive()/missedOpportunity()->forOrg($org). Assert getSubscribers() does not throw and its ids are exactly {A,B,G,H}. With Notification::fake() plus notifySubscribers(), assert b@x.com receives a notification, which pins AC-3. For H, assert routeNotificationForSms() is empty (scalar dropped). If the pipelines gate M differently, the M case falls back to asserting that kitAlertSettings resolution (via getSubscribers) does not throw."
+        },
+        {
+          "file": "tests/Feature/Models/AlertSettingTest.php (new)",
+          "diff": "removeEmail('b@x') on emails [a,b,c]: the raw column's jsonb_typeof(settings->'notifications'->'emails') is 'array' and the value is [a,c]. removeEmail on the first element also gives an array. After removeEmail, getSubscribers for a Live hit in the same org does not throw. removeSms('(555) 111-2222') on sms ['5551112222','5553334444'] with emails ['x@y'] leaves sms ['5553334444'] and emails unchanged (AC-5). A legacy raw object row {\"0\":\"a\",\"2\":\"c\"} plus removeEmail('a') stores ['c'] as an array."
+        },
+        {
+          "file": "tests/Unit/Dto/AlertSettingSettingsDtoTest.php",
+          "diff": "Add cases. fromArray with gapped or object-keyed types/clients/sms/emails/slack returns array_is_list values in the original order. For null, '', 'x' (scalar) and 5, the channel becomes []. A non-array 'notifications' makes all three channels []. toJson after direct mutation ($dto->notifications['emails'] = [1 => 'b']) emits a JSON list. The round trip is idempotent, and webhook_url is unchanged. The existing tests keep passing because they already use lists."
+        },
+        {
+          "file": "tests/Unit/Casts/AlertSettingsCastTest.php",
+          "diff": "Add cases. get() with 'null', '\"str\"' and '5' returns a default DTO with no TypeError. set() with a DTO holding gapped arrays writes JSON arrays. The existing test_set_with_array raw path stays unchanged."
+        },
+        {
+          "file": "tests/Feature/Http/Controllers/EmailControllerTest.php",
+          "diff": "Add cases. The signed single-unsubscribe route removing the first or middle of [a,b,c] leaves the raw column jsonb_typeof 'array'. Unsubscribe-all after a prior removal still finds the row and removes the address."
+        },
+        {
+          "file": "tests/Filament/Forms/AlertSettingsFormTest.php",
+          "diff": "Add cases. formatSms/formatEmails with a leading or middle duplicate, and with the personal entry toggled off where it is not last, return array_is_list results. formatSlack with an invalid URL at index 0 returns a list. save() persists the raw column with jsonb_typeof 'array' for all three channels. Use assertSame plus assertTrue(array_is_list(...))."
+        }
+      ],
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "HitAlertSettingsTest|AlertSettingTest|AlertSettingSettingsDtoTest|AlertSettingsCastTest|EmailControllerTest|AlertSettingsFormTest|HitWebhookFanOutTest|HitEventListenerTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {
+      "site": "app/Models/AlertSetting.php:107-120 (alertsEmailIsSubscribedTo/alertsSmsIsSubscribedTo @> queries)",
+      "reason": "ok-with-note: these queries cannot throw. Object rows are silently missed until healed on next save; the backfill is deferred by human decision 2026-09-30, and the query change is out of scope."
+    },
+    {
+      "site": "app/Filament/Widgets/AlertSettings/SubscribedAlertsWidget.php:110-117 (unscoped top-level orWhereJsonContains)",
+      "reason": "Cross-tenant scope leak, out of scope per prep. Note it in the PR and ask Dalton before filing a ticket."
+    },
+    {
+      "site": "Backfill/repair command for existing malformed rows (AC-6)",
+      "reason": "Deferred to a follow-up by human decision 2026-09-30. Do not create the ticket without Dalton's OK."
+    },
+    {
+      "site": "Read-only prod inventory (AC-7)",
+      "reason": "Pre-merge gate that Dalton runs on prod (prep pre_merge_gates). Not an agent subtask."
+    }
+  ],
+  "sizing": {
+    "app_files": 5,
+    "test_files": 6,
+    "concerns": [
+      "Reader: kitAlertSettings channel predicate must never throw and must count non-empty objects",
+      "Writers: DTO/cast/form/model persist and read channel, type and client lists as sequential arrays"
+    ],
+    "split_recommended": false,
+    "why_single": "Both concerns enforce one invariant and share one fixture and test matrix. The DTO read-path normalisation changes what the reader tests observe, so splitting would serialise anyway and duplicate the seeding. The total diff is small (about 40 app lines)."
+  },
+  "risks": [
+    "The worktree has no vendor/ directory. Run composer install before the verifier runs tests (memory: worktree-vendor-missing-zod-migrations).",
+    "The DTO now also normalises on READ (cast get calls fromArray). A row whose sms is a non-empty scalar but that has another valid channel will now route SMS to nobody, where before it resolved to ['555']. This is intended per scalar_policy, and before this change such an org threw anyway.",
+    "HitEventListenerTest and HitWebhookFanOutTest are regression-only; the filter covers them and they are not edited.",
+    "Hit type M may be gated by the pipelines. If so, the M data-provider case asserts only that nothing throws, which keeps AC-1 coverage without a false negative."
+  ]
+}

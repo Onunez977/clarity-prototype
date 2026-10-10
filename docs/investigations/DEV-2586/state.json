@@ -1,0 +1,276 @@
+{
+  "key": "DEV-2586",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "base-resolve.sh returned 9 candidates, all Otto/Scout/cursor feature branches unrelated to Company Metrics; origin/main HEAD already carries the Company Metrics card work (028557beb, af9904e1b, 7a54e163c), so main is the correct base.",
+  "branch": "claude/dev-2586-fd4bdd",
+  "main_checkout": "/Users/daltonmccleery/Herd/platform",
+  "run_root": "/Users/daltonmccleery/Herd/platform/.claude/worktrees/dev-2586-fd4bdd",
+  "repo_path_note": "Reused the harness-provided worktree. Branch name deliberately NOT renamed to claude/DEV-2586 (see memory ticket-branch-rename-env-rekey-breaks-devlogin): the env/DB/Herd-site names are derived from the branch at bootstrap, so a rename desyncs them.",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "prep-fast",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 269,
+      "tokens_total": 93612
+    },
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 313,
+      "tokens_total": 100042
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 668
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "no_spawn": true,
+    "start_at": "intake",
+    "stop_at": "handoff",
+    "only": null,
+    "skip": [],
+    "force": false,
+    "eli5": true,
+    "no_spawn_reason": "Driver decision, not a passed flag. The /ticket Phase 2.5 exception for 'a ticket small enough that the split costs more than it saves' applies: 4 files, a one-line ->description() addition per card plus test updates, approach fully settled in prep-context. A fresh session would spend more re-orienting than the split saves."
+  },
+  "knowledge_cards_loaded": [
+    "clickhouse/core.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "prep confidence 78 (<80)",
+    "escalate.recommend=true",
+    "2 questions answered:false"
+  ],
+  "best_of_n": false,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "presentation-only",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "c58965d3281bf443a5eaae452d4bb7cefba0257b",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "claude/dev-2586-fd4bdd",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 3,
+  "pr": {
+    "number": 415,
+    "url": "https://github.com/insight-lpr/platform/pull/415",
+    "draft": false
+  },
+  "pr_urls": {
+    "main": "https://github.com/insight-lpr/platform/pull/415"
+  },
+  "spawned_sessions": [],
+  "jira_in_progress_by": null,
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "Undraft tripped no GH Action (no checks reported on the branch), so the pipeline transitioned To Do->In Progress at Phase 4 and In Progress->In Code Review at handoff via the Atlassian MCP. Dalton McCleery @ 2026-09-16T20:20Z",
+  "assumed": [],
+  "comment_ids": {
+    "status": "40038",
+    "build_record": "40054"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-ch-seed.sql (seed) + backend verification recorded in qa-ac-results.json",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "resource_envelope": {
+      "path": "",
+      "verdict": "not-measured",
+      "basis": "n/a - presentation-only change, not scale_relevant"
+    },
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "n/a",
+      "ch_container": "reused (clarity-qa-clickhouse restarted)",
+      "frontend_build": "not-needed (no resources/ change)",
+      "postgres_db": "zod_claude_dev_2586_fd4bdd (+ zod_testing_claude_dev_2586_fd4bdd)",
+      "ch_strategy": "docker, per-worktree clarity_claude_dev_2586_fd4bdd + zod_claude_dev_2586_fd4bdd (+ _test)",
+      "herd_site": "clarity-claude_dev_2586_fd4bdd",
+      "postgis_patch": "applied (simplified_geom was absent)",
+      "baseline_reseed": "ran (TIGER_CHANGED=yes)"
+    },
+    "provisioned_early": true,
+    "human_guide": ".context/qa-human-guide.html",
+    "human_qa": "completed by operator 2026-09-16 (\"I've completed QA\"); visual height parity confirmed on pre-prod",
+    "teardown_detail": "CH: 4 per-worktree databases dropped (clarity/zod _claude_dev_2586_fd4bdd + _test); container KEPT, 2 other worktrees' databases still on it and untouched. PG: zod_claude_dev_2586_fd4bdd + zod_testing_claude_dev_2586_fd4bdd dropped behind a shape guard. Herd: clarity-claude_dev_2586_fd4bdd unlinked. Ledger deleted. .env keys restored to their PRE-RUN values by hand, because down.sh's backup was taken AFTER the run had already neutralised CLICKHOUSE_HOST and so would have restored 127.0.0.1 rather than the original value. All four resource classes re-verified empty after the fact."
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact --filter='RecoveryLeaderTest|StagingLiveHitLeaderTest|UniqueScansLeaderboardTest'",
+        "passed": 44,
+        "failed": 1,
+        "skipped": 4,
+        "note": "The 1 failure is PRE-EXISTING and unrelated: StagingLiveHitLeaderTest > overview last month does not reuse this month staging live totals dies on SQLSTATE[42P01] Undefined table: scans_cold, raised from app/Filament/Widgets/Dashboard/ScanCount.php:175 -- a file this ticket does not touch. VERIFIED by the driver, not taken from the worker: reverted all four target files to DIFF_BASE c58965d3 and re-ran the single test, which failed identically. Cause is the env, not the code: the isolated testing DB runs the pgsql ClickHouse bridge and has no scans_cold relation (to_regclass returns NULL for both public.scans_cold and scans_cold). The 4 skips are the #[Group('clickhouse')] tests self-skipping on CLICKHOUSE_DRIVER != clickhouse."
+      }
+    ],
+    "deviations": [
+      {
+        "source": "qa-blocker",
+        "edit": "RecoveryLeaderQuery: hardcoded `clarity.` -> static::clarityDb() at 3 sites",
+        "ac_ref": "AC-1",
+        "ac_delta": null,
+        "why": "The ticket's own card could not reach the isolated QA database, so no AC could be verified. Production resolves the same literal `clarity`, so prod behaviour is unchanged. rework-gate: pass (1 file, under materiality 3, no sensitive globs)."
+      },
+      {
+        "source": "post-build-scope-change",
+        "edit": "Did NOT fix the 4 other hardcoded-`clarity.` query classes",
+        "ac_ref": null,
+        "ac_delta": null,
+        "why": "Operator decision 2026-09-16: ship as-is and report, rather than widen a display-bug ticket to 14 files. Consequence recorded honestly: the browser lane could not run and AC-4's on-screen confirmation is a human-QA item."
+      }
+    ],
+    "review": {
+      "lanes": [
+        "claude1",
+        "claude2",
+        "claude3"
+      ],
+      "scores": [
+        94,
+        94,
+        94
+      ],
+      "findings_fixed": [
+        "RN1: long kit name wrapped the collapsed description to two lines and grew the card past the 188px floor, breaking the height-parity AC. Restored the repo's own guard from 304d3c77e (block min-w-0 truncate + title tooltip).",
+        "RN1: UniqueScansLeaderboard::toStat()'s docblock claimed the other two cards 'carry no such label' -- falsified by this change, corrected.",
+        "RN2 (HIGH): the blank-name fallback was a parallel PHP implementation of a documented query-layer guard, with a worse label (N/A vs the house 'Kit 1234') covering 1 of 4 render surfaces. Moved to the query layer at 3 select sites per KitScanPathsQuery:80 / ScanPlateStatsBatchQuery:274 / okf/concepts/scout-clickhouse-queries.md:47, and narrowed the PHP helper to truncation + escaping.",
+        "RN2: UniqueScansLeaderboard had ZERO PHPUnit assertions on the description whose rendering this change altered. Added coverage including an escaping test.",
+        "RN2: a test comment claimed the truncate assertion proved height behaviour it cannot prove; narrowed to what it actually pins.",
+        "RN2: the query guard is now tested where it lives -- a CH-free SQL assertion in CardQuerySqlFidelityTest, including that it wraps the AGGREGATE not the row."
+      ],
+      "findings_residual": [
+        "Year-TTL caches defeat the blank-name guard on last_month and the 13-month chart history (3-lane convergence). today/last_7d/this_month -- the default view -- pick it up immediately. Real fix is cache-key versioning, shared by every CH query in the app.",
+        "RecoveryLeaderQuery keys its result map by kit NAME, so two same-named kits collapse and the card can headline the LOWER total. Pre-existing; the sibling query documents the opposite rule.",
+        "The clarity.kits join in RecoveryLeaderQuery has no FINAL; a mid-rename CDC row can appear twice and the new guard can render a plausible 'Kit 42' for a kit that has a real name. Needs-verification.",
+        "KitUserRecoveryLeaderboardQuery and KitUserRecoveries/LeaderboardTableWidget still render unguarded kit names on a leaderboard (different feature surface).",
+        "'Top Kit: N/A' on a swallowed ClickHouse failure reads as data. Pre-existing and systemic -- every card on the grid already renders 0 on that path."
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "harness-claude-p"
+        },
+        {
+          "lane": "claude2",
+          "source": "harness-claude-p"
+        },
+        {
+          "lane": "claude3",
+          "source": "harness-claude-p"
+        }
+      ],
+      "gate_score": 94,
+      "gate_score_src": "arbitration",
+      "rounds": [
+        {
+          "rn": 1,
+          "reason": "gate",
+          "at": "2026-09-16T18:11:00Z"
+        },
+        {
+          "rn": 2,
+          "reason": "scope",
+          "at": "2026-09-16T18:45:00Z",
+          "note": "RN1 PASSED the gate at 94 (arbitration; 3 Mediums, no High). The driver fixed the findings anyway because one of them broke a stated acceptance criterion (card height parity), and shipping a known AC break because the arithmetic rounded to 94 would defeat the point of the review. Code changed after a passing verdict, so RN1 no longer covers it. A scope round is not a fix cycle and does not consume the single gate-fix budget."
+        },
+        {
+          "rn": 3,
+          "reason": "regression",
+          "at": "2026-09-16T19:25:00Z",
+          "note": "RN2 FAILED the gate: claude3 raised a HIGH (zero-tolerance floor) against leaderKitDescription()'s blank-name fallback -- code written by RN2's own scope-round fix, so this is a regression round, not a gate round, and it does not consume the single gate-fix budget. The finding was driver-verified and correct: the repo already documents a query-layer blank-kit-name guard (KitScanPathsQuery:80, ScanPlateStatsBatchQuery:274, okf/concepts/scout-clickhouse-queries.md:47) that yields an actionable 'Kit 1234'. The PHP helper was a parallel implementation with a worse label that covered 1 of 4 render surfaces. Fixed by moving the guard to the query layer per the convention."
+        }
+      ],
+      "unresolved_premises": [],
+      "rerun_required": false,
+      "reviewed_sha": "f5b72ff1e76e990a309f8dcb95db56267ca5c623",
+      "rework_pivot": false
+    },
+    "ac": [
+      {
+        "item": "AC-1 collapsed LPR Recovery Leaderboard names the leading kit",
+        "status": "SATISFIED",
+        "evidence": "this_month -> value=6, 'Top Kit: Kit Alpha', read through the widget against seeded ClickHouse"
+      },
+      {
+        "item": "AC-2 the name tracks the selected date filter",
+        "status": "SATISFIED",
+        "evidence": "today=Kit 9003/3, last_7d=South Austin Recovery Unit Alpha-12/4, this_month=Kit Alpha/6"
+      },
+      {
+        "item": "AC-3 expanded chart still names leader + runner-up",
+        "status": "SATISFIED",
+        "evidence": "getDescription() unchanged: 'Leader for This Month: Kit Alpha with 6' + runner-up line"
+      },
+      {
+        "item": "AC-4 card height parity preserved",
+        "status": "SATISFIED",
+        "evidence": "By construction: .truncate{text-overflow:ellipsis;white-space:nowrap;overflow:hidden} confirmed in the COMPILED public/build/assets/theme-*.css, proven with a 34-char name. Final on-screen confirmation deferred to human QA (browser lane blocked)."
+      },
+      {
+        "item": "AC-5 Staging Live Hit Leader also names its leader, headline unchanged",
+        "status": "SATISFIED",
+        "evidence": "value=5 with 'Top Kit: Kit 9003' - the blank-named kit is the leader, proving both the guard and the same-row invariant"
+      },
+      {
+        "item": "AC-6 a blank kit name never renders as an empty label",
+        "status": "SATISFIED",
+        "evidence": "Query-layer guard verified on both cards; handle() returns the key 'Kit 9003', never ''"
+      }
+    ]
+  }
+}

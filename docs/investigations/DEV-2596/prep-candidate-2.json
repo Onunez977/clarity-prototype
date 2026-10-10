@@ -1,0 +1,263 @@
+{
+  "ticket": "DEV-2596",
+  "candidate": 2,
+  "timestamp": "2026-09-17T16:55:00Z",
+  "confidence": "medium-high",
+  "root_cause_hypothesis": "The force-login action opens a new tab, but the admin_impersonator session key is not reliably propagated to that new browser context, causing intermittent 403s when ClarityScoutForceLoginController checks session()->has('admin_impersonator').",
+  
+  "investigation_summary": {
+    "files_examined": [
+      "app/Filament/Resources/ScoutUsersResource.php",
+      "app/Http/Controllers/ClarityScoutForceLoginController.php",
+      "app/Http/Controllers/ImpersonateController.php",
+      "app/Support/Scout/ScoutForceTokens.php",
+      "app/Http/Middleware/ClarityScoutMiddleware.php",
+      "app/Http/Controllers/Api/ClarityScoutAuthController.php",
+      "app/Models/User.php",
+      "routes/web.php"
+    ],
+    "pr_410_changes_verified": true,
+    "precedent_analysis": "PR #410 fixed duplicate-GET token revocation and wrong-account revocation, but did not address session availability in new tabs. Ticket filed day after PR merge suggests remaining regression."
+  },
+  
+  "mechanics": {
+    "trigger_path": "Admin Panel > Scout Users > 'Login to Scout' icon (arrow-right-on-rectangle) > Opens new tab to /scout/force-login/{kit}",
+    "session_gate": "ClarityScoutForceLoginController line 16: abort_unless(session()->has('admin_impersonator'), 403)",
+    "session_set_location": "ImpersonateController::impersonate() lines 56-58, only for hardcoded admin IDs [1,3,10,50,25,41,35,8,45,48]",
+    "new_tab_behavior": "ScoutUsersResource.php line 354: shouldOpenInNewTab: true causes browser to open new context that may not inherit session",
+    "token_lifecycle": "PR #410 introduced ScoutForceTokens::mintFor() which keeps 3 most recent tokens per driver, tracks minted IDs in impersonator's session under 'clarity_scout_force_token_ids', revokes on impersonation exit/re-entry"
+  },
+  
+  "failure_modes": {
+    "primary": {
+      "symptom": "403 response from ClarityScoutForceLoginController when session()->has('admin_impersonator') returns false",
+      "cause": "New tab opened by 'Login to Scout' action does not reliably inherit admin_impersonator session key",
+      "evidence": [
+        "Action uses shouldOpenInNewTab: true which creates new browser context",
+        "Session cookies may not propagate immediately or at all depending on SameSite attribute, browser session isolation, timing",
+        "Intermittent nature matches session race condition pattern",
+        "Works then fails consecutively suggests session state desync rather than token exhaustion"
+      ]
+    },
+    "secondary_considerations": {
+      "session_expiry": "Admin impersonation session could expire between impersonate() and force-login click, but this would be consistent failure not intermittent",
+      "cache_issue": "Post-PR-410, service worker no longer caches force-login HTML (line 25-26 of commit message), so this is ruled out",
+      "token_revocation": "PR #410 fixed duplicate-GET revocation by keeping 3 most recent tokens and tracking IDs in session, so this is ruled out as root cause"
+    }
+  },
+  
+  "evidence": {
+    "code_paths": [
+      "ScoutUsersResource.php:353 - visible(fn (Kit $record) => session()->has('admin_impersonator') && $record->assigned_user !== null)",
+      "ScoutUsersResource.php:354 - url(fn (Kit $record) => route('clarity-scout.force-login', $record), shouldOpenInNewTab: true)",
+      "ClarityScoutForceLoginController.php:16 - abort_unless(session()->has('admin_impersonator'), 403)",
+      "ImpersonateController.php:56-58 - Hardcoded admin ID list determines who gets admin_impersonator session key"
+    ],
+    "pr_410_scope": {
+      "fixed": [
+        "Duplicate GET token revocation (now keeps 3 most recent per driver)",
+        "Wrong-account revocation (tokens tracked in impersonator's session, not driver's)",
+        "Silent 401 client bounce (handleUnauthorized now records status/message)",
+        "Service worker caching force-login HTML"
+      ],
+      "did_not_address": [
+        "Session propagation to new tabs/windows",
+        "admin_impersonator session availability check reliability"
+      ]
+    },
+    "ticket_context": {
+      "demo_date": "2026-09-16",
+      "pr_merge_date": "2026-09-15",
+      "symptom": "Worked then failed for 3 Scout users consecutively",
+      "related_tickets": [
+        "Guard shift side effects for force-login impersonators",
+        "Blocked lazy shift auto-start for force-login impersonators",
+        "Force-login token lifecycle / wrong-user revocation (addressed by PR #410)"
+      ]
+    }
+  },
+  
+  "unanswered_questions": [
+    {
+      "q": "What is the application's session driver and configuration (file, database, redis)?",
+      "why": "Session propagation behavior to new tabs depends heavily on session driver and SameSite cookie settings. Database/redis sessions with strict SameSite may not propagate to new tabs opened via window.open or target=_blank."
+    },
+    {
+      "q": "Does the admin_impersonator session key have any explicit TTL or is it deleted on certain events?",
+      "why": "ImpersonateController::exitAdminMode() forgets the key, but are there other paths that clear it? Could the key expire between page load and button click?"
+    },
+    {
+      "q": "Can we reproduce with consecutive force-logins in rapid succession, or only after some delay?",
+      "why": "If it's timing-dependent, that strengthens the race-condition hypothesis. If delay-dependent, could be session sync lag."
+    },
+    {
+      "q": "Do the 3 failed users in the demo have any common characteristics (same org, same kit configuration, etc)?",
+      "why": "If they're all from one org or have specific settings, could narrow to an org-specific session or permission issue."
+    },
+    {
+      "q": "When it fails, does the user see a 403 error page or blank page or redirect?",
+      "why": "Current controller aborts with 403 and message 'Forbidden', but understanding what the user actually sees helps confirm the failure path."
+    },
+    {
+      "q": "Is the force-login route protected by any middleware besides 'auth'?",
+      "why": "Line 105 of web.php shows ->middleware('auth') only. No CSRF, no rate limiting. But could there be global middleware affecting session availability?"
+    }
+  ],
+  
+  "acceptance_criteria_analysis": {
+    "AC1_reproduce_with_active_session": {
+      "status": "testable",
+      "approach": "Impersonate as admin, verify admin_impersonator session is set, click 'Login to Scout' in new tab, observe if 403 occurs. Test with both same-tab navigation and new-tab open."
+    },
+    "AC2_identify_root_cause": {
+      "status": "hypothesis_formed",
+      "hypothesis": "Session key not reliably propagated to new tab context",
+      "alternative": "Could also be session cookie SameSite=Strict blocking cross-context reads"
+    },
+    "AC3_reliable_consecutive_impersonations": {
+      "status": "design_needed",
+      "considerations": [
+        "Option A: Pass admin_impersonator status via signed URL parameter instead of session check",
+        "Option B: Open force-login in same tab (no new tab) so session is guaranteed available",
+        "Option C: Add JavaScript to verify session availability before navigation, fallback to same-tab",
+        "Option D: Store admin_impersonator in more persistent storage (database flag on User) rather than session"
+      ]
+    },
+    "AC4_explicit_ui_reason_when_blocked": {
+      "status": "partially_implemented",
+      "current": "Controller returns 403 with 'Forbidden' message, but this is not a friendly user-facing error",
+      "needed": "Catch 403 from force-login and display user-friendly message: 'Admin session expired. Please refresh the admin panel and try again.'"
+    },
+    "AC5_product_confirm_force_login_kicks_real_driver": {
+      "status": "code_review_required",
+      "current_behavior": "ScoutForceTokens keeps 3 most recent tokens per driver and does NOT delete the driver's live 'clarity-scout-token'. Force tokens have separate name 'clarity-scout-force-token' and separate ability 'clarity-scout-force'. ClarityScoutAuthController::login() (line 64) deletes only 'clarity-scout-token' before minting new one.",
+      "answer": "Force-login does NOT kick the real driver. Both tokens can coexist. Driver's live token remains valid unless they re-login themselves or their token expires.",
+      "product_decision_needed": "Confirm this is desired behavior or if force-login should revoke driver's live session"
+    }
+  },
+  
+  "recommended_next_steps": [
+    "1. Reproduce: Impersonate as admin, verify session, click 'Login to Scout' multiple times in new tabs. Capture 403s.",
+    "2. Inspect session config: Check config/session.php for driver, same_site, and secure settings. Check if SameSite=Strict or Lax.",
+    "3. Test session propagation: Add test that verifies admin_impersonator session key IS available in new tab context after impersonation.",
+    "4. Validate PR #410 deploy: Confirm production is running post-PR-410 code (commit 83fb68d24 or later). If not deployed, intermittent failure could still be duplicate-GET token revocation.",
+    "5. Review activity logs: Check activity_log table for 'clarity-scout-force-login' entries vs 403 failures to quantify failure rate.",
+    "6. Browser testing: Test across Chrome, Safari, Firefox to see if new-tab session behavior differs by browser."
+  ],
+  
+  "proposed_fix_approaches": {
+    "approach_1_signed_url": {
+      "description": "Pass admin_impersonator verification via signed URL parameter instead of session check",
+      "pros": [
+        "Eliminates session propagation issue entirely",
+        "URL signature provides same security as session check",
+        "Works reliably across tabs and browsers"
+      ],
+      "cons": [
+        "URL contains sensitive parameter (though signed)",
+        "Requires adding signature generation to ScoutUsersResource action",
+        "Needs to validate signature doesn't outlive impersonation session"
+      ],
+      "implementation": [
+        "Add signed route: Route::get('scout/force-login/{kit}', ...)->middleware('signed')",
+        "Change ScoutUsersResource action URL to use URL::signedRoute()",
+        "Remove session()->has('admin_impersonator') check, rely on signature validation",
+        "Add timestamp to signature to expire after e.g. 60 seconds"
+      ]
+    },
+    "approach_2_same_tab": {
+      "description": "Remove shouldOpenInNewTab: true, open force-login in same tab",
+      "pros": [
+        "Simplest fix, one-line change",
+        "Guarantees session availability",
+        "No security implications"
+      ],
+      "cons": [
+        "Admin loses their place in Scout Users table",
+        "Must navigate back to resume work",
+        "Worse UX than new tab"
+      ],
+      "implementation": [
+        "ScoutUsersResource.php line 354: remove shouldOpenInNewTab: true parameter"
+      ]
+    },
+    "approach_3_session_clone": {
+      "description": "Add JavaScript to explicitly clone session to new tab before navigation",
+      "pros": [
+        "Preserves new-tab UX",
+        "No backend changes needed"
+      ],
+      "cons": [
+        "Fragile, browser-dependent",
+        "Adds complexity",
+        "May not work with SameSite=Strict cookies"
+      ],
+      "implementation": "Not recommended due to fragility"
+    },
+    "approach_4_persistent_flag": {
+      "description": "Store admin_impersonator state in database on User model or separate table instead of session",
+      "pros": [
+        "Most reliable, survives tab opens, refreshes, etc",
+        "Allows tracking who is currently force-logged-in"
+      ],
+      "cons": [
+        "Requires migration",
+        "Adds DB writes on every impersonation enter/exit",
+        "Must handle stale flags if impersonation exits uncleanly"
+      ],
+      "implementation": [
+        "Add 'is_admin_impersonator' boolean + 'admin_impersonation_started_at' timestamp to users table",
+        "Set flag on ImpersonateController::impersonate()",
+        "Clear flag on leave() and exitAdminMode()",
+        "Change ClarityScoutForceLoginController check to auth()->user()->is_admin_impersonator",
+        "Add cleanup job to clear stale flags older than e.g. 8 hours"
+      ]
+    }
+  },
+  
+  "recommendation": {
+    "primary": "Approach 1 (signed URL)",
+    "rationale": "Most robust fix that eliminates session propagation issue while preserving new-tab UX. Signed URLs are a Laravel built-in, well-tested, and provide equivalent security to session checks. The signature can be time-limited to match the scope of an admin impersonation session.",
+    "fallback": "Approach 2 (same-tab) if signed URL implementation is deemed too complex for the urgency of the fix. Worse UX but guaranteed to work."
+  },
+  
+  "escalate": {
+    "recommend": false,
+    "reason": "Root cause hypothesis is clear and testable. Multiple fix approaches identified with concrete implementation paths. No deep Laravel internals or architectural decisions blocking progress."
+  },
+  
+  "blast_radius": {
+    "files_to_change": [
+      "app/Filament/Resources/ScoutUsersResource.php (action URL generation)",
+      "app/Http/Controllers/ClarityScoutForceLoginController.php (session check replacement)",
+      "routes/web.php (add signed middleware if using approach 1)",
+      "tests/Feature/Http/Controllers/ClarityScoutForceLoginControllerTest.php (update tests for new auth mechanism)"
+    ],
+    "risk_level": "low",
+    "reason": "Isolated to force-login flow. No changes to normal Scout login, driver sessions, or token lifecycle. PR #410 already fixed the token revocation issues, so this is purely about admin session availability."
+  },
+  
+  "testing_strategy": {
+    "reproduction_test": "Create feature test that impersonates admin, verifies admin_impersonator session, then makes force-login request in separate HTTP context (simulating new tab). Assert 200 instead of 403.",
+    "regression_tests": [
+      "Verify force-login still works in same tab (don't break existing happy path)",
+      "Verify force-login still requires admin_impersonator (or signature)",
+      "Verify force-login still mints token correctly",
+      "Verify consecutive force-logins don't revoke prior tokens (PR #410 coverage)",
+      "Verify non-admin users cannot access force-login route"
+    ],
+    "manual_qa": [
+      "Impersonate as admin, click 'Login to Scout' 5 times consecutively in new tabs. All should succeed.",
+      "Verify Scout PWA loads correctly with impersonation flag set",
+      "Verify driver's live session is NOT kicked when admin force-logins",
+      "Verify force-login token expires after 60 minutes",
+      "Exit admin mode, verify force-login action is no longer visible",
+      "Leave impersonation, verify tracked force tokens are revoked"
+    ]
+  },
+  
+  "knowledge_base_notes": {
+    "scout_md_updates": "No updates needed to knowledge/clarity/scout.md. The force-login gotchas are already well-documented (driver vs admin, session tracking). This is a new failure mode (session propagation) that wasn't anticipated.",
+    "new_gotcha_to_add": "If adding to scout.md after fix: 'Force-login originally used session()->has(admin_impersonator) which failed intermittently when opened in new tabs due to session propagation lag. Switched to [signed URLs / same-tab / persistent flag - whatever we choose] in DEV-2596.'"
+  }
+}

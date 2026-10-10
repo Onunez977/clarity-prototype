@@ -1,0 +1,209 @@
+{
+  "key": "DEV-2652",
+  "generated_at": "2026-09-22T21:12:30Z",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "confidence": 86,
+  "escalate": {
+    "recommend": false,
+    "reason": "The only material product question is AC5. Dalton's Jira comment 41117 already defers claims ts, and the runner gate law requires that deferral when Eric has not signed. A best-of-N prep cannot produce an Eric signature. Remaining uncertainty is implementation shape, which the code on main settles."
+  },
+  "reconcile": {
+    "method": "single prep pass by the intake runner against main @ 2f446cca. Best-of-N not run: the open item was a human decision already written on the ticket, not an exploration gap.",
+    "candidates": 1,
+    "driver_verified": [
+      "UniqueScansToCaseClaims.php, UniqueScansToRepo.php, and UniqueScansToLprRepossession.php are absent on main. The three ratio numerators live in RatioAgainstUniqueScans, called from UniqueLprCaseClaims, LprRepossessions, and RecoveryCounts.",
+      "Each survivor still pins the numerator with SERIES_ZONE = 'UTC' (UniqueLprCaseClaims.php:60, LprRepossessions.php:74, RecoveryCounts.php:41) and passes that constant into fetchUniqueScansSeries().",
+      "ScanPlateStatsBatchQuery::handleSql() already groups with toStartOfMonth(toTimeZone(scanned_at, tz)) and converts bounds with toUtcDatetime() so WHERE filters raw UTC scanned_at. sharedMonthCacheKey() and sharedRangeCacheKey() already embed :tz=.",
+      "handleRangeSql() does not call safeTimezone(); it passes the caller zone into toUtcDatetime(). A caller that mints bounds in one zone and names another re-opens the withdrawn split-horn.",
+      "PHP 8.4 on this VM: timezone_identifiers_list(ALL_WITH_BC) has 500 ids. CST, PST, and +05:00 construct a DateTimeZone and are absent from that list. US/Central is absent and DateTimeZone throws. safeTimezone() uses in_array and returns UTC without constructing the zone, so it does not throw. now(tz:) / Carbon::parse before safeTimezone() can throw.",
+      "RecoveryTotalsBatchQuery::sharedMonthCacheKey() is recovery-totals:month-v1:org={id}:{month} with no :tz= segment (RecoveryTotalsBatchQuery.php:183-186).",
+      "Claims bucketing is toDate(fromUnixTimestamp(be.ts), 'UTC') in UniqueLprCaseClaimsQuery.php:259 and LprRepossessionsQuery.php:175-176. Headline tests pin those series to UTC: UniqueLprCaseClaimsTest::test_month_buckets_align_on_utc_not_the_viewers_timezone and the LprRepossessions twin.",
+      "Jira comment 41117 is Dalton, not Eric. It defers claims ts and states the Brek Repo Report reconciliation impact."
+    ]
+  },
+  "synthesis": "DEV-2651 already extracted the three ratio numerators into RatioAgainstUniqueScans and left them pinned to UTC so they would zip against UTC (claims) or date-grained (repo_date) denominators. This ticket moves only those numerators onto the viewer's clock by passing ScanPlateStatsBatchQuery::safeTimezone() into the existing handle()/handleRange() path, which already does toUtcDatetime() and keeps WHERE on raw UTC. Claims ts stays UTC: Eric has not signed, and shifting it would move the historical claims funnel off Brek's Repo Report. repo_date cannot be shifted. The ratio therefore stays a documented quotient of two clocks. Cache keys that already carry :tz= pick up the new zone automatically; RecoveryTotalsBatchQuery::sharedMonthCacheKey() and the UTC claims monthly keys must not grow a :tz= segment.",
+  "ac5": {
+    "decision": "defer",
+    "signed_by_eric": false,
+    "source": "Dalton via Galadriel. Jira comment 41117 is the same deferral. Gate stays CLEAN. Claims ts is out of ship scope.",
+    "reconciliation_impact": "Historical claims-funnel figures stay bucketed on UTC via toDate(fromUnixTimestamp(be.ts), 'UTC'). Deferring keeps them on the same clock as Brek's Repo Report. Shipping a viewer-zone shift without Eric would move every historical claims figure off that reconciliation. UniqueLprCaseClaims (deduped) and LprRepossessions (db_repos, which buckets the same be.ts) both stay UTC. The ratio numerators may move; these denominators do not."
+  },
+  "scope": {
+    "summary": "Point the three ratio numerators at the viewer's safe timezone through the existing ScanPlateStatsBatchQuery window and bucket helpers. Leave claims SQL, repo_date SQL, RecoveryTotalsBatchQuery::sharedMonthCacheKey(), and the Staging Live Hit leaderboard alone. Document the mixed-clock seams that remain.",
+    "proposed_changes": [
+      {
+        "file": "app/Filament/Widgets/Dashboard/Concerns/RatioAgainstUniqueScans.php",
+        "change": "Add numeratorZone(): string that returns ScanPlateStatsBatchQuery::safeTimezone() of the authed user's timezone (fallback 'UTC') BEFORE any now(tz:) or Carbon::parse. Do not change fetchUniqueScansSeries()'s default argument. Do not re-implement safeTimezone, toUtcDatetime, currentMonthWindow, or lastMonthWindow.",
+        "reason": "AC1, AC2. One sanitised zone so the three cards cannot drift, and so an unlisted dti never reaches DateTimeZone.",
+        "ref": "RatioAgainstUniqueScans.php:130-177, :217-235"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueLprCaseClaims.php",
+        "change": "Numerator only: getRatioMonthlyData() and the today/last_7d arm of getCurrentPeriodRatio() use numeratorZone(). Mint the numerator's $through and day bounds in that zone, then pass the same zone into fetchUniqueScansSeries() / windowUniqueScans(). Leave getMonthlyData(), getGraphLabels(), getHighlightedMonthsFromFilter(), getDescription(), and UniqueLprCaseClaimsQuery on now('UTC'). Rewrite the class docblock: the numerator is viewer-local; the claims denominator stays UTC because AC5 is deferred (Brek Repo Report). The chart still zips by 'months before now' on each clock, so near a zone boundary the line and the bar are different calendar months.",
+        "reason": "AC1, AC4, AC5 defer",
+        "ref": "UniqueLprCaseClaims.php:59-60, :259-268, :438-475"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/LprRepossessions.php",
+        "change": "Same numerator split. db_repos stays on UTC be.ts (LprRepossessionsQuery.php:175-176). Do not add :tz= to LprRepossessionsQuery::sharedMonthlySeriesCacheKey() — while the series is UTC it is identical for every viewer, and forking it would rescan the funnel per zone. Docblock records the deferred claims seam.",
+        "reason": "AC1, AC3, AC4, AC5 defer",
+        "ref": "LprRepossessions.php:74, :208, :460-494; LprRepossessionsQuery.php:233-252"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/RecoveryCounts.php",
+        "change": "Numerator uses numeratorZone(). Headline getMonthlyData(), labels, and RecoveryTotalsBatchQuery stay on SERIES_ZONE UTC / repo_date. Do not add a parameter or :tz= segment to sharedMonthCacheKey(). Extend the class docblock (it already names DEV-2652 AC-4): viewer-local unique-scans numerator over a Date with no time-of-day; the mismatch is accepted, not faked.",
+        "reason": "AC1, AC3, AC4",
+        "ref": "RecoveryCounts.php:23-41, :140-150, :257-266; RecoveryTotalsBatchQuery.php:57-61, :174-186"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueScanCounts.php",
+        "change": "Docblock only. The paragraph that says DEV-2652 still owns the open calendar question should state the decision: ratio numerators move to the viewer zone; RecoveryCounts' repo_date axis does not; claims ts is deferred. Do not change bucketZone() or ScanStatsBatchQuery.",
+        "reason": "AC4 pointer, so the settled decision is not re-opened",
+        "ref": "UniqueScanCounts.php:42-48"
+      },
+      {
+        "file": "app/Clickhouse/Queries/ScanStatsBatchQuery.php",
+        "change": "Docblock only, same sentence as UniqueScanCounts. No SQL change.",
+        "reason": "AC4 pointer",
+        "ref": "ScanStatsBatchQuery.php:26-29"
+      }
+    ],
+    "target_files": [
+      "app/Filament/Widgets/Dashboard/Concerns/RatioAgainstUniqueScans.php",
+      "app/Filament/Widgets/Dashboard/UniqueLprCaseClaims.php",
+      "app/Filament/Widgets/Dashboard/LprRepossessions.php",
+      "app/Filament/Widgets/Dashboard/RecoveryCounts.php",
+      "app/Filament/Widgets/Dashboard/UniqueScanCounts.php",
+      "app/Clickhouse/Queries/ScanStatsBatchQuery.php",
+      "tests/Filament/Widgets/Dashboard/Concerns/RatioAgainstUniqueScansTest.php",
+      "tests/Filament/Widgets/Dashboard/UniqueLprCaseClaimsTest.php",
+      "tests/Filament/Widgets/Dashboard/LprRepossessionsTest.php",
+      "tests/Filament/Widgets/Dashboard/RecoveryCountsTest.php"
+    ],
+    "out_of_scope": [
+      "Claims ts viewer-zone shift in UniqueLprCaseClaimsQuery and LprRepossessionsQuery (AC5 deferred).",
+      "RecoveryTotalsBatchQuery SQL and sharedMonthCacheKey() signature.",
+      "StagingLiveHitLeader / StagingLiveHitLeaderQuery (DEV-2654).",
+      "Re-deriving or editing ScanPlateStatsBatchQuery::safeTimezone(), toUtcDatetime(), handleSql(), currentMonthWindow(), lastMonthWindow().",
+      "The deleted pre-DEV-2651 widgets UniqueScansToCaseClaims, UniqueScansToRepo, UniqueScansToLprRepossession.",
+      "UniqueScanCounts / UniqueScansLeaderboard query behavior. They already pass safeTimezone() into this query.",
+      "okf/ edits. company-metrics-dashboard.md and billing-events.md should record the deferral after approval, not during this run.",
+      "Product implementation, QA, and review. Those are later Fellowship phases."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "AC-1 Ratio numerators bucket and window in the viewer timezone via safeTimezone() + toUtcDatetime(); WHERE still filters raw UTC.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Callers pass the sanitised zone into ScanPlateStatsBatchQuery::handle() and handleRange(), which already convert bounds and group the monthly series in that zone. Do not add a second conversion."
+    },
+    {
+      "item": "AC-2 Invalid or legacy users.dti (CST, PST, +05:00) falls back to UTC and the card renders; it never throws.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Those three construct a DateTimeZone and are absent from the allowlist, so safeTimezone() returns UTC. Callers must sanitise before now(tz:). A zone DateTimeZone rejects (US/Central on this PHP) also returns UTC from in_array and must not be constructed first."
+    },
+    {
+      "item": "AC-3 Cache keys that depend on timezone include :tz=; RecoveryTotalsBatchQuery::sharedMonthCacheKey() is unchanged.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "sharedMonthCacheKey() and sharedRangeCacheKey() on ScanPlateStatsBatchQuery already include :tz=. Passing the viewer zone forks those keys. The recovery month key must stay timezone-free. The UTC claims monthly key must not gain :tz= while AC5 is deferred."
+    },
+    {
+      "item": "AC-4 Remaining mixed-clock seams (repo_date denominators, and claims denominators left on UTC) are documented in the class docblocks.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Do not relabel the headline axis onto the numerator clock. That would fake agreement. Document the quotient."
+    },
+    {
+      "item": "AC-5 Claims ts is either Eric-signed and shipped, or explicitly deferred with the reconciliation impact recorded on this ticket.",
+      "source": "ticket",
+      "decision": "defer",
+      "reason": "Source: Dalton via Galadriel. decision=defer. Historical claims figures stay on UTC and remain aligned with Brek's Repo Report. Shipping the shift would move them off that reconciliation. Not a BLOCKED gate."
+    }
+  ],
+  "questions": [
+    {
+      "id": "Q1",
+      "question": "Does claims ts ship in this ticket?",
+      "answered": true,
+      "answer": "Defer. Numerators ship. UniqueLprCaseClaimsQuery and LprRepossessionsQuery keep toDate(fromUnixTimestamp(be.ts), 'UTC').",
+      "source": "Dalton via Galadriel.",
+      "impact": "Historical claims funnel figures stay on UTC bucketing. They remain reconcilable to Brek's Repo Report. A viewer-zone claims shift would move every historical figure off that reconciliation. The ratio on UniqueLprCaseClaims and LprRepossessions is then a viewer-local unique-scans numerator over a UTC claims denominator until Eric signs."
+    },
+    {
+      "id": "Q2",
+      "question": "When the numerator moves and the denominator cannot, which clock do the chart labels follow?",
+      "answered": true,
+      "answer": "The headline (denominator) clock. Labels already co-vary with getMonthlyData() on purpose. The numerator is indexed as 'N months before now' in the viewer zone and zipped positionally. The docblock says the two clocks disagree near a boundary. Do not convert repo_date and do not relabel UTC claims months as if they were local.",
+      "source": "ticket design section plus existing label-axis docblocks on the three cards (UniqueLprCaseClaims.php:297-302, LprRepossessions.php:244-246, RecoveryCounts.php:23-30)."
+    }
+  ],
+  "mixed_clock_seams": [
+    {
+      "card": "RecoveryCounts",
+      "numerator": "ScanPlateStatsBatchQuery unique plates, viewer safeTimezone, WHERE on raw UTC scanned_at",
+      "denominator": "clarity.recoveries.repo_date via RecoveryTotalsBatchQuery::toStartOfMonth(repo_date). ClickHouse Date, no time-of-day. sharedMonthCacheKey has no :tz=.",
+      "disposition": "document in RecoveryCounts docblock. Do not fake a shift."
+    },
+    {
+      "card": "UniqueLprCaseClaims",
+      "numerator": "same viewer-zone unique-plates series",
+      "denominator": "zod.public_billing_events.ts bucketed UTC (deduped stage). Stays UTC under AC5 defer.",
+      "disposition": "document. Headline tests that pin UTC months stay green."
+    },
+    {
+      "card": "LprRepossessions",
+      "numerator": "same viewer-zone unique-plates series",
+      "denominator": "db_repos, bucketed on UTC be.ts (claim_date / bucket). Not repo_date. Stays UTC under AC5 defer. sharedMonthlySeriesCacheKey stays without :tz=.",
+      "disposition": "document. Do not describe this denominator as repo_date."
+    }
+  ],
+  "cache_keys": [
+    {
+      "key": "ScanPlateStatsBatchQuery::sharedMonthCacheKey",
+      "tz_segment": true,
+      "action": "unchanged function. Callers pass the sanitised viewer zone instead of 'UTC', so the existing :tz= segment forks."
+    },
+    {
+      "key": "ScanPlateStatsBatchQuery::sharedRangeCacheKey",
+      "tz_segment": true,
+      "action": "unchanged function. today/last_7d numerator passes the same sanitised zone it minted the bounds in."
+    },
+    {
+      "key": "RecoveryTotalsBatchQuery::sharedMonthCacheKey",
+      "tz_segment": false,
+      "action": "leave the signature and the string unchanged. AC3."
+    },
+    {
+      "key": "LprRepossessionsQuery::sharedMonthlySeriesCacheKey",
+      "tz_segment": false,
+      "action": "leave it. The payload is UTC-identical while AC5 is deferred. Adding :tz= would multiply a 584M-row read."
+    },
+    {
+      "key": "UniqueLprCaseClaims monthly-series buildWidgetCacheKey",
+      "tz_segment": false,
+      "action": "leave it. Same reason: the claims series stays UTC."
+    }
+  ],
+  "tests": {
+    "keep_green": [
+      "UniqueLprCaseClaimsTest::test_month_buckets_align_on_utc_not_the_viewers_timezone",
+      "LprRepossessionsTest::test_month_buckets_align_on_utc_not_the_viewers_timezone",
+      "UniqueLprCaseClaimsLabelAxisTest::test_graph_labels_follow_utc_not_the_viewers_timezone"
+    ],
+    "add": [
+      "A Chicago viewer (America/Chicago) at 2026-08-01 02:00 UTC makes the numerator batch request timezone America/Chicago and a July-ending span, while getMonthlyData() still returns the UTC August bucket.",
+      "dti timeZone CST, PST, and +05:00 each render the ratio path with timezone UTC and do not throw.",
+      "A zone DateTimeZone rejects (US/Central on this PHP) also falls back to UTC and does not throw.",
+      "RecoveryTotalsBatchQuery::sharedMonthCacheKey($org, $month) stays recovery-totals:month-v1:org={org}:{month} and does not contain :tz=.",
+      "The numerator's shared month cache key contains :tz= plus the sanitised zone."
+    ]
+  },
+  "wiki_after_approval": [
+    "okf/concepts/company-metrics-dashboard.md — the calendar paragraph still says DEV-2652 owns an open question.",
+    "okf/concepts/billing-events.md — record that Company Metrics claims months stay UTC until Eric signs, because of the Brek Repo Report reconciliation."
+  ]
+}

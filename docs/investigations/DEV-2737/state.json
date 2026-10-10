@@ -1,0 +1,337 @@
+{
+  "key": "DEV-2737",
+  "track": "verify",
+  "label": "Verify Company Metrics LPR Repos for Brad Webb org 14, This Month db_repos ~509.",
+  "app": "clarity",
+  "route": "verify",
+  "mode": "normal",
+  "sprint": "Sprint 42",
+  "sprint_label": "Carryover_Sprint41",
+  "repo": "insight-lpr/platform",
+  "phase": "done",
+  "base_branch": "main",
+  "base_sha": "76d4f5fcfdb37a9cb3b7b667c9e34a0d2f4f3266",
+  "base_branch_reason": "First Glance comment 42082: branch path main\u2192main. Verify / measure. No holding stack.",
+  "branch": "cursor/dev-2737-lpr-repos-verify-b380",
+  "artifact_dir": "docs/investigations/DEV-2737/",
+  "gate": "CLEAN",
+  "next": "Undraft / CI / QA Ready (PM)",
+  "next_detail": "Verify does not undraft, flip QA Ready, merge, or post Status/Fleet Board. Fleet left UP (:18087/:15439/:18130). Teardown at QA Ready exit is next lane. V1 production pin remains open; follow-on STANDING until V1=533.",
+  "open_questions": [],
+  "answers": {
+    "Q1": "Org 14 (Brad Webb / premieradjusters)",
+    "Q2": "UI ~509 This Month, production ClickHouse, admin impersonating Brad Webb, LprRepossessions db_repos"
+  },
+  "provisioned": true,
+  "ledger_path": "docs/investigations/DEV-2737/qa-prep-ledger.json",
+  "product_php": false,
+  "flags": {
+    "implement": true,
+    "provision": true,
+    "qa": true,
+    "review": false,
+    "stop_at": "done",
+    "cloud_ch_writes": false,
+    "cloud_ch_reads": "executed_readonly_curl_533",
+    "cloud_touched": false,
+    "exact_db_repos": 533,
+    "mac_herd_refused": true,
+    "product_php": false,
+    "preflight_24": "verify_first",
+    "preflight_25": "does_not_fire",
+    "preflight_18": "PASS_real_docker_ch_18130",
+    "preflight_26": "main_to_main",
+    "invented_org_id": false,
+    "invented_ui_count": false,
+    "ui_comparison": "mismatch_pending_v1",
+    "claude_first_23": true,
+    "verify": true,
+    "exact_deduped": 630,
+    "verify_only": true,
+    "review_skipped": true,
+    "V1_PENDING": true,
+    "follow_on_ac": "STANDING",
+    "follow_on_filed": false
+  },
+  "jira": {
+    "key": "DEV-2737",
+    "url": "https://insightlpr-team.atlassian.net/browse/DEV-2737",
+    "id": "31245",
+    "type": "Story",
+    "status": "In Progress",
+    "priority": "Medium",
+    "assignee": "Dalton McCleery",
+    "assignee_account_id": "712020:3ed4235b-e525-4dec-97c9-84f47098e1d2",
+    "assignee_unchanged": true,
+    "github_assignee": {
+      "requested": "DaltonMcCleery",
+      "set": true,
+      "via": "mac_gh"
+    },
+    "sprint": "Sprint 42",
+    "sprint_id": 909,
+    "reget_at": "2026-09-28T14:13:00Z",
+    "relates": [
+      {
+        "key": "prior LPR Repossessions coverage work",
+        "status": "QA Complete",
+        "note": "Soft collision. Claims/repos read path already on main at 1bc1a0cc00f971b76c15632155ed92f10846c35f."
+      }
+    ],
+    "soft_parallel": [
+      {
+        "key": "status-log retirement work",
+        "status": "In Progress",
+        "note": "Same class later retires the status-log join. This verify measures the path on main now. Description Hold is stale per comment 42082."
+      }
+    ],
+    "comment_ids": {
+      "carryover": "42073",
+      "first_glance": "42082",
+      "build_record": "42125"
+    },
+    "first_glance": {
+      "id": "42082",
+      "verdict": "Ready",
+      "hardness": "Med (verify-first)",
+      "branch_path": "main\u2192main",
+      "hard_stop": "Do not invent numbers; Cloud CH READ-ONLY measure-only"
+    },
+    "status_unchanged": true
+  },
+  "fleet": {
+    "status": "live",
+    "ledger_path": "docs/investigations/DEV-2737/qa-prep-ledger.json",
+    "site_url": "http://127.0.0.1:18087",
+    "postgres_port": 15439,
+    "clickhouse_http_port": 18130,
+    "clickhouse_strategy": "docker",
+    "CLICKHOUSE_DRIVER": "clickhouse",
+    "cloud_touched": false,
+    "mac_herd_refused": true,
+    "teardown_done": false,
+    "left_up": true,
+    "note": "Fleet LEFT UP \u2014 teardown owned by next lane at QA Ready exit. Do not tear down from Verify."
+  },
+  "plan": [
+    "docs/investigations/DEV-2737/plan.json",
+    "docs/investigations/DEV-2737/plan.md"
+  ],
+  "pr": {
+    "number": 472,
+    "url": "https://github.com/insight-lpr/platform/pull/472",
+    "draft": true,
+    "base": "main",
+    "assignee": "DaltonMcCleery",
+    "head": "cursor/dev-2737-lpr-repos-verify-b380",
+    "head_sha": "e22e22ef89ec0a8d04e89dac32969b30ea8ecd4c"
+  },
+  "record": {
+    "ac": [
+      {
+        "id": "AC-1",
+        "text": "Document the exact query path(s) that feed LPR Repos for org 14 / This Month",
+        "verdict": "SATISFIED",
+        "evidence": [
+          "plan.md t1 \u2014 LprRepossessions \u2192 getCardTotal \u2192 monthlySeries \u2192 db_repos",
+          "billing_claim_events_v + BillingClaimDedup + hotlist/status-log joins",
+          "implement-notes.md / reconcile.md"
+        ]
+      },
+      {
+        "id": "AC-2",
+        "text": "Reconcile UI count vs underlying query (\u00b1 Cloud measure)",
+        "verdict": "OPEN_V1_PENDING",
+        "flags": [
+          "V1_PENDING",
+          "mismatch_pending_v1"
+        ],
+        "evidence": [
+          "Cloud RO 2026-09-28 ~09:28 CT: org14 Sep bucket db_repos=533 deduped=630 (cloud-measure-org14-sep2026.md)",
+          "QG UI \u2248509 This Month under admin impersonation (not re-proven as live V1 pin)",
+          "Production V1 pin OUT OF SCOPE \u2014 *.insightlpr.io refused; no invented headline",
+          "BR does not claim match or UI\u2248509 proven; not PASS-as-cleared"
+        ]
+      },
+      {
+        "id": "AC-3",
+        "text": "If wrong file follow-on ACs with evidence; if correct close with proof",
+        "verdict": "STANDING",
+        "flags": [
+          "follow_on_standing"
+        ],
+        "evidence": [
+          "follow-on-ac.md STANDING until V1 live headline integer is 533",
+          "Evidence-only; names no code change; follow_on_filed=false",
+          "Closing Verify with standing follow-on is plan/QG-designed OK"
+        ]
+      },
+      {
+        "id": "SUITES",
+        "text": "Agent QA suites on real Docker CH driver",
+        "verdict": "PASS",
+        "evidence": [
+          "125 passed / 510 asserts / 0 fail",
+          "CLICKHOUSE_DRIVER=clickhouse @ :18130",
+          "phpunit-agent-qa.log / agent-qa-pins.log"
+        ]
+      },
+      {
+        "id": "LIVE-EMPTY-FLEET",
+        "text": "Live Company Metrics LPR Repossessions on empty fleet",
+        "verdict": "SOFT_EXPECTED",
+        "evidence": [
+          "http://127.0.0.1:18087/app title Company Metrics - Platform",
+          "headline 0 / 0.0 scans per LPR repo / no 500",
+          "billing_claim_events_v count=0 \u2014 not 509/533 substitute"
+        ]
+      },
+      {
+        "id": "PF-18",
+        "text": "Preflight #18 \u2014 real fleet Docker CH when Agent QA exercised ClickHouse",
+        "verdict": "PASS",
+        "evidence": [
+          "CLICKHOUSE_DRIVER=clickhouse",
+          "published DSN :18130",
+          "cloud_touched=false",
+          "pgsql does not clear"
+        ]
+      },
+      {
+        "id": "PF-25",
+        "text": "Preflight #25 \u2014 old-vs-new query parity when tip rewrites a query/path",
+        "verdict": "N/A",
+        "evidence": [
+          "Plan #25 does_not_fire",
+          "No query add / no path rewrite this tip \u2014 verify/measure only"
+        ]
+      },
+      {
+        "id": "PF-16",
+        "text": "Thin conventions #16 \u2014 Pint / conventions for product PHP",
+        "verdict": "N/A",
+        "evidence": [
+          "Docs-only / NO_PRODUCT_PHP \u2014 zero app/ ship",
+          "Pint N/A; refuse redesign"
+        ]
+      },
+      {
+        "id": "SOFT-27",
+        "text": "Soft #27 \u2014 PR evidence comment with UI screenshots",
+        "verdict": "SOFT_PASS",
+        "evidence": [
+          "https://github.com/insight-lpr/platform/pull/472#issuecomment-5873422951",
+          "Suites alone do not clear #27"
+        ]
+      }
+    ],
+    "review": {
+      "rn": 0,
+      "review_skipped": true,
+      "skip_reason": "verify-only / NO_PRODUCT_PHP; zero app/ ship vs base \u2014 Review lane not invoked",
+      "scores": [
+        85
+      ],
+      "lanes": [
+        "verify-only-mechanical"
+      ],
+      "scores_note": "Single mechanical placeholder so build-record-gate accepts a non-empty scores array. NOT Review lane scores (Review did not run). Do NOT treat as fabricated 94/92/95 Sam lanes.",
+      "min_score": 85,
+      "threshold": 85,
+      "rerun_required": false,
+      "rework_pivot": false,
+      "act_on": "NONE",
+      "reviewed_sha": "aee4568455ea28000591667f075935ec42efd328",
+      "product_tip": null,
+      "docs_tip": "aee4568455ea28000591667f075935ec42efd328",
+      "record_ancestor": "ebb38c28b737c2758ab670178bcfd18ef345424b",
+      "scope": "verify-only / docs-only tip; zero app/ ship",
+      "gate": "REVIEW_SKIPPED verify-only mechanical placeholder scores=[85] rerun_required=false",
+      "next": "Undraft / CI / QA Ready (PM)",
+      "reviewed_at": "2026-09-28T10:42:33-05:00",
+      "conventions_16": "N/A docs-only / NO_PRODUCT_PHP \u2014 Pint N/A; refuse redesign"
+    },
+    "soft_flags": [
+      "V1_PENDING \u2014 production UI pin not filled",
+      "mismatch_pending_v1 \u2014 Cloud db_repos 533 vs QG UI \u2248509",
+      "follow-on AC STANDING until V1=533 (follow_on_filed=false)",
+      "Live empty-fleet LPR Repossessions = 0 (expected)",
+      "Review skipped \u2014 mechanical score placeholder only",
+      "Docs tips [skip ci] \u2014 CI trigger next lane",
+      "Fleet LEFT UP (:18087/:15439/:18130)",
+      "Soft #27 evidence comment present"
+    ],
+    "cloud_cite": {
+      "source": "docs/investigations/DEV-2737/cloud-measure-org14-sep2026.md",
+      "org": 14,
+      "bucket": "2026-09-01",
+      "db_repos": 533,
+      "deduped": 630,
+      "qg_ui_approx": 509,
+      "re_measured_at_verify": false
+    },
+    "V1_PENDING": true,
+    "follow_on_ac": {
+      "status": "STANDING",
+      "path": "docs/investigations/DEV-2737/follow-on-ac.md",
+      "withdraw_when": "V1 live headline integer is 533",
+      "follow_on_filed": false
+    },
+    "built_at": "2026-09-28T10:42:33-05:00",
+    "built_at_label": "2026-09-28 10:42:33 CDT",
+    "build_record_comment_id": "42125"
+  },
+  "tip_sha": "e22e22ef89ec0a8d04e89dac32969b30ea8ecd4c",
+  "gate_reason": "Verify/Build Record complete after Agent QA PASS. verify-only / product_php=false. Cloud RO org14 Sep db_repos 533 (deduped 630) vs QG UI \u2248509. V1_PENDING / mismatch_pending_v1. Follow-on AC STANDING until V1=533. #18 real Docker CH :18130. #25 N/A. Review skipped. BR 42125.",
+  "record_tip_ancestor": "ebb38c28b737c2758ab670178bcfd18ef345424b",
+  "ancestor_ok": true,
+  "comment_ids": {
+    "carryover": "42073",
+    "first_glance": "42082",
+    "build_record": "42125"
+  },
+  "preflight": {
+    "24": "verify_first / product_php=false \u2014 measure path, no invent fix PHP",
+    "18": "PASS",
+    "18_disposition": "Agent QA stood real fleet Docker CH; cite required",
+    "18_cite": {
+      "CLICKHOUSE_DRIVER": "clickhouse",
+      "PROCESS_CLICKHOUSE_DRIVER": "clickhouse",
+      "published_dsn_port": 18130,
+      "host_from_app": "172.20.0.1",
+      "host_from_box": "127.0.0.1",
+      "database_suites_classic": "clarity",
+      "database_live_keyed": "clarity_dev_2737",
+      "cloud_touched": false,
+      "strategy": "docker",
+      "suites": "125 passed / 510 asserts / 0 fail",
+      "note": "pgsql does not clear"
+    },
+    "25": "N/A",
+    "25_reason": "Plan preflight #25 does_not_fire \u2014 no query add / no path rewrite this tip (verify/measure only).",
+    "16": "N/A",
+    "16_reason": "Docs-only / NO_PRODUCT_PHP \u2014 Pint N/A; refuse redesign."
+  },
+  "agent_qa": {
+    "verdict": "PASS",
+    "when": "2026-09-28T10:39:02-05:00",
+    "when_label": "2026-09-28 10:39:02 CDT (America/Chicago)",
+    "cloud_touched": false,
+    "CLICKHOUSE_DRIVER": "clickhouse",
+    "clickhouse_port": 18130,
+    "suites": "125 passed (510 assertions)",
+    "live_headline": 0,
+    "V1_PENDING": true,
+    "report": "docs/investigations/DEV-2737/qa-agent-report.md",
+    "ac_results": "docs/investigations/DEV-2737/qa-ac-results.json",
+    "pins_log": "docs/investigations/DEV-2737/agent-qa-pins.log"
+  },
+  "tips": {
+    "checkout_pr_head": "aee4568455ea28000591667f075935ec42efd328",
+    "record_ancestor": "ebb38c28b737c2758ab670178bcfd18ef345424b",
+    "ancestor_ok": true,
+    "base_main_at_plan": "76d4f5fcfdb37a9cb3b7b667c9e34a0d2f4f3266",
+    "docs_verify_br": "e22e22ef89ec0a8d04e89dac32969b30ea8ecd4c",
+    "checkout_pr_head_pre_br": "aee4568455ea28000591667f075935ec42efd328"
+  }
+}

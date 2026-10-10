@@ -1,0 +1,62 @@
+{
+  "knowledge_cards": {
+    "matched": [],
+    "note": "Domain grounding is okf/concepts/lpr-assist.md, okf/concepts/company-metrics-dashboard.md, okf/concepts/data-architecture.md, okf/concepts/platform-gotchas.md (PG-029), okf/concepts/impersonation.md."
+  },
+  "precedents": [
+    {
+      "key": "the Scans Leaderboard rollup",
+      "status": "shipped (pattern on main)",
+      "relevance": "Scans Leaderboard rollup. ScanPlateStatsBatchQuery::handleRangeSql GROUP BY kit_id WITH ROLLUP, GROUPING(kit_id) AS is_rollup, totals[0] = org total. UniqueScansLeaderboard::resolveRangeAndTimezone and fetchRangeRollup are the per-arm zone and shared-key reads.",
+      "applicable": "applicable — named target pattern. Current lines: resolveRangeAndTimezone L350-366, fetchRangeRollup L390-393 (now ScanPlateStatsBatchQuery::rememberedRange), handleRangeSql L264-294, handleRange L299-334."
+    },
+    {
+      "key": "the Unique Scan Counts card",
+      "status": "shipped (pattern on main)",
+      "relevance": "Unique Scan Counts. Sibling that warms the same shared range key the leaderboard reads for today, last_7d, and this_month. last_month is intentionally not shared.",
+      "applicable": "applicable as the card side of the one-scan contract. Staging Live's card is StagingLiveHits via SharedHitStatsData, not UniqueScanCounts. AC2 still requires the Staging Live headline and the leaderboard to share one rollup, including last_month."
+    },
+    {
+      "key": "the safeTimezone card work",
+      "status": "shipped",
+      "relevance": "safeTimezone() allowlist + UTC fallback, never throws, because users.dti is unvalidated.",
+      "applicable": "applicable — AC3. ScanPlateStatsBatchQuery::safeTimezone L164-169 is the copy source. Call it. Do not reimplement the allowlist. assertDatetime still throws on a non Y-m-d H:i:s string after conversion."
+    },
+    {
+      "key": "the Company Metrics 12-card grid",
+      "status": "QA Complete (on main before this base)",
+      "relevance": "Company Metrics 12-card grid. Staging Live Hits is cards() before Staging Live Hit Leaderboard.",
+      "applicable": "grid context only. Do not restack. Do not reorder cards()."
+    },
+    {
+      "key": "the ratio and claims timezone work",
+      "status": "QA Complete (re-GET 2026-09-24)",
+      "relevance": "Viewer-timezone work for ratio numerators and claims timestamps. Part 1b (Staging Live Hit windows) was moved onto DEV-2654.",
+      "applicable": "context only. Do not edit the ratio and claims timezone work surface. Ratio numerators and claims ts stay there."
+    },
+    {
+      "key": "the shared cache-helper work",
+      "status": "QA Complete, merged d8e70005 (PR #450)",
+      "relevance": "Shared param-keyed cache and the TTL ladder. ResolvesDashboardCacheTtl::baseDashboardCacheTTL (impersonation 10s, open 10 min, 8-day settle, else 1 year). ScanPlateStatsBatchQuery::rememberedRange, sharedClosedMonthTtl, rememberMonthSeries, rememberOpenMonthTotal.",
+      "applicable": "unblocked. StagingLiveHitLeader already uses the trait (dashboardCacheTTL is gone). AC5 still replaces LEADER_CACHE_PREFIX / leaderCacheKey with a class-neutral rememberedRange on StagingLiveHitLeaderQuery. Do not call the scan-plate-stats keys. Do not restore dashboardCacheTTL."
+    },
+    {
+      "key": "the view-without-FINAL gap",
+      "status": "To Do (re-GET 2026-09-24)",
+      "relevance": "clarity.lpr_assists has no FINAL. Measure-first. Ticket text says recovery_scans ORDER BY (recovery_id, hit_id). Committed schema line 37 is ORDER BY (recovery_id, scan_id), engine ReplacingMergeTree(_peerdb_version), no is-deleted argument. View is schema line 88.",
+      "applicable": "audit input only. AC6 may cite this ticket when the view gap is the defect. Do not close it, do not implement it, do not redefine the view."
+    },
+    {
+      "key": "the RecoveryCounts batching neighbor",
+      "status": "QA Ready (re-GET 2026-09-24)",
+      "relevance": "Points RecoveryCounts at RecoveryTotalsBatchQuery. Different files from this ticket.",
+      "applicable": "soft-OK, separate claim. Do not edit RecoveryCounts.php or RecoveryTotalsBatchQuery.php."
+    },
+    {
+      "key": "the Company Metrics epic",
+      "status": "In Code Review (parent)",
+      "relevance": "Parent epic. Admin LPR Repossessions card reads recovery_scans with FINAL. Comparison path for the audit.",
+      "applicable": "context. Not the base branch."
+    }
+  ]
+}

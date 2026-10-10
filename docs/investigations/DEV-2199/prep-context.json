@@ -1,0 +1,129 @@
+{
+  "key": "DEV-2199",
+  "app": "clarity",
+  "repo_path": "/Users/daltonmccleery/Herd/platform/.claude/worktrees/brave-albattani-c5d268",
+  "route": "feature",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "confidence": 90,
+  "synthesis": "Scout drivers see only their own map (ClarityScoutMapController scoped to $user->kit_id + assigned zones); that self-scoping STAYS for metrics and hits. In shared zones, multiple drivers over-grid the same streets because they cannot see where a teammate already drove. DEV-2199 adds an opt-in, config-gated (OFF by default), DRIVER-ONLY Map Layers toggle that overlays OTHER org drivers' historical driven lines for today + last 7 days, in a single distinct color (cyan), snapshot-refreshed (<=15-min MV, NOT live-polled), geographically limited to the current map viewport (existing DEV-2185 bbox + zoom>=12 gate). It EXCLUDES teammate metrics, teammate live hits/hits-pending-repo, real-time position dots, and per-teammate attribution. Net work = re-scope the existing org-wide Bird's-Eye reader (DEV-2116/2182 org kit set + KitScanPathsQuery) down to the driver-authenticated map behind a global feature flag, and render a new PathLayer under the DEV-2185 guardrails. STAGING ONLY. QA: Yolanda. Scope + all open questions resolved via a human interview with Dalton (2026-07-20).",
+  "scope": {
+    "summary": "(1) Global feature flag: add a config value (from env CLARITY_SCOUT_TEAMMATE_OVERLAY_ENABLED, default false) — a single global gate, NOT a per-org org_meta flag (Dalton-decided; see AC-1 deviation). Default false = prod-safe; staging turns it on. (2) Surface it via ClarityScoutAuthController::me() (mirrors trips_enabled) -> authStore.teammateOverlayEnabled. (3) New driver endpoint ClarityScoutMapController::teammatePaths(): 403/empty if the flag is off; resolve the driver's ORG Scout kit set (Bird's-Eye orgScoutKits/getKits pattern, DEV-2182), EXCLUDE the driver's own kit, and call KitScanPathsQuery(org_id, kit_ids=orgKitsMinusSelf, range=last_7, bbox=the client viewport bounds). Return a flat single-color path payload; degrade gracefully (empty + Log::warning) on CH failure. (4) New Map Layers toggle in DashboardOverlay.vue (gated on the flag AND !adminMode) + a dedicated deck.gl cyan #0891B2 PathLayer in ScannerMap.vue gated by pathLayersEligible() (zoom>=12) + !adminMode. Metrics/hits untouched. LINES ONLY (no static position dots) for v1.",
+    "proposed_changes": [
+      {"file": "config/app.php (or a scout config key)", "change": "Add a global feature flag read from env('CLARITY_SCOUT_TEAMMATE_OVERLAY_ENABLED', false) (default false). Confirm the exact home during plan by checking where existing Scout/experimental config lives (candidate flagged config/app.php:160-168 experimental block + PennantServiceProvider CLARITY_SCOUT).", "reason": "Dalton chose a single global env/config gate (not per-org org_meta). Default false = the STAGING-ONLY prod guard.", "ref": "config/app.php:160-168; app/Providers/PennantServiceProvider.php:42"},
+      {"file": "app/Http/Controllers/Api/ClarityScoutAuthController.php", "change": "Add 'teammate_overlay_enabled' => (bool) config('<the new key>') to the me() JSON", "reason": "Only existing precedent for shipping a gate boolean to the SPA post-auth (blade renders pre-auth). Global value, same for every user.", "ref": "app/Http/Controllers/Api/ClarityScoutAuthController.php:97-118 (trips_enabled)"},
+      {"file": "app/Http/Controllers/Api/ClarityScoutMapController.php", "change": "Add teammatePaths(Request): return empty/403 if the config flag is off; else resolve the driver's ORG Scout kit set (mirror ClarityScoutBirdsEyeController::orgScoutKits / getKits, DEV-2182), exclude $user->kit_id, and call KitScanPathsQuery(org_id, kit_ids=orgKitsMinusSelf, start/end=getDateRange('last_7',tz), bbox=resolveOptionalBbox($request) [viewport]). Return flat path rows (discard per-kit color/name). Use the controller's OWN private getDateRange/snapBbox/resolveOptionalBbox copies (it does NOT `use ScoutMapHelpers`). Degrade gracefully (empty payload + Log::warning) on CH failure, like sibling endpoints.", "reason": "Driver analogue of Bird's-Eye scanPaths(), re-scoped org-wide->driver-viewport. NOT zone-assignment membership and NOT a polygon clip (Dalton: org-wide + bbox).", "ref": "ClarityScoutBirdsEyeController.php:219-266 (scanPaths), :699-730 (orgScoutKits, cross-conn kit resolve, DEV-2182); ClarityScoutMapController.php:39-116,520-575,718-732 (private helpers + resolveOptionalBbox)"},
+      {"file": "routes/api.php", "change": "Register GET map/teammate-paths -> ClarityScoutMapController@teammatePaths inside the existing throttle:120,1 driver map group (auth:sanctum + ClarityScoutMiddleware). NEVER under routes/web.php scout/org-map admin group.", "reason": "Same auth stack + rate limit as sibling CH-backed driver map endpoints; avoids the adminMode fetch-leak class", "ref": "routes/api.php:27-48"},
+      {"file": "resources/js/clarity-scout/stores/auth.js", "change": "Persist teammateOverlayEnabled from me(), mirroring tripsEnabled/persistTripsEnabled", "reason": "Established convention for a gate boolean reaching Vue", "ref": "resources/js/clarity-scout/stores/auth.js:20,41-45,71,125,142"},
+      {"file": "resources/js/clarity-scout/stores/map.js", "change": "Add teammatePaths ref + fetchTeammatePaths(bounds) (AbortController pattern), wire 'teammates' into activeHeatmaps + refreshActiveHeatmaps, gated !adminMode. Snapshot fetch on toggle/pan/range-change; NEVER on the 10s live-position poll.", "reason": "Matches existing heatmap fetch/toggle plumbing", "ref": "resources/js/clarity-scout/stores/map.js:96,172-213,269-343,552-568"},
+      {"file": "resources/js/clarity-scout/components/DashboardOverlay.vue", "change": "Add a 'teammates' heatmapLayers entry (label e.g. 'Teammate Activity') + legend swatch (cyan), gated v-if on authStore.teammateOverlayEnabled && !mapStore.adminMode", "reason": "Ticket names this file + heatmapLayers as the UI home; !adminMode keeps it off Bird's Eye. (heatmapLayers list is also rendered by DayOverlay/TripOverlay — adding the entry surfaces it on those views too, matching 'available on other views'.)", "ref": "resources/js/clarity-scout/components/DashboardOverlay.vue:225-242,445-464; DayOverlay.vue:62; TripOverlay.vue:60"},
+      {"file": "resources/js/clarity-scout/components/ScannerMap.vue", "change": "New 'teammate-paths' PathLayer reading mapStore.teammatePaths, color cyan rgb(8,145,178) ~alpha 210-220, gated by pathLayersEligible() (zoom>=12) + activeHeatmaps.has('teammates') + !adminMode. Apply color client-side.", "reason": "Distinct dedicated layer; reuses the DEV-2185 zoom gate; not a repaint of scan-paths", "ref": "resources/js/clarity-scout/components/ScannerMap.vue:134,1067-1084,1263-1356"},
+      {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php", "change": "New teammatePaths tests (flag-off gated/empty; returns ORG kits' paths EXCLUDING self; last_7 window; bbox narrows; graceful CH-failure; payload has no live-position field / no per-teammate metrics). Uses Tests\\Concerns\\RequiresClickhouse.", "reason": "New endpoint coverage", "ref": "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php (bbox multi-kit sibling)"},
+      {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutAuthControllerTest.php", "change": "Extend me() test for teammate_overlay_enabled reflecting the config flag (true when config on, false when off)", "reason": "Flag propagation coverage", "ref": "tests/Feature/Http/Controllers/Api/ClarityScoutAuthControllerTest.php:14"},
+      {"file": "public/build", "change": "npm run build + commit built assets (revert any Boost-regenerated CLAUDE.md/AGENTS.md docs)", "reason": "Repo convention: built assets are tracked; a frontend change must rebuild+commit", "ref": "platform-commits-built-assets convention"}
+    ],
+    "target_files": [
+      "config/app.php",
+      "app/Http/Controllers/Api/ClarityScoutAuthController.php",
+      "app/Http/Controllers/Api/ClarityScoutMapController.php",
+      "routes/api.php",
+      "resources/js/clarity-scout/stores/auth.js",
+      "resources/js/clarity-scout/stores/map.js",
+      "resources/js/clarity-scout/components/DashboardOverlay.vue",
+      "resources/js/clarity-scout/components/ScannerMap.vue",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutAuthControllerTest.php",
+      "public/build"
+    ],
+    "out_of_scope": [
+      "Per-org org_meta flag / Org::isScoutTeammateOverlayEnabled() accessor / admin toggle UI (Dalton chose a single global config flag for this staging pass; true per-org gating is a documented follow-up)",
+      "Any Bird's Eye / admin org-map change (already org-wide; unaffected)",
+      "Teammate metrics / stats breakdown / live hits / hits-pending-repo on the driver view",
+      "Real-time / live-polled teammate position or DOTS (lines-only for v1; NO reuse of OrgLivePositionsQuery/OrgLivePathsQuery)",
+      "Per-teammate distinct color / attribution (single flat cyan)",
+      "Zone-assignment membership scoping and exact polygon-clip of polylines to zone shape (Dalton chose org-wide + viewport bbox)",
+      "Any change to the driver's own scan-path rendering, hits, or dashboard stats scoping",
+      "Backyard / cross-repo work",
+      "Historical ranges beyond today+last_7 (driver picker already capped by DEV-2186)",
+      "Enabling the flag in production"
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "Per-org config flag controls layer availability; OFF by default", "source": "ticket", "decision": "implement", "reason": "DEVIATION (Dalton-approved 2026-07-20): implemented as a SINGLE GLOBAL config flag (env CLARITY_SCOUT_TEAMMATE_OVERLAY_ENABLED, default false), NOT a per-org org_meta flag, for this staging-only v1. 'Off by default' + 'controls availability' satisfied globally; per-org granularity deferred to a follow-up. Documented in the Build Record."},
+    {"item": "With the flag on, the driver sees a Map Layers toggle for the overlay", "source": "ticket", "decision": "implement", "reason": "config -> me().teammate_overlay_enabled -> authStore -> v-if-gated heatmapLayers entry in DashboardOverlay (+!adminMode)"},
+    {"item": "Toggle on -> other users' lines for today + last 7 days render in a distinct color, within the driver's viewport/zone", "source": "ticket", "decision": "implement", "reason": "teammatePaths reuses KitScanPathsQuery over the ORG Scout kit set minus self, last_7, viewport bbox; new cyan #0891B2 PathLayer. LINES ONLY (Dalton) — static position dots deferred."},
+    {"item": "Metrics and live hits pending repo remain scoped to the individual user (unaffected)", "source": "ticket", "decision": "implement", "reason": "No change to stats()/recentHits()/hits(); additive-only. Regression test pins they're untouched."},
+    {"item": "No real-time position dots; no per-teammate metrics exposed", "source": "ticket", "decision": "implement", "reason": "Reuse the ~15-min MV snapshot query, never the live sc_positions cursor; single flat color; no per-kit breakdown in payload; not fetched on the live-position poll tick."},
+    {"item": "Long-window perf guardrails from DEV-2185 (zoom floor PATH_LAYERS_MIN_ZOOM=12 + viewport bbox) applied", "source": "ticket", "decision": "implement", "reason": "Reuse pathLayersEligible()/PATH_LAYERS_MIN_ZOOM client-side + KitScanPathsQuery's existing bbox filter server-side; no new perf mechanism."}
+  ],
+  "questions": [
+    {"q": "Which query class powers the overlay (ticket suggested OrgLivePathsQuery)?", "answered": true, "answer": "KitScanPathsQuery (clarity.kit_scan_paths, <=15-min ReplacingMergeTree MV, FINAL) — NOT OrgLivePathsQuery/OrgLivePositionsQuery. All 3 blind candidates independently verified the OrgLive* classes are live 3s-cursor readers over raw sc_positions with NO bbox (unbounded over 7d multi-driver + conflicts with AC-5), while KitScanPathsQuery already supports org_id+kit_ids+range+bbox and is the same class Bird's-Eye historical scanPaths() uses. The ticket reuse table was a trap.", "source": "code"},
+    {"q": "Can platform gate/write this without Backyard/CDC?", "answered": true, "answer": "Yes — resolved further by Dalton choosing a global CONFIG flag (env, read via config()), so no org_meta write is even needed. (Aside: platform CAN write org_meta directly via updateProperties, but that path is now out of scope.)", "source": "code+human:Dalton 2026-07-20"},
+    {"q": "MATERIAL: What does 'within the driver's zone' mean mechanically?", "answered": true, "answer": "Org-wide kit set + viewport bbox (Dalton 2026-07-20). Include ALL org Scout kits' paths (Bird's-Eye set, minus the driver's own kit) geographically limited by the client VIEWPORT bounding box (the existing DEV-2185 bbox mechanism) + zoom>=12. NOT zone-assignment membership (would miss a teammate driving through an unassigned zone) and NOT an exact polygon clip. The driver operating in their zone at zoom>=12 naturally sees org coverage in view.", "source": "human:Dalton 2026-07-20"},
+    {"q": "MATERIAL: AC-3 'lines/positions' — lines only or also static position dots for v1?", "answered": true, "answer": "LINES ONLY for v1 (Dalton 2026-07-20). Static last-known-position dots deferred to a follow-up.", "source": "human:Dalton 2026-07-20"},
+    {"q": "MATERIAL: Admin/self-serve UI to flip the flag, or manual set?", "answered": true, "answer": "Neither an admin UI nor org_meta tinkering — drive it via .env + config value (Dalton 2026-07-20). Collapses into the global config flag decision below.", "source": "human:Dalton 2026-07-20"},
+    {"q": "MATERIAL: How is 'STAGING ONLY' enforced, and is the flag per-org or global?", "answered": true, "answer": "SINGLE GLOBAL config/env flag, default false (Dalton 2026-07-20 chose 'single global env flag only'). CLARITY_SCOUT_TEAMMATE_OVERLAY_ENABLED default false is the prod guard (staging turns it on). This is a deliberate relaxation of AC-1's literal per-org wording for the staging-only v1 (documented deviation).", "source": "human:Dalton 2026-07-20"},
+    {"q": "CONFIRM (color, ticket OQ1): teammate line color?", "answered": true, "answer": "Cyan #0891B2 (rgb 8,145,178) (Dalton 2026-07-20). Best-of-N: teal #0D9488 + orange + purple + green + blue are all user-configurable Zone::PRESET_COLORS boundary colors; cyan sits in the widest open hue gap, clear of own-line red, aging slate-black, and Bird's-Eye crimson.", "source": "human:Dalton 2026-07-20"},
+    {"q": "DESIGN APPROVAL (feature route): overall approach?", "answered": true, "answer": "Approved as scoped (Dalton 2026-07-20, via the interview decisions): global-config-gated driver endpoint reusing KitScanPathsQuery over org kits minus self, viewport bbox, last_7, new cyan toggleable PathLayer under DEV-2185 guardrails, lines only.", "source": "human:Dalton 2026-07-20"},
+    {"q": "Where does the endpoint/route live; adminMode fetch-leak risk?", "answered": true, "answer": "Driver Sanctum API only (routes/api.php scout group: auth:sanctum + ClarityScoutMiddleware + throttle:120,1). Client fetch + toggle + layer MUST be !adminMode-gated so they never target /scout/org-map/api and never render on Bird's Eye. Shared components require !adminMode gating at UI AND fetch level.", "source": "code"},
+    {"q": "Window control given the 30/60 striation concern?", "answered": true, "answer": "No new control, no striation risk: DEV-2186 already trimmed the driver picker to Today/Yesterday/last_7. Overlay defaults to today+last_7 (getDateRange('last_7')).", "source": "code"}
+  ],
+  "blockers": [],
+  "notes": [
+    "ClarityScoutMapController does NOT `use ScoutMapHelpers` — it keeps private duplicate getDateRange/mapCacheTtl/snapBbox/resolveOptionalBbox. Add the new method using those existing copies; do not introduce the trait (surprise refactor).",
+    "Org kit resolution crosses connections (Kit on zod vs platform default) — mirror Bird's-Eye's orgScoutKits/getKits two-step resolve-then-key-by-id (DEV-2182); a cross-connection whereHas/join silently returns empty (documented platform gotcha). Exclude the requesting driver's own kit_id from the returned set.",
+    "kit_scan_paths per-kit color palette (kit_id % 42) + name are emitted but DEAD for Scout rendering (both driver scanPathColor() and Bird's-Eye override them) — apply the new cyan color client-side. KitUserPathController (non-Scout repo heatmap) is the OTHER KitScanPathsQuery consumer — do NOT modify the query class (calling with new kit_ids/bbox combos is already backward-compatible; no class change should be needed).",
+    "Shared driver/admin surface: DashboardOverlay.vue, stores/map.js, ScannerMap.vue are used by BOTH the driver app and Bird's Eye (adminMode). Every new piece must be !adminMode-gated at UI AND fetch level or it leaks into the admin org-map.",
+    "Graceful degradation: every existing Scout map endpoint catches CH read failures and returns an empty/default payload + Log::warning (never 500) — the new endpoint must too.",
+    "kit_scan_paths lags reality by up to ~15 min (MV refresh) — acceptable and reinforces 'snapshot not live'; flag to Yolanda so a same-shift-freshness expectation isn't set.",
+    "Global flag home: check where the CLARITY_SCOUT gate / experimental flags live before adding the config key (config/app.php experimental block vs a dedicated scout config). Read the env var only in a config file, then config() everywhere (never env() outside config).",
+    "Production runs PHP 8.3 — keep new code 8.3-compatible. No JS test runner in this repo — frontend correctness rides on npm run build + agent/human QA.",
+    "STAGING ONLY: the global flag default false is the prod guard. Do not enable it in any production config; PR/deploy should not flip it on for prod."
+  ],
+  "tests": [
+    {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php", "what_it_pins": "teammatePaths: empty/403 when the config flag is off; returns ORG kits' paths EXCLUDING the requester's own kit; defaults to today+last_7; bbox narrows; graceful CH-failure degradation; payload carries no live-position field and no per-teammate metrics"},
+    {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutAuthControllerTest.php", "what_it_pins": "me() includes teammate_overlay_enabled reflecting the config flag (true when on, false when off)"}
+  ],
+  "data_impact": {
+    "pg_tables": ["zod.kits (org Scout kit resolution)", "(the flag is CONFIG, no DB read)"],
+    "ch_tables": ["clarity.kit_scan_paths (read, FINAL)", "clarity.sc_positions (upstream MV source; NOT directly queried)"],
+    "mv_or_cdc_implications": "The gate is a config/env value — no DB/CDC involvement at all (dropped the org_meta path). clarity.kit_scan_paths is a <=15-min-lag ReplacingMergeTree MV off sc_positions — overlay is up to ~15 min stale vs live driving (consistent with 'snapshot, not live').",
+    "indexes_relied_on": ["clarity.kit_scan_paths ordered/keyed for org_id+kit_id+timestamp FINAL reads (proven at 15/30/60-day multi-kit scale by DEV-2185)"]
+  },
+  "derivation_log": [],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "AC-1", "kind": "agent", "intent": "Config flag off -> no Teammates entry in Map Layers and endpoint empty/403; flag on -> entry appears"},
+      {"ac": "AC-2", "kind": "agent", "intent": "Toggle visibility gated on me().teammate_overlay_enabled; distinct cyan swatch/label in the panel"},
+      {"ac": "AC-3", "kind": "human", "intent": "Two seeded drivers with recent paths in the same area; toggle on as driver A and visually confirm driver B's line renders in cyan within the viewport, not colliding with A's own red/slate or a zone outline"},
+      {"ac": "AC-4", "kind": "agent", "intent": "Assert driver's own stats/recentHits/hits are byte-identical in shape/scope before and after enabling the flag"},
+      {"ac": "AC-5", "kind": "agent", "intent": "Assert the payload never includes a live-position field and never per-teammate counts; layer not refreshed on the 10s live-position poll"},
+      {"ac": "AC-6", "kind": "agent", "intent": "Zoom below 12 -> layer hidden + fetch skipped like sibling scan-paths; bbox param carried/honored"}
+    ],
+    "seed_scenario": "One org on staging with CLARITY_SCOUT on and CLARITY_SCOUT_TEAMMATE_OVERLAY_ENABLED=true. Driver A (viewer) + Driver B (teammate), each with a kit_settings->kit. Seed clarity.kit_scan_paths rows for B's kit spanning today and 3 days ago (within last_7) in the same map area as A, plus one row 10 days ago (outside last_7, must NOT appear), and a Driver C kit in a far-away area (outside A's viewport bbox). Log in as A, zoom>=12: expect B's cyan path to render, A's own kit excluded from the teammate layer, C excluded by bbox, the 10-day-old row excluded by window.",
+    "personas": ["Scout driver A (viewer)", "Scout driver B (teammate, recent path nearby)", "Scout driver C (far away, bbox negative control)", "flag OFF (AC-1 negative control)"],
+    "pg_tables": ["zod.kits", "platform.kit_settings"],
+    "ch_tables": ["clarity.kit_scan_paths"]
+  },
+  "blast_radius": [
+    "Shared driver/admin Vue components (DashboardOverlay/map.js/ScannerMap) — mis-gating risks leaking a driver-only feature into Bird's Eye (mitigate with !adminMode gates)",
+    "New CH-backed driver endpoint on the throttle:120,1 API surface — must degrade gracefully (empty, not 500) on CH failure",
+    "NONE in the sensitive-globs approval set (no migration, no billing/auth/CH-purge) — no Phase-3 human-approval gate required"
+  ],
+  "perf_validation": {
+    "required": false,
+    "reason": "Not a deferred-perf CH-at-scale design on a >1B-row surface. clarity.kit_scan_paths is a pre-aggregated MV (not raw ~3.5B hits_cold), already read at 15/30/60-day org-wide multi-kit scale by Bird's-Eye with the SAME DEV-2185 bbox+zoom guardrails. The teammate query is <= the already-shipping Bird's-Eye historical overlay (org kits, viewport bbox, zoom>=12, last_7). Perf validated by construction/reuse.",
+    "ch_tables": ["clarity.kit_scan_paths"],
+    "approach": "reuse KitScanPathsQuery (proven MV + DEV-2185 guardrails) over org kits minus self, viewport bbox, last_7",
+    "measurement": "",
+    "verdict": "not-required",
+    "measured_at": null
+  },
+  "missed_caller_candidates": [
+    {"file": "resources/js/clarity-scout/components/DayOverlay.vue", "symbol": "heatmapLayers", "note": "alternate-view Map Layers list — the new entry will surface here too (desired: 'available on other views')"},
+    {"file": "resources/js/clarity-scout/components/TripOverlay.vue", "symbol": "heatmapLayers", "note": "alternate-view Map Layers list"},
+    {"file": "resources/js/clarity-scout/views/ScoutHome.vue", "symbol": "pathLayersEligible", "note": "parent view owns the path-layer zoom gate"},
+    {"file": "app/Http/Controllers/KitUserPathController.php", "symbol": "KitScanPathsQuery", "note": "other consumer — don't break it (no query-class change expected)"},
+    {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutAuthControllerTest.php", "symbol": "me()", "note": "extend for teammate_overlay_enabled"}
+  ]
+}

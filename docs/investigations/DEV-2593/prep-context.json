@@ -1,0 +1,309 @@
+{
+  "ticket": "DEV-2593",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "escalated": true,
+  "best_of_n": false,
+  "escalation_triggers": [
+    "answered:false questions (token invalidation mechanism; restore re-grant; AC4 disable semantics)",
+    "product OR in AC3 (release email vs explain+offer)"
+  ],
+  "synthesis": "Scout invite lockout has three parts: (1) resend already exists (resend_onboarding from the earlier hotfix) for email_verified_at=null users but does not revoke prior signed URLs; (2) soft-deleted users keep email under a full unique index \u2014 Filament unique checks miss trashed rows (SoftDeletes scope) so create can pass form validation then fail at DB, matching Ryan's 'already in there'; (3) disable via toggle_web_access already re-enables permission, but soft-deleted users have no Scout Users restore path (canDelete=false; Restore lives on UsersResource). Password reset remains a sibling ticket.",
+  "scope": {
+    "summary": "Harden Scout Users invite/re-add UX: soft-delete-aware email collision messaging with Restore/Resend/Re-enable CTAs (no unique-index migration); hard-invalidate onboarding links via per-user nonce on resend; add Restore action on Scout Users for soft-deleted drivers.",
+    "proposed_changes": [
+      {
+        "file": "app/Filament/Resources/ScoutUsersResource.php",
+        "change": "withTrashed collision detection naming user + Resend/Restore/Re-enable; keep resend_onboarding (bump nonce); add Restore action for soft-deleted assigned users",
+        "reason": "AC3 OR + AC5",
+        "ref": "ScoutUsersResource.php:136-170,356-412"
+      },
+      {
+        "file": "app/Filament/Resources/ScoutUsersResource/Pages/EditScoutUser.php",
+        "change": "Before User::create, detect onlyTrashed email collision and restore/reassign instead of insert",
+        "reason": "AC3",
+        "ref": "EditScoutUser.php"
+      },
+      {
+        "file": "app/Notifications/ScoutOnboardingNotification.php",
+        "change": "Include per-user onboarding nonce in signed URL params; bump nonce before notify on resend",
+        "reason": "AC2",
+        "ref": "ScoutOnboardingNotification.php:28-33"
+      },
+      {
+        "file": "app/Http/Middleware/ValidateScoutSignedUrl.php",
+        "change": "Reject signed URLs whose nonce does not match the user's current onboarding nonce",
+        "reason": "AC2",
+        "ref": "ValidateScoutSignedUrl.php"
+      },
+      {
+        "file": "app/Filament/Resources/UsersResource.php",
+        "change": "Mirror soft-delete-aware email messaging on Users create/edit if same failure path",
+        "reason": "exhaustiveness",
+        "ref": "UsersResource.php:58-65"
+      },
+      {
+        "file": "tests/Filament/Resources/ScoutUsersResourceTest.php",
+        "change": "Add deleted-email collision + restore/resend messaging tests; token invalidation if scoped in",
+        "reason": "pin ACs",
+        "ref": "ScoutUsersResourceTest.php"
+      }
+    ],
+    "target_files": [
+      "app/Filament/Resources/ScoutUsersResource.php",
+      "app/Filament/Resources/ScoutUsersResource/Pages/EditScoutUser.php",
+      "app/Filament/Resources/UsersResource.php",
+      "app/Notifications/ScoutOnboardingNotification.php",
+      "app/Http/Middleware/ValidateScoutSignedUrl.php",
+      "app/Http/Controllers/Auth/ScoutSetPasswordController.php",
+      "app/Models/User.php",
+      "tests/Filament/Resources/ScoutUsersResourceTest.php"
+    ],
+    "out_of_scope": [
+      "sibling password-reset / forgotten password recovery",
+      "platform.invites Invite model (Scout uses ScoutOnboardingNotification, not Invite)",
+      "Force-deleting users",
+      "Backfill of historical soft-deleted emails"
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Scout Users Resend invite for users who have not set a password",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Exists as resend_onboarding (earlier hotfix); verify visibility + polish label if needed; email_verified_at null is the password-not-set signal"
+    },
+    {
+      "item": "Resending issues a fresh invite token and invalidates the prior one",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Implement per-user nonce in signed URL; bump on resend (human 2A)"
+    },
+    {
+      "item": "Delete releases email OR UI explains + offers Resend/Re-enable",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Explain+offer Restore/Resend/Re-enable; no partial unique index (human 1A)"
+    },
+    {
+      "item": "Re-enabling a disabled user restores prior access without deletion",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Keep toggle_web_access; add Scout Users Restore for soft-deleted (human 3B)"
+    },
+    {
+      "item": "Already-registered error names existing user and available action",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Current message is generic 'already in use'"
+    }
+  ],
+  "questions": [
+    {
+      "q": "When a soft-deleted Scout user's email is reused on create: (A) detect collision and offer Restore / Resend / Re-enable (no DB unique change), or (B) migrate to a partial unique index so deleted emails are free for a brand-new user?",
+      "answered": true,
+      "answer": "A: Detect soft-deleted collision and offer Restore / Resend / Re-enable; no DB unique change",
+      "source": "human:Dalton 2026-09-17",
+      "driver_pick": "A"
+    },
+    {
+      "q": "On Resend invite: (A) hard-invalidate prior links via a per-user nonce bump in the signed URL, or (B) keep today's behavior (new link + old link valid until 7-day expiry or first successful set-password)?",
+      "answered": true,
+      "answer": "A: Hard-invalidate prior onboarding links via per-user nonce bump on resend",
+      "source": "human:Dalton 2026-09-17",
+      "driver_pick": "A \u2014 AC2 literally requires invalidation"
+    },
+    {
+      "q": "AC4 'disabled user': (A) only the existing Scout Access toggle (already works), or (B) also add Restore for soft-deleted users on Scout Users?",
+      "answered": true,
+      "answer": "B: Also add Restore for soft-deleted users on Scout Users (toggle_web_access remains for permission disable)",
+      "source": "human:Dalton 2026-09-17",
+      "driver_pick": "B if we pick explain+offer on Q1 \u2014 otherwise Restore stays on UsersResource"
+    },
+    {
+      "q": "Should soft-delete email release be full (withTrashed in validation) or partial (detect and offer restore)?",
+      "answered": true,
+      "answer": "Partial (detect and offer restore) matches AC3's OR and preserves audit trail; superseded by Q1 product choice",
+      "source": "code"
+    },
+    {
+      "q": "Does users.email unique include a where deleted_at is null partial index?",
+      "answered": true,
+      "answer": "No \u2014 full unique index; SoftDeletes hides trashed from Eloquent unique checks so form can pass then DB insert fails",
+      "source": "code"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "okf/concepts/scout-user-assignment.md documents Resend onboarding (the earlier hotfix) and that ScoutUsersResource cannot delete users",
+    "Ryan's 'undisable' maps to toggle_web_access; 'eliminate and add back' maps to UsersResource soft-delete + recreate",
+    "Sibling password-reset work already has a worktree + draft PR at intake \u2014 keep password reset out of this ticket",
+    "Knowledge card scout.md loaded; ticket 'no resend' claim is stale vs main"
+  ],
+  "tests": [
+    {
+      "file": "tests/Filament/Resources/ScoutUsersResourceTest.php",
+      "what_it_pins": "resend_onboarding visibility + send; duplicate email for active users; needs deleted-user cases"
+    },
+    {
+      "file": "tests/Feature/Http/Controllers/Auth/ScoutSetPasswordControllerTest.php",
+      "what_it_pins": "one-shot used link; signature validation"
+    },
+    {
+      "file": "tests/Feature/Notifications/ScoutOnboardingNotificationTest.php",
+      "what_it_pins": "signed URL shape"
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Filament/Resources/ScoutUsersResource.php:136-170",
+      "app/Filament/Resources/ScoutUsersResource.php:356-412",
+      "app/Filament/Resources/ScoutUsersResource.php:414-488",
+      "okf/concepts/scout-user-assignment.md:40-51",
+      "app/Notifications/ScoutOnboardingNotification.php:28-33",
+      "app/Http/Controllers/Auth/ScoutSetPasswordController.php:66-84",
+      "app/Models/User.php:101"
+    ],
+    "code_flow": "See prep synthesis; kit_settings bridges Kit\u2194User; clarity-scout permission; onboarding via signed scout.set-password",
+    "tables": [
+      "public.users",
+      "platform.kit_settings",
+      "zone_user"
+    ],
+    "related_components": [
+      "ScoutUserProvisioner",
+      "ValidateScoutSignedUrl",
+      "UsersResource Delete/Restore"
+    ]
+  },
+  "exhaustiveness": {
+    "root_cause_idiom": "email unique validation / create without soft-delete-aware collision UX",
+    "grep_patterns_used": [
+      "unique.*users.*email",
+      "User::where.*email",
+      "withTrashed",
+      "resend_onboarding",
+      "ScoutOnboardingNotification"
+    ],
+    "sites": [
+      {
+        "location": "ScoutUsersResource.php:140",
+        "status": "buggy",
+        "reason": "generic unique; SoftDeletes means trashed not seen \u2014 DB still blocks"
+      },
+      {
+        "location": "ScoutUsersResource.php:162",
+        "status": "buggy",
+        "reason": "no withTrashed; no named user/action"
+      },
+      {
+        "location": "UsersResource.php:58-65",
+        "status": "buggy",
+        "reason": "same unique gap"
+      },
+      {
+        "location": "EditScoutUser.php User::create",
+        "status": "buggy",
+        "reason": "can hit DB unique on trashed email"
+      },
+      {
+        "location": "resend_onboarding",
+        "status": "partial",
+        "reason": "AC1 mostly met; AC2 invalidation missing"
+      },
+      {
+        "location": "toggle_web_access",
+        "status": "safe-for-permission-disable",
+        "reason": "AC4 permission path already present"
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [
+      "public.users",
+      "platform.kit_settings"
+    ],
+    "ch_tables": [],
+    "mv_or_cdc_implications": "None for invite UX; partial unique migration would be PG-only if chosen",
+    "indexes_relied_on": [
+      "users.email unique (full)"
+    ]
+  },
+  "resource_envelope": {
+    "scale_relevant": false,
+    "reason": "Filament UI + single-row User updates; no command/job/batch",
+    "driving_tables": [],
+    "oracle_status": "n/a",
+    "unresolved": []
+  },
+  "derivation_log": [],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC1",
+        "kind": "agent",
+        "intent": "Unverified Scout user \u2192 resend visible \u2192 notification sent"
+      },
+      {
+        "ac": "AC2",
+        "kind": "agent",
+        "intent": "If nonce chosen: old link 403 after resend"
+      },
+      {
+        "ac": "AC3/AC5",
+        "kind": "human",
+        "intent": "Soft-deleted email reuse shows named user + action"
+      },
+      {
+        "ac": "AC4",
+        "kind": "agent",
+        "intent": "Toggle disable/enable restores Scout access"
+      }
+    ],
+    "seed_scenario": "Org with verified, unverified, and soft-deleted Scout users; one unassigned kit",
+    "personas": [
+      "org admin",
+      "unverified driver",
+      "deleted driver"
+    ],
+    "pg_tables": [
+      "public.users",
+      "platform.kit_settings"
+    ],
+    "ch_tables": []
+  },
+  "missed_caller_candidates": [
+    {
+      "file": "app/Filament/Resources/UsersResource/Pages/CreateUsers.php",
+      "symbol": "ScoutUserProvisioner",
+      "referenced_at": "7"
+    },
+    {
+      "file": "app/Filament/Resources/UsersResource/Pages/EditUsers.php",
+      "symbol": "ScoutUserProvisioner",
+      "referenced_at": "7"
+    },
+    {
+      "file": "tests/Filament/Resources/UsersResourceTest.php",
+      "symbol": "ScoutUserProvisioner/resend",
+      "referenced_at": "12-544"
+    },
+    {
+      "file": "resources/views/auth/scout/invalid-link.blade.php",
+      "symbol": "resend_onboarding copy",
+      "referenced_at": "34-36"
+    },
+    {
+      "file": "database/migrations/0001_01_01_000000_create_users_table.php",
+      "symbol": "email unique",
+      "referenced_at": "14"
+    }
+  ],
+  "confidence": 82,
+  "prepared_at": "2026-09-17T16:52:17Z",
+  "decisions": {
+    "soft_delete_email": "1A_explain_offer_restore",
+    "resend_invalidation": "2A_nonce",
+    "ac4_disabled": "3B_toggle_plus_scout_users_restore"
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "key": "DEV-2660",
+  "track": "product",
+  "base_sha": "76d4f5fcfdb37a9cb3b7b667c9e34a0d2f4f3266",
+  "reget_at": "2026-09-28T13:41:46Z",
+  "precedents": [
+    {
+      "id": "recoveries-leg-variant-b-rejected",
+      "source": "docs/investigations/recoveries-leg-measure/q8-recoveries-leg.md",
+      "lines": "16-65",
+      "use": "Measured rejection of clarity.hotlist.repo_date (variant B). April platform-wide: repo_date differs from the status-log transition on 1,588 of 6,770 counted pairs (23%). Two (vin, org) pairs absent from clarity.hotlist. A1 (status-log, min(claim_date) − 7) was chosen. Jul 2026 A1 envelope on that day: db_repos 9,137; read_rows 664,270,998; read_bytes 15.04 GB; peak memory 2.50 GB. That figure is the historical rejection, not the live Jul 2026 baseline."
+    },
+    {
+      "id": "recoveries-leg-docblock-still-rejects-b",
+      "file": "app/Clickhouse/Queries/LprRepossessionsQuery.php",
+      "symbol": "class docblock",
+      "lines": "52-57",
+      "use": "The class still records variant B as measured-and-rejected because repo_date is not the transition timestamp. AC-7 rewrites this note once first_repossessed_at is the read. Do not leave the stale rejection in place after the swap."
+    },
+    {
+      "id": "first-timestamp-columns-landed",
+      "source": "Jira blocked-by Cloud apply status Done; First Glance DEV-2660 comment 42078; database/schema/clickhouse-schema.sql",
+      "lines": "24, 103",
+      "use": "Blocked-by is Done. Comment 42078: Cloud apply + backfill landed; Hold cleared. Tip dump defines clarity.hotlist.first_repossessed_at and first_declined_at, and hotlist_incremental_mv fills them with minIf on zod.public_hotlist_status_log. This prep does not re-prove the Cloud apply by querying Cloud."
+    },
+    {
+      "id": "hotlist-timestamp-backfill-done",
+      "source": "Jira issuelink on DEV-2660",
+      "use": "Blocked-by link (propagate hotlist status-change timestamps onto clarity.hotlist and backfill history) is Done. Not reopened."
+    },
+    {
+      "id": "billing-leg-shipped",
+      "source": "docs/investigations/billing-view-parity/cloud-parity-jul-2026.md",
+      "lines": "25-33",
+      "use": "Soft collision. Billing leg already reads clarity.billing_claim_events_v. Jul 2026 UTC platform-wide snapshot on 2026-09-25: deduped 11975, db_repos 9149, old and new billing paths equal, hotlist and status-log legs unchanged, floor 2026-06-24. Do not reopen the billing-leg change. 9149 is a prior snapshot, not this ticket's live baseline."
+    },
+    {
+      "id": "schema-drift-dump-names",
+      "source": "docs/investigations/schema-drift-ledger/build-record.md",
+      "lines": "62",
+      "use": "Dump name first_declined_at is status 4. Some Jira prose said first_closed_positive_at. Dump name wins. That mirror ticket is not this product swap."
+    },
+    {
+      "id": "current-recoveries-sql",
+      "file": "app/Clickhouse/Queries/LprRepossessionsQuery.php",
+      "symbol": "sql",
+      "lines": "170-217",
+      "use": "Recoveries leg is still variant A1: zod.public_hotlist FINAL (status = 3) plus zod.public_hotlist_status_log (new_status = 3, _peerdb_is_deleted = 0, no FINAL), {floor} on the log, predicate toDate(hsl.created_at, 'UTC') >= d.claim_date - 7, sentinels d.agent_org_id != 0 and h.id != 0, h.vin un-normalised."
+    },
+    {
+      "id": "sentinel-fixtures",
+      "file": "tests/Feature/Clickhouse/LprRepossessionsQueryTest.php",
+      "symbol": "test_a_status_three_hotlist_with_org_id_zero_is_not_joined_to_an_agentless_claim / test_a_stray_hotlist_id_zero_transition_does_not_count_a_triple_with_no_repo",
+      "lines": "175-246",
+      "use": "Existing fixtures pin both sentinels against the status-log join. AC-6 requires the same sentinel discipline on the new join key, with a fixture whose key is the sentinel."
+    },
+    {
+      "id": "status-log-string-pin",
+      "file": "tests/Unit/Clickhouse/BillingClaimDedupTest.php",
+      "symbol": "test body",
+      "lines": "86-90",
+      "use": "Asserts the repos SQL still contains public_hotlist_status_log, h.id != 0, d.agent_org_id != 0, and floor literal toDate('2026-06-24'). Ultra-Plan must update this pin when the join and floor change. Not edited in prep."
+    },
+    {
+      "id": "not-a-clickhouse-query",
+      "file": "app/Clickhouse/Queries/LprRepossessionsQuery.php",
+      "symbol": "class",
+      "lines": "15-20",
+      "use": "Class deliberately does not extend ClickhouseQuery. tests/Unit/Clickhouse/BillingClaimDedupTest.php asserts is_subclass_of is false. Keep that."
+    },
+    {
+      "id": "pg-030",
+      "file": "okf/concepts/platform-gotchas.md",
+      "symbol": "PG-030",
+      "lines": "286-307",
+      "use": "join_use_nulls = 0 fills an unmatched LEFT JOIN with type defaults. Guard sentinels. Seed a row whose key is the sentinel. Do not set join_use_nulls = 1."
+    },
+    {
+      "id": "final-asymmetry",
+      "file": "okf/concepts/clickhouse-query-patterns.md",
+      "symbol": "FINAL per table",
+      "lines": "81-99",
+      "use": "zod.public_hotlist: FINAL required (raw over-counts 13.3%). zod.public_hotlist_status_log: _peerdb_is_deleted = 0 without FINAL. Remaining status-log readers outside this class already follow that (CohortClosedQuery, CohortDeclinedQuery). This ticket does not edit them."
+    },
+    {
+      "id": "shared-cache-keys-stay",
+      "file": "app/Clickhouse/Queries/LprRepossessionsQuery.php",
+      "symbol": "sharedMonthlySeriesCacheKey / sharedWindowCacheKey",
+      "lines": "248-281",
+      "use": "An earlier cache pass left these class-neutral keys in place. This ticket does not retune cache. A payload-shape change would require a -v1 bump; the swap should keep {deduped, db_repos}."
+    }
+  ]
+}

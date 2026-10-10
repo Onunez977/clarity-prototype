@@ -1,0 +1,126 @@
+{
+  "ticket": "DEV-2339",
+  "synthesis": {
+    "problem": "ScoutOpenOrderAddressesQuery exceeds ClickHouse's 30-second execution limit while enumerating open Direct/Staging addresses, causing the recorder to receive an empty address set and record zero check-ins.",
+    "claim_verdict": "The IN predicate is relationally redundant with the JOIN, but not proven physically redundant. Removing it may disable public_address primary-key pruning and worsen the query.",
+    "corrections": [
+      "The explicit cache TTL is 15 minutes, not 30.",
+      "In production ClickhouseQuery catches the timeout and returns []; it does not propagate to the command's per-org catch.",
+      "A failed cache callback is not cached, so subsequent invocations retry the expensive query.",
+      "DEV-2342's overlapping-lock behavior amplifies load but is out of scope."
+    ]
+  },
+  "scope": {
+    "summary": "Limit DEV-2339 to diagnosing and optimizing ScoutOpenOrderAddressesQuery. Do not pre-commit to deleting IN until production-scale EXPLAIN and timing establish that JOIN-only retains efficient public_address pruning.",
+    "in_scope": [
+      {
+        "site": "app/Clickhouse/Queries/ScoutOpenOrderAddressesQuery.php:63-100",
+        "decision": "investigate_and_fix",
+        "reason": "Only production-failing site. Compare current JOIN+IN against JOIN-only and prune-first alternatives while preserving Direct/Staging payload, direct preference, CDC-version handling, and geo guards."
+      }
+    ],
+    "deferred": [
+      {
+        "site": "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php:110-150",
+        "decision": "keep_unchanged",
+        "reason": "Exact JOIN+IN sibling, but JOIN carries is_staged while IN deliberately prunes public_address before bbox/geoDistance work. No timeout evidence for this separate scans-based dashboard surface."
+      },
+      {
+        "site": "app/Clickhouse/Queries/HotlistAddressGeohashQuery.php:126-165",
+        "decision": "keep_unchanged",
+        "reason": "IN-only canonical prune idiom. It needs no address-link payload, so it intentionally never joins public_address; this does not prove JOIN-only is safe for the recorder."
+      },
+      {
+        "site": "app/Clickhouse/Queries/Client/CohortClosedQuery.php",
+        "decision": "keep_unchanged",
+        "reason": "JOIN+IN syntactic sibling, but IN bounds hotlist version aggregation to cohort IDs; unrelated tables and execution path."
+      },
+      {
+        "site": "app/Clickhouse/Queries/Client/CohortDeclinedQuery.php",
+        "decision": "keep_unchanged",
+        "reason": "Same unrelated cohort-pruning pattern."
+      },
+      {
+        "site": "routes/console.php:59-67",
+        "decision": "out_of_scope",
+        "reason": "Lock expiry and overlapping cycles belong to DEV-2342."
+      },
+      {
+        "site": "app/Console/Commands/ScoutRecordCheckIns.php:42-47",
+        "decision": "keep_unchanged",
+        "reason": "Authoritative address cache TTL is already 15 minutes."
+      }
+    ],
+    "exhaustiveness": {
+      "exact_public_address_join_plus_in_sites": 2,
+      "sites": [
+        "ScoutOpenOrderAddressesQuery",
+        "ScoutCheckInRollupQuery"
+      ],
+      "public_address_in_only_sites": 1,
+      "sites_in_only": [
+        "HotlistAddressGeohashQuery"
+      ],
+      "primary_bottleneck_risk": "public_hotlist_address is ORDER BY id rather than hotlist_id, so address_links still scans approximately 311M rows; deleting the public_address IN predicate does not address that scan."
+    }
+  },
+  "target_files": [
+    {
+      "file": "app/Clickhouse/Queries/ScoutOpenOrderAddressesQuery.php",
+      "change": "Implement only the query shape proven fastest by real ClickHouse evidence; update its docblock to document whether JOIN and IN are independently load-bearing."
+    },
+    {
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+      "change": "Add or strengthen regression coverage for enumeration equivalence, including Direct/Staging payload, shared-address direct preference, malformed/zero geo exclusion, CDC duplicate-version behavior, and empty staging lists."
+    }
+  ],
+  "questions": [
+    {
+      "question": "For the largest affected org, what do EXPLAIN indexes=1, read_rows/read_bytes, peak_memory_usage, and elapsed time show for current JOIN+IN versus JOIN-only?",
+      "blocking": true
+    },
+    {
+      "question": "Does JOIN-only still use the public_address id primary key, or does it scan the 100M+ left table as warned by the sibling queries?",
+      "blocking": true
+    },
+    {
+      "question": "Can a prune-first shape retain a.id IN and join the reduced address rows to address_links for hotlist_id/is_staged without re-reading the 311M-row link table more expensively?",
+      "blocking": true
+    },
+    {
+      "question": "Which stage consumes the 30 seconds: public_hotlist_address full scan, duplicated address_links expansion, public_address scan, FINAL hotlist, or aggregation?",
+      "blocking": true
+    },
+    {
+      "question": "Does the winning shape remain comfortably below 30 seconds under representative concurrent recorder load, not merely one warm-cache execution?",
+      "blocking": true
+    }
+  ],
+  "tests": [
+    {
+      "type": "existing_regression",
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+      "coverage": "Recorder semantics, Direct/Staging enumeration, deterministic shared-address preference, cache behavior, matching, idempotency, and failure handling."
+    },
+    {
+      "type": "new_regression",
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+      "coverage": "Latest _peerdb_version coordinates remain paired and selected after query restructuring; tombstoned or malformed rows remain excluded."
+    },
+    {
+      "type": "unchanged_sibling",
+      "file": "tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php",
+      "coverage": "Run only if ScoutCheckInRollupQuery is touched; otherwise it remains a deferred sibling."
+    },
+    {
+      "type": "required_performance_gate",
+      "environment": "real ClickHouse with production-scale cardinality",
+      "coverage": "Compare query plans and query_log metrics for all candidate shapes on the largest affected org, cold and warm, including concurrent execution. PostgreSQL-bridge PHPUnit tests cannot prove this acceptance criterion."
+    }
+  ],
+  "escalate": {
+    "recommend": true,
+    "reason": "The proposed one-line deletion conflicts with an explicit, historically intentional primary-key-pruning pattern. Logical redundancy is insufficient evidence for ClickHouse performance, and removing IN may convert the timeout into a larger public_address scan."
+  },
+  "confidence": 94
+}

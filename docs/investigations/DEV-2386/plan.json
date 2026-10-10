@@ -1,0 +1,131 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Fixtures, pgsql bridge, seeder, and CI schema dump for clarity.scout_open_addresses",
+      "approach": "Make the new book table exist everywhere the test suite needs it before any reader points at it. Truncate list + pgsql bridge CREATE TABLE + seeder REPLICA IDENTITY list are mechanical. The CI dump (database/schema/clickhouse-schema.sql) is the blocker: it must come from the /chlocal re-export, and the chlocal cloud_export does not contain the table yet. Attempt the re-export; if the table is still absent, STOP and surface to the operator rather than inventing DDL.",
+      "target_files": [
+        "tests/Concerns/RequiresClickhouse.php",
+        "database/schema/local-clickhouse-schema.sql",
+        "database/seeders/ClarityScoutClickhouseSeeder.php",
+        "database/schema/clickhouse-schema.sql"
+      ],
+      "intended_diffs": "tests/Concerns/RequiresClickhouse.php — add 'clarity.scout_open_addresses' to CLICKHOUSE_TABLES_TO_TRUNCATE, immediately after 'clarity.sc_positions'. KEEP 'zod.public_address' and 'zod.public_hotlist_address': HotlistAddressGeohashQuery (heatmap) and ClarityScoutMapControllerTest still read them.\n\ndatabase/schema/local-clickhouse-schema.sql — append a full CREATE TABLE, not a comment stub (ticket work item 8). clarity.sc_positions is NOT present in this pgsql bridge file, so there is no existing Point precedent to copy; use pgsql's native `point` type so the same `(lng, lat)` literal the ClickHouse fixtures already use for sc_positions inserts unchanged:\n\nCREATE TABLE IF NOT EXISTS clarity.scout_open_addresses (\n    org_id integer NOT NULL DEFAULT 0,\n    is_staged boolean NOT NULL DEFAULT false,\n    hotlist_id bigint NOT NULL DEFAULT 0,\n    address_id bigint NOT NULL DEFAULT 0,\n    geo point NOT NULL DEFAULT '(0,0)'::point,\n    refreshed_at timestamp NOT NULL DEFAULT NOW()\n);\n\nColumn set and order mirror chlocal migration 111 exactly. Add one comment line noting tupleElement() is ClickHouse-only, so this bridge row exists for seeding/truncation parity and not for running the matcher under CLICKHOUSE_DRIVER=pgsql.\n\ndatabase/seeders/ClarityScoutClickhouseSeeder.php — add 'scout_open_addresses' to the $tables array inside ensureSchemaExists() (the REPLICA IDENTITY FULL list, currently line 69). No new seedX() method is required; nothing in the dev seeder reads the book.\n\ndatabase/schema/clickhouse-schema.sql — re-export via .claude/commands/chlocal.md, run from /Users/daltonmccleery/Herd/platform (the MAIN checkout, so ../chlocal resolves) and not from this worktree. VERIFIED 2026-08-18: /Users/daltonmccleery/Herd/chlocal/migrations/cloud_export/cloud_clarity_schema.sql contains ZERO occurrences of scout_open_addresses, and the current CI dump has none either. The re-export therefore cannot produce the table today — STOP, report to the operator, do NOT hand-write Cloud DDL. Fallback ONLY on explicit operator authorization: copy the migration-111 CREATE TABLE into the CLARITY TABLES section in the dump's one-line style (migration 111 is already plain MergeTree, so the Shared* transform rules are a no-op on it):\n\nCREATE TABLE clarity.scout_open_addresses (`org_id` Int32, `is_staged` Bool, `hotlist_id` Int64, `address_id` Int64, `geo` Point, `refreshed_at` DateTime) ENGINE = MergeTree() ORDER BY (org_id, is_staged, hotlist_id, address_id) SETTINGS index_granularity = 8192;\n\nNEVER add clarity.scout_open_addresses_mv to the CI dump under any authorization: it is REFRESH EVERY 15 MINUTE, full-refresh/non-APPEND, and would atomically EXCHANGE the table out from under a running test's fixtures.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": null,
+      "ui_impact": false,
+      "blast_radius": ["ci-schema-dump"],
+      "complexity": "complex"
+    },
+    {
+      "id": "t2",
+      "title": "Repoint ScoutCheckInMatchQuery and ScoutCheckInRollupQuery onto clarity.scout_open_addresses",
+      "approach": "Replace the open_hotlists -> address_links -> latest_address_versions -> latest_addresses chain in BOTH classes with a single read of {$db}.scout_open_addresses, bbox-prefiltered via CROSS JOIN against the existing bbox CTE. Coordinates come from tupleElement(geo, 1)/(geo, 2) — there are no lng/lat columns on the book despite the ticket wording. Keep hotlistOrgFilter duplicated per class (do NOT extract a shared helper), keep the matcher's Direct-wins argMin and ::handle(), keep the rollup's dual-bucket countIf and ::query(cache: true) signature. AC-1 is absolute and includes docblocks. Re-seed the three test files that currently write the old zod fixtures.",
+      "target_files": [
+        "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php",
+        "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php",
+        "tests/Unit/Clickhouse/Queries/ScoutCheckInMatchQueryParityTest.php",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php",
+        "tests/Feature/Console/Commands/ScoutRecordCheckInsMemoryTest.php"
+      ],
+      "intended_diffs": "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php — drop `use App\\Enums\\HotlistStatusEnum;` and the `$zodDb`/`$openStatus` locals (status=Open and length(plate)>3 now live in the chlocal MV, migration 111). Keep PROXIMITY_METERS, BBOX_PAD_DEGREES, hotlistOrgFilter(), the ::handle() signature, and the return mapping unchanged. SQL shape:\n\nWITH position_window AS (\n    SELECT\n        timestamp_utc,\n        tupleElement(geo, 1) AS lng,\n        tupleElement(geo, 2) AS lat,\n        toStartOfHour(timestamp_utc) AS hour_bucket\n    FROM {$db}.sc_positions\n    WHERE lower(kit_mapping) = '{$mappingLiteral}'\n      AND timestamp_utc >= '{$start}'\n      AND timestamp_utc <= '{$end}'\n      AND tupleElement(geo, 1) != 0\n      AND tupleElement(geo, 2) != 0\n),\nposition_bbox AS (\n    SELECT min(lng) - {$pad} AS min_lng, max(lng) + {$pad} AS max_lng,\n           min(lat) - {$pad} AS min_lat, max(lat) + {$pad} AS max_lat\n    FROM position_window\n),\naddresses AS (\n    SELECT\n        book.address_id AS address_id,\n        book.hotlist_id AS hotlist_id,\n        book.is_staged  AS is_staged,\n        tupleElement(book.geo, 1) AS addr_lng,\n        tupleElement(book.geo, 2) AS addr_lat\n    FROM {$db}.scout_open_addresses book\n    CROSS JOIN position_bbox b\n    WHERE ({$hotlistOrgFilter})\n      AND addr_lng != 0 AND addr_lat != 0\n      AND addr_lng BETWEEN b.min_lng AND b.max_lng\n      AND addr_lat BETWEEN b.min_lat AND b.max_lat\n),\nmatches AS (\n    SELECT a.address_id, a.hotlist_id, a.is_staged,\n           p.timestamp_utc, p.hour_bucket, p.lng, p.lat\n    FROM position_window p\n    INNER JOIN addresses a\n        ON geoDistance(p.lng, p.lat, a.addr_lng, a.addr_lat) <= {$proximity}\n)\nSELECT\n    address_id AS out_address_id,\n    argMin(hotlist_id, (toUInt8(is_staged), hotlist_id)) AS out_hotlist_id,\n    min(is_staged) AS out_is_staged,\n    toString(hour_bucket) AS out_hour_bucket,\n    tupleElement(argMin((lng, lat), timestamp_utc), 1) AS out_lng,\n    tupleElement(argMin((lng, lat), timestamp_utc), 2) AS out_lat,\n    toString(min(timestamp_utc)) AS out_matched_at\nFROM matches\nGROUP BY address_id, hour_bucket\n\nNo FINAL on scout_open_addresses (plain MergeTree, one row per (hotlist_id, address_id) per rebuild). No _peerdb_is_deleted, no max(_peerdb_version), no zod table anywhere. The bbox stays a CROSS JOIN against the CTE, NOT four scalar subqueries (AC-2 was measured on the CROSS JOIN form: 1,553,766 vs 1,967,227 read_rows). hotlistOrgFilter's bare org_id/is_staged resolve to the book table — position_bbox has no such columns. If ClickHouse rejects the `addr_lng` alias inside WHERE on this server version, inline the tupleElement() expressions there rather than reverting to scalar subqueries.\n\nDocblock rewrite (AC-1 covers docblocks): the class matches sc_positions against clarity.scout_open_addresses, the fleet-wide open-order book rebuilt every 15 minutes by clarity.scout_open_addresses_mv (chlocal migration 111, DEV-2383). Say explicitly: the book already applies status=Open + length(plate)>3 and the EWKT parse, so this class must not re-apply them; membership can be up to ~15 min + rebuild time stale, which is what the recorder's freshness gate bounds; ORDER BY (org_id, is_staged, hotlist_id, address_id) has no geo prefix, so the bbox prefilter is still load-bearing; Direct-wins argMin is preserved and the rollup deliberately double-counts a shared address.\n\napp/Clickhouse/Queries/ScoutCheckInRollupQuery.php — same swap. Keep scansTable()/FINAL on scans_hot|scans_cold, keep scan_window/scan_bbox naming, keep DISTINCT in matches, keep the two countIf buckets and the array return shape (direct_bucket, staging_bucket) so ClarityScoutDashboardController:254 needs no diff. The addresses CTE selects address_id, is_staged and the two tupleElement coords only (no hotlist_id — the rollup never had it, and adding it would change the DISTINCT grain and break the both-buckets semantics). Drop HotlistStatusEnum + zodDb() here too, and rewrite the docblock's whole 'Address source' section.\n\ntests/Unit/Clickhouse/Queries/ScoutCheckInMatchQueryParityTest.php — replace insertOpenAssignmentAddress() with insertBookAddress(int $orgId, bool $isStaged, int $hotlistId, int $addressId, float $lng, float $lat, ?Carbon $refreshedAt = null) writing to $this->clarityTable('scout_open_addresses') with 'geo' => \"({$lng}, {$lat})\" and 'refreshed_at' => ($refreshedAt ?? now())->toDateTimeString(). Drop the hotlist/public_address/public_hotlist_address inserts and the zodTable() truncation of those two tables; truncate scout_open_addresses instead. Keep test 1 (matcher/rollup agree) and test 2 (shared address: matcher Direct-wins one row, rollup counts both buckets) with the same assertions — test 2 now seeds TWO book rows for the same address_id, one Direct one Staging. REWRITE, do not delete, test_matcher_picks_the_latest_public_address_cdc_version: rename to something like test_duplicate_book_rows_for_one_address_produce_one_match and seed two rows for the same (hotlist_id, address_id) with different refreshed_at values; assert exactly one match at the seeded coordinates. Add a multi-tenant guard case: a book row for an unrelated org inside the position bbox produces no match.\n\ntests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php — rewrite insertOpenAssignmentAddress() to write a book row (the helper's $geo escape hatch goes away). Per test: test_can_get_check_in_counts and test_check_in_counts_respect_radius / _dedupe_within_hour_bucket / _scoped_to_kit keep their assertions on book rows; test_check_in_counts_ignore_unauthorized_staging_orgs stays as-is in intent (it pins hotlistOrgFilter, which is still platform-side). test_check_in_counts_exclude_non_open_hotlists and test_check_in_counts_exclude_short_plate_hotlists now pin a DIFFERENT thing — the status and plate-length rules moved into the MV — so rewrite each to seed NO book row for that hotlist and assert 0, with a comment naming chlocal migration 111 as the new home of the rule. test_check_in_counts_guard_malformed_geo: the EWKT/NULL/empty cases are gone (the book stores a parsed Point); keep and rewrite the (0,0) case, which the reader still guards via addr_lng != 0 AND addr_lat != 0. Keep insertHotlist() (18 call sites, other endpoints use it).\n\ntests/Feature/Console/Commands/ScoutRecordCheckInsMemoryTest.php — insertAddress()/insertFarAddresses() move to scout_open_addresses. The far-row generator becomes one INSERT ... SELECT over numbers({$count}) building (org_id, is_staged, hotlist_id, address_id, geo, refreshed_at) with geo = (-90.0, 40.0 + number * 0.0001) and refreshed_at = now(); the second link INSERT disappears. Stamp refreshed_at = now() on every row so the t3 freshness gate does not skip the cycle. RSS budget and FAR_ADDRESS_COUNT unchanged.",
+      "depends_on": ["t1"],
+      "parallelizable": false,
+      "test_filter": "ScoutCheckInMatchQueryParityTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t3",
+      "title": "Book-freshness gate in ScoutRecordCheckIns plus the config knob",
+      "approach": "Add a staleness gate to handle() BEFORE acquireConcurrencySlot(): read max(refreshed_at) from the book, and if it is empty/epoch or older than book_freshness_minutes, Log::warning + report(RuntimeException) + return SUCCESS. Probe exceptions are fail-open (see intended_diffs) so the ClickHouse-free and CH-unreachable tests keep their current behavior. Add the config key with no call-site fallback, per config/scout.php's single-default rule.",
+      "target_files": [
+        "app/Console/Commands/ScoutRecordCheckIns.php",
+        "config/scout.php",
+        "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+        "tests/Feature/Console/ScoutRecordCheckInsOverrunSignalTest.php"
+      ],
+      "intended_diffs": "config/scout.php — add to the check_ins array, with a comment in the existing voice:\n\n// Maximum age of clarity.scout_open_addresses (max(refreshed_at)) before a\n// cycle skips rather than matching against a stale book. The chlocal MV\n// refreshes every 15 min and refreshed_at marks the refresh START, so 45\n// tolerates two missed refreshes plus the ~46s rebuild. Non-positive\n// disables the gate.\n'book_freshness_minutes' => (int) env('SCOUT_CHECK_INS_BOOK_FRESHNESS_MINUTES', 45),\n\napp/Console/Commands/ScoutRecordCheckIns.php — in handle(), between the clarity_scout flag check and acquireConcurrencySlot():\n\nif ($this->openAddressBookIsStale()) {\n    return self::SUCCESS;\n}\n\nprivate function openAddressBookIsStale(): bool\n{\n    $freshnessMinutes = (int) config('scout.check_ins.book_freshness_minutes');\n\n    if ($freshnessMinutes < 1) {\n        return false;\n    }\n\n    $database = (string) config('database.connections.clarity_clickhouse.database');\n\n    try {\n        $rows = DB::connection('clarity_clickhouse')->select(\n            \"SELECT toString(max(refreshed_at)) AS refreshed_at FROM {$database}.scout_open_addresses\"\n        );\n    } catch (\\Throwable $e) {\n        // A probe that cannot run is not evidence of a stale book, and the\n        // per-kit matcher reads the same table one statement later, so a real\n        // outage still surfaces there (same fail-open shape as\n        // CloseInactiveShiftsCommand::latestGpsFor()). Warning/report here\n        // would fire on every pgsql-bridge run.\n        Log::info('scout:record-check-ins: book freshness probe unavailable — continuing', [\n            'error' => $e->getMessage(),\n        ]);\n\n        return false;\n    }\n\n    $row = $rows[0] ?? null;\n    $raw = $row === null ? null : ($row['refreshed_at'] ?? $row->refreshed_at ?? null);\n    $refreshedAt = ($raw === null || $raw === '') ? null : Carbon::parse((string) $raw, 'UTC');\n\n    // ClickHouse max() over an empty table returns the DateTime default\n    // (epoch), not NULL — an empty book must read as stale, not as 1970\n    // being merely old (CloseInactiveShiftsCommand idiom).\n    if ($refreshedAt !== null && $refreshedAt->timestamp > 0\n        && $refreshedAt->gte(now()->utc()->subMinutes($freshnessMinutes))) {\n        return false;\n    }\n\n    $message = 'scout:record-check-ins: open-address book is stale — skipping cycle';\n\n    Log::warning($message, [\n        'refreshed_at' => $refreshedAt?->toDateTimeString(),\n        'freshness_minutes' => $freshnessMinutes,\n        'age_minutes' => $refreshedAt?->diffInMinutes(now()->utc()),\n    ]);\n    report(new \\RuntimeException($message));\n    $this->warn('Open-address book is stale — skipping cycle.');\n\n    return true;\n}\n\nUse config('database.connections.clarity_clickhouse.database'), never a hardcoded 'clarity' — the local/worktree CH database is suffixed. Keep the ($row['k'] ?? $row->k) access shape the query classes already use. Update the class docblock: the matcher now reads the MV-backed book, the gate is the platform-side guard for a silently-aging full-refresh MV, and the schedule is live again.\n\ntests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php — swap insertOpenAssignmentAddress() to a book insert (same helper shape as t2's parity test, refreshed_at defaulting to now()). Add a seedFreshBook() sentinel call in setUp() writing one far-away book row stamped now(), so the ~8 existing tests that seed no addresses at all (it_logs_a_completion_summary_for_observability, a_non_positive_slot_count_warns_and_skips, a_non_scout_user_produces_no_check_ins, ...) do not start tripping the empty-book gate and lose their assertions — the gate reads max(refreshed_at) over the whole table, so one fresh row anywhere keeps the cycle alive. Then add three gate cases: (1) stale book — restamp every row refreshed_at = now-50min, assert output 'Open-address book is stale', Exceptions::assertReported(RuntimeException::class), Log warning, and 0 ScoutCheckIn rows even though a matching fix/address pair exists; (2) empty book — truncate scout_open_addresses, same skip assertions; (3) gate disabled — config(['scout.check_ins.book_freshness_minutes' => 0]) with a stale book records the check-in normally. Also add a boundary case just inside the window (now-44min records) if cheap. The three existing CH-unreachable tests (clickhouse_unreachable_degrades_gracefully_without_crashing, a_per_kit_failure_is_skipped_and_logged_without_killing_the_run, a_production_clickhouse_failure_emits_a_failed_signal_not_an_empty_completion) must keep passing unchanged — they depend on the fail-open probe, so if the probe is ever changed to fail-closed those three break first.\n\ntests/Feature/Console/ScoutRecordCheckInsOverrunSignalTest.php — one line in setUp(): config(['scout.check_ins.book_freshness_minutes' => 0]) with a comment that this test is deliberately ClickHouse-free (see its class docblock) and the gate would otherwise depend on whether the local bridge table happens to exist. Without it, a_cycle_under_the_threshold_emits_nothing / a_non_positive_threshold_disables_the_signal are one environment change away from failing on Log::shouldNotHaveReceived('warning').",
+      "depends_on": ["t1", "t2"],
+      "parallelizable": false,
+      "test_filter": "ScoutRecordCheckInsCommandTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t4",
+      "title": "Re-enable the scout:record-check-ins schedule and flip its pin test",
+      "approach": "Uncomment the schedule block and invert the test that pins its absence. Operational blast radius (a disabled-since-2026-08-12 command starts running every five minutes in production) was approved by the human in Phase 2 Q3; AC-4/AC-6 host verification is human QA before merge, not an agent gate.",
+      "target_files": [
+        "routes/console.php",
+        "tests/Feature/Console/ScoutRecordCheckInsScheduleTest.php"
+      ],
+      "intended_diffs": "routes/console.php — delete the /* ... */ wrapper at lines 58-69 and the 'Disabled after the 2026-08-12 .142 OOM' comment, restoring exactly: Schedule::command(Commands\\ScoutRecordCheckIns::class)->when(fn () => config('app.experimental.clarity_scout', false))->everyFiveMinutes()->withoutOverlapping(10)->runInBackground()->onOneServer(). Keep the withoutOverlapping(10) explanation as a live comment: the 10 is a cache-lock TTL, not a duration cap; the hard ceiling is the in-command N-slot semaphore (PG-023).\n\ntests/Feature/Console/ScoutRecordCheckInsScheduleTest.php — rename it_does_not_register_the_scout_check_in_schedule_until_w4_reenable to it_registers_the_scout_check_in_schedule and assert $this->assertNotNull($event) plus the event's expression is '*/5 * * * *'; rewrite the docblock so it pins the re-enabled state (DEV-2386) instead of the disabled one. In the_gps_lookback_comes_from_config, add config(['scout.check_ins.book_freshness_minutes' => 0]) alongside the existing config() call — that test asserts the 'completed' log, which the freshness gate would short-circuit if a bridge table ever exists and is empty.",
+      "depends_on": ["t3"],
+      "parallelizable": false,
+      "test_filter": "ScoutRecordCheckInsScheduleTest",
+      "ui_impact": false,
+      "blast_radius": ["schedule-reenable"],
+      "complexity": "complex"
+    },
+    {
+      "id": "t5",
+      "title": "Update the three okf pages named in AC-7",
+      "approach": "Behavior-first: land the wiki only after t2-t4 exist and the affected tests pass, per the CLAUDE.md WRITE-after-approval rule. Exactly the three pages AC-7 names; scout-dashboard-stats.md is deferred by operator answer (Phase 2 Q5). Run php scripts/okf-lint.php before landing.",
+      "target_files": [
+        "okf/concepts/check-in.md",
+        "okf/concepts/scout-check-in-recorder.md",
+        "okf/concepts/scout-clickhouse-queries.md"
+      ],
+      "intended_diffs": "okf/concepts/check-in.md — requirement 4 (line ~23): the geocoded address now resolves through clarity.scout_open_addresses, the 15-minute full-refresh book (chlocal migration 111 / DEV-2383), not zod.public_hotlist_address -> zod.public_address; the EWKT parse and the open/plate-length rules moved into the MV. Add a DEV-2386 row to the history table (line ~43). address_id (line ~57) is now 'the matched clarity.scout_open_addresses address_id (still a zod.public_address id upstream)'. Line ~65: the command IS on the schedule again (everyFiveMinutes) and skips when the book is older than book_freshness_minutes (default 45). Line ~71 'Absence is not proof': add the new cause — an order opened after the last MV refresh is invisible for up to ~15 min, and a stale book skips the cycle entirely.\n\nokf/concepts/scout-check-in-recorder.md — line 46: replace the CTE chain with position_window -> position_bbox -> addresses (scout_open_addresses CROSS JOIN bbox, tupleElement geo) -> geoDistance -> GROUP BY with Direct-wins argMin. Line 48: the 'keep both public_address prunes' paragraph is obsolete for THIS class — replace with 'no FINAL on the book (plain MergeTree, one row per (hotlist_id, address_id) per rebuild)' and 'the bbox prefilter is still load-bearing: ORDER BY (org_id, is_staged, hotlist_id, address_id) has no geo prefix'. Line 69: the schedule is re-enabled (DEV-2386); replace the 'do not uncomment' paragraph with the freshness-gate description and the fail-open probe rule. Line 107 gotcha: keep the historical note but scope it to HotlistAddressGeohashQuery, which still reads public_address. Add a gate section: config key, default, non-positive disables, empty max() is epoch not NULL, warning + report + SUCCESS.\n\nokf/concepts/scout-clickhouse-queries.md — the HotlistAddressGeohashQuery section (lines ~226-255) is UNCHANGED and should stay as the surviving example of the zod prune idiom. Rewrite the ScoutCheckInRollupQuery section (lines ~264-294) and the ScoutCheckInMatchQuery section (lines ~299-301): source is clarity.scout_open_addresses on the clarity_clickhouse connection; single-database now, no zod join; CROSS JOIN bbox rather than four scalar subqueries, with the measured 1.55M vs 1.97M read_rows; both keep hotlistOrgFilter duplicated per class on purpose; matcher keeps ::handle() (query() would swallow to []) and Direct-wins argMin, rollup keeps ::query(cache: true) and counts a shared address in both buckets.\n\nRun php scripts/okf-lint.php and fix anything it flags before landing.",
+      "depends_on": ["t2", "t3", "t4"],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {
+      "file": "app/Clickhouse/Queries/HotlistAddressGeohashQuery.php",
+      "reason": "Heatmap surface, out of scope per prep; it is why RequiresClickhouse keeps zod.public_address / public_hotlist_address."
+    },
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutDashboardController.php",
+      "reason": "Caller only — the rollup keeps ::query(array, cache: true) and its direct_bucket/staging_bucket return keys, so no controller diff."
+    },
+    {
+      "file": "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php",
+      "reason": "Seeds the zod tables for the geohash heatmap endpoints, which this ticket does not touch."
+    },
+    {
+      "file": "okf/concepts/scout-dashboard-stats.md",
+      "reason": "Documents the old rollup CDC chain but is explicitly deferred — AC-7 names three pages (human:Dalton Phase 2 Q5)."
+    },
+    {
+      "file": "okf/concepts/platform-gotchas.md",
+      "reason": "Its public_address entries are the geohash-query prune rules and DEV-2342 history, still accurate; AC-7 scopes the wiki edit to three pages."
+    },
+    {
+      "file": "okf/models/address.md, okf/log.md",
+      "reason": "Model/ledger pages describing zod.public_address itself, which is unchanged upstream."
+    },
+    {
+      "file": "app/Clickhouse/Queries/ClickhouseQuery.php",
+      "reason": "clarityDb()/zodDb() are unchanged; the two rewritten classes simply stop calling zodDb()."
+    },
+    {
+      "file": "database/migrations/**",
+      "reason": "No PostgreSQL schema change — platform.scout_check_ins keeps its contract and the book is chlocal-owned, SELECT-only from here."
+    }
+  ],
+  "sizing_gate": {
+    "fired": true,
+    "file_count": 17,
+    "operator_override": "one PR approved Phase 2 Q3 human:Dalton 2026-08-18"
+  }
+}

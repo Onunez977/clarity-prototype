@@ -1,0 +1,60 @@
+{
+  "key": "DEV-2441",
+  "authored_by": "opus driver, inline (recorded for audit honesty)",
+  "authoring_note": "Authored inline at the TICKET_PLAN_ARBITER_MODEL (opus) tier rather than by a fresh dispatch. The driver independently holds every premise this plan rests on \u2014 the PR #320 diff, DEV-2341's residual ledger, the five-round review history, the verified per-tier trip_date semantics (KitRangePathsQuery:197 vs KitScanPathsQuery's toDate), the three call sites' timezone args, and the injection risk in the R7 fix. A fresh-context arbiter would have had to take all of that on trust. Same call, same reason, as DEV-2222's own plan step.",
+  "sizing_gate": {
+    "verdict": "PASS",
+    "reasoning": "4 code files + 3 test files. Code-file count is 4, under the >6 split threshold. One concern: make Kit User Path render scan-only kits correctly. R1 (which kits are eligible), R3 (at what granularity) and R7 (what a 'day' means) are three facets of that single fallback, not separable features \u2014 R3 is incorrect without R7, and R1 falls out of R3's design for free."
+  },
+  "perf_gate": {
+    "required": false,
+    "reasoning": "No perf is deferred on a >1B-row ClickHouse surface. The two driving tables were measured directly: clarity.sc_positions is 331,106,659 rows and clarity.kit_scan_paths is 1,680,578 \u2014 neither is in the >1B class (contrast hits_cold at ~3.5B). Tier 2 is one batched read on kit_scan_paths' own (org_id, kit_id, timestamp) key prefix, the same access pattern two existing production callers already run, and the plan narrows it further (see t1 step 5)."
+  },
+  "blast_radius_note": "No configured sensitive glob matches (no migrations, billing, Shield/Policies/auth, Clickhouse*Purge|Cleanup, PruneScans), so no formal blast_radius tag. But the R7 fix changes a SHARED query class whose trip_date is consumed by a live Scout surface (ClarityScoutBirdsEyeController:544). That consumer must get explicit test coverage, and Phase 5 must run 3 lanes \u2014 this is date-boundary logic, which is a standing 3-lane trigger.",
+  "excluded_sites": [
+    {
+      "site": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php::historicalContinuousPaths()",
+      "reason": "Identical sc_positions-only gap, RATIFIED out of scope by the operator 2026-08-27; stays on DEV-2228. Was RN5's top repeat scorer on DEV-2222, so t1 step 7 documents the boundary in-code where review lanes will see it."
+    },
+    {
+      "site": "app/Clickhouse/Queries/KitHistoricPositionsQuery.php",
+      "reason": "Same idiom on the Scout single-driver overlay; tracked as DEV-2228 per okf/concepts/scout-clickhouse-queries.md:167."
+    },
+    {
+      "site": "app/Clickhouse/Queries/OrgLivePathsQuery.php",
+      "reason": "Same idiom on Bird's Eye live trails; tracked as DEV-2228."
+    }
+  ],
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Kit User Path: per-(kit, local day) kit_scan_paths fallback, incl. mapping-less kits and a timezone-correct day key",
+      "approach": "Single interlocking change, implemented TDD. Start from PR #320's review-hardened shape (branch claude/dev-2222-cf9a90) as prior art rebased onto current main, then layer R1, R3 and R7 on top. Ordered steps:\n\n1. ClickhouseQuery::buildCacheKey(): private -> protected (both cachedHandle()s need it).\n\n2. KitRangePathsQuery::cachedHandle() and KitScanPathsQuery::cachedHandle(): port verbatim from PR #320 \u2014 same 5-minute cache-key shape as query(cache:true), 3s TTL under admin_impersonator, but wrapping handle() so exceptions PROPAGATE instead of being swallowed to []. This is R2, already ratified and landed on #320.\n\n3. R7 \u2014 KitScanPathsQuery day key. Replace `toString(toDate(timestamp)) AS trip_date` with a timezone-aware `toString(toDate(timestamp, '<tz>'))`, using the $timezone all three call sites already pass. SECURITY: $timezone resolves from $user->timezone -> $this->dti['timeZone'] (user-influenced JSON) and would now be interpolated into raw SQL, so it MUST first go through a timezone_identifiers_list() whitelist \u2014 mirror KitRangePathsQuery::safeTimezone() rather than inventing a new guard. The class already addslashes()es $layer, so treating these args as untrusted is established precedent here.\n\n4. R1 \u2014 eligible kit set. In KitUserPathController::paths(), keep kitsByMapping() for the tier-1 mapping list but ALSO key the full Kit collection by id ($byId). Replace the `if ($byMapping === []) return response()->json([])` early return with a no-kits-at-all check, and make tier 1 run only when $mappings !== [] so a purely mapping-less selection skips straight to tier 2. This mirrors ClarityScoutBirdsEyeController::driverPositions(), which does exactly this on purpose with a warning comment at :175-177, and it stops porting the anti-pattern okf/concepts/scout-clickhouse-queries.md:141 warns against.\n\n5. R3 \u2014 per-(kit, day) granularity, replacing the whole-window per-kit set-difference. Build covered[kit_id][YYYY-MM-DD] from tier-1 segments (resolving mapping -> Kit via $byMapping; trip_date is already viewer-local on tier 1). Enumerate the window's local days from the same $localStart/$localEnd used for the tier-2 bounds. Skip any kit whose covered-day count already spans every window day \u2014 this preserves PR #320's allocation property that a GPS-healthy org issues NO tier-2 read at all. Then ONE batched KitScanPathsQuery::cachedHandle() for the remaining kit ids, and drop any returned row whose (kit_id, trip_date) tier 1 already renders. R1 falls out for free: a mapping-less kit has no tier-1 coverage, so all of its days fall back.\n\n6. Keep every settled decision from PR #320's five review rounds intact: $localStart/$localEnd captured BEFORE Carbon::utc() mutates in place; tier-1 outage -> 503 while a genuine over-budget count stays 422; tier-2 rows accumulated locally and merged only after the loop; a tier-2 failure degrades to tier-1-only and never wipes kits that ARE rendering; tier 2 deliberately outside MAX_RENDER_POINTS; name/color from the resolved Kit, never the CH row; the CH-decoded path json_encode()'d once rather than spliced like tier-1's pre-encoded path_json. Do NOT reintroduce the 'counted points but zero segments' guard \u2014 countPoints() counts PRE-SPLIT and <2-point segments are dropped, so that shape is legitimate and common; it was reverted on DEV-2222 for exactly this and a pin test exists.\n\n7. Residual cleanups that were repeat review scorers: R6 \u2014 harden scanPathRow() so a false from json_encode($path) cannot emit structurally invalid JSON. R4 \u2014 strengthen or drop the near-tautological fallback name/color test. Plus RN5's two mediums: the TTL fork and the vacuous tier-2 test. And document the ratified out-of-scope boundary for ClarityScoutBirdsEyeController::historicalContinuousPaths() where a review lane will read it.",
+      "target_files": [
+        "app/Clickhouse/Queries/ClickhouseQuery.php",
+        "app/Clickhouse/Queries/KitRangePathsQuery.php",
+        "app/Clickhouse/Queries/KitScanPathsQuery.php",
+        "app/Http/Controllers/KitUserPathController.php",
+        "tests/Feature/Http/Controllers/KitUserPathControllerTest.php",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php",
+        "tests/Unit/Clickhouse/Queries/KitScanPathsQueryTest.php"
+      ],
+      "intended_diffs": {
+        "app/Clickhouse/Queries/ClickhouseQuery.php": "buildCacheKey(): private static -> protected static. 1 line.",
+        "app/Clickhouse/Queries/KitRangePathsQuery.php": "+ cachedHandle() (~23 lines, verbatim from PR #320).",
+        "app/Clickhouse/Queries/KitScanPathsQuery.php": "+ cachedHandle() (~23 lines from PR #320); + a safeTimezone() whitelist helper; trip_date select becomes toDate(timestamp, '<validated tz>').",
+        "app/Http/Controllers/KitUserPathController.php": "paths(): $localStart/$localEnd capture; $byId keyed collection; no-kits-at-all early return replacing $byMapping === []; tier 1 gated on $mappings !== []; countPoints outage -> 503; tier 1 via cachedHandle in its own try/catch -> 503; covered[kit][day] map; window-day enumeration + fully-covered skip; one batched tier-2 cachedHandle with per-(kit,day) filtering, accumulate-then-merge, degrade-to-tier-1-only on throw. segmentsResponse() split into segmentRows() + scanPathRow(); scanPathRow() json-hardened. Ratified-scope comment for the Bird's Eye sibling.",
+        "tests/Feature/Http/Controllers/KitUserPathControllerTest.php": "New/extended: scan-only kit falls back; kit with a genuine track is not overridden; SPARSE track (GPS on 1 of N days \u2014 the kit-10588 shape) falls back on the OTHER days only; mapping-less kit is rescued; all-mapping-less selection still renders; tier-1 throw -> 503 and does NOT fire tier 2; tier-2 throw degrades to tier-1-only; day-key agreement across a local/UTC boundary; fully-covered org issues no tier-2 read.",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php": "Pin the R7 change on the one other trip_date consumer: a bucket whose UTC date and viewer-local date differ is now reported on the viewer-local date.",
+        "tests/Unit/Clickhouse/Queries/KitScanPathsQueryTest.php": "Pin the timezone whitelist (a bogus/injection-shaped timezone falls back to UTC, never reaches SQL) and that cachedHandle propagates rather than swallowing."
+      },
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "dag_note": "ONE node, so Phase 4 takes the single-node fast path in REPO_PATH with no worktree fan-out. The seven files interlock tightly \u2014 the controller's R3 diff is only correct once KitScanPathsQuery's day key is timezone-aware, and both cachedHandle()s depend on the ClickhouseQuery visibility widening \u2014 so any per-file split would serialize on depends_on anyway while adding worktree and merge risk for no parallelism. test_filter is a real null: the worker runs the full suite command, and the driver additionally runs the shared-class co-callers (Bird's Eye, Scout Map) as the blast-radius check."
+}

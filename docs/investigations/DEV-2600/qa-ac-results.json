@@ -1,0 +1,56 @@
+{
+  "ticket": "DEV-2600",
+  "pr": 476,
+  "verdict": "PASS",
+  "product_tip": "4d618fa8153f7b9b5c0c190f6b8407a5330d0f95",
+  "branch_tip": "f10883019f71ff4fb701e73fd7407ad8c5a39818",
+  "product_tip_ancestor": "PRODUCT_TIP_ANCESTOR_OK",
+  "holding_base": "scout",
+  "cloud_touched": false,
+  "fleet_left_up": true,
+  "seed_used": true,
+  "seed_note": "Minimal synthetic rows into fleet Docker CH only (clarity_dev_2600.hotlist + zod_dev_2600.public_address + public_hotlist_address) for org_id=2 Austin clusters covering all five tiers. Never Cloud write.",
+  "clickhouse": {
+    "driver": "clickhouse",
+    "port": 18131,
+    "host_from_app": "172.21.0.1",
+    "database": "clarity_dev_2600",
+    "not_pgsql_standin": true
+  },
+  "suites": {
+    "HotlistAddressGeohashQueryTest": {
+      "result": "PASS",
+      "tests": 4,
+      "assertions": 23,
+      "command": "php artisan test --compact --filter=HotlistAddressGeohashQueryTest",
+      "runner": "clarity-qa-app-dev-2600 docker exec",
+      "CLICKHOUSE_DRIVER": "clickhouse"
+    }
+  },
+  "product_asserts": {
+    "five_band_getCombinedTier": true,
+    "visibleOrderTiers": true,
+    "ORDER_TIERS": ["tier_1", "tier_2_4", "tier_5_9", "tier_10_24", "tier_25_plus"],
+    "watch_updateOverlayLayers_only": true,
+    "watch_no_syncHeatmaps": true,
+    "color_10_24": "#7B1FA2"
+  },
+  "login": "non-prod OTP bypass (BYPASSED_NON_PROD) as test@tester.com (activity_log sequence grant fleet-only; temporary URL::forceScheme gate restored to tip)",
+  "live_matrix": {
+    "AC1_five_clickable_bands": {"status": "PASS", "note": "1 / 2–4 / 5–9 / 10–24 / 25+ buttons present aria-pressed"},
+    "AC2_hide_5_9_others_stay": {"status": "PASS", "note": "tier_5_9 off; others on; strike-through visual"},
+    "AC2b_multi_band_independent": {"status": "PASS", "note": "hid 1 + 5–9 + 25+ independently; 2–4 and 10–24 stayed"},
+    "AC3_pan_hidden_stays": {"status": "PASS", "note": "after bounds refetch, visibleOrderTiers unchanged; stillHidden=true"},
+    "AC4_all_off_drops_layer": {"status": "PASS", "note": "visibleCount=0 paintedWouldBe=0 allOffDropsLayer=true"},
+    "AC5_date_driver_zone_map_layers_unaffected": {"status": "PASS", "note": "Today/7 Days/MAP LAYERS/DRIVERS remain; legend all-off persisted across date click"},
+    "AC6_org_map_same_buttons": {"status": "PASS", "note": "tested on http://127.0.0.1:18088/scout/org-map"},
+    "AC7_count_10_24_color_7B1FA2": {"status": "PASS", "note": "live GeoJSON features counts 11/15/12 all color #7B1FA2; suites also assert getCombinedTierColor(10)"},
+    "AC8_live_hit_density": {"status": "OOS", "note": "DEV-2601 — not required; not failed"}
+  },
+  "evidence_dir": "/workspace/docs/investigations/DEV-2600/live-qa-evidence",
+  "context_mirror": "/workspace/dev-2600-wt/.context/live-qa-evidence",
+  "undraft": false,
+  "board": false,
+  "git_add_evidence": false,
+  "next": "Merry Verify (parent #27 GitHub comment)"
+}

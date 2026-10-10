@@ -1,0 +1,425 @@
+{
+  "key": "DEV-2584",
+  "generated_at": "2026-09-17T16:20:00Z",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "escalated_deep_path": false,
+  "escalation_triggers": [
+    "confidence<80 (62)",
+    "escalate.recommend=true",
+    "competing options in the ticket vs the earlier Unique Scans to Case Claims percentage card's recorded decision",
+    "unanswered material questions"
+  ],
+  "escalation_note": "The fast pass recommended best-of-N. The driver did NOT fan out 3 candidates. Reason: the residual uncertainty is a PRODUCT decision (whether to overturn the earlier Unique Scans to Case Claims percentage card's reviewed metric choice), which no additional prep candidate can settle; fanning out would delay reaching the human who must answer it. Instead the driver closed the fast pass's two contract gaps itself \u2014 the missing `exhaustiveness` section (swept inline) and the grep backstop \u2014 and is parking at the gate. If the answer to Q1 is 'yes, change the metric', the Phase 3 plan arbiter runs on this prep-context as normal.",
+  "synthesis": "The card 'Unique Scans to Case Claims' currently renders pre_claim / deduped * 100 -- a genuine percentage (~99.7% for the reporter's month): the share of billed case claims whose vehicle an Insight camera had already scanned before the claim. DEV-2584 reports this as a display bug and asks for a numeric ratio, Unique Scan Counts / Unique LPR Case Claims (1,160,041 / 352 ~= 3,295.57). That is NOT a formatting change: it swaps the numerator from `pre_claim` (claims with a prior scan) to the org-wide unique-scan count, drops the *100, and drops the '%'. It redefines what the card measures. The code supplies a genuine argument on BOTH sides, which is why this parks for a human.",
+  "evidence_for_the_change": [
+    "Family convention: the two sibling cards the ticket names as correct both compute unique_scans / denominator, format number_format(x, 1) with no '%', and describe themselves as 'scans per repo' / 'scans per LPR repo'. UniqueScansToRepo.php:316, UniqueScansToLprRepossession.php:248.",
+    "UniqueScansToRepo's own docblock (lines 41-47) tabulates all three cards and marks this one as the odd one out: 'UniqueScansToCaseClaims  vehicles / vehicles -- an honest <=100% rate' against the other two's 'unique scans / X'. The codebase already knows this card does not match its name's family.",
+    "Both siblings were built AFTER the earlier Unique Scans to Case Claims percentage card (the Unique Scans to Repo card and the LPR Repossessions funnel card), so the ratio convention is the newer, and currently dominant, reading of 'Unique Scans to X'."
+  ],
+  "evidence_against_the_change": [
+    "The earlier Unique Scans to Case Claims percentage card built the percentage deliberately, on Oscar's explicit wording. That earlier investigation's ticket notes -- 'Option 1 was \"96.6% of claimed vehicles were seen by our cameras first\" -- a rate.'",
+    "That earlier work measured the ratio reading and was told not to build it. ticket.md:28-30 -- 'distinct scan_id / deduped claim triples | 119,364 / 11,975 | 9.97x -- not a rate' followed by 'Do not build the 9.97x reading.' The metric DEV-2584 asks for is that same not-a-rate family, with an even larger numerator.",
+    "The percentage survived a multi-round adversarial review and a pinned AC (96.6% fleet-wide, Jul 2026). Nothing in the DEV-2584 bundle acknowledges that decision or argues it should be reversed."
+  ],
+  "ruled_out": [
+    "REGRESSION READING (checked and rejected): the earlier Unique Scans to Case Claims investigation journal records that a ClickHouse LEFT-JOIN default-fill trap would have inflated this card from 96.6% to exactly 99.7% -- the number the reporter observed. That coincidence made a live regression the leading alternative explanation. It is NOT the cause: the guard is present in the shipped query at app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php:371 (`h.hotlist_id != 0 AND h.first_scan < toDateTime(oc.claim_ts)`), and a 99.7% reading is unremarkable for the reporter's 352-claim month. The card is computing what it was built to compute."
+  ],
+  "scope": {
+    "summary": "CONTINGENT ON Q1. If the metric change is approved: replace the card's numerator source and rendering to mirror UniqueScansToRepo -- numerator from ScanPlateStatsBatchQuery (the shared unique-scans cache three other cards already populate), denominator from UniqueLprCaseClaimsQuery::window()/monthlySeries() (the plain deduped funnel, dropping the clarity.hits_cold join), ratio = unique_scans / deduped, number_format(x, 1), no '%'. If NOT approved, the ticket closes as works-as-designed with an explanation.",
+    "proposed_changes": [
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php",
+        "change": "Replace rate()/getCardRate()/windowRate() with ratio()/getCardRatio()/windowRatio() mirroring UniqueScansToRepo; two-leg fetch (ScanPlateStatsBatchQuery numerator + UniqueLprCaseClaimsQuery::window()/monthlySeries() denominator); rewrite toStat(), getDescription(), getTooltipDescription(), getCardQueryStatements() note, and the class docblock.",
+        "reason": "The ticket's business rule, implemented in the family's established shape",
+        "ref": "UniqueScansToCaseClaims.php:19-33,116,124-158,330-333,366-380,418"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueScansToRepo.php",
+        "change": "Docblock only: correct the three-card contrast table (lines 41-47), which asserts this card is 'vehicles / vehicles -- an honest <=100% rate'.",
+        "reason": "Backstop finding -- prep marked both siblings out_of_scope as 'reference pattern only', but they CROSS-REFERENCE this card's semantics in load-bearing docblocks. Leaving them stale ships a contradiction.",
+        "ref": "UniqueScansToRepo.php:41-47"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueScansToLprRepossession.php",
+        "change": "Docblock only, same reason as above if it carries the same contrast.",
+        "reason": "Same backstop finding",
+        "ref": "UniqueScansToLprRepossession.php:865-906"
+      },
+      {
+        "file": "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsTest.php",
+        "change": "Rewrite percentage assertions onto the ratio shape",
+        "reason": "Pins the behavior being changed",
+        "ref": ":169-229"
+      },
+      {
+        "file": "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsWindowSeamTest.php",
+        "change": "Re-pin the float-seam AC against getCardRatio() and the two-leg fetch shape",
+        "reason": "The float-seam requirement survives the redefinition; its fixtures do not",
+        "ref": ":80-89,142-143"
+      },
+      {
+        "file": "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsHerdGuardTest.php",
+        "change": "Re-fixture the cold-lock/cache-key tests against the new fetch seams",
+        "reason": "Test doubles are keyed to the old {deduped, pre_claim} methods",
+        "ref": ":505-639"
+      },
+      {
+        "file": "tests/e2e/unique-scans-to-case-claims.spec.ts",
+        "change": "Replace PERCENT_PATTERN and the 0-100 bound with an unbounded non-negative ratio assertion",
+        "reason": "e2e spec hardcodes the percentage contract",
+        "ref": ":33-36,65,200-232"
+      },
+      {
+        "file": "tests/Filament/Pages/DashboardCardExpansionTest.php",
+        "change": "Check for and update any '%' assertion on this card",
+        "reason": "Backstop finding -- references the class; prep did not list it",
+        "ref": "grep hit"
+      },
+      {
+        "file": "tests/Filament/Widgets/Dashboard/UniqueScansToLprRepossessionTest.php",
+        "change": "Check for and update any assertion on this card's contrast",
+        "reason": "Backstop finding -- references the class; prep did not list it",
+        "ref": "grep hit"
+      }
+    ],
+    "target_files": [
+      "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php",
+      "app/Filament/Widgets/Dashboard/UniqueScansToRepo.php",
+      "app/Filament/Widgets/Dashboard/UniqueScansToLprRepossession.php",
+      "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsTest.php",
+      "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsWindowSeamTest.php",
+      "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsHerdGuardTest.php",
+      "tests/Filament/Widgets/Dashboard/UniqueScansToLprRepossessionTest.php",
+      "tests/Filament/Pages/DashboardCardExpansionTest.php",
+      "tests/e2e/unique-scans-to-case-claims.spec.ts"
+    ],
+    "out_of_scope": [
+      "UniqueLprCaseClaimsQuery::windowWithPreClaimScans()/monthlySeriesWithPreClaimScans() and tests/Feature/Clickhouse/UniqueScansToCaseClaimsQueryTest.php -- these become uncalled by the card but are left in place and still tested. Removing them is a separate cleanup, not this ticket's smallest coherent change. NO follow-up ticket exists yet.",
+      "okf/ wiki update documenting the new business rule -- the ticket explicitly defers this to after the fix lands, and CLAUDE.md forbids wiki writes while work is in flight. Must be done post-merge; NO follow-up ticket exists yet.",
+      "Re-tuning COLD_BLOCK_SECONDS / COLD_LOCK_SECONDS / MIN_TTL_SECONDS -- sized against the heavier hits_cold-joined shape this change removes. Carrying them forward is safe (they over-provision for a cheaper query) but they become inaccurate documentation.",
+      "CompanyMetricsOverview::cards() registry, ordering, and Pro gating -- untouched.",
+      "The card heading/label 'Unique Scans to Case Claims' -- unchanged unless Q1's answer says otherwise."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Card displays a numeric ratio (Unique Scan Counts / Unique LPR Case Claims), not a percentage",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "The ticket's stated business rule -- CONTINGENT on Q1"
+    },
+    {
+      "item": "Numerator is the org-wide unique-scan count from ScanPlateStatsBatchQuery (the same quantity the Unique Scan Counts card shows); denominator is UniqueLprCaseClaimsQuery's deduped case claims",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "The only reading consistent with both sibling cards and with the ticket's worked example"
+    },
+    {
+      "item": "Ratio formatted at 1 decimal place, matching both siblings",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "House convention -- but the ticket's example shows 2dp; see Q2"
+    },
+    {
+      "item": "A zero-claims denominator renders 0.0, not N/A or an error",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "HotlistCount and both siblings set this precedent; a genuine zero-claims org is normal"
+    },
+    {
+      "item": "The 13-month sparkline carries the new ratio series, not the old rate series",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "getMonthlyData() stores the metric itself, so its scale and meaning change with the metric"
+    },
+    {
+      "item": "Tooltip and description text drop the percent wording and read like the siblings",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Currently states semantics that would become false"
+    },
+    {
+      "item": "All four filters (Today, Last 7 Days, This Month, Last Month) render the new ratio",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "The ticket names This Month; the card supports four and the contract must hold for all"
+    },
+    {
+      "item": "The two sibling docblocks no longer describe this card as a percentage",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Grep backstop finding -- they cross-reference this card's semantics directly"
+    },
+    {
+      "item": "Update the OKF wiki with the new business rule",
+      "source": "ticket",
+      "decision": "defer",
+      "reason": "The ticket itself defers it to after the fix lands; CLAUDE.md forbids in-flight wiki writes"
+    }
+  ],
+  "questions": [
+    {
+      "q": "Should this card's metric change from a rate (share of case claims with a prior scan) to a ratio (unique scans per case claim)? The earlier Unique Scans to Case Claims percentage card built the rate deliberately on Oscar's explicit wording and its record says 'Do not build the 9.97x reading' -- the same not-a-rate family DEV-2584 now asks for. Against that, both sibling 'Unique Scans to X' cards are ratios and their docblock already flags this card as the odd one out.",
+      "answered": true,
+      "answer": "YES \u2014 change it to the ratio. Build unique scans / case claims, no '%'. Rationale: the card's name and both sibling cards already mean 'unique scans per X', and UniqueScansToRepo's docblock flags this card as the family's odd one out. Worth confirming with Oscar since the rate was his ask, but the family convention has moved since that earlier percentage-card work.",
+      "source": "human:Dalton McCleery 2026-09-17"
+    },
+    {
+      "q": "If the metric changes: 1 decimal place (both siblings' convention) or 2 (the ticket's 3,295.57 example)?",
+      "answered": true,
+      "answer": "1 decimal place \u2014 number_format($ratio, 1), matching both sibling cards. The ticket's 2dp example (3,295.57) was illustrative arithmetic, not a formatting spec.",
+      "source": "human:Dalton McCleery 2026-09-17"
+    },
+    {
+      "q": "If the metric changes: does the existing 'X% of claimed vehicles were seen by our cameras first' rate survive anywhere -- a separate card, a tooltip line, a follow-up ticket -- or is it dropped entirely? It was an explicit operator ask in the earlier Unique Scans to Case Claims percentage-card work.",
+      "answered": true,
+      "answer": "Drop it, no follow-up ticket. The UniqueLprCaseClaimsQuery::*WithPreClaimScans() methods stay in the codebase and stay tested, so the rate can be revived cheaply if anyone misses it.",
+      "source": "human:Dalton McCleery 2026-09-17"
+    },
+    {
+      "q": "Is the observed 99.7% a regression of the earlier Unique Scans to Case Claims percentage card's documented LEFT-JOIN default-fill trap (which inflated the card to exactly 99.7%)?",
+      "answered": true,
+      "answer": "No. The guard is present in the shipped query at UniqueLprCaseClaimsQuery.php:371 (`h.hotlist_id != 0 AND h.first_scan < toDateTime(oc.claim_ts)`), and 99.7% is an unremarkable value for the reporter's 352-claim month. The card computes what it was built to compute.",
+      "source": "code"
+    },
+    {
+      "q": "Do the sibling cards establish that 'Unique Scans to X' means unique scans per X?",
+      "answered": true,
+      "answer": "Yes. UniqueScansToRepo.php:316 computes unique_scans / total_repos and describes it as 'scans per repo'; UniqueScansToLprRepossession.php:248 computes unique_scans / dbRepos as 'scans per LPR repo'. Both format number_format(x, 1) with no '%'. UniqueScansToRepo's docblock (41-47) tabulates the three cards and names this one as the exception.",
+      "source": "code"
+    },
+    {
+      "q": "Does the fix need a new ClickHouse round trip, and is that a scale risk?",
+      "answered": true,
+      "answer": "No new cost -- it is a net reduction. The numerator reuses ScanPlateStatsBatchQuery's shared cache namespace, already populated by three other cards. The denominator drops the clarity.hits_cold join the pre_claim computation requires, taking the card's cold-key cost from the docblock's 106.8M read_rows / 3,828 MiB down to the base funnel's ~39.9M -- the cost UniqueLprCaseClaims already pays. Note it does NOT read UniqueLprCaseClaims's cached value: buildWidgetCacheKey() is class_basename-prefixed, so the denominator is fetched independently.",
+      "source": "code"
+    },
+    {
+      "q": "Should the now-uncalled UniqueLprCaseClaimsQuery::*WithPreClaimScans() methods and their dedicated tests be removed?",
+      "answered": true,
+      "answer": "Not in this ticket. CLAUDE.md's smallest-coherent-change rule argues against a same-PR removal outside the stated scope; they stay in place and tested, recorded under out_of_scope as a cleanup with no follow-up ticket yet.",
+      "source": "ticket"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "The card's class docblock (lines 19-33) documents the percentage as load-bearing intent. If the metric changes, the docblock is rewritten, not just the code -- this repo treats docblocks as carrying the decision record.",
+    "The cold-path herd-guard constants (COLD_BLOCK_SECONDS=12, COLD_LOCK_SECONDS=90, MIN_TTL_SECONDS=60) were sized against the heavier hits_cold-joined shape, with the sizing argument written out at length in the docblock. After the change they over-provision for a cheaper query -- safe, but the recorded reasoning becomes inaccurate.",
+    "The card is Pro-gated on COMPANY_METRICS with an admin_impersonator bypass, exactly like its siblings; canViewCardData() needs no change.",
+    "okf/concepts/company-metrics-dashboard.md carries only the card registry (key -> class), no per-card metric definitions -- which is precisely the gap the ticket's follow-up asks to fill."
+  ],
+  "tests": [
+    {
+      "file": "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsTest.php",
+      "what_it_pins": "toStat() value format and content across all four filters -- currently pins the '%' suffix and literal percentage strings"
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsWindowSeamTest.php",
+      "what_it_pins": "That the float metric never routes through the int-typed base totals. The requirement survives the redefinition; the fixtures do not"
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsHerdGuardTest.php",
+      "what_it_pins": "Cold-lock, cache-key, day-rollover and timezone-segment correctness. The correctness properties survive; the {deduped, pre_claim} test doubles do not"
+    },
+    {
+      "file": "tests/e2e/unique-scans-to-case-claims.spec.ts",
+      "what_it_pins": "Rendered value shape on the live dashboard -- a %-suffixed, 0-100-bounded value"
+    },
+    {
+      "file": "tests/Feature/Clickhouse/UniqueScansToCaseClaimsQueryTest.php",
+      "what_it_pins": "windowWithPreClaimScans() correctness including the hitless-claim guard. Orphaned by the change but still valid coverage of the query class"
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php:116 (toStat, '%' suffix)",
+      "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php:332 (rate() = pre_claim / deduped * 100)",
+      "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php:366-380 (getDescription, '%' text)",
+      "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php:19-33 (class docblock, load-bearing)",
+      "app/Filament/Widgets/Dashboard/UniqueScansToRepo.php:41-47 (three-card contrast table)",
+      "app/Filament/Widgets/Dashboard/UniqueScansToRepo.php:271-317 (two-leg zip + ratio() reference pattern)",
+      "app/Filament/Widgets/Dashboard/UniqueScansToLprRepossession.php:248 (ratio())",
+      "app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php:371 (the LEFT-JOIN default-fill guard)",
+      "app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php (shared unique-scans numerator + cache-key helpers)",
+      "the earlier Unique Scans to Case Claims investigation ticket notes (Oscar's wording; the rejected 9.97x reading)",
+      "the earlier Unique Scans to Case Claims investigation journal (the 99.7% trap value)",
+      "okf/concepts/company-metrics-dashboard.md:31-33 (card registry)"
+    ],
+    "code_flow": "CompanyMetricsOverview::getStats() -> UniqueScansToCaseClaims::canViewCardData() -> toStat() -> getCardRate() -> windowRate() | getMonthlyData() -> UniqueLprCaseClaimsQuery::windowWithPreClaimScans()/monthlySeriesWithPreClaimScans() (zod.public_billing_events joined to clarity.hits_cold) -> rate() = pre_claim / deduped * 100 -> Stat with '%'. PROPOSED: toStat() -> getCardRatio() -> two legs [ScanPlateStatsBatchQuery for unique_scans, UniqueLprCaseClaimsQuery::window()/monthlySeries() for deduped] -> ratio() = unique_scans / deduped -> Stat, number_format(x, 1), no '%'.",
+    "tables": [
+      "zod.public_billing_events",
+      "zod.public_orgs",
+      "zod.public_api_keys",
+      "clarity.hits_cold (dropped by the change)",
+      "clarity.scans_cold (numerator)"
+    ],
+    "related_components": [
+      "CompanyMetricsOverview::getStats()",
+      "DashboardWidget cache-TTL ladder and buildWidgetCacheKey() class_basename prefix",
+      "heldFlexible() cold-lock herd guard",
+      "ScanPlateStatsBatchQuery shared cache namespace"
+    ]
+  },
+  "exhaustiveness": {
+    "run_by": "driver (the fast pass omitted this section from its contract)",
+    "patterns": [
+      "rg -n \"\\.'%'|\\%'\\)|'%'\" app/Filament/Widgets/Dashboard/*.php",
+      "rg -n '\\* 100\\b' app/Filament/Widgets/Dashboard/*.php",
+      "rg -ln 'UniqueScansToCaseClaims' (repo, excluding vendor/node_modules/public/build/docs)",
+      "rg -n 'WithPreClaimScans' -l (repo, excluding vendor/node_modules/docs)"
+    ],
+    "sites": [
+      {
+        "site": "app/Filament/Widgets/Dashboard/HotlistCount.php:211,246,249",
+        "verdict": "safe",
+        "reason": "'Missing Plates Percentage' -- missing plates / total direct * 100 IS a genuine percentage and the card is named as one. Not in this ticket's family."
+      },
+      {
+        "site": "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php:116",
+        "verdict": "buggy",
+        "reason": "toStat() '%' suffix -- the reported symptom"
+      },
+      {
+        "site": "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php:366,370,378,379",
+        "verdict": "buggy",
+        "reason": "getDescription() carries the same '%' on all four filter branches -- a fix touching only toStat() would leave the expanded card contradicting the grid"
+      },
+      {
+        "site": "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php:332",
+        "verdict": "buggy",
+        "reason": "rate() = pre_claim / deduped * 100 -- the metric itself, not the format"
+      },
+      {
+        "site": "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php:19,124,418",
+        "verdict": "buggy",
+        "reason": "Docblocks and the getCardQueryStatements() note string restate the percentage formula; the note string is rendered to admin impersonators"
+      }
+    ],
+    "conclusion": "The percentage idiom appears in exactly two Dashboard cards. One (HotlistCount) is a genuine percentage and is safe. Every other occurrence is inside UniqueScansToCaseClaims itself -- 9 sites across code, docblocks and a user-visible note string. No third card is affected and no site outside this class needs the arithmetic changed."
+  },
+  "missed_caller_candidates": [
+    {
+      "file": "app/Filament/Widgets/Dashboard/UniqueScansToRepo.php",
+      "symbol": "UniqueScansToCaseClaims",
+      "referenced_at": "docblock lines 41-47",
+      "why_it_matters": "Asserts this card is 'vehicles / vehicles -- an honest <=100% rate'. Goes stale on the change. Prep marked this file out_of_scope; the backstop promotes it to a docblock-only edit."
+    },
+    {
+      "file": "app/Filament/Widgets/Dashboard/UniqueScansToLprRepossession.php",
+      "symbol": "UniqueScansToCaseClaims",
+      "referenced_at": "docblock ~865-906",
+      "why_it_matters": "Same cross-reference risk; confirm at plan time"
+    },
+    {
+      "file": "tests/Filament/Pages/DashboardCardExpansionTest.php",
+      "symbol": "UniqueScansToCaseClaims",
+      "referenced_at": "grep hit",
+      "why_it_matters": "Expansion-surface test may assert the '%'; prep did not list it"
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/UniqueScansToLprRepossessionTest.php",
+      "symbol": "UniqueScansToCaseClaims",
+      "referenced_at": "grep hit",
+      "why_it_matters": "May assert the three-card contrast; prep did not list it"
+    },
+    {
+      "file": "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php",
+      "symbol": "UniqueScansToCaseClaims",
+      "referenced_at": "cards() registry",
+      "why_it_matters": "Registry entry only -- no change expected unless the card is renamed"
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/Concerns/CardQuerySqlFidelityTest.php",
+      "symbol": "WithPreClaimScans",
+      "referenced_at": ":151-152",
+      "why_it_matters": "Asserts SQL fidelity for the methods the card stops calling; stays green as long as those methods are kept"
+    }
+  ],
+  "data_impact": {
+    "pg_tables": [
+      "zod.public_billing_events",
+      "zod.public_orgs",
+      "zod.public_api_keys"
+    ],
+    "ch_tables": [
+      "clarity.scans_cold",
+      "clarity.hits_cold (removed from this card's path)",
+      "zod.public_billing_events (CDC mirror)",
+      "zod.public_orgs (CDC mirror)",
+      "zod.public_api_keys (CDC mirror)"
+    ],
+    "mv_or_cdc_implications": "None. Read-only against the existing CDC mirror; no materialized view, schema, or CDC change. The claims funnel already reads these mirrors today.",
+    "indexes_relied_on": "No new access pattern. The numerator uses ScanPlateStatsBatchQuery's existing scans_cold shape; the denominator uses the existing billing-events funnel minus its hits_cold join."
+  },
+  "resource_envelope": {
+    "scale_relevant": false,
+    "trigger": "Not a command, job, migration, or data-driven loop -- one bounded aggregate per render, behind a cache with a cold-path herd guard. Recorded explicitly because the change touches a ClickHouse path with documented multi-GB cold scans: the effect is a REDUCTION (drops the clarity.hits_cold join, ~106.8M read_rows / 3,828 MiB down to the base funnel's ~39.9M) and the numerator reuses a cache namespace three other cards already populate. No new round trip is added.",
+    "driving_tables": [],
+    "growth": "n/a -- no new per-org or per-group iteration",
+    "schedule": null,
+    "allocation_sketch": "Per cold key: one shared-namespace scan-stats read (amortized across 4 cards) plus one org-scoped funnel read (the cost UniqueLprCaseClaims already pays). Strictly less than today.",
+    "oracle_status": "not-configured",
+    "unresolved": []
+  },
+  "derivation_log": [
+    {
+      "query_shape": "none -- no data query was run",
+      "param_classes": "n/a",
+      "aggregate_result": "n/a",
+      "why": "Every figure cited here is read from committed source or from the earlier Unique Scans to Case Claims percentage card's committed investigation artifacts. Production ClickHouse was deliberately not queried: the open question is a product decision, not a measurement."
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "ratio not percentage",
+        "kind": "agent",
+        "intent": "Seed a known org and month with N distinct plates in clarity.scans_cold and M billed case claims in the mirrored billing-events tables; assert the rendered Stat equals N/M at the agreed precision with no '%'"
+      },
+      {
+        "ac": "zero-claims guard",
+        "kind": "agent",
+        "intent": "Seed an org-month with scans but zero case claims; assert 0.0 renders, not an error or blank"
+      },
+      {
+        "ac": "all four filters",
+        "kind": "agent",
+        "intent": "Exercise Today, Last 7 Days, This Month and Last Month; assert each renders a ratio and the expanded description agrees with the grid value"
+      },
+      {
+        "ac": "sparkline",
+        "kind": "human",
+        "intent": "Confirm the 13-month series no longer reads as a bounded 0-100 shape"
+      },
+      {
+        "ac": "tooltip wording",
+        "kind": "human",
+        "intent": "Hover the card; confirm the percent wording is gone and it reads like the sibling cards"
+      }
+    ],
+    "seed_scenario": "One Pro-entitled org over one calendar month: a known count of distinct plates in clarity.scans_cold for that org-month (the numerator), and a known count of successful non-insightlpr case-claim events with distinct (forwarder_org_id, agent_org_id, vin) triples in the mirrored billing-events tables for the same month (the denominator). Pre-claim scan timing no longer matters once the hits_cold join is dropped. Add one month with claims but no scans and one with scans but no claims to exercise both edges of the zero guard.",
+    "personas": [
+      "Pro-entitled org admin on /app Company Metrics -- the only ordinary viewer who reaches this card",
+      "InsightLPR staff via admin_impersonator -- bypasses the Pro gate, same render path, and is the persona that sees the getCardQueryStatements() note string"
+    ],
+    "pg_tables": [
+      "zod.public_billing_events",
+      "zod.public_orgs",
+      "zod.public_api_keys"
+    ],
+    "ch_tables": [
+      "clarity.scans_cold",
+      "zod.public_billing_events",
+      "zod.public_orgs",
+      "zod.public_api_keys"
+    ]
+  },
+  "confidence": 62,
+  "escalate": {
+    "recommend": true,
+    "reason": "A documented, reviewed product decision is being reversed by a ticket that does not acknowledge it. That needs a human, not more analysis."
+  },
+  "gate_recomputed_at": "2026-09-17T16:16:43.177982Z",
+  "adopted_approach": "Mirror UniqueScansToRepo: two-leg fetch (ScanPlateStatsBatchQuery numerator + UniqueLprCaseClaimsQuery::window()/monthlySeries() denominator), ratio() = unique_scans / deduped, number_format(x, 1), no '%', 0.0 zero-guard. Drop the clarity.hits_cold join. Rewrite the class docblock and the two sibling docblocks that cross-reference this card's semantics."
+}

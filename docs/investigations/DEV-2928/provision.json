@@ -1,0 +1,122 @@
+{
+  "key": "DEV-2928",
+  "phase": "provisioned",
+  "gate": "CLEAN",
+  "at": "2026-10-07T16:48:00-05:00",
+  "at_label": "2026-10-07 4:48pm CDT",
+  "pr": 510,
+  "pr_draft": true,
+  "tip": "2fd4c3e9487d8687b5989449554c48296d81438e",
+  "tip_unchanged_by_provision": true,
+  "branch": "cursor/dev-2928-rdn-backfill-branches",
+  "base": "claude/DEV-2442",
+  "base_sha": "42a4310fc9b76768f51caa3dbc42099b02331704",
+  "branch_path": "stacked on claude/DEV-2442 (PR #374 head); retarget main after #374 merges",
+  "provision_mode": "fleet_path_a_cli",
+  "ledger": "/workspace/docs/investigations/DEV-2928/qa-prep-ledger.json",
+  "cite": "/workspace/docs/investigations/DEV-2928/provision-cite-slim.json",
+  "checkout_ledger": "/workspace/dev-2928-wt/.context/qa-prep-ledger.json",
+  "spec": "/workspace/docs/investigations/DEV-2928/DEV-2928.md",
+  "spec_worktree": "/workspace/dev-2928-wt/.ai/specs/DEV-2928.md",
+  "ch_touch": "yes",
+  "prove_passed": true,
+  "live": true,
+  "cloud_touched": false,
+  "mac_herd_refused": true,
+  "site": "http://172.21.0.1:18094",
+  "pg": "172.21.0.1:15446/zod_dev_2928",
+  "pg_testing": "zod_testing_dev_2928",
+  "ch": "http://172.21.0.1:18137/?database=clarity",
+  "ports": {
+    "site": 18094,
+    "pg": 15446,
+    "ch": 18137
+  },
+  "gateway": "172.21.0.1",
+  "network": "clarity-qa-dev-2928",
+  "driver": "clickhouse",
+  "schema": {
+    "source": "database/schema/clickhouse-schema.sql @ 2fd4c3e9",
+    "objects_match": "86/86",
+    "load_errors": 0
+  },
+  "smoke": {
+    "login": 200,
+    "pg_select_1": true,
+    "pg_public": 139,
+    "pg_platform": 41,
+    "pg_seed": {
+      "hotlist": 17,
+      "hotlist_json": 11,
+      "hotlist_status_log": 12,
+      "platform_branches": 6,
+      "orgs_with_rdn_api_key": 2
+    },
+    "ch_select_1": true,
+    "ch_version": "25.8.11.66",
+    "ch_clarity_objects": 39,
+    "ch_clarity_by_engine": {
+      "ReplacingMergeTree": 20,
+      "MergeTree": 5,
+      "AggregatingMergeTree": 5,
+      "View": 6,
+      "MaterializedView": 3
+    },
+    "hotlist_branch_id_type": "Nullable(Int64)",
+    "lpr_assists_engine": "View",
+    "ch_seed": {
+      "hotlist": 18,
+      "hotlist_final": 17,
+      "recoveries": 8,
+      "recovery_scans": 9,
+      "lpr_assists": 7,
+      "missed_opportunities": 9,
+      "hotlist_status_transitions": 12
+    },
+    "env_testing": {
+      "CLICKHOUSE_DRIVER": "clickhouse",
+      "CLICKHOUSE_HOST": "172.21.0.1",
+      "CLICKHOUSE_PORT": "18137",
+      "CLICKHOUSE_DATABASE": "clarity",
+      "CLICKHOUSE_DATABASE_CLARITY": "clarity",
+      "CLICKHOUSE_DATABASE_ZOD": "zod",
+      "DB": "172.21.0.1:15446/zod_testing_dev_2928",
+      "phpunit_xml_overrides_driver": false
+    },
+    "vendor_present": true,
+    "cloud_queried": false
+  },
+  "implement_caveats": [
+    "CH tests TRUNCATE clarity (no separate CH test DB) — re-run seed-work/ch-seed-dev-2928.sql after CH suites so Agent QA has data",
+    "Run phpunit from the box (app container lacks psql); box PHP 8.4.26 vs CI 8.3 — keep 8.3-compatible",
+    "Twin CH 25.8.11.66 vs CI 26.2 (Cloud 26.6)",
+    "PG dev DB is a fixture restore; zod_testing built by RefreshDatabase",
+    "#25 Cloud RO measure not done — ClickHouse connector refused read-only SELECT (not routed around); needs sanctioned box-side RO path before undraft",
+    "Never CLICKHOUSE_DRIVER=pgsql as done-signal; never --parallel"
+  ],
+  "neighbors_live": "DEV-2450 :18093/:15445/:18136 — do not touch",
+  "next": "Implement",
+  "open_questions": [
+    "Q1 runbook --since window (YTD+comparison vs Lifetime)",
+    "Q2 dry run vs RDN client org_meta.rdn_rate_limit update (accept+document proposed)",
+    "Q3 cost of org-wide clarity.hotlist FINAL subquery — decided at #25 P3",
+    "Q4 Cloud RO confirm recoveries.id = hotlist id (blocks undraft only if it fails)"
+  ],
+  "open_gates": [
+    "#25 parity Cloud CH RO measure via sanctioned box-side RO path, filed in PR + Build Record before undraft",
+    "HITL with Dalton before undraft",
+    "Retarget base to main after #374 merges"
+  ],
+  "hard_stops": [
+    "Never push/commit/edit PR #374 or claude/DEV-2442",
+    "Cloud CH READ-ONLY",
+    "No CH schema/MV changes; no prod/fleet backfill",
+    "Reuse GetOrgHotlistCaseInfo dispatch contract unchanged; smallest change (#24)",
+    "Implement agent · sonnet-5.5 · xhigh · never --trust-all-tools",
+    "Q1–Q4 open — do not invent"
+  ],
+  "pr_status_rewritten": true,
+  "implement_baton_from_this_step": false,
+  "board_posted": false,
+  "messages_sent": false
+}

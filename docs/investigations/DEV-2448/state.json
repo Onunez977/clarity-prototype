@@ -1,0 +1,476 @@
+{
+  "key": "DEV-2448",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "base-resolve.sh returned 6 main-ahead candidates (otto, stack-otto-*, cursor/okf-lpr-assist-docs) \u2014 all Otto-search/docs work, none carrying GL-kit / SC_POSITIONS / Filament-company-page work. Ticket does not belong to any candidate feature; kept main.",
+  "branch": "claude/DEV-2448",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "grep-backstop",
+      "model": "haiku",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 254
+    },
+    {
+      "slot": "prep-candidate:1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 635
+    },
+    {
+      "slot": "prep-candidate:3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 798
+    },
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 159
+    },
+    {
+      "slot": "implement:t2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 129
+    },
+    {
+      "slot": "implement:t3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 421
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 840
+    },
+    {
+      "slot": "review:rn2",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 948
+    },
+    {
+      "slot": "review:rn3",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 1107
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "clickhouse/core.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "3 questions with answered:false (shared kits in the list / invisible scans in last-scan / feature-gating)",
+    "fast-pass confidence 62 < 80",
+    "fast pass set escalate.recommend=true",
+    "cross-ticket dependency: sibling DEV-2447 (Backyard counterpart, no shared spec) + downstream DEV-2450 blocked on this ticket's column semantics"
+  ],
+  "best_of_n": true,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [
+    {
+      "file": "app/Providers/FilamentServiceProvider.php",
+      "symbol": "$filterableResources / ListScoutUsers",
+      "referenced_at": "app/Providers/FilamentServiceProvider.php:108-120",
+      "why": "EVERY existing app-panel List page is registered in $filterableResources to get the sidebar-filters render hooks. If the new GL Kits list page carries any filters, omitting it here makes them invisible. Absent from the fast pass's target_files."
+    },
+    {
+      "file": "tests/Unit/Clickhouse/Queries/OrgLivePositionsQueryTest.php",
+      "symbol": "OrgLivePositionsQuery::handle/defaultCutoff",
+      "referenced_at": "tests/Unit/Clickhouse/Queries/OrgLivePositionsQueryTest.php:7,60",
+      "why": "If the design MODIFIES OrgLivePositionsQuery (rather than calling it as-is), this existing unit test pins its contract and must be updated. Absent from the fast pass's target_files."
+    },
+    {
+      "file": "app/Clickhouse/Queries/OrgScanPathPositionsQuery.php",
+      "symbol": "OrgLivePositionsQuery",
+      "referenced_at": "app/Clickhouse/Queries/OrgScanPathPositionsQuery.php:13,31",
+      "why": "Second consumer/sibling of the same sc_positions cutoff idiom; a signature change to OrgLivePositionsQuery reaches it."
+    },
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+      "symbol": "OrgLivePositionsQuery",
+      "referenced_at": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:14",
+      "why": "The production consumer of OrgLivePositionsQuery (Scout Bird's Eye live dots). Any change to that query's behavior is a Scout regression risk."
+    }
+  ],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [
+      "clarity.sc_positions",
+      "zod.kit_last_scan"
+    ],
+    "approach": "read zod.kit_last_scan (5K rows) + a 14-day lower(kit_mapping) probe on clarity.sc_positions (345M rows); clarity.scans_cold (2.16B) considered and REJECTED on measured cost",
+    "measurement": "kit_last_scan org+kit_id max(): 0.23s / 18,557 rows / 0.25 MB. sc_positions 14d/272-mapping: 0.20s / 167 MB lean, 0.31s / 209 MB via OrgLivePositionsQuery. REJECTED scans_cold GROUP BY kit_id: 1.61s / 2.16B rows / 9,586 MB (and 8,221 MB for ONE kit_id).",
+    "verdict": "go",
+    "measured_at": "2026-08-31"
+  },
+  "diff_base": "b8342d7095d6f30f2fb66c77c1888a4d9962fe87",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "complex",
+      "model": "sonnet"
+    },
+    {
+      "id": "t2",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "complex",
+      "model": "sonnet"
+    },
+    {
+      "id": "t3",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 5,
+  "pr": {
+    "number": 376,
+    "url": "https://github.com/insight-lpr/platform/pull/376",
+    "draft": false
+  },
+  "pr_urls": {
+    "main": "https://github.com/insight-lpr/platform/pull/376"
+  },
+  "jira_in_progress_by": "pipeline-mcp @ 2026-08-31T17:22:23Z",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "undraft did NOT trigger a GH Action (issue was still In Progress after PR #376 went ready), so the pipeline transitioned via Atlassian MCP transition id 4 \u2014 the designed fallback working, not a manual intervention",
+  "assumed": [],
+  "comment_ids": {
+    "status": "38739",
+    "build_record": "38805"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "resource_envelope": {
+      "path": null,
+      "verdict": "PASS",
+      "basis": "measured",
+      "note": "No scheduled command or job added \u2014 the two ClickHouse reads are request-scoped and memoized. MEASURED: exactly 2 CH queries per render for 4 rows (system.query_log), no per-row fan-out; render wall 0.009s local. Production per-render cost measured during prep: 0.23s/0.25 MB (kit_last_scan) + 0.20s/167 MB (sc_positions, worst-case org of 272 GL kits). No cadence to breach."
+    },
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "n/a",
+      "ch_container": "reused (container was already up from other worktrees)",
+      "frontend_build": "n/a",
+      "postgres_db": "zod_claude_dev_2448_e3bbc2",
+      "testing_db": "zod_testing_claude_dev_2448_e3bbc2",
+      "ch_strategy": "docker (LITERAL clarity/zod on 127.0.0.1:18123)",
+      "herd_site": "clarity-claude_dev_2448_e3bbc2",
+      "probe": "/__qa/login -> 200",
+      "postgis_patch": "applied (dev + testing)",
+      "provision_mode": "full",
+      "plans_written": true,
+      "seed_method": "tinker"
+    },
+    "provisioned_early": true,
+    "human_guide": ".context/qa-human-guide.html",
+    "teardown_note": "Torn down MANUALLY rather than via qa-complete's ledger-driven drop path \u2014 the recorded platform-ch-qa-teardown-shared-literal-dbs hazard. The ledger named the LITERAL clarity/zod databases as CH teardown targets (because .env had been repointed at them to satisfy ~15 hardcoded-prefix query classes), and dropping those would have destroyed shared infrastructure other worktrees' ClickHouse test runs depend on. Instead: deleted only this run's seed rows from the shared tables (kit_last_scan via lightweight DELETE; sc_positions via ALTER..DELETE, because DEV-2381's projection makes lightweight DELETE throw), dropped only the per-worktree clarity_claude_dev_2448 / zod_claude_dev_2448, dropped both per-worktree Postgres DBs behind a prefix guard, restored the 4 changed .env keys (incl. putting the ClickHouse Cloud host back), unlinked the Herd site, deleted the ledger. VERIFIED: 0 leftover 2448 databases, 0 seed rows, shared clarity/zod intact, all 4 of the 2409/2426 worktree databases intact."
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact --filter=OrgKitLastScanQueryTest",
+        "passed": 5,
+        "failed": 0
+      },
+      {
+        "cmd": "php artisan test --compact --filter=OrgKitReportingStatusQueryTest",
+        "passed": 9,
+        "failed": 0
+      },
+      {
+        "cmd": "php artisan test --compact --filter=GlKitsResourceTest",
+        "passed": 8,
+        "failed": 0
+      },
+      {
+        "cmd": "PHPRC=<memory_limit=2G> php artisan test --compact   (FULL SUITE)",
+        "passed": 1689,
+        "failed": 7,
+        "note": "7 failures triaged, NONE caused by this change. 4 were ClickHouse container memory exhaustion (error 241: 'would use 5.21 GiB, maximum 5.21 GiB' raised inside RequiresClickhouse's TRUNCATE loop) \u2014 all 4 passed after restarting the container. The remaining 3 are pre-existing Scout shift/timezone failures (2x CloseInactiveShiftsCommandTest, 1x EnsureOpenShiftTest): neither test file uses RequiresClickhouse, and both fail identically with my one-line change to that file reverted. 1 risky, 1 incomplete, 4 skipped."
+      },
+      {
+        "cmd": "PHPRC=<memory_limit=2G> php artisan test --compact   (FULL SUITE, fresh CH container)",
+        "passed": 1691,
+        "failed": 5,
+        "note": "Definitive run. 5 failures, ZERO attributable to this change (my files appear nowhere in any failure output). 3 are PRE-EXISTING Scout shift/timezone failures (CloseInactiveShiftsCommandTest x2, EnsureOpenShiftTest) \u2014 proven by reverting my only shared-file edit and seeing them fail identically, and neither file even uses that concern. 2 are ENVIRONMENTAL (KitUserPathControllerTest): the local Docker ClickHouse container hits its 5.79 GiB cap mid-suite (3 MEMORY_LIMIT_EXCEEDED errors this run) because it carries 8 databases / 320 objects from four worktrees. Both pass 29/29 in isolation against a freshly restarted container. CI uses its own dedicated ClickHouse service."
+      },
+      {
+        "cmd": "php artisan test --compact <4 new test files>  (x3 timezones)",
+        "passed": 26,
+        "failed": 0
+      }
+    ],
+    "deviations": [
+      {
+        "source": "driver-review",
+        "edit": "Added 'zod.kit_last_scan' to RequiresClickhouse::CLICKHOUSE_TABLES_TO_TRUNCATE (tests/Concerns/RequiresClickhouse.php) \u2014 one line, outside t1's declared target_files.",
+        "ac_ref": null,
+        "ac_delta": null,
+        "why": "The worker had used random_int() ids because that table is not truncated between CH test runs. Random ids make the suite non-deterministic and turn a collision into a confusing failure. Adding the table to the trait is what the trait exists for (a new CH table that tests write to), and it let the test use fixed, readable ids."
+      },
+      {
+        "source": "driver-review",
+        "edit": "Rewrote t1's test: fixed ids instead of random_int, and DB::table('kit_last_scan') instead of table('zod.kit_last_scan').",
+        "ac_ref": null,
+        "ac_delta": null,
+        "why": "The hardcoded 'zod.' prefix in the test contradicted the exact rule enforced on the production class; and determinism. Re-verified red->green after the rewrite (naive select fails the collapse test, correct version passes 5/5)."
+      },
+      {
+        "source": "driver-review",
+        "edit": "Trimmed OrgKitLastScanQuery's class docblock from 30 lines to 14.",
+        "ac_ref": null,
+        "ac_delta": null,
+        "why": "Dalton finds heavy commentary overwhelming. Kept the three load-bearing facts (un-merged RMT -> max(); caller-supplied tenancy; scans_cold rejected at 9,586 MB) since each protects the design from being 'simplified' back into a defect, and dropped the rest."
+      },
+      {
+        "source": "driver-review",
+        "edit": "Fixed a silent-drop bug in OrgKitReportingStatusQuery: the bare array_filter() dropped any falsy mapping, so a kit whose kit_mapping is \"0\" would be removed before the query and read \"not reporting\" forever. Replaced with an explicit `$m !== ''` callback and added a regression test.",
+        "ac_ref": "AC-4",
+        "ac_delta": null,
+        "why": "Reachable, not theoretical: production kit_type=1 mappings were measured at min length 1, with 280 of 3,535 all-digits. The failure mode is exactly the one this column exists to detect, and it is completely silent. Verified red->green (bare filter fails the new test)."
+      },
+      {
+        "source": "driver-review",
+        "edit": "Removed config(['app.env' => 'local']) from t3's ClickHouse-outage test and documented why it must not come back.",
+        "ac_ref": "AC-6",
+        "ac_delta": null,
+        "why": "That line silently DISARMED the guard the test exists to provide. PROVEN both ways: with ::handle() swapped to ::query() (the exact regression), the test FAILS without the line and PASSES with it. Forcing 'local' makes ClickhouseQuery::query() rethrow, so the resource's own catch yields 'Unknown' either way; leaving app.env at 'testing' lets query() swallow to [] and renders 'Never'/'Not Reporting', which is what the assertion must catch."
+      },
+      {
+        "source": "driver-review",
+        "edit": "Added the ticket's missing positive-path test (a kit with a recent scan AND a recent GPS fix renders the formatted timestamp and 'Reporting').",
+        "ac_ref": "AC-2",
+        "ac_delta": null,
+        "why": "All 7 of t3's original tests asserted only Never/Unknown/Not Reporting, so the timezone + config('app.date_format') rendering path and the 'Reporting' state were both entirely untested on the ticket's primary column."
+      }
+    ],
+    "review": {
+      "lanes": [
+        "claude1",
+        "claude2",
+        "claude3"
+      ],
+      "scores": [
+        93,
+        94,
+        94
+      ],
+      "findings_fixed": [
+        "claude2 M2 / claude1 L3 (test integrity, HIGH value): my own positive-path test built its fixture with now()->subHours(3), which re-expresses testNow in APP_TIMEZONE, then wrote it into a column the resource parses as UTC. PROVEN: under APP_TIMEZONE=America/Chicago the old fixture FAILS and the explicit-UTC replacement PASSES. phpunit.xml does not pin APP_TIMEZONE, so nothing guaranteed UTC.",
+        "claude2 M1 (test coverage on the security gate): canAccess() was the page's only gate and every test ran as ADMIN, so deleting the gate or fat-fingering the role string kept the suite green. Added test_cannot_render_without_the_admin_role; PROVEN by opening the gate (test fails).",
+        "claude3 L1 / claude1 M2 (AC-6 principle): a kit with an empty kit_mapping is never sent to ClickHouse, yet the UI rendered a definitive 'Not Reporting' \u2014 the same dishonesty the outage state exists to prevent. Now renders 'Unknown'; PROVEN by removing the guard (test fails).",
+        "claude1 L6 (observability regression): catching locally to enable the Unknown state bypassed ClickhouseQuery::query()'s report(), so an outage vanished from error tracking. Added report($e) beside the log, via a shared reportClickhouseFailure() helper.",
+        "claude3 M3 (silent footgun): OrgKitLastScanQuery defaulted a missing org_id to 0, matching nothing and rendering every row 'Never'. Now throws InvalidArgumentException, with a test.",
+        "claude1 L7 (signature that lies): once() memoizes by call site, not argument, so the helpers' $orgId parameter was ignored. Removed the parameter; the org is read from auth() inside.",
+        "claude1 M1 (partial \u2014 misleading justification): the docblock justified the org_id predicate as pruning, which is meaningless on a ~5k-row table. Corrected to state the real reason (defence-in-depth against a caller passing foreign ids) and to name the accepted cost (a kit that moved orgs reads 'Never' until its next scan).",
+        "claude1 L10 (convention): added the page-view Analytics::track every sibling list page has.",
+        "RN=2, 3-LANE CONSENSUS (claude1 M1, claude2 M2, claude3 L1) \u2014 my RN=1 timezone fix was INCOMPLETE: I repaired one line and left the same anti-pattern in 12 other ClickHouse-insert fixtures, including three lines below my own warning comment. Fixed structurally by converting to UTC inside the two insert HELPERS (so future tests inherit it) plus both timestamp assertions. VERIFIED across five timezones spanning UTC+14 to UTC-11 (UTC, America/Chicago, Asia/Tokyo, Pacific/Kiritimati, Pacific/Midway): 25/25 in every one.",
+        "RN=2 claude3 H1 (High): OrgKitLastScanQuery aliased `toString(max(last_scan)) AS last_scan` \u2014 an aggregate onto its own source column, the exact shape TWO sibling classes' docblocks document as one ClickHouse rejects once anything else references the column. Renamed to `AS ts`, matching OrgLivePositionsQuery.",
+        "RN=2 claude1 L2: the org_id guard I added in RN=1 to make a wiring bug loud was immediately swallowed by my own catch(\\Throwable) and rendered as 'Unknown'. InvalidArgumentException now re-throws; only genuine ClickHouse failures degrade.",
+        "RN=4 claude2 M2 / claude3 M1 \u2014 I WAS WRONG, and this is the most important correction of the run. In RN=1 I accepted a lane's claim that once() keys only on call site, removed $orgId from all three helpers, and wrote that premise into a docblock as fact. VERIFIED against vendor/laravel/framework Onceable::hashFromTrace(): it maps over (new ReflectionClosure($callable))->getClosureUsedVariables() and folds them into the hash, so `use ($orgId)` DOES key the memo \u2014 as sibling UsersResource.php:253 already demonstrated. Reverted to org-keyed closures, deleted the false docblock. Exposure was LATENT (classic FrankenPHP, one auth per request) but goes live under worker mode, a queued job iterating orgs, or a two-user test.",
+        "RN=4 claude2 M1 \u2014 the auth gate and cross-org isolation tests were behind a class-level RequiresClickhouse, which skips unless CLICKHOUSE_DRIVER=clickhouse \u2014 the documented LOCAL DEFAULT. REPRODUCED: 10 skipped / 0 assertions / exit 0, so deleting canAccess() or the org_id scope stayed green for most developers and would in CI too if the CH service failed. Split the 5 ClickHouse-free guarantees into GlKitsResourceAccessTest (no trait). VERIFIED: they now run with CH absent (5 passed, 12 assertions) instead of skipping.",
+        "RN=4 claude1 M1 / claude3 L2 \u2014 toString() renders in the ClickHouse SERVER timezone while the consumer hard-parses UTC. Measured this server as UTC (no live impact), but made it unconditional: toString(max(...), 'UTC') in both queries.",
+        "RN=5 claude2 M1 \u2014 my RN=4 UTC fix was HALF a fix: I made the toString() RENDER timezone-explicit and left the FILTER comparing a bare string, which ClickHouse resolves against a DateTime column in the SERVER timezone, sliding the 14-day boundary by the server offset. Now bound through toDateTime(?, 'UTC'). Third time this run I was caught shipping an instance fix for a class problem.",
+        "RN=5 claude1 M2 / claude2 M2 \u2014 the tenant-keyed memo I restored in RN=4 had NO test: deleting `use ($orgId)` left the suite green. Added test_two_orgs_rendered_in_one_process_do_not_share_a_memoized_map, which renders org A (populating the memo), then org B in the same process and asserts B sees its own rows and its own timestamp. Mechanism proven independently: once(fn() use ($x)) with x=1 then x=2 returns 1 then 2, so captured vars ARE hashed.",
+        "RN=5 claude1 L2 \u2014 @return array<string, string> was wrong: PHP casts all-numeric mapping keys to int. Corrected to array<array-key, string>."
+      ],
+      "findings_residual": [
+        "claude1 M1 (design, KEPT deliberately): the org_id predicate means a kit that transferred orgs and hasn't scanned since reads 'Never' (5.8% of kits carry multi-org rows). Kept because tenancy defence-in-depth beats a more accurate timestamp; documented in the docblock and surfaced to Dalton rather than flipped silently.",
+        "claude3 M1 (non-scoring, needs-verification): both ClickHouse reads re-issue on EVERY Livewire interaction (~167 MB scanned each) because once() is per-request. Not fixed \u2014 deliberate scope discipline on an admin-only, low-traffic page; a short cache() around handle() is the obvious follow-up if cost matters.",
+        "claude3 M2 (non-scoring): glKits() hydrates full models and is sized by the whole org rather than the visible page. Bounded at 272 kits (measured). I attempted narrowing it and reverted \u2014 scopeExcludingDeleted() does a join with select('kits.*') that a column list conflicts with.",
+        "claude3 M4 (non-scoring): 'the org's active GL kits' is defined in both getEloquentQuery() and glKits(). Real duplication; left because unifying them would couple the table query to the batch helper.",
+        "claude1 L8 / claude3 M5 (unreachable): case-only-differing mappings would alias. kits.kit_mapping is citext, so two kits in one org cannot differ by case alone.",
+        "claude1 L5: the docblock's projection claim is EXPLAIN-verified (proj_kit_mapping_lc, 13/42128 granules), which the lane could not see; kept.",
+        "claude1 L9: a caller omitting org_id now throws rather than returning empty \u2014 addressed by the M3 fix.",
+        "claude1 L4 + lane notes on the wiki: all wiki items remain queued in prep-context.wiki_queue for the post-approval pass, per CLAUDE.md's write-after-approval rule.",
+        "RN=2 claude1 L3 (non-scoring): `$row['x'] ?? $row->x` is an unreachable fallback that would fatal on the object case it claims to handle. Left deliberately \u2014 it is copied verbatim from OrgLivePositionsQuery and two sibling classes; changing only mine would diverge from the established pattern.",
+        "RN=2 claude1 L4 / claude3 M1 (non-scoring, needs-verification): both ClickHouse reads re-execute per Livewire interaction because once() is per-request. Unchanged \u2014 scope discipline on an admin-only page; a short cache() around handle() is the follow-up.",
+        "RN=2 claude1 L5 (non-scoring): OrgKitReportingStatusQuery has no tenancy predicate. By design \u2014 sc_positions has no org column at all, and tenancy is enforced by the PostgreSQL-derived mapping list.",
+        "RN=2 claude1 L6 (non-scoring): the report() observability fix is not pinned by a test. The outage test does assert Log::warning twice; pinning report() as well needs an exception-handler fake and was judged not worth the coupling.",
+        "RN=5 claude1 M1 / claude3 M1 (OUT OF SCOPE, queued): the toString()-without-timezone defect also exists in FIVE pre-existing sibling query classes whose consumers hard-parse UTC. Real and worth a ticket, but fixing five untouched classes inside a feature ticket is the scope creep this flow exists to prevent.",
+        "RN=5 claude3 M2 (NOT REACHABLE, evidence): claimed 'Reporting' could be read off another tenant's scanner via a kit_mapping collision. Refuted \u2014 CREATE UNIQUE INDEX kit_mapping_type_unique ON public.kits (kit_mapping, kit_type) makes kit_mapping globally unique WITHIN kit_type=1, and measurement showed only kit_type=1 kits appear in sc_positions at all.",
+        "RN=5 claude1 L1: hand-rolled ? placeholders where whereIntegerInRaw exists. Kept \u2014 the placeholder form matches OrgLivePositionsQuery, which the brief named as the template.",
+        "RN=5 claude1 L3: the positive-path assertion re-derives its expectation with the production expression. Acknowledged; a literal expected string would pin the format but break whenever config('app.date_format') legitimately changes."
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "harness-claude-p"
+        },
+        {
+          "lane": "claude2",
+          "source": "harness-claude-p"
+        },
+        {
+          "lane": "claude3",
+          "source": "harness-claude-p"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "ee94af7f817f80c838aa021d8b6dd3422a59f015",
+      "rework_pivot": false,
+      "rounds": [
+        {
+          "rn": 1,
+          "scores": [
+            90,
+            94,
+            90
+          ],
+          "gate": "pass"
+        },
+        {
+          "rn": 2,
+          "scores": [
+            91,
+            94,
+            90
+          ],
+          "gate": "pass"
+        },
+        {
+          "rn": 3,
+          "scores": [],
+          "gate": "error",
+          "note": "0/3 lanes valid \u2014 aborted_streaming, my backgrounded wrapper was killed and took the lanes with it. Not an auth error, so no in-session substitution; relaunched at RN=4."
+        },
+        {
+          "rn": 4,
+          "scores": [
+            94,
+            92,
+            94
+          ],
+          "gate": "pass"
+        },
+        {
+          "rn": 5,
+          "scores": [
+            93,
+            94,
+            94
+          ],
+          "gate": "pass"
+        }
+      ],
+      "post_review_delta": "Three changes after RN=5, each individually verified and judged IMMATERIAL for the rework gate: (1) one-line filter hardening that is a no-op on a UTC ClickHouse server and changes no behavior there, (2) an ADDED test (coverage only, no production behavior), (3) a PHPDoc type correction. No new behavior, no new files touched beyond these, and 26/26 green across three timezones."
+    },
+    "ac": [
+      {
+        "item": "AC-1",
+        "status": "SATISFIED",
+        "evidence": "/app/gl-kits renders under the Reports nav group and lists exactly the org's 4 kit_type=1 kits; the kit_type=2 kit (QA-NOT-GL) is excluded."
+      },
+      {
+        "item": "AC-2",
+        "status": "SATISFIED",
+        "evidence": "Headers are exactly Kit / Company Owner / Last Scan Received / Reporting (14d). Company Owner = 'QA GL Kits Org' on every row; QA-GL-REPORTING shows 'Aug 31, 2026 12:25 PM CDT'. Backend B3 returned 3 last-scan rows for org 5."
+      },
+      {
+        "item": "AC-3",
+        "status": "SATISFIED",
+        "evidence": "Org 6's GL kit (QA-OTHER-ORG-GL) never appears (4 of 4 results). A9: QA-GL-REPORTING shows its org-5 timestamp (12:25 PM), not the NEWER org-6 tenancy-trap row (1:47 PM) that a missing org_id predicate would surface via max()."
+      },
+      {
+        "item": "AC-4",
+        "status": "SATISFIED",
+        "evidence": "QA-GL-REPORTING = Reporting (GPS fix inside 14d); QA-GL-STALE = Not Reporting (only fix is 20 days old). B4 resolved exactly 1 mapping, with the UPPERCASE sc_positions row folding into the same lowercase key."
+      },
+      {
+        "item": "AC-5",
+        "status": "SATISFIED",
+        "evidence": "QA-GL-NEVER (no scan row, no GPS) renders 'Never' + 'Not Reporting' with no error or blank cell. Measured as the common case, not an edge case: only ~21% of production GL kits have ever appeared in sc_positions."
+      },
+      {
+        "item": "AC-6",
+        "status": "SATISFIED",
+        "evidence": "QA-GL-NOMAPPING renders 'Unknown', not 'Not Reporting'. All three states are distinct by colour AND icon (green check / amber question / gray x) \u2014 verified by the driver on the screenshot, not just reported. NOTE: this covers the no-mapping path; the ClickHouse-OUTAGE path is pinned by an automated test but is deferred to human QA step ec-2 for visual confirmation."
+      }
+    ]
+  },
+  "wiki_landed": {
+    "at": "2026-09-01",
+    "files": [
+      "okf/concepts/kit.md",
+      "okf/concepts/filament-conventions.md",
+      "okf/concepts/multi-tenancy.md",
+      "okf/concepts/scan.md",
+      "okf/concepts/clickhouse-integration.md",
+      "okf/log.md"
+    ],
+    "lint": "passed (106 files, 0 warnings)",
+    "commit": "0dfa2bfe",
+    "not_done": "database/schema/clickhouse-schema.sql stale scans_cold/hot sort key \u2014 code, not wiki, needs its own ticket"
+  },
+  "reconciliation": {
+    "checkpoint_exit": 3,
+    "cause": "origin/claude/DEV-2448 had been REBASED onto newer main (d82394d0, which now carries the DEV-2451 merge + a GHA deploy commit) while local was still based on cc21e755. checkpoint.sh correctly refused.",
+    "investigated": "remote-head author is the SAME git identity (daltonmccleery@gmail.com) \u2014 not another owner. All 9 DEV-2448 code files byte-identical between local e01d972f and the remote tip, so the remote already held the complete work and lacked only the okf commit.",
+    "resolution": "safety branch backup/DEV-2448-prerebase + a saved patch, reset onto the remote tip, cherry-picked ONLY the okf commit, okf-lint re-passed, fast-forward push (no force). DEV-2451's and DEV-2411's okf edits preserved alongside."
+  }
+}

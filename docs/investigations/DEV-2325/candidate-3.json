@@ -1,0 +1,74 @@
+{
+  "synthesis": "buildZoneSummaries()'s raw scans⋈zones ST_Contains join is the 57014 offender, but the MECHANISM is transaction/connection pinning: handle() wraps the whole body in DB::connection('platform')->transaction() + lockForUpdate on kit_shifts; Laravel Connection::getReadPdo() returns the WRITE pdo whenever transactions>0 (verified Connection.php:1280), regardless of sticky. So the raw SELECT is forced onto the primary/write node — plausibly with a stricter statement_timeout than the 'zod' read replica DEV-2309 benefits from. Not the ScanTimezoneScope bug (raw SQL never touches the Scan model).",
+  "scope": {
+    "summary": "Re-route buildZoneSummaries()+loadZonePolygonsForMap() raw reads from the write-pinned 'platform' connection object onto the 'zod' connection object (same physical DB, no open transaction → read host), harden the ST_Contains join with an explicit bbox (&&) pre-filter as defense-in-depth, and distinguish the terminal-failure skip reason (build_failed vs mail_failed).",
+    "proposed_changes": [
+      {"file": "app/Services/Scout/BuildShiftSummary.php", "change": "Change DB::connection('platform')->select(...) to DB::connection('zod')->select(...) in buildZoneSummaries() (:178) and loadZonePolygonsForMap() (:301). Both already schema-qualify public.scans/platform.zones, so connection-object-only.", "reason": "'zod' has no open transaction in this job and no sticky, so selects resolve to the read host instead of being forced onto the write PDO by getReadPdo()'s transactions>0 check.", "ref": "app/Services/Scout/BuildShiftSummary.php:178,301"},
+      {"file": "app/Services/Scout/BuildShiftSummary.php", "change": "Add explicit bbox pre-filter (z.geom && s.geo) ahead of ST_Contains(z.geom, s.geo) in buildZoneSummaries().", "reason": "AC-2 asks the query itself be bounded; both GiST indexes exist but a defensive && removes planner-estimation risk on org zone count × shift scan count.", "ref": "app/Services/Scout/BuildShiftSummary.php:184"},
+      {"file": "app/Jobs/Scout/SendEndOfShiftSummary.php", "change": "In failed(), distinguish summary_skipped_reason 'build_failed' (exception from BuildShiftSummary::forShift()) vs existing 'mail_failed' (during/after Mail send); keep Log::error as surfacing unless a human requires a proactive alert.", "reason": "failed() already records + logs for ANY exception (DEV-1788), but mislabels a DB-timeout as 'mail_failed'.", "ref": "app/Jobs/Scout/SendEndOfShiftSummary.php:125-142"}
+    ],
+    "target_files": ["app/Services/Scout/BuildShiftSummary.php", "app/Jobs/Scout/SendEndOfShiftSummary.php", "tests/Feature/Services/Scout/BuildShiftSummaryTest.php", "tests/Feature/Jobs/Scout/SendEndOfShiftSummaryTest.php"],
+    "out_of_scope": [
+      "Redesigning the lockForUpdate/transaction scope to release the lock before building the summary (needs a claim/CAS column to preserve documented cross-dispatch idempotency; bigger change, not required by ACs)",
+      "Brand-new ops-alerting integration (Slack/PagerDuty) — no existing repo convention (the one precedent ImportZonesFromKml::failed() notifies the requesting USER, which doesn't map to an auto-closed shift with no requester)",
+      "ScanTimezoneScope / DEV-2309 family — confirmed unrelated",
+      "BuildShiftSummary CH-outage resilience (markTestIncomplete TC-S6) — separate",
+      "Retry backoff/jitter tuning (default 0-backoff) — not required by any AC"
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "SendEndOfShiftSummary completes without SQLSTATE[57014] timeouts (verify against laravel.log post-deploy)", "source": "ticket", "decision": "implement", "reason": "Re-route off write-PDO + bbox; final proof is post-deploy log per AC wording. Whether the primary's statement_timeout is strictly tighter than the replica's can't be confirmed from code."},
+    {"item": "The timing-out query in the summary path is bounded/optimized", "source": "ticket", "decision": "implement", "reason": "Add bbox (&&) pre-filter; GiST indexes (zones_geom_gist, geo_new_scans) + (kit_id,scanned_at) btree already exist — indexing is not the gap, the join has no bound."},
+    {"item": "Retry-exhaustion no longer silently drops a summary — it alerts or records a skip reason", "source": "ticket", "decision": "partial-existing", "reason": "failed() already logs Log::error + records summary_skipped_reason='mail_failed' for any Throwable (DEV-1788, pinned by test). Gap is the misleading label + no proactive alert — needs a human call."}
+  ],
+  "questions": [
+    {"q": "Does DEV-2309's fix cover this?", "answered": true, "answer": "No — DEV-2309 fixed Eloquent Scan::query() aggregates on 'zod'; buildZoneSummaries is raw SQL on 'platform' that never instantiates the Scan model/global scope. Structurally different (transaction/connection pinning, not a scope-injected join).", "source": "code"},
+    {"q": "Why does it time out on 'platform' (write) not the 'zod' replica?", "answered": true, "answer": "handle() wraps its body in DB::connection('platform')->transaction(); getReadPdo() returns the write PDO once transactions>0 (Connection.php:1280) regardless of sticky, so buildZoneSummaries/loadZonePolygonsForMap (which call DB::connection('platform')->select) run on the write node purely because they execute inside that open transaction.", "source": "code"},
+    {"q": "What should 'alert' mean for AC-3 — is Log::error (Nightwatch-ingested) sufficient, or a new proactive notification (Slack/PagerDuty/email) to a specific recipient?", "answered": false, "answer": null, "source": "needs-human"},
+    {"q": "Is re-routing to the 'zod' read replica acceptable given the small pre-existing-class replication-lag window (a just-recorded scan/just-edited zone might not yet be visible)?", "answered": true, "answer": "Low risk, consistent with existing behavior: zones rarely change; app already defaults Scan/Hit reads to 'zod' everywhere; worst case the final scan(s) lag sub-second and undercount slightly, not a correctness break.", "source": "code"}
+  ],
+  "blockers": [],
+  "notes": [
+    "Sibling convention: ClarityScoutShiftController::end() and CloseInactiveShiftsCommand both scope their platform transaction to JUST the shift-row mutation and dispatch SendEndOfShiftSummary AFTER commit — SendEndOfShiftSummary is the outlier wrapping ALL read-heavy work + mail inside the lock/transaction.",
+    "Deliberately did NOT recommend shrinking the lock/transaction scope: the docblock + idempotency test (job_is_idempotent_when_summary_already_sent) document that lockForUpdate spanning read+send+stamp serializes concurrent duplicate dispatches. Narrowing it without a claim/CAS mechanism risks duplicate-email regression; re-routing the connection preserves lock semantics exactly.",
+    "'zod' and 'platform' are two connection configs on the SAME physical DB (both read DB_READ_HOST/DB_HOST); differ in search_path + sticky (platform=true). okf/concepts/data-architecture.md documents this; warns 'platform' is overloaded (schema vs connection).",
+    "Mail::to()->send() is SYNCHRONOUS (not ->queue()); plus 3 ClickHouse round trips — all held under the kit_shifts lock even after this fix. Follow-up if lock contention becomes visible.",
+    "kit_shifts.summary_skipped_reason is plain varchar(64) with no check constraint — adding 'build_failed' needs no migration.",
+    "MapboxStaticMapBuilder::build() only builds a URL string (no Http/Guzzle) — not a network call under the lock.",
+    "Kit/Hit models declare $connection='zod'; Zone/KitSettings/KitShift declare 'platform'; not everything inside the platform transaction runs on that connection."
+  ],
+  "tests": [
+    {"file": "tests/Feature/Services/Scout/BuildShiftSummaryTest.php", "what_it_pins": "That buildZoneSummaries/loadZonePolygonsForMap issue raw SQL via the intended connection (assert query-log connection name), and correct per-zone counts; needs a resolved cross-connection seeding approach (docblock 17-25 explains the current gap)."},
+    {"file": "tests/Feature/Jobs/Scout/SendEndOfShiftSummaryTest.php", "what_it_pins": "Red→green: force BuildShiftSummary::forShift() to throw mid-build; assert failed() records a skip reason distinguishable from a mail-send failure and the row lock is released after the exception."}
+  ],
+  "grounding": {
+    "handle_transaction": "app/Jobs/Scout/SendEndOfShiftSummary.php:62",
+    "buildZoneSummaries": "app/Services/Scout/BuildShiftSummary.php:178-193",
+    "loadZonePolygonsForMap": "app/Services/Scout/BuildShiftSummary.php:301-313",
+    "dispatch_sites": ["CloseInactiveShiftsCommand.php:84-91 (narrow txn, dispatch after commit)", "ClarityScoutShiftController.php:119-145 (narrow txn, dispatch after)"],
+    "getReadPdo_write_in_txn": "vendor/laravel/framework/src/Illuminate/Database/Connection.php:1278-1290",
+    "zones_geom_gist": "database/migrations/2026_05_12_000000_create_zones_table.php:35-41",
+    "scans_indexes": "vendor zod-schema.sql:3994-4009 (PARTITION BY RANGE scanned_at), :25702 (geo GiST), :26199 (kit_id,scanned_at btree)"
+  },
+  "data_impact": {
+    "pg_tables": ["platform.kit_shifts (write)", "platform.zones (read)", "public.scans (read, partitioned)", "public.kits, public.users, platform.kit_settings (read)"],
+    "ch_tables": ["clarity.sc_positions", "clarity.scans_hot", "clarity.scans_cold", "clarity.hits_cold"],
+    "mv_or_cdc_implications": "None — read-only SELECT changes; scans_hot/cold+hits_cold CDC-fed FROM PG, only read here. kit_shifts is NOT in the PeerDB CDC pipeline (okf/models/kit_shifts.md:53).",
+    "indexes_relied_on": ["zones_geom_gist", "geo_new_scans (GiST)", "kit_id_scanned_at_new_scans (btree)", "partition pruning on scans by scanned_at range"]
+  },
+  "exhaustiveness": {
+    "sites": [
+      {"pattern": "DB::connection('platform')->transaction(", "site": "SendEndOfShiftSummary.php:62", "verdict": "buggy", "reason": "wraps 2 raw PG queries + 3 CH round trips + role lookup + sync mail send inside the lock/transaction, forcing raw PG reads onto the write PDO"},
+      {"site": "CloseInactiveShiftsCommand.php:84", "verdict": "safe", "reason": "scope is just forceFill(ended_at)->save; dispatch after txn closes"},
+      {"site": "ClarityScoutShiftController.php:119", "verdict": "safe", "reason": "lockForUpdate + status check + save; dispatch after"},
+      {"site": "EnsureOpenShift.php:57", "verdict": "safe", "reason": "bounded inferStartedAt (MAX_SCAN_ROWS=5000, LIMIT) on 'zod'; DEV-2309-fixed"},
+      {"site": "ST_Contains BuildShiftSummary.php:184", "verdict": "buggy", "reason": "only spatial predicate with no cache/LIMIT/bbox; joins a full shift's scan set against every org zone"},
+      {"site": "Zone.php:234 intersectingGeohashes", "verdict": "safe", "reason": "Cache::remember'd, geohash-bbox pre-bounded"},
+      {"site": "Hit.php:340 ST_DWithin", "verdict": "safe", "reason": "bounded single-address radius"},
+      {"site": "ClientSearchScansResource.php:92", "verdict": "possibly-buggy, out of scope", "reason": "Scan::query()->forOrg() without withoutGlobalScope — same family, no prod evidence; follow-up"}
+    ]
+  },
+  "blast_radius": ["raw-SQL read change + connection re-route on the primary/WRITE Postgres connection; verify identical zone-attribution results and preserve exact (no is_visible) filtering; replica-lag semantics if re-routed to 'zod'"],
+  "confidence": 63,
+  "escalate": {"recommend": true, "reason": "AC-3 'alerts or records' is genuinely ambiguous (skip-reason half already done; no repo convention for proactive ops alert). The precise reason it fails on 'platform' vs 'zod' (stricter primary statement_timeout) is well-supported by the transaction→write-PDO mechanism but unconfirmable from code. Touches a job with a documented idempotency guarantee; ticket invites weighing lock-scope reduction (concluded against). Multiple viable bounding approaches (connection-routing, bbox, CTE, split) — reconcile should pick."}
+}

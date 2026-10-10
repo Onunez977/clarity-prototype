@@ -1,0 +1,87 @@
+{
+  "key": "DEV-2163",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "escalated": true,
+  "escalation_triggers": ["confidence<80 (75)", "prep escalate.recommend=true", "answered:false material questions (perf approach, plate filter)", "blast-radius: cross-db clarity.*+zod.* join hit on every Scout dashboard poll; failures degrade silently to []"],
+  "deep_path_note": "3-candidate fan-out deliberately SKIPPED: single highly-grounded candidate with no competing scope to reconcile; the two residual questions are explicit needs-human product/perf decisions that additional blind candidates cannot resolve. Driver independently verified the load-bearing corrections (readWKTPoint->extract, id-IN-subquery, single caller, truncate list) against the actual code on this branch.",
+  "synthesis": "GET /api/scout/dashboard/check-in-counts (ScoutCheckInRollupQuery) returns {direct_bucket:0, staging_bucket:0} for every kit because its `addresses` CTE sources candidate open-assignment addresses from clarity.recovery_address (a repossession-only MV) INNER JOINed to Open hotlists. Open hotlists almost never have a recovery_address row, so ~0 addresses match. Fix: repoint the CTE to the real open-assignment path clarity.hotlist(status=Open) -> zod.public_hotlist_address -> zod.public_address, parse EWKT geo, guard nulls/(0,0), preserve the proximity matcher + hour-bucket dedup + is_staged split + staging-org auth, and re-fixture the tests onto the two zod tables. The sibling HotlistAddressGeohashQuery already implements this exact join+parse idiom and is the pattern to mirror.",
+  "scope": {
+    "summary": "Repoint ScoutCheckInRollupQuery's addresses CTE from clarity.recovery_address to zod.public_hotlist_address->zod.public_address (Open hotlists), using the repo's established extract()+toFloat64OrNull EWKT parse and id-IN-subquery (never a JOIN on public_address), plus a scan-window-derived performance prefilter (approach pending gate answer), and re-fixture the Feature tests onto the two zod tables.",
+    "proposed_changes": [
+      {"file": "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php", "change": "Rewrite the `addresses` CTE (47-62): select address ids for Open (+authorized staging) hotlists via `zod.public_hotlist_address.address_id IN (subquery over clarity.hotlist FINAL status=1 with existing hotlistOrgFilter)`, resolve coords from `zod.public_address` filtered by `a.id IN (...)` (no JOIN), parse geo via toFloat64OrNull(extract(a.geo,'POINT ?\\(([-0-9.]+) ')) / extract(a.geo,' ([-0-9.]+)\\)'), guard geo NULL/''/(0,0), carry hl.is_staged through. Add the agreed perf prefilter (bbox from the kit's scan-window extent). No FINAL on the zod tables (matcher DISTINCT + _peerdb_is_deleted=0 absorb dup versions, per sibling convention).", "reason": "recovery_address is repossession-only; open-assignment addresses live in public_hotlist_address->public_address. Mirror HotlistAddressGeohashQuery's deliberate perf/parse choices.", "ref": "ScoutCheckInRollupQuery.php:47-62; pattern HotlistAddressGeohashQuery.php:120-157"},
+      {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php", "change": "Replace the recovery_address fixture with a helper seeding zod.public_address (EWKT geo) + zod.public_hotlist_address (hotlist_id->address_id link); update the existing check-in tests to use it; add a test for NULL/empty/(0,0) geo guard.", "reason": "Current fixture encodes the never-in-prod open+recovery_address shape that made the bug's tests green; re-fixture on the real source to actually pin the fix.", "ref": "ClarityScoutDashboardControllerTest.php:95-109,727-864; fixture precedent ClarityScoutMapControllerTest.php:1342-1389"}
+    ],
+    "target_files": ["app/Clickhouse/Queries/ScoutCheckInRollupQuery.php", "tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php"],
+    "out_of_scope": ["NearestGivenAddressController.php (legit unrelated recovery_address consumer)", "RefreshViews.php / recovery_address MV pipeline", "RequiresClickhouse truncate list (already covers both zod tables)", "building a new persisted geohash MV (AC5 wants approach documented, not necessarily a new structure)"]
+  },
+  "acceptance_criteria": [
+    {"item": "Source open-assignment addresses from zod.public_hotlist_address->zod.public_address (Open hotlists), not clarity.recovery_address", "source": "ticket", "decision": "implement", "reason": "confirmed root cause"},
+    {"item": "EWKT geo parsed to lng/lat with null/empty/(0,0) guards", "source": "ticket", "decision": "implement", "reason": "use extract()+toFloat64OrNull (NOT ticket-suggested readWKTPoint, which throws->CH swallows whole query to empty)"},
+    {"item": "Direct vs staging split (is_staged) + staging-org authorization preserved", "source": "ticket", "decision": "implement", "reason": "independent of address source; carry hl.is_staged through new join"},
+    {"item": "Endpoint returns non-zero counts for a real org/kit (live-data verified)", "source": "ticket", "decision": "defer", "reason": "live-data verification action, resolved in QA/handoff against staging or read-only prod CH, not a code artifact"},
+    {"item": "Performance acceptable for high-volume kits; approach documented", "source": "ticket", "decision": "implement", "reason": "address-side id-IN-subquery precedented; scan-side prefilter is the open design question below"},
+    {"item": "Feature tests re-fixtured onto the two zod tables; existing coverage retained + passing", "source": "ticket", "decision": "implement", "reason": "RequiresClickhouse already truncates both; reuse seedGeohashCell shape"}
+  ],
+  "questions": [
+    {"q": "Performance approach for the scans x open-addresses geoDistance matcher on high-volume kits (bbox vs geohash-prefix vs narrow-only)", "answered": true, "answer": "Scan-window bbox prefilter: compute the kit's scan-window lat/lng extent (min/max over the kit's scans in the window) and prefilter candidate open-addresses to that bounding box before the geoDistance join, reusing the HotlistAddressGeohashQuery bbox idiom. (Dalton deferred to recommendation.)", "source": "human:Dalton 2026-07-07 (WWDD-recommendation)"},
+    {"q": "Apply length(plate) > 3 filter to the open-hotlist set (match sibling), or count all open assignments?", "answered": true, "answer": "Apply length(plate) > 3 — match HotlistAddressGeohashQuery; exclude junk/short-plate open hotlists for cross-surface consistency.", "source": "human:Dalton 2026-07-07"}
+  ],
+  "blockers": [],
+  "notes": [
+    "CORRECTION to ticket: do NOT use readWKTPoint (ticket suggests it) — it throws on malformed/non-POINT rows and ClickhouseQuery::query() swallows the exception to []; use extract()+toFloat64OrNull like HotlistAddressGeohashQuery.php:124-133.",
+    "Never JOIN zod.public_address (~189M rows) — use `a.id IN (subquery)` (rides id PK). HotlistAddressGeohashQuery.php:120-152.",
+    "Skip FINAL on the two zod tables; rely on _peerdb_is_deleted=0 + the matcher's DISTINCT (address_id,is_staged,hour_bucket). Sibling convention.",
+    "ClickhouseQuery::query() swallows exceptions to report()+[] in prod/testing — a timeout looks identical to the original bug (silent empty). Raises the stakes on the perf approach (AC5).",
+    "recovery_address stays: NearestGivenAddressController is a separate correct consumer. Single caller of ScoutCheckInRollupQuery = ClarityScoutDashboardController::checkInCounts (confirmed).",
+    "PROXIMITY_METERS=160.934 (=0.1mi) intentionally matches LprVisitCountQuery — keep unchanged.",
+    "ra.geo.1/.2 works today only because recovery_address.geo is a pre-parsed point tuple; public_address.geo is an EWKT string that must be regex-parsed."
+  ],
+  "tests": [
+    {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php", "what_it_pins": "6 existing check-in tests (direct/staging split, radius exclusion, hour-bucket dedup, kit/org scoping, non-open exclusion, unauthorized-staging exclusion) re-fixtured onto zod.public_address+public_hotlist_address"},
+    {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php", "what_it_pins": "new: NULL/empty/(0,0) geo rows excluded and don't crash the query (AC2 guard)"}
+  ],
+  "grounding": {
+    "key_files": ["app/Clickhouse/Queries/ScoutCheckInRollupQuery.php:47-62", "app/Http/Controllers/Api/ClarityScoutDashboardController.php:202-240", "routes/api.php:37", "app/Clickhouse/Queries/HotlistAddressGeohashQuery.php:120-157", "app/Clickhouse/Queries/ClickhouseQuery.php:16-31", "tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php:95-109,727-864", "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php:1342-1389", "tests/Concerns/RequiresClickhouse.php:22,33-34"],
+    "code_flow": "route -> checkInCounts() (org/kit/tz, date range, staging org ids via Org::stagingOrgIds, cache) -> ScoutCheckInRollupQuery::query() (cache wrapper) -> handle() (addresses CTE -> matches CTE geoDistance+DISTINCT -> countIf is_staged split) -> {direct_bucket, staging_bucket}",
+    "tables": ["clarity.hotlist", "clarity.scans_hot/scans_cold", "zod.public_hotlist_address", "zod.public_address", "clarity.recovery_address (being removed from this path)"],
+    "related_components": ["Org::stagingOrgIds()", "ClickhouseQuery base (cache + swallow-to-empty)", "RequiresClickhouse trait"]
+  },
+  "exhaustiveness": {
+    "grep_patterns": ["ScoutCheckInRollupQuery", "recovery_address", "check-in-counts", "checkInCounts", "readWKTPoint", "public_hotlist_address"],
+    "sites": [
+      {"file": "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php:53", "status": "buggy", "reason": "addresses CTE sourced from recovery_address — root cause"},
+      {"file": "app/Http/Controllers/Api/ClarityScoutDashboardController.php:220", "status": "safe", "reason": "sole caller; passes org/kit/staging/date — no change beyond what handle() consumes"},
+      {"file": "app/Http/Controllers/NearestGivenAddressController.php", "status": "safe", "reason": "separate correct recovery_address feature — must stay"},
+      {"file": "app/Console/Commands/RefreshViews.php:28", "status": "safe", "reason": "recovery_address MV refresh infra"},
+      {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php:95-109,727-864", "status": "buggy", "reason": "recovery_address fixture encodes never-in-prod shape; must re-fixture"}
+    ]
+  },
+  "data_impact": {
+    "pg_tables": ["zod.public.address", "zod.public.hotlist_address"],
+    "ch_tables": ["zod.public_address (added)", "zod.public_hotlist_address (added)", "clarity.hotlist", "clarity.scans_hot", "clarity.scans_cold", "clarity.recovery_address (removed from path)"],
+    "mv_or_cdc_implications": "public_address/public_hotlist_address are PeerDB CDC ReplacingMergeTree replicas; sibling query skips FINAL and relies on _peerdb_is_deleted=0 + downstream DISTINCT. recovery_address MV pipeline untouched.",
+    "indexes_relied_on": ["zod.public_address id PK (id IN subquery, no JOIN)", "zod.public_hotlist_address (hotlist_id membership = bounded scan over small open-hotlist id set)"]
+  },
+  "derivation_log": [
+    {"query_shape": "repo grep ScoutCheckInRollupQuery", "param_classes": "static code search", "aggregate_result": "1 caller (checkInCounts)", "why": "confirm isolated blast radius"},
+    {"query_shape": "repo grep recovery_address", "param_classes": "static code search", "aggregate_result": "4 consumers: buggy query + NearestGivenAddressController (unrelated) + 2 infra/test", "why": "avoid over-scoping; recovery_address stays for its legit consumer"},
+    {"query_shape": "read HotlistAddressGeohashQuery + RequiresClickhouse", "param_classes": "static code read", "aggregate_result": "established extract()+id-IN-subquery+bbox idiom; both zod tables already truncated", "why": "ground fix + tests in existing conventions"}
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "AC1", "kind": "agent", "intent": "assert addresses CTE sources from zod tables scoped to Open hotlists"},
+      {"ac": "AC2", "kind": "agent", "intent": "seed NULL/empty/(0,0) geo alongside a valid nearby address; malformed excluded, no error"},
+      {"ac": "AC3", "kind": "agent", "intent": "authorized vs unauthorized staging org open address near scans; only authorized in staging_bucket"},
+      {"ac": "AC4", "kind": "human", "intent": "live endpoint for a real org/kit near an open address returns non-zero"},
+      {"ac": "AC5", "kind": "human", "intent": "load-test high-volume kit under CH timeout; approach documented in docblock"},
+      {"ac": "AC6", "kind": "agent", "intent": "re-fixtured suite: radius/dedup/scoping/staging all pass"}
+    ],
+    "seed_scenario": "One org with an Open non-staged hotlist linked via zod.public_hotlist_address to a zod.public_address (valid EWKT near kit scan); a staging-authorized partner org with its own Open+staged pair near another scan; decoys: a Repossessed hotlist address, and NULL/empty/(0,0) geo rows. Mirror insertHotlist/insertScanHot but move address rows onto the two zod tables (see seedGeohashCell).",
+    "personas": ["Scout kit/driver user viewing check-in tile", "Ops/QA verifying live prod post-deploy (read-only prod CH)"],
+    "pg_tables": ["zod.public.address", "zod.public.hotlist_address"],
+    "ch_tables": ["zod.public_address", "zod.public_hotlist_address", "clarity.hotlist", "clarity.scans_hot", "clarity.scans_cold"]
+  },
+  "confidence": 75,
+  "missed_caller_candidates": []
+}

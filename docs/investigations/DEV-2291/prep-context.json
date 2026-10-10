@@ -1,0 +1,121 @@
+{
+  "key": "DEV-2291",
+  "mode": "normal",
+  "reconcile_note": "Escalated best-of-N (1 fast pass + 3 blind candidates + grep backstop). All four converge on the same root cause and impersonation-is-incidental finding. The one real fork — resilience via Laravel's ShouldRescue marker on the events (candidates 1,3) vs explicit try/catch in the two services (fast-pass, candidate 2) — was settled by the driver reading the pinned vendor (Laravel 12.57.0): Illuminate\\Contracts\\Broadcasting\\ShouldRescue exists and BroadcastManager::queue() wraps a ShouldBroadcastNow dispatch in rescue() (report+swallow) per-dispatch iff the event implements it. ShouldRescue is preferred: framework-native, ~2 lines, covers all 8 call sites uniformly, per-dispatch so bulk loops complete, and reports failures. Two design questions remain genuinely human (failure UX; keep-vs-revert ShouldBroadcastNow) → gate BLOCKED.",
+  "synthesis": "In Clarity Scout, assigning a kit user to a zone (map editor ManageZones::save()) can throw a server-side exception that Filament v5 renders as its generic 'Error while loading page' toast, and — worst case — silently rolls back the whole save so the assignment does not persist. Root cause: ManageZones::save() wraps the zone write, PostGIS geometry rebuild, zone_user pivot sync (ZoneAssignmentSyncer), and the real-time broadcast fan-out (ZoneBroadcaster) inside ONE DB::connection('platform')->transaction(). The two Scout events dispatched in that path — ZoneAssignmentsChanged and ZoneUpdated — implement ShouldBroadcastNow (switched from queued ShouldBroadcast in commit b51b21061 'Broadcast now', 2026-05-29), so the Pusher/Reverb HTTP push runs synchronously, in-request. Laravel's PusherBroadcaster only catches Pusher\\ApiErrorException (rewrapped as BroadcastException); any other throwable (network/DNS/TLS/config), and even that BroadcastException, propagates uncaught out of the transaction closure → the whole save rolls back and the exception surfaces as the toast. It bites specifically on 'assigning a user' because ZoneBroadcaster::broadcastUpdated() is a no-op for a zone with zero assigned drivers, so the first assignment is the first synchronous broadcast the zone ever attempts. Desired outcome: a real-time broadcast delivery failure must never roll back or fail an otherwise-valid zone save/assignment (or any zone action); the DB write is durable and the push is best-effort + logged.",
+  "scope": {
+    "summary": "Make the two Scout zone broadcast events resilient by implementing Laravel 12's native Illuminate\\Contracts\\Broadcasting\\ShouldRescue on both, so a synchronous ShouldBroadcastNow delivery failure is report()'d and swallowed by the framework instead of propagating — which (a) stops the DB transaction rollback in ManageZones::save() and (b) removes the misleading error toast from the 7 non-transactional zone actions, all from a single 2-line-per-file change at the choke point. Keep ShouldBroadcastNow (real-time immediacy) — reverting to queued ShouldBroadcast would still throw synchronously wherever QUEUE_CONNECTION=sync, so it is not a sufficient fix on its own. Add regression tests that exercise a REAL (non-Event::faked) broadcaster failure.",
+    "proposed_changes": [
+      {"file": "app/Events/Scout/ZoneAssignmentsChanged.php", "change": "Add `implements ShouldRescue` alongside the existing `ShouldBroadcastNow` (import Illuminate\\Contracts\\Broadcasting\\ShouldRescue).", "reason": "This event is dispatched per added/removed user inside ManageZones::save()'s DB transaction; ShouldRescue makes BroadcastManager wrap each synchronous dispatch in rescue() (report+swallow) so a delivery failure can't roll back the save.", "ref": "app/Events/Scout/ZoneAssignmentsChanged.php:13"},
+      {"file": "app/Events/Scout/ZoneUpdated.php", "change": "Add `implements ShouldRescue` alongside `ShouldBroadcastNow`.", "reason": "Dispatched by ZoneBroadcaster::broadcastUpdated/broadcastUpdatedTo/broadcastDeleted from all 8 zone action sites; same per-dispatch rescue protects them uniformly and lets bulk loops complete.", "ref": "app/Events/Scout/ZoneUpdated.php:20"},
+      {"file": "tests/Filament/Pages/ManageZonesTest.php", "change": "Add a test that forces the REAL broadcaster to throw (bind a broadcasting driver/connection that throws, NOT Event::fake) while assigning a driver, and assert the zone + zone_user row persist and save() completes without a surfaced exception. Mirror/invert the existing test_save_rolls_back_and_does_not_broadcast_when_geometry_rebuild_fails.", "reason": "Pins the exact bug fix; the current suite never exercises a failing broadcaster (Event::fake bypasses the dispatch path and .env.testing falls back to the 'log' driver), which is why this shipped unseen.", "ref": "tests/Filament/Pages/ManageZonesTest.php:111-143"},
+      {"file": "tests/Feature/Events/ZoneAssignmentsChangedTest.php (or a small unit test)", "change": "Assert ZoneAssignmentsChanged (and ZoneUpdated) implement ShouldRescue — a cheap regression guard against re-removing the marker — plus confirm syncZoneUsers()/broadcastUpdated() still complete their full loop and return the affected/notified IDs when the broadcaster throws.", "reason": "Locks the contract and covers the per-dispatch loop-completeness behavior at the service level, independent of the Filament page.", "ref": "app/Services/Zones/ZoneAssignmentSyncer.php:58-66, app/Services/Zones/ZoneBroadcaster.php:29-88"}
+    ],
+    "target_files": [
+      "app/Events/Scout/ZoneAssignmentsChanged.php",
+      "app/Events/Scout/ZoneUpdated.php",
+      "tests/Filament/Pages/ManageZonesTest.php",
+      "tests/Feature/Events/ZoneAssignmentsChangedTest.php"
+    ],
+    "out_of_scope": [
+      "Root-causing the specific production broadcast infra failure (Pusher/Reverb reachability, credentials, quota) for org 348942 — needs Nightwatch/Datadog + env access this read-only prep can't reach; the ShouldRescue fix removes the user-facing symptom regardless of the exact trigger. Deferred as a follow-up.",
+      "Restructuring ManageZones::save() to move the broadcast dispatch outside the DB transaction (defense-in-depth). Not required once ShouldRescue prevents the dispatch from ever throwing; adds churn for no additional guarantee.",
+      "Reverting ZoneAssignmentsChanged/ZoneUpdated to queued ShouldBroadcast — a deliberate architecture change (commit b51b21061) that trades real-time immediacy for isolation, and insufficient on its own (still throws synchronously under QUEUE_CONNECTION=sync). Flagged as an open question, not silently reverted.",
+      "Scout PWA / Vue real-time listener (resources/js/clarity-scout/composables/useZoneRealtime.js) — unaffected by this backend resiliency change.",
+      "KML import (ZoneKmlImporter/ImportZonesFromKml) and the driver-side read-only ClarityScoutZonesController — different domains, do not touch the assignment/broadcast path."
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "Assigning a kit user to a new or existing zone (map editor Save) persists the assignment and shows the success toast — no 'Error while loading page' toast — even if the real-time broadcast to drivers fails.", "source": "ticket", "decision": "implement", "reason": "Direct ticket requirement; met by making the broadcast best-effort via ShouldRescue."},
+    {"item": "If the real-time broadcast/notification delivery fails for any reason, the zone save AND the zone_user assignment sync still persist (no rollback caused solely by a broadcast failure).", "source": "derived", "decision": "implement", "reason": "This is the actual 'unclear whether the assignment saved' mechanism — today the whole transaction rolls back."},
+    {"item": "Genuine data errors inside the same transaction (e.g. malformed zone geometry) STILL roll back the save exactly as before.", "source": "derived", "decision": "implement", "reason": "The fix must isolate only the broadcast dispatch (via ShouldRescue on the events), not weaken save()'s rollback semantics — the existing geometry-rollback test must keep passing unchanged."},
+    {"item": "The other zone actions (delete, quick-edit, quick/bulk reassign, restore) no longer surface the false error toast on a broadcast failure, and the two bulk loops process every selected record to completion.", "source": "derived", "decision": "implement", "reason": "All 8 sites funnel through the same two events; the event-level fix covers them uniformly, and per-dispatch rescue prevents a mid-loop abort."},
+    {"item": "When broadcasting is healthy, drivers still receive the ZoneAssignmentsChanged/ZoneUpdated real-time push with the same payload/channel as before (no happy-path regression).", "source": "derived", "decision": "implement", "reason": "ShouldRescue only affects the failure path; existing Event::fake() dispatch/payload tests must keep passing."},
+    {"item": "A broadcast delivery failure remains observable (report()'d to the error handler / logs), not silently lost.", "source": "derived", "decision": "implement", "reason": "Laravel's rescue() reports by default; assert it rather than assume it."},
+    {"item": "Confirm the exact production broadcaster exception for org 348942.", "source": "derived", "decision": "defer", "reason": "Requires prod log access; not needed to fix the code defect."}
+  ],
+  "questions": [
+    {"q": "Failure UX: when a real-time broadcast fails, should the admin see NOTHING (silent + logged) or a soft warning toast?", "answered": true, "answer": "Silent + logged. Save shows the normal 'Zone saved' success toast; broadcast failures are report()'d to error tracking (via Laravel's rescue()). Drivers still get the persisted DB notification on next refetch. No soft warning (Dalton confirmed pure ShouldRescue over the try/catch-warning variants, understanding ShouldRescue swallows the failure inside the framework so a warning isn't possible without extra plumbing).", "source": "human:Dalton 2026-08-03"},
+    {"q": "Resilience mechanism / architecture: ShouldRescue marker vs try/catch in services vs revert to queued ShouldBroadcast?", "answered": true, "answer": "ShouldRescue on both events (ZoneAssignmentsChanged + ZoneUpdated), KEEPING ShouldBroadcastNow. Framework-native, ~2 lines per event, per-dispatch rescue so bulk loops complete, failures report()'d. Not try/catch (more surface), not revert-to-queued (still throws under QUEUE_CONNECTION=sync).", "source": "human:Dalton 2026-08-03"},
+    {"q": "Is admin impersonation causal to this bug?", "answered": true, "answer": "No — incidental. ImpersonateController::impersonate() does a real Auth::loginUsingId(), so auth()->user()/org resolution is identical to a directly-logged-in org admin; ZonePolicy gates on ADMIN-role scoped to the org regardless of the admin_impersonator flag. The broadcast failure path never reads impersonation state. Impersonation is just how internal staff reach another org's Zones page.", "source": "code"},
+    {"q": "Does the error fire on selecting the user (live) or on Save?", "answered": true, "answer": "On Save. The 'Assigned Kit Users' Select is ->live() but has NO afterStateUpdated hook (ManageZones.php:162-198) — selecting a user only re-renders Livewire state. The zone_user sync + broadcast happen exclusively in save() inside the DB transaction (ManageZones.php:296-311).", "source": "code"},
+    {"q": "Would a metadata-only edit (no roster change) on the same zone also fail?", "answered": true, "answer": "Yes, if the zone already has ≥1 assigned driver — ZoneBroadcaster::broadcastUpdated() iterates every currently-assigned user regardless of whether the roster changed, so it attempts the same synchronous broadcast. Only a zone with zero assigned drivers and no roster change skips broadcasting entirely. The event-level ShouldRescue fix covers this case too.", "source": "code"}
+  ],
+  "blockers": [],
+  "notes": [
+    "Verified in pinned vendor (Laravel 12.57.0): Illuminate\\Contracts\\Broadcasting\\ShouldRescue exists; BroadcastManager::queue() (lines 180-189) dispatches ShouldBroadcastNow synchronously and wraps it in $this->rescue() (→ global rescue(), which report()s and swallows) ONLY when the event also implements ShouldRescue. This is the framework's purpose-built mechanism for exactly this bug and is per-dispatch (so bulk loops complete).",
+    "CI is structurally blind to this class: every Zone broadcast test uses Event::fake(), and .env.testing sets no BROADCAST_CONNECTION so it falls back to the 'log' driver (never throws). New tests must force a REAL throwing broadcaster, not Event::fake().",
+    "Only ManageZones::save() wraps the broadcast in a DB transaction (the data-loss case). The other 7 sites (delete, quick-edit, reassign ×3, bulk-delete, restore) already commit before dispatching, so a throw there is a misleading toast (and, for the two bulk loops, a mid-loop abort) — all fixed transitively by the event-level change.",
+    "Repo already has a best-effort side-effect convention (app/Services/Rdn/RdnMetricsPublisher.php catch(\\Throwable)+report()+log) — cited as the try/catch alternative; ShouldRescue achieves the same report+swallow with less surface.",
+    "The events share the broadcastAs name 'zones.changed'; the Scout client refetches on it. ShouldRescue does not change the success-path payload/channel.",
+    "okf/concepts/scout-real-time-tracking.md documents the zone-broadcast flow but not this resiliency gap — a wiki update is worth proposing at handoff (not created per CLAUDE.md unless asked)."
+  ],
+  "tests": [
+    {"file": "tests/Filament/Pages/ManageZonesTest.php", "what_it_pins": "Assigning a driver to a zone persists (zone + zone_user) even when the real broadcaster throws, and save() surfaces no exception."},
+    {"file": "tests/Filament/Pages/ManageZonesTest.php", "what_it_pins": "Existing malformed-geometry rollback test still passes unchanged (a genuine in-transaction data error still rolls back)."},
+    {"file": "tests/Feature/Events/ZoneAssignmentsChangedTest.php", "what_it_pins": "ZoneAssignmentsChanged + ZoneUpdated implement ShouldRescue (regression guard) and the syncer/broadcaster loops complete + report on a throwing broadcaster."},
+    {"file": "tests/Feature/Events/ZoneUpdatedTest.php / ZoneAssignmentsChangedTest.php", "what_it_pins": "No happy-path regression: successful broadcasts still dispatch with the same payload/channel (existing Event::fake coverage)."}
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Filament/Pages/ManageZones.php:162-198 (Assigned Kit Users Select — live(), no afterStateUpdated)",
+      "app/Filament/Pages/ManageZones.php:296-311 (save() — DB::connection('platform')->transaction wraps save + geometry rebuild + syncZoneUsers + broadcastUpdated)",
+      "app/Filament/Pages/ManageZones.php:331-361 (delete() — no transaction; broadcastDeleted after commit)",
+      "app/Services/Zones/ZoneAssignmentSyncer.php:58-66 (event(new ZoneAssignmentsChanged) per added/removed user)",
+      "app/Services/Zones/ZoneBroadcaster.php:29-88 (broadcastUpdated/broadcastUpdatedTo/broadcastDeleted → event(new ZoneUpdated))",
+      "app/Events/Scout/ZoneAssignmentsChanged.php:13 (implements ShouldBroadcastNow only)",
+      "app/Events/Scout/ZoneUpdated.php:20 (implements ShouldBroadcastNow only)",
+      "vendor/laravel/framework/src/Illuminate/Broadcasting/BroadcastManager.php:178-216 (queue(): ShouldBroadcastNow → dispatchNow, rescue()-wrapped iff ShouldRescue)",
+      "vendor/laravel/framework/src/Illuminate/Contracts/Broadcasting/ShouldRescue.php (the marker to implement)",
+      "vendor/laravel/framework/src/Illuminate/Broadcasting/Broadcasters/PusherBroadcaster.php:158-175 (only Pusher\\ApiErrorException caught, rewrapped as BroadcastException)",
+      "tests/Filament/Pages/ManageZonesTest.php:111-143 (existing rollback-on-in-transaction-exception test)",
+      "app/Http/Controllers/ImpersonateController.php (Auth::loginUsingId — impersonation is a real session swap; not causal)",
+      "app/Policies/ZonePolicy.php (ADMIN + org-scoped gate, impersonation-agnostic)"
+    ],
+    "code_flow": "ManageZones (Livewire) wire:submit=save → save() opens DB::connection('platform')->transaction() → Zone::fill/save + rebuildGeometryFromDefinition (PostGIS) → ZoneAssignmentSyncer::syncZoneUsers (zone_user sync/attach + ScoutNotifier DB rows + event(ZoneAssignmentsChanged) per added/removed user) → ZoneBroadcaster::broadcastUpdated (event(ZoneUpdated) per remaining assigned user) → both events ShouldBroadcastNow → BroadcastManager::queue() dispatchNow → PusherBroadcaster::broadcast() (real HTTP) → any throwable propagates uncaught out of the transaction closure → full rollback + rethrow → Livewire non-2xx → Filament default 'Error while loading page' toast. Fix: ShouldRescue on both events makes BroadcastManager wrap each dispatch in rescue() (report+swallow) so nothing propagates.",
+    "tables": ["platform.zones", "platform.zone_user", "platform.notifications", "platform.activity_log", "platform.kit_settings (Select options filter only)"],
+    "related_components": ["ZoneAssignmentSyncer", "ZoneBroadcaster", "ScoutNotifier (persists DatabaseNotification before dispatch — not implicated)", "ZoneAssignmentsChanged/ZoneUpdated (ShouldBroadcastNow, private channel clarity.scout.user.{id}, broadcastAs zones.changed)", "PusherBroadcaster / Pusher-protocol host", "routes/channels.php (subscriber-side auth only — not implicated)"]
+  },
+  "exhaustiveness": {
+    "idiom": "Dispatching a ShouldBroadcastNow event (synchronous in-request Pusher/Reverb broadcast) with no ShouldRescue marker and no surrounding try/catch; any throwable propagates uncaught into the caller, and if the caller is inside a DB transaction it rolls back an otherwise-valid write.",
+    "grep_patterns": ["implements ShouldBroadcastNow", "implements ShouldBroadcast", "ShouldRescue", "event(new Zone", "DB::connection('platform')->transaction", "app(ZoneBroadcaster::class)", "app(ZoneAssignmentSyncer::class)"],
+    "sites": [
+      {"site": "app/Events/Scout/ZoneAssignmentsChanged.php:13", "verdict": "buggy", "reason": "Missing ShouldRescue — FIX POINT 1."},
+      {"site": "app/Events/Scout/ZoneUpdated.php:20", "verdict": "buggy", "reason": "Missing ShouldRescue — FIX POINT 2."},
+      {"site": "app/Filament/Pages/ManageZones.php:296-311 (save())", "verdict": "buggy", "reason": "Broadcast inside DB transaction — the ticket's exact repro; a throw rolls back the entire save + assignment. Fixed transitively by the 2 event changes."},
+      {"site": "app/Filament/Pages/ManageZones.php:331-361 (delete())", "verdict": "buggy", "reason": "Delete committed before broadcastDeleted; a throw shows a false error toast. Fixed transitively."},
+      {"site": "app/Filament/Actions/ZoneReassignAction.php (apply/tableAction/bulkAction, ~111-191)", "verdict": "buggy", "reason": "All funnel into syncZoneUsers; bulk loop aborts on first failure. Fixed transitively (per-dispatch rescue lets the loop complete)."},
+      {"site": "app/Filament/Actions/ZoneQuickEditAction.php:82-108", "verdict": "buggy", "reason": "record->save committed before broadcastUpdatedTo; false error toast. Fixed transitively."},
+      {"site": "app/Filament/Resources/ZoneResource.php (bulk delete ~186-212, row delete ~228-252, restore ->after ~254-271)", "verdict": "buggy", "reason": "Delete/restore committed before broadcast; bulk-delete loop aborts on first failure. Fixed transitively."},
+      {"site": "rest of app/** (grep implements ShouldBroadcast/ShouldBroadcastNow)", "verdict": "safe", "reason": "ZoneAssignmentsChanged + ZoneUpdated are the ONLY broadcasting event classes in the app; no other domain broadcasts synchronously, so the fragile idiom is confined to these two events."}
+    ]
+  },
+  "data_impact": {
+    "pg_tables": ["platform.zones", "platform.zone_user", "platform.notifications", "platform.activity_log"],
+    "ch_tables": [],
+    "mv_or_cdc_implications": "None — pure PostgreSQL (platform schema) write path plus an outbound broadcast HTTP call. No ClickHouse tables, materialized views, or CDC/PeerDB pipelines touched.",
+    "indexes_relied_on": ["zone_user (zone_id, user_id)"]
+  },
+  "derivation_log": [
+    {"query_shape": "git log/show on app/Events/Scout/ZoneAssignmentsChanged.php + ZoneUpdated.php", "param_classes": "n/a", "aggregate_result": "both switched ShouldBroadcast → ShouldBroadcastNow in commit b51b21061 'Broadcast now' (2026-05-29)", "why": "establish that the synchronous-broadcast semantics are recent and deliberate"},
+    {"query_shape": "grep 'implements ShouldBroadcast(Now)?' across app/", "param_classes": "n/a", "aggregate_result": "exactly 2 event classes (the two Scout zone events); no other broadcasting events app-wide", "why": "bound the blast radius of the fragile idiom"},
+    {"query_shape": "read vendor BroadcastManager::queue() + ShouldRescue contract + PusherBroadcaster::broadcast()", "param_classes": "n/a", "aggregate_result": "ShouldRescue present in 12.57.0; queue() rescue()-wraps ShouldBroadcastNow per-dispatch iff ShouldRescue; PusherBroadcaster only catches Pusher\\ApiErrorException", "why": "verify the framework-native fix exists and is correct before committing the plan to it"},
+    {"query_shape": "read .env.testing broadcasting config + grep Event::fake in tests/**/Zone*", "param_classes": "n/a", "aggregate_result": "no BROADCAST_CONNECTION in .env.testing (falls back to 'log'); all Zone broadcast tests Event::fake", "why": "explain why CI never caught it and what the new test must do differently"}
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "AC-1", "kind": "agent", "intent": "Livewire-test ManageZones: assign a kit-enrolled driver to a zero-driver zone; assert success + zone_user row persists (happy path, healthy broadcaster)."},
+      {"ac": "AC-2/AC-3", "kind": "agent", "intent": "Force a throwing broadcaster during an assignment save; assert zone + assignment persist, save() surfaces no exception, and the failure is report()'d."},
+      {"ac": "AC-3", "kind": "agent", "intent": "Re-run the existing malformed-geometry rollback test; confirm it still rolls back (fix didn't weaken real data-error semantics)."},
+      {"ac": "AC-1", "kind": "human", "intent": "Reproduce the original ticket steps (impersonate a Scout org admin, open/create a zone, add a driver under Assigned Kit Users, Save); confirm no error toast and the driver appears after reload."}
+    ],
+    "seed_scenario": "One org with a Clarity-Scout-enabled ADMIN user and one kit-enrolled driver user (has a kit_settings row) in the same org; one zone in that org with zero currently-assigned drivers, to hit the 'first assignment' broadcast path.",
+    "personas": ["Org admin managing Zones in Scout (reached via admin impersonation, but reproducible by any directly-logged-in org admin)", "Kit-enrolled driver assigned to the zone (recipient of the real-time push)"],
+    "pg_tables": ["platform.zones", "platform.zone_user", "platform.kit_settings", "platform.notifications"],
+    "ch_tables": []
+  },
+  "missed_caller_candidates": [],
+  "confidence": 88,
+  "escalate": {"recommend": true, "reason": "Escalated best-of-N ran. Root cause + fix vendor-verified; the two design decisions (failure UX = silent+logged; mechanism = ShouldRescue keeping ShouldBroadcastNow) were answered by Dalton 2026-08-03."},
+  "gate": "CLEAN"
+}

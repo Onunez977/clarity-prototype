@@ -1,0 +1,145 @@
+{
+  "key": "DEV-2183",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2183",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [
+      "provision",
+      "verify"
+    ],
+    "force": false
+  },
+  "knowledge_cards_loaded": [],
+  "escalated": true,
+  "escalation_triggers": [
+    "shared-query-non-scout-caller",
+    "reintroduces-cross-surface-divergence",
+    "confidence<100-scope"
+  ],
+  "missed_caller_candidates": [
+    {
+      "file": "app/Http/Controllers/KitUserPathController.php",
+      "symbol": "HotlistAddressGeohashQuery::query",
+      "referenced_at": "line 73"
+    }
+  ],
+  "diff_base": "cf14edc8381f20d48a3fdd653053c71ea7719b72",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "claude/DEV-2183",
+      "complexity": "simple",
+      "model": "opus (driver, single-node fast path)"
+    }
+  ],
+  "review_number": 2,
+  "pr": {
+    "number": 265,
+    "url": "https://github.com/insight-lpr/platform/pull/265",
+    "draft": false
+  },
+  "pr_urls": {
+    "main": "https://github.com/insight-lpr/platform/pull/265"
+  },
+  "jira_in_progress_by": null,
+  "jira_transitioned_by": "manual-daltonmccleery@gmail.com",
+  "assumed": [],
+  "comment_ids": {
+    "build_record": "35398",
+    "status": "35399"
+  },
+  "qa": {
+    "ledger": "",
+    "agent_report": "",
+    "ac_results": "",
+    "torn_down": true,
+    "provisioning": {
+      "bootstrap": "",
+      "deps": "",
+      "migrations": "",
+      "docker_daemon": "",
+      "ch_container": "",
+      "frontend_build": "",
+      "postgres_db": "",
+      "ch_strategy": "not provisioned (user chose CI-only validation)",
+      "herd_site": ""
+    }
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "deferred to CI (user chose CI-only); affected: ClarityScoutMapControllerTest CH-backed order tests",
+        "passed": 0,
+        "failed": 0
+      }
+    ],
+    "deviations": [
+      "Local test run + agent-qa/human-qa skipped by user decision (2026-07-13): backend-only one-line SQL guard, CI runs the ClickHouse suite on this main-based PR. Static PHP lint passed on all changed files.",
+      "Post-handoff simplification (Dalton, 2026-07-13): dropped the min_plate_length param and hardcoded `>= 3` in the shared query. Reverses the earlier q2 'Scout-only' decision \u2014 the non-Scout KitUserPathController heatmap now also uses `>= 3` (marginal, accepted). Net diff is a one-line `> 3`->`>= 3` change + tests."
+    ],
+    "review": {
+      "lanes": [
+        "in-session-adversarial-high (RN2)"
+      ],
+      "scores": [
+        95,
+        96
+      ],
+      "findings_fixed": [],
+      "findings_residual": []
+    },
+    "ac": [
+      {
+        "item": "Direct order query excludes hotlist rows where LENGTH(plate) < 3",
+        "status": "SATISFIED",
+        "evidence": "ClarityScoutMapController::orderRows passes min_plate_length=3 -> guard `length(plate) >= 3` (staging=false path). Pinned by test_heatmap_orders_direct_includes_length_three_plate_orders + test_order_query_min_plate_length_guards_the_boundary. Execution deferred to CI (RequiresClickhouse suite)."
+      },
+      {
+        "item": "Staging order query excludes hotlist rows where LENGTH(plate) < 3",
+        "status": "SATISFIED",
+        "evidence": "ScoutMapHelpers::orderRows + staging=true path pass min_plate_length=3. Pinned by test_heatmap_orders_staging_includes_length_three_plate_orders. Execution deferred to CI."
+      },
+      {
+        "item": "Behavior matches the existing dashboard-stats `>= 3` rule",
+        "status": "SATISFIED",
+        "evidence": "With min_plate_length=3 the guard is `length(plate) >= 3`, character-identical to HotlistCount.php:74-76. Verified by inspection."
+      }
+    ]
+  }
+}

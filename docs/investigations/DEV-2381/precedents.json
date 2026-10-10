@@ -1,0 +1,40 @@
+{
+  "recall_source": "DEV-2381 description + DEV-2342 comment 38238 + okf PG-024 + DEV-2342 derivation_log",
+  "precedents": [
+    {
+      "key": "DEV-2342",
+      "status": "In Code Review",
+      "relevance": "Parent. W2+W3 shipped (PR 328): server-side matcher + concurrency ceiling. W1 (this ticket) is the remaining duration lever. W4 is schedule re-enable after a proven manual cycle.",
+      "applicable": "yes",
+      "why": "This ticket IS W1. Design locked on comment 38238. Do not re-litigate W2/W3 or uncomment the schedule."
+    },
+    {
+      "key": "DEV-2177",
+      "status": "Done",
+      "relevance": "Ownership precedent: chlocal owns clarity.sc_positions DDL/ingest; platform only SELECTs.",
+      "applicable": "yes",
+      "why": "Forbids platform migrations/PHP/deploy hooks that ALTER sc_positions. Schema dump + wiki after Cloud apply is the platform follow-through."
+    },
+    {
+      "key": "DEV-2012",
+      "status": "Done",
+      "relevance": "Introduced the lower(kit_mapping) reader convention because platform lowercases mappings and the scanner feed does not; ClickHouse = is case-sensitive.",
+      "applicable": "yes",
+      "why": "PHP must keep emitting lower(kit_mapping). The projection is what makes that prune. Do not rewrite readers off of lower()."
+    },
+    {
+      "key": "DEV-2349",
+      "status": "Done",
+      "relevance": "Profiled the ~104-min cycle; answered by comment 38238 (PK bypass + chunk storm).",
+      "applicable": "yes",
+      "why": "W1 is the duration cut. Evidence numbers live in comment 38238 and derivation_log.md."
+    },
+    {
+      "key": "DEV-2313",
+      "status": "In Code Review",
+      "relevance": "Introduced scout:record-check-ins. Schedule commented after the 2026-08-12 OOM.",
+      "applicable": "yes",
+      "why": "Do not uncomment the schedule here. Prod 2026-08-17 still hits CH 159 at 30s on the unprojected lower() scan."
+    }
+  ]
+}

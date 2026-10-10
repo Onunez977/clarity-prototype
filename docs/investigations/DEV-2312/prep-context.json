@@ -1,0 +1,95 @@
+{
+  "key": "DEV-2312",
+  "route": "bug",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "synthesis": "On the admin Hits page in ClickHouse mode (admin impersonator / `clickhouse:hits`), clicking a cluster's 'Show Cluster on Map' button 500s the Livewire request (`/app/hits`) and nothing appears. Root cause: in ClickHouse mode the Hits table query is built from `App\\Clickhouse\\Models\\Hit`, so `Table::getModel()` (and thus `$action->getModel()`) returns the CH Hit class; `sidebar-filters.blade.php` mounts `TableMapComponent` with that model plus `relationship = 'scans'` (from `BulkMapAction->setRelationship('scans')`). On click, `TableMapComponent::formatRecords()` runs `App\\Clickhouse\\Models\\Hit::query()->whereIn('id',...)->get()->map(fn($r) => $r->scans)`, but the CH Hit model has no `scans` relationship -> RelationNotFoundException -> HTTP 500. Postgres mode works (the Postgres Hit has the relationship); the Scans page works (relationship=null, no hop).",
+  "root_cause": "TableMapComponent::formatRecords() unconditionally resolves `$this->relationship` ('scans') on every record via `$record->{$this->relationship}`. In ClickHouse mode the record is an App\\Clickhouse\\Models\\Hit, which has no `scans` relationship. CORRECTED MECHANISM (verified in tinker, not the earlier exception theory): Eloquent's magic accessor returns NULL for an undefined relationship (getRelationValue -> isRelation('scans')===false -> null), it does NOT throw. So formatRecords maps every CH hit to null, ->filter() drops them all, and returns [] -> hasData stays false -> the `filament-maps-widget/updateMapData` event is never dispatched -> the map never opens ('nothing appears'). Confirmed: Table::getModel()=getQuery()->getModel()::class (vendor/filament/tables HasRecords.php:113-124); ListHits::buildClickhouseQuery uses ClickhouseHit; `(new App\\Clickhouse\\Models\\Hit)->scans` === null, isRelation('scans')===false. The console `/app/hits` 500s appear to be the SEPARATE init-time cascade (/geocode/reverse 502 + /nearest-given-address 500, fired per-cluster on init, scoped out by Dalton), NOT the map action — to be confirmed by live QA against real CH.",
+  "scope": {
+    "summary": "Make the Hits cluster-map 'Show Cluster on Map' button work in ClickHouse mode by not resolving a non-existent `scans` relationship, mapping the map pins from the denormalized CH hit record instead; keep Postgres + Scans behavior unchanged.",
+    "proposed_changes": [
+      {"file": "app/Livewire/TableMapComponent.php", "change": "In formatRecords(), only hop `$this->relationship` when the record actually defines that relationship (e.g. method_exists/isRelation guard); otherwise map from the record itself. Prevents the RelationNotFoundException on the CH Hit model.", "reason": "the direct cause of the 500", "ref": "TableMapComponent.php:35-54"},
+      {"file": "app/Clickhouse/Models/Hit.php", "change": "Add read-only accessors so a CH Hit maps to the same map-pin shape the Postgres path produces: `ocr` (raw col exists), `us_state` (from scan_us_state), `vehicleImage` (scan_img from scan_guid, Plate type), `vehicle` (year/make/model), `address` (raw col exists). So pins show label/image/vehicle, matching Postgres.", "reason": "without these the CH pins would render with a partial label and no image/vehicle", "ref": "app/Clickhouse/Models/Hit.php:197-209"}
+    ],
+    "target_files": [
+      "app/Livewire/TableMapComponent.php",
+      "app/Clickhouse/Models/Hit.php"
+    ],
+    "out_of_scope": [
+      "Scans cluster map (works; relationship=null)",
+      "Postgres hits path (works)",
+      "The `/geocode/reverse` (502) and `/nearest-given-address` (500) init-time errors — separate HTTP endpoints fired per-cluster on init, independent of the button; recommend a separate ticket unless Dalton wants them folded in"
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "On the Hits page as an admin impersonator (ClickHouse hits) with Location Cluster enabled and a plate searched, clicking 'Show Cluster on Map' opens the Map section with the cluster's pins and no 500 / console error from the map action.", "source": "ticket", "decision": "implement", "reason": "the reported defect (confirmed CH-path 500)"},
+    {"item": "Map pins show the plate label and (where available) the vehicle image/details, matching the Postgres map behavior.", "source": "derived", "decision": "implement", "reason": "the CH hit is denormalized; pins should not regress vs Postgres"},
+    {"item": "Scans cluster map and the Postgres hits path remain working (no regression).", "source": "derived", "decision": "implement", "reason": "shared TableMapComponent"}
+  ],
+  "questions": [
+    {"q": "What does the browser console error say when clicking 'Show Cluster on Map'?", "answered": true, "answer": "AxiosError: Request failed with status code 500 on the /app/hits Livewire request (plus separate per-cluster init 500/502s on /geocode/reverse and /nearest-given-address). The 500 = the map action throwing server-side.", "source": "human:Dalton 2026-08-06"},
+    {"q": "Reproducing as admin impersonator / clickhouse:hits (CH path) or a normal client user (Postgres path)?", "answered": true, "answer": "Admin impersonator AND clickhouse:hits enabled — i.e. the ClickHouse-backed hits path.", "source": "human:Dalton 2026-08-06"},
+    {"q": "Does the Map section appear at all (blank) on click, or does nothing happen?", "answered": true, "answer": "Nothing happens/appears (consistent with the Livewire request 500ing before it can dispatch map data).", "source": "human:Dalton 2026-08-06"}
+  ],
+  "blockers": [],
+  "notes": [
+    "Event chain: hits/cluster-group.blade.php:187 button $dispatch('load-records-for-map', {recordIds, center}) -> Livewire TableMapComponent#[On] loadRecordsForMap() -> formatRecords() -> (on success) dispatch filament-maps-widget/updateMapData -> JS widget. The 500 is inside formatRecords().",
+    "Why CH-only: Table::getModel() returns getQuery()->getModel()::class; buildClickhouseQuery() (ListHits.php:95-137) sets the table query's model to App\\Clickhouse\\Models\\Hit, so $action->getModel() (sidebar-filters.blade.php:19-22) passes the CH model to TableMapComponent. Postgres mode passes App\\Models\\Hit which HAS scans().",
+    "hits_cold holds full history (hits_hot is the 90d-TTL hot copy), so formatRecords' default `new ClickhouseHit` (hits_cold) resolves ids for recent AND old hits — no hot/cold gap to fix.",
+    "A raw App\\Clickhouse\\Models\\Hit::query()->find(id) exposes latitude/longitude accessors + raw columns ocr, scan_us_state, scan_guid, lat, lng, address, vehicle_year/make/model. It does NOT expose us_state/vehicleImage/vehicle accessors, so the CH accessors in the plan are needed for full pin parity.",
+    "REFUTED earlier hypotheses (kept for the record): invalid-JS center (Hit has lat/lng accessors), quoted-string ids breaking x-on:click (CH id is Int64), id mismatch (CH id==PG id), global-scope join error (only_basic filters hit_type only).",
+    "Precedent DEV-1684 (Done) fixed 'map cluster markers not rendering' on this surface; different mechanism (rendering) from this CH-relationship 500."
+  ],
+  "tests": [
+    {"file": "tests/Feature/Livewire/TableMapComponentTest.php", "what_it_pins": "add a case: model=App\\Clickhouse\\Models\\Hit + relationship='scans' -> loadRecordsForMap does NOT throw and dispatches updateMapData with mapped pins (guard against the RelationNotFoundException regression). Existing cases pin the Scan/default path."}
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Livewire/TableMapComponent.php:19-54",
+      "app/Clickhouse/Models/Hit.php:197-209",
+      "resources/views/filament/hooks/sidebar-filters.blade.php:19-22",
+      "app/Filament/Actions/BulkMapAction.php:32-37",
+      "app/Filament/Resources/HitsResource/Pages/ListHits.php:82-137",
+      "app/Filament/Resources/HitsResource.php:250-251",
+      "vendor/filament/tables/src/Table/Concerns/HasRecords.php:113-124",
+      "resources/views/components/hits/cluster-group.blade.php:187"
+    ],
+    "code_flow": "cluster button dispatch -> Livewire #[On] loadRecordsForMap -> formatRecords (model+relationship from BulkMapAction; CH Hit has no scans rel -> throw) -> updateMapData -> JS widget",
+    "tables": ["zod.hits / zod.scans (Postgres)", "clarity.hits_cold / clarity.hits_hot (ClickHouse)"],
+    "related_components": ["TableMapComponent", "BulkMapAction", "ClickhouseHit", "filament-map-widget.js"]
+  },
+  "exhaustiveness": {
+    "patterns_used": ["git grep 'Show Cluster'", "git grep load-records-for-map|filament-maps-widget/updateMapData|filamentMapsWidget", "git grep relationship on BulkMapAction usages", "Filament Table::getModel resolution"],
+    "sites": [
+      {"site": "resources/views/components/hits/cluster-group.blade.php:187 (dispatcher, hits)", "status": "buggy", "reason": "reported surface; triggers the CH-path 500"},
+      {"site": "app/Livewire/TableMapComponent.php:40 formatRecords ->map(fn->scans)", "status": "buggy", "reason": "unconditional relationship hop -> throws on CH Hit"},
+      {"site": "app/Filament/Resources/HitsResource.php:250 BulkMapAction->setRelationship('scans')", "status": "safe", "reason": "correct for Postgres Hit; the fix makes the hop conditional rather than removing this"},
+      {"site": "app/Filament/Resources/ScansResource/Pages/ListScans.php:160 BulkMapAction (no relationship)", "status": "safe", "reason": "relationship=null -> no hop -> works"},
+      {"site": "app/Filament/Actions/BulkMapAction.php:29 (bulk-select dispatcher)", "status": "safe", "reason": "same formatRecords path; the guard fix covers it too"},
+      {"site": "resources/views/components/scans/cluster-group.blade.php:181 (dispatcher, scans)", "status": "safe", "reason": "working baseline"}
+    ]
+  },
+  "data_impact": {
+    "pg_tables": ["hits", "scans"],
+    "ch_tables": ["clarity.hits_cold", "clarity.hits_hot"],
+    "mv_or_cdc_implications": "No schema change. Reads CH hit denormalized columns (lat/lng/ocr/scan_us_state/scan_guid/address/vehicle_*).",
+    "indexes_relied_on": []
+  },
+  "derivation_log": [
+    {"query_shape": "read vendor/filament/tables HasRecords::getModel", "param_classes": ["framework source"], "aggregate_result": "getModel = getQuery()->getModel()::class", "why": "confirm the map component binds to the CH Hit model in CH mode"},
+    {"query_shape": "read app/Clickhouse/Models/Hit.php accessors/relationships", "param_classes": ["model source"], "aggregate_result": "latitude/longitude accessors only; no scans relationship", "why": "confirm the RelationNotFoundException root cause + which accessors the fix must add"}
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "Show Cluster on Map opens the map with pins (no 500) in CH admin mode", "kind": "human", "intent": "as admin impersonator with clickhouse:hits, Hits page, Location Cluster on, search a plate with a clustered hit, click the button; watch map + console"},
+      {"ac": "pins show label/vehicle image", "kind": "human", "intent": "inspect a pin's info window"},
+      {"ac": "no regression: Scans cluster map + Postgres hits map", "kind": "human", "intent": "same on Scans; and Hits with clickhouse:hits off"}
+    ],
+    "seed_scenario": "Admin/impersonator org with kits; a plate with 2-3 nearby visible scans that each hit an Open hotlist -> a multi-record Hits cluster. Seed clarity.hits_cold (full history, id==PG hit id, real lat/lng/ocr/scan_us_state/scan_guid/address/vehicle_*) so the CH path renders and the map action can re-query by id.",
+    "personas": ["admin impersonator + clickhouse:hits (the reporter's context)"],
+    "pg_tables": ["hits", "scans"],
+    "ch_tables": ["clarity.hits_cold"]
+  },
+  "confidence": 88,
+  "escalate": {"recommend": false, "reason": "Root cause confirmed by code; small, well-scoped 2-file fix. No best-of-N needed."}
+}

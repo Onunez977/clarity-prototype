@@ -1,0 +1,82 @@
+{
+  "synthesis": "SendEndOfShiftSummary (dispatched from ClarityScoutShiftController::end():143 and CloseInactiveShiftsCommand:91) exhausts 5 retries with a Postgres 57014 while building a closed shift's summary. The whole job body runs inside DB::connection('platform')->transaction(); once a transaction is open on 'platform' all subsequent queries on that connection route to the WRITE host (sticky), matching the ticket's 'platform WRITE connection' claim even for a pure SELECT. The only non-trivial hand-written-SQL platform-connection query is BuildShiftSummary::buildZoneSummaries() (178-193): INNER JOIN public.scans ⋈ platform.zones ON ST_Contains(z.geom, s.geo), filtered by kit_id + scanned_at range + org_id. Raw SQL, not Eloquent Scan::query(), so ScanTimezoneScope is never in play — DEV-2309's withoutGlobalScope fix is structurally inapplicable. Same family, different unfixed instance.",
+  "scope": {
+    "summary": "Fence the scans side of buildZoneSummaries's spatial join behind a MATERIALIZED pre-filter CTE so PG cannot drive from zones/geo-GiST across unbounded scans history before applying kit_id+scanned_at. Then decide AC-3 alerting with a human.",
+    "proposed_changes": [
+      {"file": "app/Services/Scout/BuildShiftSummary.php", "change": "Rewrite buildZoneSummaries() raw SQL (178-193) as WITH shift_scans AS MATERIALIZED (SELECT id, scanned_at, geo FROM public.scans WHERE kit_id=? AND scanned_at BETWEEN ? AND ?) SELECT ... FROM shift_scans s JOIN platform.zones z ON public.ST_Contains(z.geom, s.geo) WHERE z.org_id=? AND z.deleted_at IS NULL ORDER BY s.scanned_at, z.id. MATERIALIZED forces the small kit+window set first (kit_id+scanned_at btree) before the spatial predicate.", "reason": "Only platform-connection query lacking a plan-safety fence; matches DEV-2220/DEV-1898 'push filtering into the DB'.", "ref": "app/Services/Scout/BuildShiftSummary.php:178-193"},
+      {"file": "app/Jobs/Scout/SendEndOfShiftSummary.php", "change": "AC-3 (pending human): (a) leave failed() as-is (logs + records summary_skipped_reason), (b) relabel 'mail_failed' so a query/build failure isn't mislabeled, and/or (c) add an active Notification on terminal failure modeled on ImportZonesFromKml::failed()->ZoneImportCompleted reusing adminEmails(), or route via spatie/laravel-slack-alerts / commented-out Horizon::routeSlackNotificationsTo.", "reason": "AC-3 asks the build session to decide; repo has a live notify-on-terminal-failure precedent (ImportZonesFromKml) that this job does not follow today (log + DB column only).", "ref": "app/Jobs/Scout/SendEndOfShiftSummary.php:125-142"}
+    ],
+    "target_files": ["app/Services/Scout/BuildShiftSummary.php", "tests/Feature/Services/Scout/BuildShiftSummaryTest.php", "app/Jobs/Scout/SendEndOfShiftSummary.php (only if AC-3 grows)", "tests/Feature/Jobs/Scout/SendEndOfShiftSummaryTest.php (only if AC-3 grows)"],
+    "out_of_scope": [
+      "ClientSearchScansResource.php:92 — same-family latent risk (Scan::query() w/o withoutGlobalScope, Filament-paginated 30-day default) — no prod evidence, follow-up",
+      "EnsureOpenShift.php:132,152 + CloseInactiveShiftsCommand latestActivityFor — DEV-2309-fixed",
+      "BuildShiftSummaryTest markTestIncomplete TC-S6 (CH-outage degradation) — pre-existing separate gap",
+      "statement_timeout GUC — infra-owned",
+      "Whether buildZoneSummaries should honor ShowVisibleScan (is_visible) — raw SQL currently counts ALL scans incl hidden; PRESERVE exact current semantics, do NOT silently add is_visible",
+      "pg_partman/DEFAULT-partition prod health verification — infra/ops, not code-controllable (see notes 'why now')"
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "SendEndOfShiftSummary completes without SQLSTATE[57014] timeouts (verify against laravel.log post-deploy)", "source": "ticket", "decision": "implement", "reason": "Depends on the buildZoneSummaries fix; final proof deferred to post-deploy logs per AC wording — not provable locally (0 rows)."},
+    {"item": "The timing-out query in the summary path is bounded/optimized", "source": "ticket", "decision": "implement", "reason": "buildZoneSummaries raw ST_Contains join (178-193); existing indexes sufficient — fix is query shape (MATERIALIZED CTE), not a new index."},
+    {"item": "Retry-exhaustion no longer silently drops a summary — it alerts or records a skip reason", "source": "ticket", "decision": "needs-human", "reason": "failed() already logs + sets summary_skipped_reason='mail_failed' (existing test pins it) so letter of AC met, but label is wrong for a timeout and there is no ACTIVE alert. Repo precedent for notify-on-failure exists (ImportZonesFromKml). Relabel and/or add alert = product/ops decision."}
+  ],
+  "questions": [
+    {"q": "Does DEV-2309's merged fix cover this ticket's timeout?", "answered": true, "answer": "No. DEV-2309 fixed Eloquent Scan::query() aggregates on 'zod' (latestActivityFor, EnsureOpenShift x2). buildZoneSummaries is raw SQL on 'platform' that never instantiates the Scan model, so ScanTimezoneScope was never in play. Verified via commits 4523ca9b5 / e0bada538 + current source.", "source": "code"},
+    {"q": "Should AC-3 add a new proactive alert (Notification to org admins / ops Slack), or is the existing failed() log + summary_skipped_reason column sufficient?", "answered": false, "answer": null, "source": "needs-human"},
+    {"q": "Is 'mail_failed' acceptable for a query-timeout/build-failure, or relabel/split (e.g. 'build_failed' vs 'mail_failed')? Relabel would change the string the existing pinning test asserts.", "answered": false, "answer": null, "source": "needs-human"},
+    {"q": "Does the MATERIALIZED-CTE rewrite eliminate 57014 at prod scale, or is there a different join-order/stat issue (e.g. the scans DEFAULT partition) the query fix alone won't address?", "answered": false, "answer": null, "source": "needs-human"}
+  ],
+  "blockers": [],
+  "notes": [
+    "'zod' and 'platform' = two connection NAMES on the SAME physical Postgres DB (same host/port/database=zod), differing only in search_path ('public' vs 'platform'); 'platform' sticky=true. Once a transaction opens on 'platform', all subsequent queries on it route to the WRITE host — why the timeout shows on the WRITE connection for a pure SELECT.",
+    "buildZoneSummaries is schema-qualified raw SQL (public.scans, platform.zones) — works regardless of search_path; not a search_path bug.",
+    "public.scans is RANGE-partitioned by scanned_at with a DEFAULT catch-all (new_scans_default). Local vendored dump has explicit monthly partitions only through 2026-04; later dates fall into DEFAULT. If prod's partman maintenance stalled, a bloated DEFAULT partition would independently degrade pruning for ANY date-ranged scans query — worth a DBA check as a 'why now' companion, separate from the code fix (which still helps).",
+    "No backoff()/retryUntil(); default no-backoff x5 matches the ~2-min, 5-error prod window — deterministic query-plan failure, not transient contention.",
+    "No app-level statement_timeout override in config/database.php — enforced by the server/role GUC.",
+    "Test-isolation gap: BuildShiftSummaryTest docblock (17-25) documents the PG⋈zones breakdown is untested because scans (Scan model, 'zod') and the raw-SQL zone join ('platform') are separate PG sessions under RefreshDatabase, so uncommitted writes are mutually invisible even though TestCase connectionsToTransact lists both. New test must seed scans via DB::connection('platform')->table('scans')->insert(...).",
+    "buildZoneSummaries counts ALL scans incl hidden (raw SQL bypasses ShowVisibleScan) — pre-existing quirk; PRESERVE exactly (no is_visible filter) to avoid an unrequested scope change.",
+    "Kit::query() in forShift/resolveDriver runs on 'zod', not 'platform' — not everything inside the platform transaction executes on that connection."
+  ],
+  "tests": [
+    {"file": "tests/Feature/Services/Scout/BuildShiftSummaryTest.php", "what_it_pins": "New test seeding scans via DB::connection('platform')->table('scans')->insert(...) + a Zone with real polygon geometry (rebuildGeometryFromDefinition); asserts buildZoneSummaries returns correct per-zone scan/hit/time-in-zone counts after the CTE rewrite AND (DEV-2309 style, enableQueryLog on 'platform') that emitted SQL contains the MATERIALIZED CTE fence."},
+    {"file": "tests/Feature/Jobs/Scout/SendEndOfShiftSummaryTest.php", "what_it_pins": "If AC-3 grows: assert chosen alert mechanism fires on terminal failure; update terminal_failure_records_mail_failed_skip_reason in lockstep if the label changes."}
+  ],
+  "grounding": {
+    "buildZoneSummaries": "app/Services/Scout/BuildShiftSummary.php:175-193 (offender)",
+    "handle_transaction": "app/Jobs/Scout/SendEndOfShiftSummary.php:60-118",
+    "failed": "app/Jobs/Scout/SendEndOfShiftSummary.php:125-142 (summary_skipped_reason='mail_failed')",
+    "dispatch_sites": ["CloseInactiveShiftsCommand.php:91", "ClarityScoutShiftController.php:143"],
+    "dev2309_fixed": ["CloseInactiveShiftsCommand.php:113", "EnsureOpenShift.php:132-137,152-159"],
+    "ac3_alert_precedent": "app/Jobs/ImportZonesFromKml.php:71-82 + app/Notifications/ZoneImportCompleted.php",
+    "scan_model": "app/Models/Scan.php:108 (conn zod), :146-151 (ShowVisibleScan + ScanTimezoneScope global scopes), :410-428 (scopeScanTimezone)",
+    "kitshift_model": "app/Models/KitShift.php:43 (conn platform), fillable summary_sent_at/summary_skipped_reason",
+    "same_physical_db": "config/database.php:58-80 (zod), :98-121 (platform sticky=true)",
+    "connections_to_transact": "tests/TestCase.php:24-27 (['zod','platform'])",
+    "scans_ddl": "vendor zod-schema.sql:3994-4009 (PARTITION BY RANGE scanned_at), :16385-20039 (new_scans_default DEFAULT), :30291-30301 (kit_id / kit_id+scanned_at btree), :30270-30273 (geo GiST)",
+    "zones_indexes": "database/migrations/2026_05_12_000000_create_zones_table.php:16-41 (org_id btree + geom GiST)"
+  },
+  "data_impact": {
+    "pg_tables": ["platform: zones, kit_shifts, kit_settings, users", "zod/public: scans (RANGE + DEFAULT partition), hits, kits, orgs"],
+    "ch_tables": ["clarity.sc_positions", "clarity.scans_hot", "clarity.scans_cold", "clarity.hits_cold"],
+    "mv_or_cdc_implications": "None. Read-only SELECT rewrite; scans_hot/cold + hits_cold are CDC-fed FROM Postgres, only read here. No MV/CDC touched.",
+    "indexes_relied_on": ["scans kit_id btree (per-partition + default)", "scans kit_id+scanned_at btree — the index the CTE fence forces", "scans geo GiST — must NOT drive this query", "zones_geom_gist", "zones org_id btree", "ix_hits_scan_id (unaffected)"]
+  },
+  "exhaustiveness": {
+    "patterns_used": ["grep -rn 'ST_Contains|ST_Within|ST_Intersects|ST_DWithin' app", "grep -rn \"Scan::query()\" app", "grep -rn 'SendEndOfShiftSummary' app", "grep -rln 'public function failed(' app/Jobs"],
+    "sites": [
+      {"file": "app/Services/Scout/BuildShiftSummary.php:178-193", "verdict": "buggy", "reason": "root cause — raw SQL, platform write conn, ST_Contains join with no scans pre-filter fence"},
+      {"file": "app/Models/Scan.php:410-428 scopeScanTimezone", "verdict": "safe-as-definition", "reason": "scope definition; callers opt out via withoutGlobalScope"},
+      {"file": "app/Console/Commands/CloseInactiveShiftsCommand.php:113", "verdict": "safe", "reason": "DEV-2309-fixed"},
+      {"file": "app/Services/Scout/EnsureOpenShift.php:132-137,152-159", "verdict": "safe", "reason": "DEV-2309-fixed"},
+      {"file": "app/Filament/Client/Resources/ClientSearchScansResource.php:92-100", "verdict": "possibly-buggy, out of scope", "reason": "no withoutGlobalScope; timezones join on every Filament count/render (30-day default); no prod evidence — follow-up"},
+      {"file": "app/Models/Scan.php:401-407 scanCountByKitNameAggregate", "verdict": "safe", "reason": "already withoutGlobalScope"},
+      {"file": "app/Filament/Resources/ScansResource/Pages/ListScans.php:327", "verdict": "safe", "reason": "already withoutGlobalScope"},
+      {"file": "loadZonePolygonsForMap / Zone geohash raw SQL", "verdict": "safe", "reason": "org_id + explicit ID-list bounded"},
+      {"file": "FlexMatch*/Disposition* Scan::query() sites", "verdict": "safe", "reason": "single-row PK firstOrFail"}
+    ]
+  },
+  "blast_radius": ["raw-SQL rewrite on the primary/WRITE Postgres connection ('platform') — verify identical zone-attribution results, not just a faster plan; preserve exact (no is_visible) filtering semantics"],
+  "confidence": 72,
+  "escalate": {"recommend": true, "reason": "Root cause well-grounded (only unfenced platform spatial query; DEV-2309 independently confirmed non-overlapping) but fix effectiveness unprovable locally (0 rows) with a real 'why now' possibility (prod partition health). AC-3 carries an unresolved human decision touching a pinned test. High-sev write-DB bug with a same-family sibling (ClientSearchScansResource)."}
+}

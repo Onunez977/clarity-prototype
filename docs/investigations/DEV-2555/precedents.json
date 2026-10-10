@@ -1,0 +1,61 @@
+{
+  "key": "DEV-2555",
+  "recalled_at": "2026-09-23T18:05:00Z",
+  "base_sha": "4833e81508592f4637071bdb51f59037a6277dad",
+  "precedents": [
+    {
+      "key": "recovery-totals-query-landing",
+      "status": "QA Complete",
+      "relevance": "Shipped RecoveryTotalsBatchQuery and left pointing RecoveryCounts at sharedMonthCacheKey() as the named follow-up. That follow-up is this ticket.",
+      "applicable": "The query class, the int payload contract, and the measured envelope (281,882 rows / 5.91 MB / ~15 ms) still stand. The docblock that says RecoveryCounts still uses Eloquent is stale after the prior Total Repossessions batch landing.",
+      "artifacts": [
+        "sibling investigation plan for the recovery-totals query class",
+        "sibling investigation prep context for the recovery-totals query class",
+        "app/Clickhouse/Queries/RecoveryTotalsBatchQuery.php"
+      ]
+    },
+    {
+      "key": "window-key-correction",
+      "status": "QA Complete (merged, PR #400)",
+      "relevance": "Silent cross-card corruption: one cache key, two payload shapes (int vs array). The third pass un-shared the window key on a false premise. The re-share restored it as a bare int and added a test that fails when the key is un-shared. The first version of that test was vacuous because doubles forked buildWidgetCacheKey() via class_basename.",
+      "applicable": "Honour the int contract. Do not bump -v1. Do not follow the Jira body's withdrawn un-share; the shipped end state is the re-share. The window test on RecoveryCounts is vacuous in the same way: both doubles share one class basename, so the outer remember hides a missing sharedWindowCacheKey write.",
+      "artifacts": [
+        "sibling investigation decisions for the window-key correction",
+        "sibling investigation journal for the window-key correction"
+      ]
+    },
+    {
+      "key": "prior-total-repossessions-batch",
+      "status": "QA Complete (on main)",
+      "relevance": "Deleted UniqueScansToRepo and folded its denominator into RecoveryCounts. Decision 5 pulled this ticket's batching into subtask t8. getMonthlyData() now calls RecoveryTotalsBatchQuery::handle() once and writes sharedMonthCacheKey() as an int. The ratio zips that same array.",
+      "applicable": "AC1 and the structural agreement are already on main. Do not resurrect UniqueScansToRepo. The 'both cards' sentence in the Jira body is the pre-merge world.",
+      "artifacts": [
+        "sibling investigation plan for the prior Total Repossessions batch landing",
+        "app/Filament/Widgets/Dashboard/RecoveryCounts.php",
+        "tests/Filament/Widgets/Dashboard/RecoveryCountsTest.php",
+        "okf/concepts/company-metrics-dashboard.md"
+      ]
+    },
+    {
+      "key": "viewer-timezone-numerator-landing",
+      "status": "merged main 4833e815 (#434)",
+      "relevance": "Moved ratio numerators onto the viewer zone. Explicitly left RecoveryTotalsBatchQuery::sharedMonthCacheKey() timezone-free because repo_date has no time-of-day.",
+      "applicable": "Do not add :tz= to the month key. Do not run the repo window through safeTimezone() in this ticket.",
+      "artifacts": [
+        "sibling investigation plan for the viewer-timezone numerator landing",
+        "app/Filament/Widgets/Dashboard/RecoveryCounts.php"
+      ]
+    },
+    {
+      "key": "parked-scans-stats-cache",
+      "status": "parked / Hold",
+      "relevance": "Different card. Its cache is ScanPlateStatsBatchQuery, not recovery-totals.",
+      "applicable": "Soft collision only. Do not add that follow-up's cache helpers. No chlocal#36 dependency."
+    }
+  ],
+  "symbols": {
+    "RecoveryCounts": "app/Filament/Widgets/Dashboard/RecoveryCounts.php — live headline writer",
+    "RecoveryTotalsBatchQuery": "app/Clickhouse/Queries/RecoveryTotalsBatchQuery.php — handle(), handleRange(), sharedMonthCacheKey(), sharedWindowCacheKey()",
+    "UniqueScansToRepo": "deleted by the prior Total Repossessions batch landing. No file under app/."
+  }
+}

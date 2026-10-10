@@ -1,0 +1,684 @@
+{
+  "key": "DEV-2426",
+  "app": "clarity",
+  "repo_path": "/Users/daltonmccleery/Herd/platform/.claude/worktrees/dev-2414-b4229e",
+  "mode": "reconcile (best-of-N deep path, 4 candidates)",
+  "synthesis": "DEV-2414 made the ClickHouse matcher elect exactly one address per (address geo, hour_bucket, is_staged side) -- verified: ScoutCheckInMatchQuery.php:212 partitions ROW_NUMBER() by (addr_lng, addr_lat, hour_bucket, out_is_staged). But the PostgreSQL storage layer never caught up: platform.scout_check_ins is still keyed unique(kit_id, address_id, hour_bucket) (2026_08_10_170314_create_scout_check_ins_table.php:27) -- an address-shaped key for a place-shaped fact, with is_staged absent from it entirely. Because clarity.scout_open_addresses is rebuilt in place every 15 minutes and the recorder re-matches the same GPS window ~3x on its 5-min cadence / 15-min lookback, the elected winner for a place can change address_id mid-hour without the underlying visit changing. insertOrIgnore then sees a brand-new key and writes a second row for one physical visit. The fix is to make the storage key agree with the election's own partition key, using the addr_lng/addr_lat the query already computes (lines 171-172) but drops before its final SELECT (lines 218-224). Two findings from this reconcile sharpen the ticket materially. (1) Dropping the OLD unique index is mandatory, not optional: because is_staged is not in it, a corrected Direct-side row for an address that moved buckets collides on (kit, address_id, hour) and is silently dropped by insertOrIgnore -- that IS the ticket's 'keeps is_staged = true forever'. With the old index dropped and the geo key in place, no row carries a wrong is_staged any more, which dissolves most of the candidates' dispute about whether a reconciliation UPDATE/DELETE step is needed. (2) What survives is not a bug but an unresolved product decision: mechanism 3 ends with the place legitimately carrying BOTH a Staging and a Direct row, so AC4's per-side reading yields two rows while AC1's literal 'exactly one row for that place in that hour' yields one. That fork changes the unique index itself (whether is_staged is in the key) and cannot be resolved from code -- it is the gating question for a human. Production measurement is in hand: 33.3% of (geo, side) election groups are flip-capable, Open-order churn runs at ~1.0M updates/24h fleet-wide, and simultaneous dual-listing does NOT occur (0 of 4,519,947 address_ids carry both is_staged values), so mechanism 3 is a TEMPORAL label change across book rebuilds.",
+  "scope": {
+    "summary": "Thread the elected BOOK address's own coordinate out of ScoutCheckInMatchQuery (it is computed in the addresses/address_hour/ranked CTEs and partitioned on, but never projected), persist it as two new nullable `double precision` columns addr_lng/addr_lat on platform.scout_check_ins, DROP the old unique(kit_id, address_id, hour_bucket), and ADD unique(kit_id, addr_lng, addr_lat, hour_bucket, is_staged) so the storage grain equals the election grain. The new columns are distinct from the existing lat/lng, which are the GPS-FIX coordinate and stay unchanged. No backfill: legacy rows keep NULL geo and PostgreSQL's NULLS DISTINCT default exempts them from the new unique index. insertOrIgnore stays the persistence mechanism. NOTE: the presence of is_staged in the new key is conditional on the open AC1-vs-AC4 decision (questions q-open-1) -- if the human chooses AC1's literal one-row-per-place reading, the key loses is_staged and a relabelling UPDATE enters scope, which would also regress DEV-2414's both-sides behaviour. Build must not start before that is answered.",
+    "proposed_changes": [
+      {
+        "file": "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php",
+        "change": "Project the already-computed addr_lng/addr_lat out of the final SELECT (add `addr_lng AS out_addr_lng, addr_lat AS out_addr_lat`) and add matching keys to the array_map return shape and its @return list<array{...}> PHPDoc. REPLACE (do not append alongside) the docblock's 'Accepted residual gap (DEV-2414, documented not fixed)' paragraph -- this ticket closes that gap; keep docblocks sparse per repo owner preference.",
+        "reason": "The PG side cannot build a geo-aware key without the geo crossing the CH->PHP boundary. Today only address_id/hotlist_id/is_staged/hour_bucket/matched_at and the GPS-FIX lat/lng return. This is a pure output-shape extension -- the election logic is already correct after DEV-2414.",
+        "ref": "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php:171-172 (addr_lng/addr_lat computed), :208 (GROUP BY carries them), :211-212 (ROW_NUMBER partition), :218-224 (final SELECT that drops them), :232+ (array_map return shape), docblock accepted-gap paragraph"
+      },
+      {
+        "file": "database/migrations/<new>_add_address_geo_to_scout_check_ins_table.php",
+        "change": "NEW migration on the 'platform' connection (never edit the shipped 2026_08_10_170314 file): $table->double('addr_lng')->nullable(); $table->double('addr_lat')->nullable(); $table->dropUnique(['kit_id','address_id','hour_bucket']); $table->unique(['kit_id','addr_lng','addr_lat','hour_bucket','is_staged']); leave index(['org_id','address_id']) untouched. No backfill.",
+        "reason": "AC1's 'exactly one row' needs a DB-enforced key at the election's grain -- a PHP check-before-insert is not race-safe across the 2 concurrent recorder slots. Dropping the old index is MANDATORY: is_staged is absent from it, so the corrected Direct-side row for a bucket-migrated address collides on (kit, address_id, hour) and insertOrIgnore drops it -- the ticket's stranded-is_staged symptom. Nullable + unbackfilled is mechanically forced, not a shortcut: NULLS DISTINCT exempts legacy rows, whereas backfilling would fail the index build outright because the duplicates this bug already wrote are exactly what the new index rejects. ADD COLUMN nullable-no-default is Postgres metadata-only (no rewrite).",
+        "ref": "database/migrations/2026_08_10_170314_create_scout_check_ins_table.php:27 (unique index being replaced), :28 (index to keep)"
+      },
+      {
+        "file": "app/Models/ScoutCheckIn.php",
+        "change": "Add addr_lng/addr_lat to $fillable and to casts() as 'float', plus @property float|null docblock lines (nullable to reflect pre-migration rows). Note in the class docblock which pair is the fix coordinate and which is the address coordinate.",
+        "reason": "Model must expose the newly persisted attributes; mirrors the existing lat/lng fillable/cast pattern.",
+        "ref": "app/Models/ScoutCheckIn.php:33-49"
+      },
+      {
+        "file": "app/Console/Commands/ScoutRecordCheckIns.php",
+        "change": "In recordCheckInsForKit(), add 'addr_lng' => $match['addr_lng'], 'addr_lat' => $match['addr_lat'] to the row array alongside the existing (unchanged) lat/lng. Update the class docblock's now-false 'Rows are still STORED per (kit, address_id, hour) -- the unique index is unchanged' sentence. No control-flow, concurrency, or error-handling change; still one insertOrIgnore per kit; still calls ::handle() (AC7 untouched).",
+        "reason": "The new columns must actually be populated for the new unique index to do anything.",
+        "ref": "app/Console/Commands/ScoutRecordCheckIns.php:274-308 (recordCheckInsForKit + insertOrIgnore at :307), :24-41 (docblock)"
+      },
+      {
+        "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+        "change": "Add one test per flip mechanism, each invoking the command TWICE in the same UTC hour with a book mutation between runs (copy the existing two-call-with-book-mutation pattern). Add a geo-provenance test asserting the persisted addr_lng/addr_lat equal the BOOK coordinate while lat/lng equal the FIX coordinate. Add a near-but-not-identical pair asserting the two ~1m-apart geos do NOT collapse at the POSTGRES layer (the PDO precision guard, see notes). Add an AC4 regression: N co-located Direct + N co-located Staging at one geo -> exactly 2 rows, one per side. Add a direct DB-constraint assertion that the new unique index itself rejects a duplicate (kit, geo, hour, side) insert, not just that insertOrIgnore intends to.",
+        "reason": "AC1, AC2, AC4. No existing test invokes the command twice against a MUTATED book -- every current test is single-cycle, so none of the three flip mechanisms has any coverage today. The parity test file never touches platform.scout_check_ins, so it structurally cannot exercise the storage key.",
+        "ref": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php:184 (running_it_twice_does_not_duplicate_rows), :444 (a_newly_opened_order_is_visible_on_the_next_cycle -- the two-call+mutation pattern to copy), :529/:550 (AC4 backstops), :63-65 (clarityTable helper)"
+      },
+      {
+        "file": "tests/Unit/Clickhouse/Queries/ScoutCheckInMatchQueryParityTest.php",
+        "change": "Add a test asserting handle()'s return array carries addr_lng/addr_lat equal to the seeded BOOK address coordinate and distinct from the sc_positions fix's lat/lng when the two differ. Existing geo-partition tests stay unchanged as the AC4 backstop.",
+        "reason": "Pins the query-level plumbing independently of the Postgres path, and guards against a future refactor silently re-wiring the fix coords into the new columns (which would not be idempotent across cycles at all, since each re-match picks a fresh earliest-fix in the sliding window).",
+        "ref": "tests/Unit/Clickhouse/Queries/ScoutCheckInMatchQueryParityTest.php:260 (test_near_but_not_identical_coordinates_do_not_collapse), :323 (test_colocated_direct_and_staging_each_record_their_own_check_in), :446-497 (clarityTable/insertBookAddress/insertScPosition helpers to reuse)"
+      },
+      {
+        "file": "app/Seeders/ClarityScoutClickhouseSeeder.php",
+        "change": "VERIFY ONLY (from the driver's missed-caller backstop; no candidate found this): it seeds clarity.scout_open_addresses at line 69 for QA. Confirm the seeded book rows carry a usable geo so agent-QA can exercise the new columns; extend only if they do not.",
+        "reason": "Surfaced by the grep backstop, not by any candidate pass. QA seeds the book this ticket's key derives from.",
+        "ref": "app/Seeders/ClarityScoutClickhouseSeeder.php:69"
+      }
+    ],
+    "target_files": [
+      "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php",
+      "database/migrations/<new>_add_address_geo_to_scout_check_ins_table.php",
+      "app/Models/ScoutCheckIn.php",
+      "app/Console/Commands/ScoutRecordCheckIns.php",
+      "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+      "tests/Unit/Clickhouse/Queries/ScoutCheckInMatchQueryParityTest.php",
+      "app/Seeders/ClarityScoutClickhouseSeeder.php (verify only)",
+      "tests/Feature/Console/ScoutRecordCheckInsScheduleTest.php (verify only -- must stay green)",
+      "tests/Feature/Console/ScoutRecordCheckInsOverrunSignalTest.php (verify only -- must stay green)",
+      "tests/Feature/Console/Commands/ScoutRecordCheckInsMemoryTest.php (verify only -- 16 MiB RSS budget should not need raising)"
+    ],
+    "out_of_scope": [
+      "A per-kit cap/throttle in the command -- the ticket explicitly forbids this as papering over the correctness bug",
+      "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php -- computed on read, no persistence and no uniqueness concept, so a STORAGE-key fix cannot regress it; DEV-2414 already keeps its grain in parity with the matcher. Do not reflexively touch it the way DEV-2414 did (that was a CH-side dedup fix affecting both read paths; this is a Postgres storage-key fix affecting only the writer)",
+      "routes/console.php -- the schedule stays commented out (commit 4aec6244); re-enabling it is a separate decision, and AC3's before/after needs manual control over when cycles run anyway",
+      "Backfilling pre-fix rows' geo -- mechanically unsafe (would fail the index build on the bug's own duplicates) and a data-repair decision, not a schema one; document the deploy boundary instead, per DEV-2414's own precedent for this same table",
+      "Actively refreshing address_id/hotlist_id/matched_at to the current winner -- open question q-open-2, NOT in default scope pending a human decision",
+      "A DELETE/UPDATE reconciliation pass -- likely unnecessary once the old index is dropped (see synthesis); if the human picks AC1's one-row reading it re-enters scope and would need the very lookback-vs-hour-bucket scoping rule the ticket warns about",
+      "Any change to PROXIMITY_METERS / BBOX_PAD_DEGREES / hotlistOrgFilter() / config/scout.php tunables",
+      "chlocal migration 111 / clarity.scout_open_addresses_mv -- sibling-repo owned",
+      "DEV-2427 (geocoder-fallback centroid exclusion) -- separate ticket, different repo",
+      "okf/ wiki corrections (check-in.md:24's identity sentence and firstOrCreate/schedule-is-live drift, scout-check-in-recorder.md, platform-gotchas.md PG-023) -- queue for AFTER merge per the repo's WRITE-after-approval rule",
+      "DEV-1758/DEV-2258/DEV-1757/DEV-1756 consumer implementations -- none exist yet",
+      "docs/investigations/DEV-2414/dev1756-conflict.md option 3 ('store all rows + a canonical flag') -- explicitly deferred to a follow-up by the DEV-2414 operator; this ticket's ask is narrower"
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "AC1: re-running scout:record-check-ins across an hour in which the elected address for a place changes produces exactly one row for that place in that hour",
+      "source": "ticket",
+      "decision": "implement -- BUT the reading is contested",
+      "reason": "Structurally delivered for flip mechanisms 1 and 2 by moving the unique key onto (kit_id, addr_lng, addr_lat, hour_bucket, is_staged): re-election at the same geo/side always collides with the existing row regardless of which address_id wins. For mechanism 3, AC1's literal 'exactly one row' and AC4's 'one row per is_staged side' give DIFFERENT answers (one vs two) -- see q-open-1. Enforcement must be the DB index, not a code-side check: the recorder runs with 2 concurrent slots."
+    },
+    {
+      "item": "AC2: all three flip mechanisms covered by tests, including bucket-migration, which must not strand a stale is_staged",
+      "source": "ticket",
+      "decision": "implement -- the stranding cause is now identified and fixed by the index swap",
+      "reason": "Mechanisms 1 and 2 close with the geo key alone. Mechanism 3's stranding is caused specifically by the OLD index omitting is_staged: the corrected Direct row collides on (kit, address_id, hour) and insertOrIgnore drops it. Dropping that index lets the Direct row land, so no row carries a wrong is_staged. Residual is narrower -- the surviving Staging row's address_id/hotlist_id still name the old address (attribution staleness, q-open-2), which okf/concepts/check-in.md's 'immutable event -- first sighting wins' arguably endorses. Per flip-risk-measurement.md, mechanism 3 must be tested as a TEMPORAL label change across book rebuilds (delete + re-insert on the other side), NOT as simultaneous dual-listing: 0 of 4,519,947 address_ids carry both is_staged values in the live book."
+    },
+    {
+      "item": "AC3: recorded/kits_processed from the completion log line reported before and after",
+      "source": "ticket",
+      "decision": "implement mechanism (already emitted) / DEFER both measurements to an operator",
+      "reason": "No code change needed -- the command already logs recorded/kits_processed. The 'before' figure is obtainable NOW via a manual production run (same method as DEV-2414's 2.07/kit baseline, comment 38511); the 'after' figure is inherently post-deploy since the schedule is disabled. A DEV-2414-style pre-measurement of the FLIP RATE is impossible -- the book is rebuilt in place and past states are not retained -- so exposure sizing is the defensible proxy, and it is already measured (flip-risk-measurement.md). Both cycles need production access and correct sequencing against the hand-applied DDL: q-open-3."
+    },
+    {
+      "item": "AC4: N co-located addresses at one place still yield one row per is_staged side (no regression to DEV-2414's grain)",
+      "source": "ticket",
+      "decision": "implement as a constraint / regression-pin",
+      "reason": "This is exactly why is_staged is in the proposed key. A key without it would collapse a legitimate co-located Direct+Staging pair to whichever side inserts first -- via the same insertOrIgnore collision that causes today's bug -- and would silently zero DEV-1756's derived per-address count for the losing side. Pinned today by ScoutCheckInMatchQueryParityTest::test_colocated_direct_and_staging_each_record_their_own_check_in (:323) and the command test it_collapses_colocated_addresses_into_one_check_in (:550). Fleet-wide 17.13% of geos carry both sides (404,786 of 2,363,085) -- do NOT conflate with the docblock's ~0.27% per-org view-weighted figure."
+    }
+  ],
+  "questions": [
+    {
+      "q": "MECHANISM-3 GRAIN, the gating decision: when a place's label moves between book rebuilds mid-hour (address 8000 leaves the Staging side and re-appears on the Direct side at the same geo), should that hour hold ONE row for the place or TWO (one per is_staged side)? AC1 says re-running 'produces exactly one row for that place in that hour'; AC4 says N co-located addresses 'still yield one row per is_staged side'. These agree everywhere EXCEPT here. OPTION A (two rows -- is_staged stays in the unique key, pure insertOrIgnore, no UPDATE/DELETE): satisfies AC4 literally, preserves DEV-2414's deliberate both-sides grain and its parity test test_colocated_direct_and_staging_each_record_their_own_check_in, needs no reconciliation step and therefore no lookback-vs-hour-bucket scoping rule. Cost: one physical visit yields two check-ins, which works directly against this ticket's own ~1.0-per-kit target; and note a consequence no candidate spelled out -- both rows would carry address_id 8000, so the DEV-1756-derived per-address consumer pattern COUNT(*) WHERE address_id = ? (backed by the retained index(org_id, address_id)) would count 2 check-ins for one address at one place in one hour, which was impossible under the old index. OPTION B (one row -- drop is_staged from the unique key and relabel the surviving row): satisfies AC1 literally and the ~1.0 target. Cost: regresses DEV-2414's both-sides behaviour, breaks the parity test above, contradicts AC4, requires an UPDATE path (which must hand-stamp updated_at since insertOrIgnore bypasses model events) plus exactly the scoping rule the ticket warns about, and violates okf/concepts/check-in.md's 'immutable event -- first sighting wins'. This decides the shape of the unique index itself, so it must be answered BEFORE build.",
+      "answered": true,
+      "answer": "TWO rows, one per is_staged side. `is_staged` stays in the uniqueness key; pure insertOrIgnore is retained. This preserves DEV-2414's deliberate both-sides grain and its parity test test_colocated_direct_and_staging_each_record_their_own_check_in, and keeps a co-located Staging order from reading as never-visited. Accepted cost: in the mechanism-3 case one physical visit yields two check-ins, which works against the ~1.0/kit target \u2014 judged small because 0 of 4,519,947 book address_ids are currently dual-listed. AC1 is therefore read as per-side (AC4 defines the grain), NOT as a literal one-row-per-place-per-hour cap.",
+      "source": "human:Dalton McCleery 2026-08-25",
+      "note": "This is the crystallised form of the candidates' disagreement about whether an UPDATE/DELETE reconciliation step is needed (1: required; A: purely additive; B: a second row is legitimate per AC4; C: insertOrIgnore suffices, and named the fork). Tracing candidate A's mandatory-index-drop finding dissolves the reconciliation half -- the stranded stale is_staged is caused by the OLD index omitting is_staged, and dropping it fixes that without any UPDATE. What is left is not a mechanism dispute but this product decision. Exposure is measured and non-trivial: mechanism 3 is temporal (0 simultaneous dual-listings in 4.5M book rows) and 33.3% of (geo, side) groups are flip-capable."
+    },
+    {
+      "q": "Should a surviving row's address_id/hotlist_id be refreshed to the currently-elected winner, or stay frozen at first sighting? Under the proposed geo key, when the winner flips within a side the existing row is preserved and its address_id/hotlist_id keep naming an address that may no longer be the current winner at that geo -- or may have left the book entirely (mechanism 2). okf/concepts/check-in.md:24 calls a check-in 'an immutable event -- first sighting wins', which argues for freezing; but AC2's literal 'must not strand a stale is_staged' can be read as demanding at least some labels be correctable, and the retained index(org_id, address_id) exists to serve a per-address consumer count that a frozen (possibly closed-order) address_id would misattribute.",
+      "answered": true,
+      "answer": "FREEZE at first sighting. No UPDATE/upsert path is introduced; insertOrIgnore stays. This matches okf/concepts/check-in.md's \"immutable event \u2014 first sighting wins\" contract and keeps the change to a pure key swap. Accepted, documented consequence: after a mechanism-3 flip both surviving rows can carry the same address_id, so DEV-1756's derived COUNT(*) WHERE address_id = ? would report two check-ins for one address at one place in one hour. Recorded as a known boundary rather than engineered around, because that consumer does not exist yet (okf: \"None yet by design\") and ->upsert( has no precedent anywhere in app/.",
+      "source": "human:Dalton McCleery 2026-08-25",
+      "note": "All four candidates raised this in some form and none resolved it; A and C each explicitly declined to settle it unilaterally despite the domain doc leaning toward freezing. Freezing is the no-code-change default; refreshing adds an UPDATE path that must hand-stamp updated_at (insertOrIgnore bypasses model events, so created_at/updated_at are hand-stamped today at ScoutRecordCheckIns.php:296-297)."
+    },
+    {
+      "q": "Who runs AC3's manual production scout:record-check-ins cycles, in what order relative to hand-applying the DDL -- and does the 'after' figure gate this ticket's Done, or is it a post-merge follow-up? Required sequence: (1) 'before' manual run(s) on current code; (2) hand-apply the DDL; (3) deploy the code; (4) 'after' manual run(s). Steps 2 and 3 must not be inverted -- there is no automated prod migration path, and if the code lands first the per-kit try/catch swallows the missing-column error into recorded=0 with a per-kit warning rather than failing loudly, silently losing check-ins for the whole misordered window.",
+      "answered": true,
+      "answer": "POST-MERGE FOLLOW-UP for the \"after\" figure \u2014 it does NOT gate this ticket's Done. Ship with (a) the \"before\" figure from a manual production run on current code, and (b) the already-measured exposure sizing in flip-risk-measurement.md. Record the \"after\" figure as an explicit post-deploy obligation on the ticket. Required sequence stays: before-run -> hand-apply DDL -> deploy code -> after-run; steps 2 and 3 must not be inverted.",
+      "source": "human:Dalton McCleery 2026-08-25",
+      "note": "Merged from candidate 1's deploy-ordering question, B's who-runs-it question, and C's does-it-gate-Done question. DEV-2414 q5 set a precedent (same command, same table, same decision-maker) that the live number is a follow-up rather than a merge gate, but the DEV-2426 ticket text does not say so itself, so the precedent is not safe to assume."
+    },
+    {
+      "q": "Must is_staged be part of the new uniqueness key, GIVEN the two-rows reading?",
+      "answered": true,
+      "answer": "Yes, conditionally on q-open-1 resolving to Option A. The election itself partitions by it -- ROW_NUMBER() OVER (PARTITION BY addr_lng, addr_lat, hour_bucket, out_is_staged) at ScoutCheckInMatchQuery.php:212 -- and a co-located Direct+Staging pair legitimately produces two matches today, pinned by ScoutCheckInMatchQueryParityTest::test_colocated_direct_and_staging_each_record_their_own_check_in (:323) and ::test_shared_address_is_direct_wins_on_matcher_and_counted_in_both_rollup_buckets (:116), and end-to-end by ScoutRecordCheckInsCommandTest::it_records_a_direct_and_staging_check_in_for_positions_within_the_radius (:143). A key without is_staged collapses those to whichever side inserts first and regresses AC4. All four candidates agree. EXPLICIT DEPENDENCY: if q-open-1 resolves to Option B (one row per place), this answer inverts and is_staged leaves the key.",
+      "source": "code"
+    },
+    {
+      "q": "Is the existing unique(kit_id, address_id, hour_bucket) dropped, or kept/demoted to a non-unique index?",
+      "answered": true,
+      "answer": "Dropped outright -- and this is mandatory, not a preference. Verified: the shipped index at 2026_08_10_170314_create_scout_check_ins_table.php:27 is unique(['kit_id','address_id','hour_bucket']) with is_staged ABSENT. So when address 8000 moves from the Staging side to the Direct side at the same geo, the corrected row (kit, 8000, hour, is_staged=false) collides with the existing (kit, 8000, hour) row and insertOrIgnore drops it -- which is exactly the ticket's reported 'keeps is_staged = true forever'. Leaving the old index in place would reproduce the bug being fixed. Nothing else needs it: repo-wide grep for scout_check_ins / ScoutCheckIn:: finds only the writer, the model, the migration and the test files -- zero readers exist today (DEV-1756/1757/1758/2258 consumers are unbuilt), and the documented future COUNT(*) WHERE address_id = ? pattern is already served by the untouched index(org_id, address_id).",
+      "source": "code"
+    },
+    {
+      "q": "What is the geo key's physical shape -- raw doubles, a rounded/encoded key, a geohash, or a PostGIS point?",
+      "answered": true,
+      "answer": "Two new nullable `double precision` columns (addr_lng, addr_lat), mirroring the election's own exact-tuple partition and the SQL's own internal CTE aliases (ScoutCheckInMatchQuery.php:171-172). Geohash REJECTED: this repo's existing precedent is intentionally-fuzzy map bucketing at ~19-38m (HitDirectHotspotQuery::DEDUP_PRECISION=8, App\\Support\\Scout\\Geohash), far too coarse -- it would silently collapse addresses the election treats as distinct (test_near_but_not_identical_coordinates_do_not_collapse, ~1m apart) -- and at a precision fine enough to preserve that (~11-12) it adds cell-boundary jitter risk for no benefit. PostGIS point REJECTED: the `=` operator on geometry compares bounding boxes, not exact coordinates, so a plain UNIQUE btree would not mean what it appears to mean (exact equality needs ST_Equals via an exclusion constraint). Float round-trip is safe: ClickHouse FORMAT JSON round-trips Float64 exactly (measured -97.70001 decoding back distinct from -97.7), and while PHP's float-to-string under this environment's precision=14 is NOT bit-exact at ~17 significant digits, the truncation is DETERMINISTIC (the same CH double always yields the same stored PG double, so a later re-election of the same address reproduces the identical key) and 14 significant digits is orders of magnitude finer than the ~1m/5th-decimal-degree distinctness the CH partition relies on.",
+      "source": "code + empirical (candidate B tinker measurement against the live read-only CH connection, literal constants only; corroborated by candidate A's ClickhouseHttpClient FORMAT JSON + json_decode reading)"
+    },
+    {
+      "q": "Should pre-migration rows be backfilled onto the new geo grain, or is the deploy boundary documented?",
+      "answered": true,
+      "answer": "Document, do not backfill -- mechanically forced, not a style preference. Leaving addr_lng/addr_lat NULL on legacy rows is safe because PostgreSQL's unique-index default is NULLS DISTINCT (NULLS NOT DISTINCT is an explicit PG15+ opt-in this repo does not use), so every legacy row is automatically exempt from the new constraint and can never collide. Backfilling would require deduplicating legacy rows FIRST, because the duplicates this bug already wrote (address 8000 + address 8001 for one visit) are precisely what a new unique(kit_id, addr_lng, addr_lat, hour_bucket, is_staged) index rejects -- the bug's own output would fail the index build. There is also no true source: pre-fix rows only ever stored the GPS-fix coordinate, never the address's own. Matches DEV-2414's own q6 precedent for this same table.",
+      "source": "code + evidence (all four candidates agree; B and C supply the NULLS DISTINCT / failed-index-build mechanism)"
+    },
+    {
+      "q": "How large is platform.scout_check_ins in production, and does the UNIQUE index build need CREATE INDEX CONCURRENTLY / a maintenance window?",
+      "answered": true,
+      "answer": "Order 10^3 rows (low thousands), and no -- the index-build lock is a non-issue. The recorder could only ever write in two windows: 2026-08-10 -> 08-12 (DEV-2342's commit records 701 check-ins across 17 cycles, at the pathologically slow 36-148 min pre-DEV-2342 cycle times) and 2026-08-21 08:30 -> 10:10 (~20 cycles at ~2.07 rows/kit over ~44 kits, ~1,800 rows -- the window the DEV-2414 baseline comment 38511 was measured in), plus overlapping ad-hoc manual runs; the schedule is commented out at HEAD (routes/console.php:59-66, commit 4aec6244). Even a generous doubling stays under ~10k. A UNIQUE index build at that size completes in milliseconds, ADD COLUMN nullable-no-default is metadata-only, and CREATE INDEX CONCURRENTLY is unnecessary (and awkward inside Laravel's transactional migration wrapper anyway). The write path is also QUIESCENT during the migration -- the schedule is off, so there is no concurrent-writer hazard to design around.",
+      "source": "code/git evidence (docs/investigations/DEV-2426/scout-check-ins-size-bound.md; supersedes candidates 1/A/B/C, all four of which left this unresolved)"
+    },
+    {
+      "q": "Must this migration's DDL be hand-applied to production, and in what relation to the code deploy?",
+      "answered": true,
+      "answer": "Yes -- hand-applied BEFORE the code deploys. This repo has no automated production migration path: app:deploy and the composer post-deploy script list never run migrate (app/Console/Commands/Deploy.php:26-42, composer.json post-deploy), and php artisan migrate itself fails on production because graphqluser lacks CREATE on database zod (ensureAppSchemaExists() throws on a no-op CREATE SCHEMA). Procedure: get the exact SQL via --pretend, run it, insert the migrations row, ALTER ... OWNER TO graphqluser if a different role ran the DDL. If the order is inverted, recordCheckInsForKit() is already inside a per-kit try/catch (ScoutRecordCheckIns.php:113-130, the PG-025 pattern), so a missing-column error degrades to recorded=0 with a per-kit warning rather than crashing -- a safety net, NOT a substitute for correct ordering, because it silently loses every check-in for the misordered window. WHO executes it and WHEN, relative to AC3's before/after runs, remains open (q-open-3).",
+      "source": "code (all four candidates agree; B supplies the exact file refs and the silent-zero failure mode)"
+    },
+    {
+      "q": "Is insertOrIgnore still a safe persistence mechanism under the recorder's 2-concurrent-slot ceiling with the new key?",
+      "answered": true,
+      "answer": "Yes, for atomicity. Laravel's insertOrIgnore on pgsql compiles to INSERT ... ON CONFLICT DO NOTHING, which Postgres executes atomically per statement against whatever unique index the table carries -- two processes racing on the same (kit_id, addr_lng, addr_lat, hour_bucket, is_staged) tuple have one succeed and one silently no-op, with no deadlock and no extra locking. Moving the key from address_id to geo+is_staged changes only which columns the constraint watches. SCOPED CLAIM: this settles concurrency-safety ONLY. It does not pre-answer whether insertOrIgnore alone produces the RIGHT ROW SET for mechanism 3 -- that is q-open-1.",
+      "source": "code"
+    },
+    {
+      "q": "Do clarity.scout_open_addresses / clarity.sc_positions carry the 90-day TTL that rots old-dated ClickHouse test fixtures?",
+      "answered": true,
+      "answer": "No. Checked database/schema/clickhouse-schema.sql directly: neither table has a TTL clause (contrast clarity.hits_hot/scans_hot/kit_scan_paths/kit_trips, which do). The known 90-day fixture-rot hazard does not apply here. Fixtures should still be anchored near now() via travelTo() for determinism of hour_bucket assertions -- not for TTL survival.",
+      "source": "code"
+    },
+    {
+      "q": "Which ClickHouse database-naming convention must the new tests follow?",
+      "answered": true,
+      "answer": "The config-driven clarityTable() helper (config('database.connections.clarity_clickhouse.database').'.'.$table), already independently defined in BOTH target test files. The trap: RequiresClickhouse::setupRequiresClickhouse() truncates a HARDCODED clarity.*/zod.* literal list, which only matches the configured database in CI; locally the testing DB can differ. Both existing test classes already work around this by ALSO truncating scout_open_addresses/sc_positions via clarityTable() in their own setUp(). New test METHODS in these files inherit that setup; a new test FILE would have to replicate it.",
+      "source": "code",
+      "ref": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php:63-65; tests/Unit/Clickhouse/Queries/ScoutCheckInMatchQueryParityTest.php:446-448"
+    },
+    {
+      "q": "Is any existing test expected to break?",
+      "answered": true,
+      "answer": "No. All four candidates independently concluded this, and the driver's grep backstop widened the surface without changing the answer: the two files no candidate inventoried -- tests/Feature/Console/ScoutRecordCheckInsScheduleTest.php (asserts the completed-log lookback_minutes; notably runs WITHOUT RequiresClickhouse, so it exercises the CH-unreachable path) and tests/Feature/Console/ScoutRecordCheckInsOverrunSignalTest.php (asserts the overrun warning/report) -- both assert on log/report output, not on row grain, and neither seeds two competing addresses at one geo. ScoutRecordCheckInsMemoryTest's 16 MiB RSS budget should not need raising (two extra floats per row on an already-O(matches) footprint). Treat all of these as must-stay-green verification, and note that a new-column/new-index shape change is exactly the kind of thing that surprises a schema-sensitive test, so run them.",
+      "source": "code + driver grep backstop"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "MANDATORY INDEX DROP (the merge's highest-value finding, from candidate A, verified here): unique(kit_id, address_id, hour_bucket) omits is_staged, so a bucket-migrated address's corrected Direct-side row collides on (kit, address_id, hour) and insertOrIgnore silently drops it. That IS the ticket's 'keeps is_staged = true forever' symptom. Dropping the old index is therefore part of the fix, not housekeeping -- and it dissolves most of the candidates' reconciliation dispute.",
+    "MECHANISM 3 IS TEMPORAL, NOT SIMULTANEOUS (driver measurement, treat as settled): 0 of 4,519,947 address_ids in the live book carry both is_staged values -- every address_id appears exactly once, on one hotlist, on one side. min(is_staged) therefore never has two values to choose between for one address_id, and the simultaneous dual-listing variant described in the ticket and in ScoutCheckInMatchQuery's docblock does not occur in production. Tests must simulate mechanism 3 as a DELETE of the Staging book row plus an INSERT of the same address_id onto a Direct hotlist at the same geo across two runs. Corollary for review: the argMin(hotlist_id, (toUInt8(is_staged), hotlist_id)) Direct-wins tiebreak and the parity tests pinning it currently guard a book state with ZERO production instances -- defensive, not wrong, but untested against real data.",
+    "DO NOT CONFLATE THE TWO BOTH-SIDES FIGURES: fleet-wide, 17.13% of geos (404,786 of 2,363,085) carry both sides; the docblock's ~0.27% is a per-org view-weighted figure and remains the right basis for per-kit reasoning. One geo is frequently org A's Direct and org B's Staging. The docblock already warns against conflating them.",
+    "PDO PRECISION IS THE ONE REAL RESIDUAL ON THE RAW-DOUBLE KEY: PHP's float-to-string under precision=14 is not bit-exact at ~17 significant digits (measured). It is deterministic and far finer than the ~1m grain the CH partition relies on, so it cannot merge two addresses ClickHouse considers distinct -- but pin that explicitly with a Postgres-layer near-but-not-identical test, because it is the failure mode that would silently defeat the whole unique index. Candidates 1 and C left this open; B measured it; the merge resolved it on B's measurement and converted C's concern into the test obligation above rather than dropping it.",
+    "okf DRIFT (do not fix mid-flight; queue for post-merge): okf/concepts/check-in.md:24 states the identity as 'exactly one row per (kit_id, address_id, hour_bucket) -- enforced by a unique index and firstOrCreate'. Both halves are stale-or-wrong against HEAD: the code uses insertOrIgnore (ScoutRecordCheckIns.php:307), and this ticket changes the identity itself. The same line also carries the 'immutable event -- first sighting wins' definition that q-open-1 and q-open-2 turn on. Separately, okf/concepts/scout-check-in-recorder.md and platform-gotchas.md PG-023 both still say the schedule is live; routes/console.php:59-66 shows it commented out (commit 4aec6244). Per CLAUDE.md precedence, code wins.",
+    "No sibling precedent exists in this repo for altering a unique index on a live table (grepped all migrations for dropUnique -- none found); this will be the first. Laravel's dropUnique(['kit_id','address_id','hour_bucket']) resolves the same default constraint name the original migration implicitly created, so no explicit name lookup is needed.",
+    "The bug's idiom class is single-site: grep for insertOrIgnore across app/ finds exactly one call site (ScoutRecordCheckIns.php:307), and no other write site (firstOrCreate/updateOrCreate) keys uniqueness on a ClickHouse-elected winner id. Other ROW_NUMBER()/argMin() users in app/Clickhouse/Queries are read-only with no PostgreSQL persistence downstream.",
+    "insertOrIgnore bypasses model events, so created_at/updated_at are hand-stamped in the command today (ScoutRecordCheckIns.php:296-297). If q-open-1 or q-open-2 resolves toward any UPDATE path, that path must hand-stamp updated_at the same way.",
+    "ScoutCheckInRollupQuery already elects on the identical (addr_lng, addr_lat, hour_bucket, is_staged) grain (ScoutCheckInRollupQuery.php:119-121) -- the two CH classes are already symmetric. Mirror that grain exactly in the new Postgres unique index rather than inventing a different geo key shape; it keeps the CH election and the PG identity provably the same thing. Its docblock cross-references the matcher (:37) and may need a touch if the matcher's return contract changes.",
+    "Test-naming convention differs by file: ScoutCheckInMatchQueryParityTest uses public function test_*() with no attribute; ScoutRecordCheckInsCommandTest uses #[Test] with it_/a_/running_ names. Match whichever file is being extended.",
+    "The docblock on ScoutCheckInMatchQuery is unusually load-bearing -- it already names this exact gap ('Accepted residual gap (DEV-2414, documented not fixed)') and traces the flip mechanisms the ticket cites. REPLACE that paragraph when the gap closes; do not append a second one alongside it, and do not delete the surrounding reasoning.",
+    "database/schema/local-clickhouse-schema.sql:190,193 defines scout_open_addresses for Docker QA -- per DEV-2414 it already carries geo, so verify rather than change. tests/Concerns/RequiresClickhouse.php:27 already covers the book in its truncate list, confirming no new CH table is needed.",
+    "Run vendor/bin/pint --dirty --format agent before finishing (repo convention; not run in this read-only prep pass).",
+    "docs/investigations/DEV-2414/dev1756-conflict.md option 3 ('store all rows + a canonical flag') was explicitly deferred to a follow-up by the DEV-2414 operator and is NOT what this ticket asks for -- but if q-open-1 turns into a broader redesign discussion, that document is the prior art."
+  ],
+  "tests": [
+    {
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+      "what_it_pins": "MECHANISM 1 (a lower address_id opens at the same geo/side mid-hour). Seed ONE Direct address (id 9001) at geo G plus one in-radius fix; run #1 -> persists (address_id=9001, is_staged=false). Insert a SECOND, LOWER-id Direct address (9000) at the SAME exact geo (book mutation between runs). Run #2 in the same hour with the fix still inside the 15-min lookback. Assert: count === 1 (not 2); the surviving row's address_id is still 9001; matched_at/created_at equal run #1's. This is the assertion the old address_id-keyed index fails, since (kit, 9000, hour) is a brand-new key under the old schema."
+    },
+    {
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+      "what_it_pins": "MECHANISM 2 ('the frequent one' -- the winner's order closes). Seed TWO co-located Direct addresses at geo G (9000 winner, 9001 loser) plus one in-radius fix; run #1 -> persists address_id=9000. DELETE 9000's row from the book between runs (simulating the rebuild dropping a closed order). Run #2 -> the matcher now elects 9001. Assert: count === 1 (not 2); the surviving row's address_id is STILL 9000 (frozen even though 9000 has left the book entirely); matched_at unchanged."
+    },
+    {
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+      "what_it_pins": "MECHANISM 3 (the sharp case -- fixture shape and expected row count BOTH depend on q-open-1, so do not write this test until that is answered). Production-faithful setup: seed TWO co-located Staging addresses at geo G (8000 winner, 8001 loser) on an approved staging partner's hotlist plus one in-radius fix; run #1 -> persists (8000, is_staged=true). Between runs DELETE 8000's Staging book row and INSERT 8000 fresh onto a NEW Direct hotlist at the SAME geo -- a temporal move, per flip-risk-measurement.md's zero-dual-listing finding, NOT a simultaneous dual-hotlist listing. Run #2. Under OPTION A the required assertion COMBINATION is: (1) count === 2 -- not 1 (Direct silently dropped, today's bug) and not 3 (a spurious extra Staging row for 8001); (2) exactly 1 row with is_staged=false (the previously-lost Direct visit now lands); (3) exactly 1 row with is_staged=true (no second Staging row); (4) the is_staged=true row's matched_at/created_at equal run #1's exactly (same row, immutable, not rewritten). A count-only check or a new-row-label-only check would each individually pass a broken 'adds a correct row, leaves a stale one behind' implementation -- all four assertions are needed together."
+    },
+    {
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+      "what_it_pins": "GEO PROVENANCE: the new columns come from the BOOK address, not the GPS fix. Seed a book address at (-97.700000, 30.300000) and a fix at a different in-radius point (e.g. -97.7003, 30.3003, ~35m away, inside the 160.934m radius). Assert the persisted addr_lng/addr_lat equal the BOOK coordinate exactly while lat/lng equal the FIX coordinate. Catches a 'reuse lat/lng as the new key' mistake, which would not be idempotent across cycles at all -- each re-match picks a fresh earliest fix from the sliding window."
+    },
+    {
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+      "what_it_pins": "POSTGRES-LAYER PRECISION GUARD (the residual on the raw-double key): two book addresses ~1m apart at the same hour/side must persist as TWO distinct rows, mirroring the query-layer test_near_but_not_identical_coordinates_do_not_collapse but asserted through the actual PDO bind + unique index. This is the test that would catch the precision=14 float-stringification truncation silently merging geos ClickHouse treats as distinct."
+    },
+    {
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+      "what_it_pins": "AC4 REGRESSION: N co-located Direct addresses AND N co-located Staging addresses at the identical geo -> exactly 2 persisted rows, one per side, unchanged by moving the unique key onto the geo pair."
+    },
+    {
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+      "what_it_pins": "DB-CONSTRAINT DIRECTNESS (only candidate 1 proposed this -- kept): the new unique index itself rejects a duplicate (kit, addr_lng, addr_lat, hour_bucket, is_staged) insert at the database level, not merely via insertOrIgnore's application-level intent. AC1's guarantee is only as strong as the index."
+    },
+    {
+      "file": "tests/Unit/Clickhouse/Queries/ScoutCheckInMatchQueryParityTest.php",
+      "what_it_pins": "handle()'s return array carries addr_lng/addr_lat equal to the seeded BOOK coordinate and distinct from the fix's lat/lng when the two differ -- a narrower, faster-to-diagnose pin of the plumbing than the end-to-end command tests."
+    },
+    {
+      "file": "tests/Unit/Clickhouse/Queries/ScoutCheckInMatchQueryParityTest.php",
+      "what_it_pins": "MUST STAY GREEN, UNCHANGED (AC4 backstop at the query layer): test_near_but_not_identical_coordinates_do_not_collapse (:260), test_distinct_address_ids_at_identical_coordinates_produce_one_match_and_the_lowest_address_id_wins (:291), test_colocated_direct_and_staging_each_record_their_own_check_in (:323), test_duplicate_book_rows_for_one_address_produce_one_match (:218), test_shared_address_is_direct_wins_on_matcher_and_counted_in_both_rollup_buckets (:116)."
+    },
+    {
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+      "what_it_pins": "MUST STAY GREEN, UNCHANGED: running_it_twice_does_not_duplicate_rows (:184), it_records_a_direct_and_staging_check_in_for_positions_within_the_radius (:143), an_address_on_both_a_direct_and_staging_order_records_one_deterministic_direct_row (:256), it_collapses_colocated_addresses_into_one_check_in (:550), it_records_multiple_distinct_geo_addresses_in_one_cycle (:529), a_newly_opened_order_is_visible_on_the_next_cycle (:444), the_since_option_widens_the_lookback_window (:506), a_full_slot_pool_no_ops_regardless_of_how_long_a_cycle_would_take (:623), it_records_one_check_in_per_hour_when_parked_across_an_hour_boundary (:236). None seeds two competing addresses across two book states, so none should change behaviour -- they are the regression backstop for AC4 and for the new column/index shape."
+    },
+    {
+      "file": "tests/Feature/Console/ScoutRecordCheckInsScheduleTest.php",
+      "what_it_pins": "MUST STAY GREEN (driver grep backstop; no candidate inventoried this file). Runs the command end-to-end asserting the completed-log lookback_minutes, and runs WITHOUT RequiresClickhouse -- so it exercises the ClickHouse-unreachable degradation path against the new insert shape."
+    },
+    {
+      "file": "tests/Feature/Console/ScoutRecordCheckInsOverrunSignalTest.php",
+      "what_it_pins": "MUST STAY GREEN (driver grep backstop; no candidate inventoried this file). Runs the command asserting the overrun warning/report signal at lines 15/32/46/70."
+    },
+    {
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsMemoryTest.php",
+      "what_it_pins": "MUST STAY GREEN, UNCHANGED: its single in-radius address is never co-located, so the two extra floats per row are negligible against the 16 MiB RSS budget. Worth a quick look during build, not a target for change."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php:171-172 (addr_lng/addr_lat computed via tupleElement(book.geo,...)), :186-194 (carried into matches, geoDistance join), :196-208 (address_hour CTE: GROUP BY address_id, addr_lng, addr_lat, hour_bucket; argMin Direct-wins tiebreak; min(is_staged)), :210-216 (ranked CTE, ROW_NUMBER PARTITION BY addr_lng, addr_lat, hour_bucket, out_is_staged), :218-226 (final SELECT -- the ONLY place the geo is dropped), :232+ (array_map return shape), docblock 'Accepted residual gap'",
+      "app/Console/Commands/ScoutRecordCheckIns.php:274-308 (recordCheckInsForKit; row array at :291-303; insertOrIgnore at :307; hand-stamped created_at/updated_at at :296-297), :113-130 (per-kit try/catch, PG-025), :136-143 (completion log line carrying recorded/kits_processed for AC3), :24-41 (docblock with the now-false storage-grain sentence)",
+      "app/Models/ScoutCheckIn.php:33-49 ($fillable/casts to extend)",
+      "database/migrations/2026_08_10_170314_create_scout_check_ins_table.php:15-28 (the only migration; :27 unique(['kit_id','address_id','hour_bucket']) -- is_staged ABSENT, the mandatory-drop finding; :28 index(['org_id','address_id']) to keep)",
+      "routes/console.php:59-66 (schedule COMMENTED OUT at HEAD, commit 4aec6244)",
+      "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php:119-121 (identical election grain), :37 (docblock cross-reference to the matcher)",
+      "tests/Unit/Clickhouse/Queries/ScoutCheckInMatchQueryParityTest.php:116,218,260,291,323 (the grain-pinning tests), :446-497 (clarityTable/insertBookAddress/insertScPosition helpers)",
+      "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php:63-65 (clarityTable), :143,:184,:256,:444,:506,:529,:550 (patterns to extend and backstops)",
+      "okf/concepts/check-in.md:24 ('immutable event -- first sighting wins'; also the stale firstOrCreate/identity sentence) -- the canonical line q-open-1 and q-open-2 turn on",
+      "app/Console/Commands/Deploy.php:26-42 and composer.json post-deploy scripts (no migrate step -- the hand-apply requirement)",
+      "config/scout.php (lookback_minutes=15, max_concurrent_slots=2, slot_lease_minutes=10 -- unaffected)"
+    ],
+    "code_flow": "Manual `artisan scout:record-check-ins` (the schedule is disabled) -> ScoutRecordCheckIns::handle() acquires one of 2 concurrency slots -> enumerates Scout-enabled drivers grouped by org -> per kit ScoutCheckInMatchQuery::handle() runs ONE ClickHouse statement: clarity.sc_positions bbox-prefiltered and geoDistance-joined (<=160.934m) to clarity.scout_open_addresses, collapsed per address_id/hour (address_hour), then ROW_NUMBER-elected per (addr_lng, addr_lat, hour_bucket, out_is_staged) with rn=1 -> returns match rows (today: address_id, hotlist_id, is_staged, hour_bucket, matched_at, and the GPS-FIX lng/lat; PROPOSED: + addr_lng/addr_lat) -> recordCheckInsForKit() builds $rows -> ScoutCheckIn::query()->insertOrIgnore($rows) into platform.scout_check_ins against unique(kit_id, address_id, hour_bucket) today, unique(kit_id, addr_lng, addr_lat, hour_bucket, is_staged) proposed. THE BUG: the election is geo-correct but the storage key is address_id-shaped and is_staged-blind, so (a) a mid-hour re-election with a different address_id at the same geo bypasses dedup and writes a second row, and (b) a same-address_id bucket migration collides on the old key and has its correction silently dropped.",
+    "tables": [
+      "platform.scout_check_ins (PostgreSQL, platform schema, write target and migration target)",
+      "clarity.scout_open_addresses (ClickHouse, chlocal-owned MV, rebuilt in place every 15 min, read-only here -- the churn source that fires the bug)",
+      "clarity.sc_positions (ClickHouse, kit GPS, read-only, unchanged)",
+      "zod.public_hotlist (ClickHouse CDC mirror -- read-only in this pass's exposure measurement only, not touched by the code change)"
+    ],
+    "related_components": [
+      "ScoutCheckInRollupQuery (dashboard tile, computed on read, no persistence -- out of scope)",
+      "Org::stagingOrgIds() -> hotlistOrgFilter() (unaffected; used to seed staging-side fixtures)",
+      "ClarityScoutMiddleware (driver-eligibility mirror the recorder's scoutEnabledDrivers() follows)",
+      "Cache::add N-slot semaphore (2-slot concurrency ceiling; relevant to why the key must be DB-enforced)",
+      "ClickhouseQuery::query() Throwable-swallow (unrelated here; AC7 stays satisfied since ::handle() is untouched)",
+      "App\\Support\\Scout\\Geohash + HitDirectHotspotQuery geohashEncode (evaluated as a key encoding, REJECTED -- ~19-38m map-bucketing precision)"
+    ],
+    "kb": {
+      "dir": "okf",
+      "pages_consulted": [
+        "okf/index.md",
+        "okf/concepts/data-architecture.md",
+        "okf/concepts/check-in.md",
+        "okf/concepts/scout-check-in-recorder.md",
+        "okf/concepts/platform-gotchas.md"
+      ],
+      "drift_found": [
+        "check-in.md:24 -- states the identity as unique(kit_id, address_id, hour_bucket) 'enforced by a unique index and firstOrCreate'; code uses insertOrIgnore (ScoutRecordCheckIns.php:307), and this ticket changes the identity",
+        "scout-check-in-recorder.md and platform-gotchas.md PG-023 -- both say the schedule is live; routes/console.php:59-66 shows it commented out"
+      ],
+      "no_match": [
+        "no wiki page covers reconciling a stale/stranded persisted row after an upstream re-election -- no in-repo precedent for that write-time pattern"
+      ]
+    },
+    "prior_artifacts_read": [
+      "docs/investigations/DEV-2426/flip-risk-measurement.md (this ticket's own read-only prod CH measurement)",
+      "docs/investigations/DEV-2426/scout-check-ins-size-bound.md (this ticket's own repo-evidence row-count bound)",
+      "docs/investigations/DEV-2414/{prep-context.json,ac4-prediction.md,dev1756-conflict.md,cluster-investigation.md}"
+    ]
+  },
+  "exhaustiveness": {
+    "root_cause_idiom": "A storage-layer uniqueness key that identifies a row by which candidate WON an upstream election (address_id) rather than by the thing the winner represents (the place/geo + side), when the election is re-run against a source that churns between runs.",
+    "grep_patterns_used": [
+      "rg -n 'insertOrIgnore' app/ database/",
+      "rg -n 'firstOrCreate|updateOrCreate' app/",
+      "rg -n 'unique\\(\\[' database/migrations/*.php",
+      "rg -n 'ROW_NUMBER\\(\\) OVER|argMin\\(' app/Clickhouse/Queries/*.php",
+      "rg -n 'address_id.*hour_bucket|hour_bucket.*address_id'",
+      "rg -rln 'scout_check_ins|ScoutCheckIn::' app/ tests/ database/",
+      "rg -n 'TTL' database/schema/clickhouse-schema.sql"
+    ],
+    "sites": [
+      {
+        "site": "database/migrations/2026_08_10_170314_create_scout_check_ins_table.php:27 unique(['kit_id','address_id','hour_bucket'])",
+        "verdict": "buggy",
+        "reason": "the root-cause site. Address-shaped key for a place-shaped fact, AND is_staged-blind -- the second property is what strands the stale label. Must be DROPPED, not demoted."
+      },
+      {
+        "site": "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php:218-226 final SELECT",
+        "verdict": "buggy (incomplete)",
+        "reason": "computes addr_lng/addr_lat upstream (:171-172) and partitions on them (:212) but drops them before returning -- the reason the PG key cannot be fixed without a query change too."
+      },
+      {
+        "site": "app/Console/Commands/ScoutRecordCheckIns.php:307 ScoutCheckIn::query()->insertOrIgnore($rows)",
+        "verdict": "safe (mechanism unchanged)",
+        "reason": "insertOrIgnore is correct; it only ever does what its unique index tells it to. This ticket fixes the index, not the call site. It is also the ONLY insertOrIgnore in app/ -- the idiom class is single-site."
+      },
+      {
+        "site": "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php:211-212 (ROW_NUMBER partition)",
+        "verdict": "safe",
+        "reason": "the election is already geo-correct after DEV-2414."
+      },
+      {
+        "site": "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php:119-121",
+        "verdict": "safe / not applicable",
+        "reason": "computed on read for the dashboard tile, never persisted -- a storage-key fix cannot regress it."
+      },
+      {
+        "site": "app/Models/Scan.php:393 ScanMetaData::firstOrCreate",
+        "verdict": "safe",
+        "reason": "keyed on a stable scan_id foreign key, not a ranked/elected value."
+      },
+      {
+        "site": "app/Support/Scout/ScoutUserProvisioner.php:131 KitSettings::updateOrCreate",
+        "verdict": "safe",
+        "reason": "keyed on stable kit/user identifiers."
+      },
+      {
+        "site": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:1041 ScoutOrgSettings::updateOrCreate",
+        "verdict": "safe",
+        "reason": "keyed on org id, stable."
+      },
+      {
+        "site": "app/Jobs/Rdn/GetOrgBranches.php:23 Branch::updateOrCreate",
+        "verdict": "safe",
+        "reason": "keyed on RDN's external branch id, not a locally-elected winner."
+      },
+      {
+        "site": "app/Observers/InviteObserver.php:40,56",
+        "verdict": "safe",
+        "reason": "keyed on stable org/invite identifiers."
+      },
+      {
+        "site": "app/Clickhouse/Queries/{KitHistoricPositionsQuery,KitRangePathsQuery,OrgLivePathsQuery}.php (other ROW_NUMBER/argMin users)",
+        "verdict": "safe",
+        "reason": "read-only, no PostgreSQL persistence downstream -- nothing to accumulate a duplicate in."
+      },
+      {
+        "site": "database/migrations (rest of repo: clarity_pro_monthly_billing, features, permission_tables x2, client_org_access composite uniques)",
+        "verdict": "safe",
+        "reason": "none keys on an upstream-elected or re-derivable value that can be elected differently across runs; no sibling instance of this idiom."
+      },
+      {
+        "site": "tests/Feature/Console/ScoutRecordCheckInsScheduleTest.php, tests/Feature/Console/ScoutRecordCheckInsOverrunSignalTest.php, app/Seeders/ClarityScoutClickhouseSeeder.php:69, tests/Concerns/RequiresClickhouse.php:27, database/schema/local-clickhouse-schema.sql:190,193",
+        "verdict": "verify only",
+        "reason": "surfaced by the driver's grep backstop, missed by all four candidate passes. The two command tests assert on log/report output rather than row grain; the seeder and local schema feed QA fixtures for the book this key derives from."
+      }
+    ],
+    "candidate_coverage_note": "The union of four candidates plus the driver's grep backstop widened the target set from 6 files (each candidate's own list) to 10, all five additions being verify-only surfaces. No candidate found all of them."
+  },
+  "data_impact": {
+    "pg_tables": [
+      "platform.scout_check_ins (schema change: two new nullable double columns, unique index dropped and replaced; no data backfill)"
+    ],
+    "ch_tables": [
+      "clarity.scout_open_addresses (read-only, unchanged)",
+      "clarity.sc_positions (read-only, unchanged)",
+      "zod.public_hotlist (read-only, measurement only)"
+    ],
+    "mv_or_cdc_implications": "No ClickHouse schema change: ScoutCheckInMatchQuery already computes addr_lng/addr_lat internally, so only the outer SELECT projection changes. platform.scout_check_ins has NO ClickHouse CDC mirror -- it lives in the `platform` Postgres schema and PeerDB CDC replicates only `public` (confirmed: SELECT count() FROM zod.public_scout_check_ins returns UNKNOWN_TABLE, a real server response, not an auth/config failure). So there is no downstream ClickHouse consumer to worry about schema drift for, and equally no CDC oracle that can size this table. clarity.scout_open_addresses is chlocal-owned (migration 111, DEV-2383); its 15-minute in-place full rebuild is the mechanism this ticket defends against, not something it changes.",
+    "indexes_relied_on": [
+      "DROPPED (mandatory): platform.scout_check_ins unique(kit_id, address_id, hour_bucket) -- is_staged-blind, strands the stale label",
+      "ADDED: platform.scout_check_ins unique(kit_id, addr_lng, addr_lat, hour_bucket, is_staged) -- the AC1/AC2 enforcement mechanism (shape conditional on q-open-1)",
+      "UNCHANGED: platform.scout_check_ins index(org_id, address_id) -- still backs the documented DEV-1756 per-address COUNT(*) consumer pattern; note that under the two-rows reading one address_id can now hold two rows for one (kit, geo, hour), which that consumer would count as two",
+      "UNCHANGED: clarity.scout_open_addresses ORDER BY (org_id, is_staged, hotlist_id, address_id) -- no geo prefix, so the CH bbox prefilter stays load-bearing exactly as before"
+    ]
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "Target set includes a new migration under database/migrations/** (ALTER on a production table, dropping and rebuilding a unique index), a scheduled console command (app/Console/Commands/ScoutRecordCheckIns.php), and a ClickHouse query class (app/Clickhouse/Queries/ScoutCheckInMatchQuery.php).",
+    "driving_tables": [
+      {
+        "table": "platform.scout_check_ins",
+        "source": "N/A for the CDC oracle -- platform-schema table, never mirrored into zod.public_* (probe returns a real UNKNOWN_TABLE server response). Bounded from repo/git evidence instead.",
+        "prod_rows": null,
+        "prod_rows_bound": "order 10^3 (low thousands); under ~10k even doubling for unrecorded manual runs",
+        "bound_evidence": "The recorder could only write in two windows: 2026-08-10 -> 08-12 (DEV-2342's commit records 701 check-ins / 17 cycles at the pre-DEV-2342 36-148 min cycle times) and 2026-08-21 08:30 -> 10:10 (~20 cycles at ~2.07 rows/kit over ~44 kits, ~1,800 rows). Schedule commented out at HEAD (routes/console.php:59-66, commit 4aec6244). See docs/investigations/DEV-2426/scout-check-ins-size-bound.md.",
+        "group_by": "kit_id (the recorder's driving loop)",
+        "largest_group_rows": null
+      },
+      {
+        "table": "clarity.scout_open_addresses",
+        "source": "direct read-only query against ClickHouse Cloud (2026-08-25 snapshot, this ticket's own measurement) -- probe-grounded",
+        "prod_rows": 4519947,
+        "group_by": "(addr_lng, addr_lat, out_is_staged) -- the exact CH election partition",
+        "largest_group_rows": 20396,
+        "largest_group_caveat": "20,396 is DEV-2414's largest single group when grouped by exact GEO ONLY (no side). This pass's (geo, side) distribution reports BUCKETS, not a single max: the 1000+ bucket holds 10 groups totalling 46,827 rows (mean ~4,683). Do not read 46,827 as one group. Those 1000+ clusters are geocoder-fallback/sentinel artifacts per DEV-2414's cluster-investigation.md, not real shared addresses.",
+        "distribution": "2,767,871 (geo, side) election groups total: 1,845,850 singletons; 909,934 with 2-9; 11,971 with 10-99; 106 with 100-999; 10 with 1000+. 922,021 groups (33.3%) hold >1 address; 2,674,097 book rows (59.2%) sit in such a group -- the population structurally at risk of flip mechanisms 1 and 2.",
+        "both_sides": "404,786 of 2,363,085 geos (17.13%) carry both is_staged sides FLEET-WIDE -- distinct from the docblock's ~0.27% per-org view-weighted figure; do not conflate.",
+        "dual_listing": "0 of 4,519,947 address_ids carry both is_staged values (distinct address_id == row count == distinct (hotlist_id, address_id)) -- mechanism 3 is temporal, not simultaneous.",
+        "engine": "SharedMergeTree ORDER BY (org_id, is_staged, hotlist_id, address_id) -- no geo prefix, bbox prefilter stays load-bearing"
+      },
+      {
+        "table": "zod.public_hotlist (the churn that FIRES mechanism 2)",
+        "source": "direct read-only query, CDC mirror, FINAL + _peerdb_is_deleted = 0 -- probe-grounded",
+        "prod_rows": 46059715,
+        "group_by": "status",
+        "largest_group_rows": 46059715,
+        "churn": "1,015,874 Open rows updated in the last 24h; ~212,700 non-open-status rows updated in 24h (a lower bound on transitions OUT of Open). The book spans 1,623,778 distinct hotlist_ids. Order closure is continuous at six figures/day fleet-wide."
+      }
+    ],
+    "growth": "No cadence-driven growth for platform.scout_check_ins today -- the schedule is commented out, so the ticket-style 'rate x kits x cadence x days' extrapolation has a zero cadence term. If re-enabled at fleet scale (~43-44 kits, 5-min cadence, target ~1 row/kit/15min) the table would grow on the order of ~4,000 rows/day -- still trivial next to the fleet-scale tables this migration does not touch (zod.public_address at 198M, zod.public_hotlist at 46M Open). Fleet itself grew 29->43 kits and 11->12 orgs inside a single day during the DEV-2342 incident, so kit-count assumptions should not be treated as static. The growth that matters for CORRECTNESS is the book's, not this table's: 33.3% flip-capable election groups plus ~1.0M Open-order updates/24h is the exposure that makes this bug's rate 'bounded by churn, not by rarity'.",
+    "schedule": {
+      "expression": "everyFiveMinutes()",
+      "interval_seconds": 300,
+      "without_overlapping_minutes": 10,
+      "state": "DEFINED BUT COMMENTED OUT at routes/console.php:59-66 (commit 4aec6244, 2026-08-21). Nothing runs this on a cadence today; the okf wiki's 'schedule is live' claim is stale.",
+      "additional_gates": "config('app.env') === 'production' && strtolower(config('app.name')) === 'platform' && config('app.experimental.clarity_scout')"
+    },
+    "allocation_sketch": "MIGRATION: ADD COLUMN addr_lng/addr_lat nullable with no DEFAULT is Postgres metadata-only (no table rewrite) at any row count; DROP the old unique constraint is likewise metadata-only; CREATE the new UNIQUE INDEX is the one O(n) step, and at order-10^3 rows it completes in milliseconds. CREATE INDEX CONCURRENTLY is unnecessary (and awkward inside Laravel's transactional migration wrapper). The write path is QUIESCENT during the migration window -- the schedule is off -- so there is no concurrent-writer hazard. The real hazard is not locking but legacy-row compatibility, resolved by leaving the new columns nullable and unbackfilled (NULLS DISTINCT exempts legacy rows; backfilling would fail the index build on the bug's own duplicates). COMMAND: unchanged O(matches) per kit -- the two geo values already ride along inside the existing CTE chain, so no new ClickHouse fetch and no new PHP accumulator. The genuine operability risk this ticket adds is procedural, not allocational: there is no automated prod migration path, so a code-before-DDL ordering mistake degrades every kit to recorded=0 behind the per-kit try/catch rather than failing loudly.",
+    "oracle_status": "ok",
+    "oracle_note": "The Clarity zod.public_* CDC oracle EXISTS and WORKS -- verified live in this pass's evidence chain (prod-cardinality.sh --app clarity --table address -> zod.public_address = 198,128,783 rows), and the two ClickHouse driving tables were measured directly with real aggregate results. The ONE table with no probed number is platform.scout_check_ins, and that is a table-not-in-oracle N/A, NOT a failed probe: it lives in the `platform` Postgres schema and PeerDB replicates only `public`, so zod.public_scout_check_ins has never existed (the probe's UNKNOWN_TABLE is a real server response, not an auth or config error). Its size is resolved instead by repo/git evidence to order 10^3 -- see scout-check-ins-size-bound.md -- which is sufficient to size the migration, so it is NOT carried in `unresolved`. All four candidates recorded this as unavailable/not-configured with an open unresolved item; the driver's size bound closed it.",
+    "unresolved": []
+  },
+  "derivation_log": [
+    {
+      "query_shape": "SELECT count() FROM clarity.scout_open_addresses",
+      "param_classes": "none",
+      "aggregate_result": "4,519,947 book rows (2026-08-25 snapshot)",
+      "why": "sizes the book; cross-checks DEV-2414's 4,534,601 from 2026-08-24 -- the book churns, so the fresher figure is preferred over candidates' reused values (4,534,601 / 4,485,647)"
+    },
+    {
+      "query_shape": "SELECT <cluster-size bucket>, count(), sum(n) FROM (SELECT count() AS n FROM clarity.scout_open_addresses WHERE geo != 0 GROUP BY tupleElement(geo,1), tupleElement(geo,2), is_staged) GROUP BY bucket",
+      "param_classes": "none",
+      "aggregate_result": "2,767,871 (geo,side) groups; 922,021 (33.3%) hold >1 address; 2,674,097 rows (59.2%) sit in such a group; 1000+ bucket = 10 groups / 46,827 rows",
+      "why": "the at-risk population for flip mechanisms 1 and 2 -- the figure the ticket says is unmeasured"
+    },
+    {
+      "query_shape": "SELECT countIf(sides=2), count() FROM (SELECT uniqExact(is_staged) AS sides FROM clarity.scout_open_addresses WHERE geo != 0 GROUP BY address_id)",
+      "param_classes": "none",
+      "aggregate_result": "0 of 4,519,947 address_ids carry both is_staged values",
+      "why": "tests whether mechanism 3's simultaneous dual-listing variant occurs in production -- it does not, so mechanism 3 must be restated (and tested) as a temporal label change across book rebuilds"
+    },
+    {
+      "query_shape": "SELECT count(), uniqExact(address_id), uniqExact((hotlist_id,address_id)), uniqExact(hotlist_id) FROM clarity.scout_open_addresses",
+      "param_classes": "none",
+      "aggregate_result": "4,519,947 / 4,519,947 / 4,519,947 / 1,623,778",
+      "why": "independent confirmation that address_id is globally unique in the book snapshot, corroborating the zero-dual-listing result"
+    },
+    {
+      "query_shape": "SELECT countIf(sides=2), count() FROM (SELECT uniqExact(is_staged) AS sides FROM clarity.scout_open_addresses WHERE geo != 0 GROUP BY tupleElement(geo,1), tupleElement(geo,2))",
+      "param_classes": "none",
+      "aggregate_result": "404,786 of 2,363,085 geos (17.13%) carry both sides fleet-wide",
+      "why": "the AC4 both-sides population; must NOT be conflated with the docblock's ~0.27% per-org view-weighted figure"
+    },
+    {
+      "query_shape": "SELECT status, count(), countIf(updated_at >= now() - INTERVAL 1 DAY), countIf(updated_at >= now() - INTERVAL 7 DAY) FROM zod.public_hotlist FINAL WHERE _peerdb_is_deleted = 0 GROUP BY status",
+      "param_classes": "status enum",
+      "aggregate_result": "Open(1): 46,059,715 rows, 1,015,874 updated in 24h; non-open statuses ~212,700 updated in 24h",
+      "why": "sizes the order-closure churn that drives flip mechanism 2, the one the ticket calls frequent"
+    },
+    {
+      "query_shape": "SELECT engine_full FROM system.tables WHERE database='clarity' AND name='scout_open_addresses'",
+      "param_classes": "none",
+      "aggregate_result": "SharedMergeTree ORDER BY (org_id, is_staged, hotlist_id, address_id)",
+      "why": "confirms no geo prefix in the sort key, so the bbox prefilter stays load-bearing (unchanged by this ticket)"
+    },
+    {
+      "query_shape": "prod-cardinality.sh --app clarity --table address",
+      "param_classes": "none",
+      "aggregate_result": "zod.public_address = 198,128,783 rows",
+      "why": "oracle LIVENESS check -- proves the CDC oracle works, so the scout_check_ins gap is a table-not-in-oracle N/A rather than a probe failure"
+    },
+    {
+      "query_shape": "SELECT count() FROM zod.public_scout_check_ins",
+      "param_classes": "none",
+      "aggregate_result": "UNKNOWN_TABLE (code 60) -- a real server response, not an auth/config error",
+      "why": "confirms no CDC mirror exists for this platform-schema table; establishes that its row count needs a different evidence path"
+    },
+    {
+      "query_shape": "git log -- routes/console.php (commit messages + timestamps only); DEV-2342 commit message; DEV-2414 comment 38511",
+      "param_classes": "none",
+      "aggregate_result": "four schedule toggles between 2026-08-10 and 2026-08-21 bounding two write windows; 701 check-ins / 17 cycles in window 1; ~1,800 rows estimated in window 2 -> order 10^3 total",
+      "why": "replaces the missing oracle number for platform.scout_check_ins with a repo-evidence bound sufficient to size the migration"
+    },
+    {
+      "query_shape": "CH float round-trip probe via tinker on the live read-only CH connection (FORMAT JSON under the hood): SELECT toFloat64(<literal>) for literal constants only, no production rows",
+      "param_classes": "literal float constants chosen to probe precision (-97.70 vs -97.70001, plus a 17-significant-digit value)",
+      "aggregate_result": "all values decoded back bit-identical; -97.70001 round-tripped distinct from -97.7",
+      "why": "validates that the CH-side exact-tuple grain survives the crossing into PHP, which the raw-double unique key depends on"
+    },
+    {
+      "query_shape": "pure PHP (no query): (string) cast of a float under this environment's php.ini, then reparse",
+      "param_classes": "a 17-significant-digit synthetic float",
+      "aggregate_result": "precision=14, serialize_precision=-1; reparse-equality FALSE at 17 significant digits -- truncation real but deterministic, and ~14 significant digits is far finer than the ~1m / 5th-decimal-degree distinctness the CH partition relies on",
+      "why": "the one genuine residual risk on the raw-double key; converted into a mandatory Postgres-layer near-but-not-identical test rather than left as a caveat"
+    },
+    {
+      "query_shape": "grep: insertOrIgnore | firstOrCreate | updateOrCreate across app/; ROW_NUMBER()/argMin( across app/Clickhouse/Queries/; scout_check_ins|ScoutCheckIn:: across app/ tests/ database/; unique([ across database/migrations/; TTL in database/schema/clickhouse-schema.sql",
+      "param_classes": "n/a",
+      "aggregate_result": "insertOrIgnore: exactly 1 site in app/ (this ticket's target); ROW_NUMBER election: 2 sibling CH classes only; scout_check_ins: writer + model + migration + 4 test files, ZERO readers; no other composite unique keyed on an elected value; scout_open_addresses and sc_positions carry NO TTL clause",
+      "why": "exhaustiveness for the idiom class, blast-radius bound for the grain change, and the TTL check that clears the known fixture-rot hazard"
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC1",
+        "kind": "agent",
+        "intent": "Run scout:record-check-ins twice in one UTC hour with a book mutation between runs, once per flip mechanism (a lower address_id opens at the same geo; the elected winner's order closes and a higher id takes over). Assert exactly one platform.scout_check_ins row per (kit, geo, hour, side), and that the surviving row's address_id/matched_at/created_at are unchanged from run #1 (proving preservation, not replacement)."
+      },
+      {
+        "ac": "AC2",
+        "kind": "agent",
+        "intent": "Cover all three mechanisms. For mechanism 3 use the production-faithful TEMPORAL fixture (DELETE the Staging book row, INSERT the same address_id onto a Direct hotlist at the same geo between runs) -- never a simultaneous dual-hotlist listing, which does not occur in production. Assert the full four-part combination (total count, exactly one row per side, and the original row's timestamps unchanged); a count-only or label-only check passes a broken implementation. EXPECTED ROW COUNT DEPENDS ON q-open-1 -- do not author this scenario until that is answered."
+      },
+      {
+        "ac": "AC2b",
+        "kind": "agent",
+        "intent": "Geo provenance: assert the persisted addr_lng/addr_lat equal the BOOK address coordinate while lat/lng equal the GPS-FIX coordinate (seed them at different in-radius points, ~35m apart). Plus a Postgres-layer precision guard: two book addresses ~1m apart at the same hour/side must persist as two distinct rows."
+      },
+      {
+        "ac": "AC3",
+        "kind": "human",
+        "intent": "Operator with production access runs scout:record-check-ins manually BEFORE the change (the 'before' recorded/kits_processed from the completion log line, comparable to DEV-2414's 2.07/kit baseline in comment 38511), then AFTER the DDL is hand-applied and the code deployed. Sequence matters: before-run, DDL, deploy, after-run. Not automatable -- the schedule is disabled and the book is live production data."
+      },
+      {
+        "ac": "AC4",
+        "kind": "agent",
+        "intent": "Seed N co-located Direct AND N co-located Staging addresses at one identical geo; assert exactly 2 persisted rows, one per side. Also re-run the existing DEV-2414 co-located and multi-distinct-geo tests unmodified and confirm they stay green with the new schema in place."
+      }
+    ],
+    "seed_scenario": "One org with a Scout-enabled kit (valid kit_mapping, kit_settings row, clarity-scout permission) and a driver. Seed clarity.scout_open_addresses with 2-3 co-located address_ids at ONE exact coordinate -- mixing Direct and Staging across the three mechanism scenarios -- plus one genuinely distant address and one ~1m-away address as no-collapse controls. Seed one or two clarity.sc_positions fixes inside the 160.934m radius, timed within a single UTC hour so hour_bucket stays fixed across both recorder invocations, and anchored near now() via travelTo() for determinism (NOT for TTL survival -- neither CH table carries a TTL). Run the recorder, MUTATE THE BOOK, run it again in the same hour, then inspect platform.scout_check_ins row count and the persisted is_staged / address_id / addr_lng / addr_lat / matched_at values. The book mutation between runs is the whole point: no existing test does it, so it is where all three mechanisms live.",
+    "personas": [
+      "Scout driver (kit-assigned user with clarity-scout permission) -- the GPS source; backend-only, no consumer UI exists for check-ins yet",
+      "Engineer/operator with production artisan + DB access -- required for AC3's before/after measurement and for hand-applying the migration DDL"
+    ],
+    "pg_tables": [
+      "platform.scout_check_ins",
+      "platform.kit_settings"
+    ],
+    "ch_tables": [
+      "clarity.scout_open_addresses",
+      "clarity.sc_positions"
+    ]
+  },
+  "blast_radius": [
+    "database/migrations/** (new migration: drops and rebuilds a UNIQUE index on a production table)",
+    "production-data-table: platform.scout_check_ins (grain change at a deploy boundary, no backfill; currently low-volume)"
+  ],
+  "gate": "CLEAN",
+  "gate_note": "CLEAN after the Phase 2 interview: all 3 material questions answered by Dalton on 2026-08-25 (mechanism-3 grain = two rows per side; attribution = freeze at first sighting; AC3 after-figure = post-merge follow-up). Resource envelope was already resolved (oracle_status=ok, unresolved=[]). REMAINING BLAST-RADIUS OBLIGATION: database/migrations/** is in scope. The migration itself is authorized both by the ticket (\"This requires a migration\") and by the Q1 answer (which mandates changing the uniqueness key), but the exact DDL \u2014 add two nullable double columns, DROP unique(kit_id,address_id,hour_bucket), ADD unique(kit_id,addr_lng,addr_lat,hour_bucket,is_staged) \u2014 must be shown to Dalton for an explicit approval line at the end of Phase 3, before any Phase 4 worker touches it.",
+  "confidence": 80,
+  "escalate": {
+    "recommend": true,
+    "reasons": [
+      "q-open-1 is a product decision between two ticket ACs that contradict each other on exactly one case, and it determines the physical shape of the unique index. All four candidates split on the adjacent question (1: reconciliation required; A: purely additive; B: a second row is legitimate; C: named the fork and declined to pick) -- the strongest possible signal that a single pass should not resolve it.",
+      "Migration blast radius with no human approval on the ticket: a DROP + rebuild of a UNIQUE index on a production table plus an identity-grain change at a deploy boundary, in a repo with NO automated production migration path (Deploy.php and the composer post-deploy scripts never run migrate; php artisan migrate fails on prod because graphqluser lacks CREATE on zod).",
+      "Deploy ordering is a coordination item, not a code item, and getting it wrong fails SILENTLY: the per-kit try/catch degrades a missing-column error to recorded=0 with a per-kit warning, losing every check-in for the misordered window instead of aborting loudly.",
+      "AC3 is only half-satisfiable pre-merge. A DEV-2414-style pre-measurement of the flip rate is structurally impossible (the book is rebuilt in place, past states are not retained), so exposure sizing is the substitute -- and whether that split is acceptable for Done needs explicit sign-off (DEV-2414 q5 set a precedent, but this ticket's text does not adopt it).",
+      "This is a direct same-table, same-command continuation of DEV-2414, whose own operator decisions were still being actively revised as of 2026-08-25 (dev1756-conflict.md) -- cross-ticket continuity risk.",
+      "Two production-measured findings change how the ticket must be read and should be confirmed with the reporter before build: mechanism 3 is TEMPORAL, not simultaneous (0 dual-listings in 4.5M book rows), and the exposure is large rather than rare (33.3% of election groups flip-capable, ~1.0M Open-order updates/24h) -- so the ticket's own warning against assuming the rate is small is confirmed, not dismissed."
+    ]
+  },
+  "reconcile": {
+    "candidates_merged": [
+      {
+        "id": "prep-candidate-1.json",
+        "angle": "fast pass",
+        "confidence": 63,
+        "unique_contribution": "The only candidate to demand a DIRECT DB-constraint test (that the new unique index itself rejects a duplicate, not just that insertOrIgnore intends to) -- kept. Also flagged the CREATE INDEX CONCURRENTLY-vs-transactional-migration decision, the insertOrIgnore-bypasses-model-events / hand-stamped-timestamps trap, and the per-file test-naming divergence. Its reconciliation-step position turned out to be a symptom of the old index rather than a needed mechanism, but it was the candidate that refused to call mechanism 3 solved -- which is what surfaced the real question."
+      },
+      {
+        "id": "prep-candidate-A.json",
+        "angle": "correctness of the persisted set",
+        "confidence": 78,
+        "unique_contribution": "THE decisive finding of this reconcile: dropping the OLD unique(kit_id, address_id, hour_bucket) is MANDATORY, not optional, because is_staged is absent from it -- so the corrected Direct-side row collides on (kit, address_id, hour) and insertOrIgnore drops it, which is precisely the ticket's stranded-is_staged symptom. This dissolves most of the four-way dispute. Also: zero existing readers of the table (so the grain change has no reader blast radius), the ScoutCheckInRollupQuery grain-symmetry argument, and the insertOrIgnore/ON CONFLICT DO NOTHING atomicity proof."
+      },
+      {
+        "id": "prep-candidate-B.json",
+        "angle": "storage key, migration, production operability",
+        "confidence": 76,
+        "unique_contribution": "The only EMPIRICAL evidence on the geo-key shape: measured CH FORMAT JSON float round-tripping (-97.70001 distinct from -97.7) and the PHP precision=14 stringification truncation, which resolved candidate C's stated residual with data instead of argument. Also the strongest production-operability chain (Deploy.php:26-42 and composer post-deploy never run migrate; the per-kit try/catch turns a misordered deploy into a SILENT recorded=0), the reasoned rejection of PostGIS (`=` is bbox-equality), the drop-vs-demote resolution by grep, and the observation that no prior migration in this repo has ever altered a unique index."
+      },
+      {
+        "id": "prep-candidate-C.json",
+        "angle": "testability, AC2, the measurement",
+        "confidence": 66,
+        "unique_contribution": "By far the most executable test designs -- concrete address ids, geos, distances, and the insight that mechanism 3 needs a FOUR-part assertion combination because a count-only or label-only check would each pass a broken 'adds a correct row, leaves the stale one behind' implementation. Also the only candidate to name the AC1-vs-AC4 tension explicitly, to check TTLs on the CH fixture tables (none), to document the clarityTable()/RequiresClickhouse hardcoded-truncate-list trap, to supply the NULLS DISTINCT + 'backfill would fail the index build on the bug's own output' mechanism, and to flag its own disagreement with candidate 1 as a best-of-N signal rather than resolving it."
+      }
+    ],
+    "agreements": [
+      "The geo key is the BOOK address's coordinate (not the GPS fix's), already computed inside ScoutCheckInMatchQuery's addresses/address_hour/ranked CTEs (verified at :171-172, :208, :212) and never projected out of the final SELECT (:218-226). VERIFIED IN REPO.",
+      "Two new NULLABLE double precision columns; geohash rejected (repo precedent is ~19-38m map-bucketing, too coarse; fine precision adds cell-boundary jitter) and PostGIS point rejected (`=` compares bounding boxes, not exact coordinates). 3 of 4 candidates named them addr_lng/addr_lat, matching the SQL's own CTE aliases; C's address_lng/address_lat is an immaterial naming preference, not a design difference -- settled on addr_lng/addr_lat.",
+      "New unique index (kit_id, addr_lng, addr_lat, hour_bucket, is_staged), with is_staged retained -- conditional on q-open-1 resolving to the two-rows reading.",
+      "A NEW migration; never edit the shipped 2026_08_10_170314 file.",
+      "No backfill; the deploy boundary is documented -- matching DEV-2414's own precedent for this same table. B and C additionally proved it is mechanically forced (NULLS DISTINCT exempts legacy rows; backfilling would fail the index build on the duplicates this bug already wrote).",
+      "The DDL must be hand-applied in production BEFORE the code deploys; there is no automated migrate path, and a misordered deploy silently zeroes `recorded` for the window behind the per-kit try/catch rather than failing loudly.",
+      "AC3 splits: the 'before' figure is obtainable now via a manual production run; the 'after' figure is inherently post-deploy. A DEV-2414-style pre-measurement of the FLIP RATE is impossible because the book keeps no history, so exposure sizing (already measured) is the defensible proxy.",
+      "No existing test is expected to break -- confirmed to still hold after the driver's grep backstop widened the surface by two previously-uninventoried command test files.",
+      "ScoutCheckInRollupQuery is out of scope: computed on read, no persistence, no uniqueness concept.",
+      "The schedule stays commented out; the okf wiki's 'schedule is live' claim is stale and must not be fixed mid-flight.",
+      "A per-kit cap is forbidden by the ticket as papering over a correctness bug.",
+      "All four recommended escalation (escalate.recommend = true), independently."
+    ],
+    "disagreements": [
+      {
+        "topic": "Does the bucket-migration case (mechanism 3) need an UPDATE/DELETE reconciliation step, or does pure insertOrIgnore on the new key suffice?",
+        "positions": "1: reconciliation REQUIRED (the old bucket goes empty and stops being emitted, so nothing re-collides with the stale row). A: purely additive, no DELETE/UPDATE, and the scoping question therefore never arises. B: a second row on the new side is legitimate per AC4. C: insertOrIgnore suffices, and explicitly named the fork rather than resolving it.",
+        "resolution": "PARTLY RESOLVED FROM CODE, THEN ESCALATED. Candidate A's mandatory-index-drop finding, traced against the actual index (migration :27, is_staged absent), shows the stranding is caused by the OLD index dropping the corrected Direct row -- so with it dropped, no row carries a wrong is_staged and no reconciliation mechanism is needed for that symptom. Candidate 1's premise was therefore inverted, not merely outvoted. What survives is NOT a mechanism dispute but a product decision -- whether one physical visit at a re-labelled place should yield one row or two -- which is recorded as q-open-1 with both options and their consequences, answered:false. Not picked.",
+        "gate_effect": "blocking"
+      },
+      {
+        "topic": "Attribution staleness: should address_id/hotlist_id be refreshed to the current winner, or frozen at first sighting?",
+        "positions": "All four raised it; none resolved it. A and C each explicitly declined to settle it unilaterally despite okf/concepts/check-in.md:24 leaning toward freezing.",
+        "resolution": "Carried forward as q-open-2, answered:false. Unanimously unresolved is not the same as settled, and it changes what is persisted.",
+        "gate_effect": "blocking"
+      },
+      {
+        "topic": "Is the raw-double geo key safe across the CH-Float64 -> JSON -> PHP-float -> PG-double round trip?",
+        "positions": "A: answered yes from code (passthrough value, no arithmetic; the existing lat/lng already round-trip through the same client). B: answered yes EMPIRICALLY -- CH FORMAT JSON round-trips exactly, and PHP's precision=14 stringification is not bit-exact at ~17 significant digits but is deterministic and far finer than the ~1m grain the partition relies on. 1 and C: left it open (2-2 split); C leaned the same way as A and B but flagged the round trip as a genuine unmeasured risk.",
+        "resolution": "RESOLVED ON B'S MEASUREMENT (grounded beats confident): C's uncertainty was about a FACT, and B measured that fact -- the ideal case for resolving from ground truth rather than escalating. Recorded answered:true with the measurement and the rejection rationale for geohash/PostGIS. C's concern was NOT dropped: it is carried as a mandatory test obligation (a Postgres-layer near-but-not-identical assertion, the exact failure mode that would silently defeat the index) plus a note. Flagged here because the split was 2-2 and this is the one place the merge overrode two candidates' 'needs-human'.",
+        "gate_effect": "non-blocking (gate is already BLOCKED on other grounds, so this resolution did not change the outcome)"
+      },
+      {
+        "topic": "Drop the old unique index outright, or demote it to a plain non-unique index for the DEV-1756 per-address count pattern?",
+        "positions": "1: open question. B: answered 'dropped outright' from a repo-wide grep showing zero consumers, with index(org_id, address_id) already serving the documented count pattern. A: dropping is mandatory (for a different and stronger reason -- correctness, not just consumer needs). C: drop, keep index(org_id, address_id).",
+        "resolution": "SETTLED as drop-outright, on the union of A's correctness argument and B's grep. Candidate 1's question is answered rather than carried.",
+        "gate_effect": "non-blocking"
+      },
+      {
+        "topic": "Production row count of platform.scout_check_ins and whether the UNIQUE index build needs CONCURRENTLY or a maintenance window.",
+        "positions": "All four left it UNRESOLVED with a non-empty resource_envelope.unresolved (1/B/C recorded oracle_status unavailable, A recorded not-configured). Anchors offered ranged from '818 rows' to 'low hundreds to low thousands' to 'unknown'.",
+        "resolution": "SETTLED by driver evidence that post-dated every candidate: the recorder could only write in two narrow windows (701 rows / 17 cycles, then ~1,800 rows), bounding the table at order 10^3, which makes the index build a milliseconds operation with a quiescent write path. oracle_status corrected to `ok` with an explicit table-not-in-oracle note -- the CDC oracle works (zod.public_address = 198,128,783); it simply never mirrored this platform-schema table. `unresolved` emptied, so the envelope does not gate the run on a probe failure that did not happen.",
+        "gate_effect": "non-blocking (was the fourth reason all four candidates escalated; now closed)"
+      },
+      {
+        "topic": "Mechanism 3's physical mechanism: simultaneous dual-listing via min(is_staged), or a temporal label change?",
+        "positions": "Candidates 1, A and C all described it the ticket's way (an address that ALSO joins a Direct hotlist, collapsed by min(is_staged)). B alone folded in the driver's measurement contradicting that.",
+        "resolution": "SETTLED by measurement, overriding three candidates and the ticket's own wording and the class docblock: 0 of 4,519,947 address_ids carry both is_staged values, so simultaneous dual-listing does not occur in production. Mechanism 3 is a TEMPORAL label change across book rebuilds. This changes the required test fixture (DELETE + re-INSERT on the other side, not a dual-hotlist listing) and is recorded in notes, ACs and tests. Corollary: the argMin Direct-wins tiebreak and the parity tests pinning it guard a book state with zero production instances.",
+        "gate_effect": "non-blocking (changes HOW to build and test, not WHETHER)"
+      },
+      {
+        "topic": "Target-file inventory.",
+        "positions": "Each candidate independently produced the SAME core 6 files -- strong convergence. But no candidate inventoried tests/Feature/Console/ScoutRecordCheckInsScheduleTest.php, tests/Feature/Console/ScoutRecordCheckInsOverrunSignalTest.php, or app/Seeders/ClarityScoutClickhouseSeeder.php.",
+        "resolution": "UNION TAKEN, plus the driver's grep backstop: 10 files, the 4 additions all verify-only. A site only one source found is still a real site -- and here the site NO candidate found came from the backstop, which is the clearest argument in this reconcile for keeping the grep net independent of the candidate passes.",
+        "gate_effect": "non-blocking"
+      }
+    ],
+    "method_note": "Applied insightlpr:multi-candidate-merge. Additive content unioned and deduped by file+intent (6 core files -> 10 with the backstop; 3 test scenarios -> 13 test obligations). Agreements verified against the repo rather than accepted on consensus -- the mandatory-index-drop claim, the CTE line numbers, the schedule state and all cited test method names were each read directly, and every citation in this artifact was confirmed to exist. Disagreements were resolved from ground truth where ground truth existed (index drop, geo-key shape, row-count bound, mechanism 3's physical form) and escalated where it did not (the AC1/AC4 fork, attribution staleness, AC3 ownership). Confidence 80 is set ABOVE the best single candidate (78) because the union closed four items that every candidate had left open -- including the resource envelope that all four flagged -- and BELOW 85 because q-open-1 can still change the unique index itself, which is the deliverable's load-bearing decision."
+  }
+}

@@ -1,0 +1,229 @@
+{
+  "key": "DEV-2739",
+  "generated_at": "2026-09-25T18:46:38Z",
+  "mode": "normal",
+  "route": "bug",
+  "gate": "CLEAN",
+  "gate_answered_at": "2026-09-25T19:02:00Z",
+  "gate_reason": "Q1, Q2, and Q3 are locked. Org 14, admin impersonation, and the Hits filters are the reproduce. Classification is a read-only measure, not a chosen cause. No product change on missing geocoded rows until that measure lands. Path A vs Path B stays deferred unless the same hits disagree.",
+  "confidence_code_map": 86,
+  "confidence_root_cause": 0,
+  "root_cause": "unclassified",
+  "base_sha": "e09b222e15b912bd59542e800e5e0171c08d82eb",
+  "base_branch": "main",
+  "provisioned": false,
+  "jira": {
+    "url": "https://insightlpr-team.atlassian.net/browse/DEV-2739",
+    "summary": "Hits \u2014 Distance From Given and Nearest Given Addresses show N/A for Brad Webb company",
+    "type": "Bug",
+    "priority": "Medium",
+    "status": "To Do",
+    "sprint": "Sprint 41",
+    "application": "Clarity",
+    "assignee": "Dalton McCleery",
+    "repo": "insight-lpr/platform",
+    "branch_path": "main\u2192main",
+    "live_first_glance_comment": "41873",
+    "supersedes_comment": "41853",
+    "reget_at": "2026-09-25T18:46:38Z",
+    "links": {
+      "DEV-1611": "Done \u2014 soft relate, not a reopen"
+    }
+  },
+  "synthesis": "Canon is okf/concepts/hit-address-distance.md on main (#467 / 19e56a5a). That contract is proven: Path A is the Postgres list over zod.public.hotlist_address joined to address (geo IS NOT NULL, no type_id, no (0,0) exclude); Path B is the blade POST to NearestGivenAddressController over clarity.recovery_address FINAL (Postgres MV is type_id = 2 only, one row per hotlist). Admin impersonation forces the ClickHouse hit list, so these columns always use Path B in that session. A staff demo of Brad Webb's company is that impersonation mode, so the likely list path is Path B. N/A is correct for missing or zero scan coordinates, for no qualifying geocoded row on the active path, and for the feature off on a non-impersonator. N/A is a bug candidate only after the path, non-zero scan geo, and at least one qualifying row on that path are all confirmed and the UI is still N/A. None of that classifies the Brad Webb all-N/A as data, query, or UI. Seed data has no Brad Webb org. The wiki page was not edited.",
+  "likely_demo_mode": {
+    "mode": "admin impersonation",
+    "path": "B",
+    "why": "A staff demo of a customer company uses admin impersonation. ListHits::shouldUseClickhouse() is true whenever session admin_impersonator is set, and buildClickhouseQuery does not select the distance aliases, so HitsResource falls through to the blades and NearestGivenAddressController. Cited as the likely list mode in okf/concepts/hit-address-distance.md (demo context may include impersonation, which forces Path B).",
+    "is_root_cause": false
+  },
+  "brad_webb_in_repo": {
+    "seed_or_factory_match": false,
+    "searched": [
+      "Brad Webb",
+      "brad.webb",
+      "Premier Adjusters",
+      "premieradjusters",
+      "<plate>"
+    ],
+    "production_org_id": null,
+    "note": "No production id invented. DEV-1611 comment 20086 names a staging account and company. That comment is QA history, not a fixture and not an id for this ticket."
+  },
+  "code_paths": {
+    "columns": {
+      "file": "app/Filament/Resources/HitsResource.php",
+      "distance": "191-214",
+      "nearest": "216-247",
+      "na_literal": "Formatter returns 'N/A' when state is null or '-' and hotlist_id, lat, or lng is missing or PHP-falsy (0 is falsy).",
+      "pro_teaser": "Nearest Given returns filament.tables.columns.pro-feature-teaser only when the feature is inactive and admin_impersonator is absent. The ticket's N/A string is the other branch."
+    },
+    "list_switch": {
+      "file": "app/Filament/Resources/HitsResource/Pages/ListHits.php",
+      "getTableQuery": "110-118",
+      "shouldUseClickhouse": "121-125",
+      "clickhouse_select": "140-163",
+      "clickhouse_omits_distance_aliases": true,
+      "postgres_subqueries": "212-235",
+      "status_filter_default": "HitsResource.php 276-280 defaults status to 1 (HotlistStatusEnum::Open). Demo filters are not on DEV-2739."
+    },
+    "path_a_postgres": {
+      "when": "shouldUseClickhouse() is false, and the feature is active or the session has admin_impersonator",
+      "source": "hotlist_address JOIN address on the zod connection (Hit model connection, public schema)",
+      "predicate": "a.geo IS NOT NULL AND scans.geo IS NOT NULL",
+      "order": "ST_DistanceSphere ASC LIMIT 1",
+      "miles": "ROUND(ST_DistanceSphere * 0.000621371, 2)",
+      "not_in_this_sql": [
+        "address.type_id",
+        "PostGIS (0,0) sentinel exclusion"
+      ]
+    },
+    "path_b_clickhouse_fallback": {
+      "when": "Column state is null or '-' and hotlist_id, lat, and lng are truthy. The ClickHouse list always leaves the aliases unset, so this formatter branch runs for every such row on that list.",
+      "ui": [
+        "resources/views/filament/tables/columns/distance-from-given.blade.php",
+        "resources/views/filament/tables/columns/nearest-given-address.blade.php",
+        "resources/js/app.js fetchNearestGivenAddress (64-76)"
+      ],
+      "route": "POST /nearest-given-address name nearest-given-address, routes/web.php:96, inside Route::middleware('auth') starting at line 61",
+      "controller": "app/Http/Controllers/NearestGivenAddressController.php",
+      "query": "clarity.recovery_address FINAL on clarity_clickhouse, ra.id = int hotlist id, ra.geo.1 != 0 AND ra.geo.2 != 0",
+      "nearest": "PHP Haversine, earth radius 3958.8 miles, round 2",
+      "empty_json_becomes_na": true
+    },
+    "recovery_address_mv": {
+      "pg": "vendor/insight-lpr/laravel-zod-migrations/database/schema/testing-schema.sql:18144-18167",
+      "definition": "hotlist_address JOIN address WHERE a.type_id = 2, row_number 1 per hotlist_id ordered by address_id, id column is hotlist_id",
+      "ch": "database/schema/clickhouse-schema.sql clarity.recovery_address ReplacingMergeTree ORDER BY id, geo Point DEFAULT (0, 0)"
+    },
+    "feature": {
+      "enum": "FeatureEnum::HIT_ADDRESS_DISTANCE = platform_repo_pro_hit_address_distance",
+      "slug": "Str::slug('Distance from Given') => distance-from-given",
+      "pennant": "app/Providers/PennantServiceProvider.php:40 Insight LPR user or User::isProEnabled",
+      "tiers": "ProTierEnum PRO_LITE, CLARITY_PRO, CLARITY_PRO_PLUS. BASIC has an empty feature list.",
+      "clickhouse_hits_literal": "ListHits uses Feature::active('clickhouse:hits'). Defined name is clickhouse-hits. ClickhouseRoutingTest.php:13-22 says the colon form matches no defined feature and that ListHits was left uncovered on purpose."
+    }
+  },
+  "okf": {
+    "page": "okf/concepts/hit-address-distance.md",
+    "ingested_by": "03e24eec merged via #467 (19e56a5a) on this base",
+    "cross_links": [
+      "okf/concepts/hit.md",
+      "okf/concepts/hotlist.md",
+      "okf/concepts/dto-and-enums.md",
+      "okf/concepts/feature-flags.md"
+    ],
+    "contract": "PROVEN",
+    "proven": [
+      "Feature HIT_ADDRESS_DISTANCE / Pennant platform_repo_pro_hit_address_distance; Pro Lite and above",
+      "DEV-1611 Done, soft relate, not a reopen",
+      "Path A: ListHits::buildPostgresQuery nearest over zod.public.hotlist_address joined to address, geo IS NOT NULL, no type_id filter, no (0,0) exclude, aliases distance_from_given_miles and nearest_given_address",
+      "Path B: null or '-' list state with truthy hotlist_id, lat, and lng \u2192 blades \u2192 NearestGivenAddressController \u2192 clarity.recovery_address FINAL; PG MV is type_id = 2 only, one row per hotlist; admin impersonation forces the ClickHouse hit list and therefore Path B",
+      "N/A is correct for missing or 0 scan lat/lng, no qualifying geocoded address on the active path, or feature off for a non-impersonator",
+      "N/A is a bug candidate only after path + non-zero scan geo + at least one qualifying row on that path, and the UI still shows N/A"
+    ],
+    "gaps_marked_unproven": [
+      "Brad Webb / DEV-2739 all-N/A root cause (data vs query vs UI)",
+      "Which path is product-canonical for given address",
+      "Whether Path A's missing (0,0) exclude is intentional",
+      "Whether Feature::active('clickhouse:hits') matches Pennant slug clickhouse-hits"
+    ],
+    "edited_this_run": false
+  },
+  "acceptance_criteria": [
+    {
+      "item": "AC1 Reproduce N/A on Brad Webb company Hits list (document org + filters).",
+      "source": "ticket",
+      "decision": "documented",
+      "reason": "Locked 2026-09-25. Org 14, brad.webb@premieradjusters.com, DaltonMcCleery admin-impersonating that account. Filters: Type All, Status Open, FlexSearch on, Location Cluster off, Disposition New Hit + Accessible, Hit date Today, Scanned date Any. Every visible row N/A on both columns. Evidence: Dalton Hits screenshot, interview 2026-09-25 ~1:54 PM CT."
+    },
+    {
+      "item": "AC2 Identify whether the fault is data (missing given addresses / geocode), query, or UI formatting.",
+      "source": "ticket",
+      "decision": "measure",
+      "reason": "Q2. Cloud ClickHouse read-only on the Org 14 impersonation list (Path B), then classify. Do not call the rows a data gap or a product bug before that measure."
+    },
+    {
+      "item": "AC3 After fix: Distance From Given and Nearest Given Addresses show real values where source data exists; N/A only when genuinely unavailable.",
+      "source": "ticket",
+      "decision": "conditional",
+      "reason": "A code change happens only if the measure finds non-zero scan geo and at least one qualifying row on the active path while the UI is still N/A. Missing rows stop for Dalton. No fix is specified in this plan."
+    },
+    {
+      "item": "AC4 Regression check on at least one other org that previously showed distances.",
+      "source": "ticket",
+      "decision": "conditional",
+      "reason": "Only if a code fix ships. The regression org is a different org that already shows distances, found read-only after the class is known. Org 14's April 2026 staging pass is not that org. No second org id is named here."
+    }
+  ],
+  "questions": [
+    {
+      "id": "Q1",
+      "q": "What was on screen for the all-N/A demo: the org name as shown in Clarity, whether the viewer was an admin impersonator, and the Hits filters (status, plate, date window)? Did every visible row say N/A?",
+      "why": "AC1. Locked reproduce. Admin impersonation forces Path B. That is the list mode for this screenshot, not a classified cause. Status Open is hotlist_status 1. DEV-1611's Repossessed / <plate> pass is a different filter set and is not this reproduce.",
+      "answered": true,
+      "answer": "Org ID 14 (Brad Webb / brad.webb@premieradjusters.com / premieradjusters). Viewer: DaltonMcCleery admin-impersonating brad.webb@premieradjusters.com (Path B per canon). Filters: Type All, Status Open, FlexSearch ON, Location Cluster OFF, Disposition New Hit + Accessible, Hit date Today, Scanned date Any. Every visible row: both columns N/A. Evidence: Dalton Hits screenshot, interview 2026-09-25 ~1:54 PM CT.",
+      "source": "human:Dalton 2026-09-25",
+      "blocks_plan": false
+    },
+    {
+      "id": "Q2",
+      "q": "If the path that was actually active has no qualifying geocoded given-address row for those hits, is N/A the correct outcome (no product change) or should the column read a different address set?",
+      "why": "First Glance hard stop: do not treat missing given-address data as a product fix without Dalton. Empty controller JSON and the formatter short-circuit both render N/A. That can be correct under the DEV-1611 'no given addresses \u2192 dash/blank' rule, or it can be the bug. Prep cannot tell.",
+      "answered": true,
+      "answer": "Measure first. Cloud ClickHouse is read-only. Do not call missing geocoded given-address rows out of scope or a product fix until that measure lands. The glance hard stop holds until the measure says otherwise.",
+      "source": "human:Dalton 2026-09-25",
+      "blocks_plan": false
+    },
+    {
+      "id": "Q3",
+      "q": "If reproduce shows geocoded hotlist_address rows that Path A would use, and no usable clarity.recovery_address row for the same hotlist, which source is 'given address' for these columns?",
+      "why": "The two queries disagree. Path A: all hotlist_address with non-null geo. Path B: clarity.recovery_address, mirroring public.recovery_address (address.type_id = 2, one row per hotlist ordered by address_id). okf/concepts/hotlist.md calls type_id 2 the repo address; that product reading for this column is UNPROVEN. DEV-1611 story text says nearest given/hotlist address. DEV-2163 plan text left the controller on recovery_address. Ask only if the rows actually disagree. Do not pick a source in prep.",
+      "answered": true,
+      "answer": "Defer. Choose Path A or Path B as the product given-address source only if they disagree on the same hits after the measure. No winner in this plan.",
+      "source": "human:Dalton 2026-09-25",
+      "blocks_plan": false,
+      "conditional": "Material only when Path B has no qualifying recovery_address row and Path A would return a geocoded hotlist_address for the same hotlist."
+    }
+  ],
+  "scope": {
+    "summary": "Measure-first. See plan.md. No product diff until the Org 14 read classifies the rows. No Hits architecture rewrite.",
+    "candidate_files_after_classification": [
+      "app/Filament/Resources/HitsResource.php",
+      "app/Filament/Resources/HitsResource/Pages/ListHits.php",
+      "app/Http/Controllers/NearestGivenAddressController.php",
+      "resources/views/filament/tables/columns/distance-from-given.blade.php",
+      "resources/views/filament/tables/columns/nearest-given-address.blade.php"
+    ],
+    "do_not_modify_until_classified": [
+      "public.recovery_address materialized view (laravel-zod-migrations)",
+      "clarity.recovery_address schema",
+      "Scout check-in address book (DEV-2163 / DEV-2386)",
+      "okf/ during this in-flight bug"
+    ],
+    "out_of_scope": [
+      "Product code in the prep commit",
+      "phase=provisioned",
+      "Cloud ClickHouse writes",
+      "Reopening DEV-1611",
+      "Inventing a production org id for Brad Webb",
+      "Rewriting Hits list routing, metric cards, or the ClickHouse hits tables",
+      "Fixing the clickhouse:hits slug unless reproduce shows a non-impersonated session was supposed to be on ClickHouse and was not. That string is a known separate track (ClickhouseRoutingTest).",
+      "DEV-2736 and DEV-2738"
+    ]
+  },
+  "tests_present": {
+    "nearest_given_address_controller": false,
+    "column_formatters": false,
+    "related": "tests/Unit/Enums/FeatureEnumTest.php asserts the HIT_ADDRESS_DISTANCE value and title. tests/Filament/Resources/ClickhouseRoutingTest.php documents the ListHits colon-slug mismatch and does not execute ListHits."
+  },
+  "product_locks": {
+    "lock": "Path A",
+    "text": "Given = any geocoded hotlist address on the order (hotlist_address \u22c8 address with geo). No type_id filter. Not recovery_address / type_id=2 only.",
+    "source": "Dalton via Gandalf 2026-09-29; Galadriel Board reopen same day"
+  },
+  "notes": [
+    "2026-09-29 Dalton/Gandalf: Path A Given = any geocoded hotlist address; drop type_id=2. Await Galadriel Board kick.",
+    "2026-09-29 08:17 CT: Path A retarget \u2014 Given any geocoded hotlist address; drop recovery_address/type_id=2. Galadriel Board reopen. plan.json rewritten."
+  ],
+  "phase": "planned"
+}

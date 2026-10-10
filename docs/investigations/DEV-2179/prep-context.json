@@ -1,0 +1,123 @@
+{
+  "key": "DEV-2179",
+  "mode": "normal",
+  "route": "feature",
+  "gate": "CLEAN",
+  "escalated": true,
+  "escalation_triggers": ["confidence<80 (72)", "escalate.recommend=true", "material design questions (scope + interval/staleness)", "backend caching change on a ClickHouse-backed endpoint"],
+  "reconcile_note": "Single sonnet prep pass (confidence 72) + haiku grep backstop. Deep N=3 candidate reconcile consolidated by driver judgment: the escalation is DESIGN-DECISION-driven (product calls only Dalton can make), not code-uncertainty-driven — the scope is a well-grounded 4-file change sourced from direct file reads, and the material questions BLOCK at the gate where blind candidates cannot help. Documented in journal.",
+
+  "synthesis": "The 'Live Hits Pending Repossession' card (DashboardOverlay.vue, fed by the shared Pinia `dashboard` store's `recentHits`) only loads once on mount / manual date-range switch — neither the admin Bird's Eye org map nor the driver Scout app refetches it in any poll loop. The ticket wants that list to self-refresh so newly-landed live hits appear without a manual browser refresh, on the admin/org-wide view (AC3), with the poll cadence reconciled against server caching so we don't add uncoalesced ClickHouse load (AC2). Both surfaces already run a chained-setTimeout ~10s poll loop (useBirdsEyePolling admin / useKitPositionPolling driver) refreshing sibling live data (positions, paths, stats); the natural fix is to fold a `dashboard.fetchRecentHits('today')` call into those loops. IMPORTANT correction: the ticket's '~3s cache' premise is false for normal paths — driver recentHits TTL is 90s (3s only under admin_impersonator), and the admin Bird's Eye recentHits endpoint has NO cache at all today.",
+
+  "scope": {
+    "summary": "Fold `dashboard.fetchRecentHits('today')` into the existing admin (and, pending Q1, driver) ~10s poll loop, gated exactly like the sibling `fetchStats('today')` calls already are; add `Cache::remember` to the currently-uncached admin `recentHits()` endpoint so the new poll doesn't hit ClickHouse unthrottled.",
+    "proposed_changes": [
+      {"file": "resources/js/clarity-scout/composables/useBirdsEyePolling.js", "change": "Inside tick()'s Promise.all (already gated on visibility + map.liveMode + adminMode), add dashboard.fetchRecentHits('today') alongside the existing dashboard.fetchStats('today').", "reason": "Admin (Bird's Eye) poll loop; satisfies AC1/AC3 by riding the existing ~10s cadence.", "ref": "resources/js/clarity-scout/composables/useBirdsEyePolling.js:19-33"},
+      {"file": "resources/js/clarity-scout/composables/useKitPositionPolling.js", "change": "Inside tick()'s if (mapStore.liveMode) block, add dashboardStore.fetchRecentHits('today') alongside the existing fetchStats('today'). [Q1=both surfaces]", "reason": "Driver poll loop — keeps the shared card fresh on the driver too, combined into the same ~10s tick as stats (Q2). After the MapShell guard (Q3), this loop runs ONLY on the driver.", "ref": "resources/js/clarity-scout/composables/useKitPositionPolling.js:49-54"},
+      {"file": "resources/js/clarity-scout/components/MapShell.vue", "change": "Add !mapStore.adminMode to the LiveTracking v-if so the driver useKitPositionPolling composable does not mount in admin Bird's Eye mode. [Q3=fix here]", "reason": "Pre-existing bug (knowledge/clarity/scout.md M3): driver-only poller mounts in admin mode, double-firing stats + hitting nonexistent admin routes (200 text/html). Also cleanly separates the two poll loops for 'both surfaces'.", "ref": "resources/js/clarity-scout/components/MapShell.vue:8"},
+      {"file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php", "change": "Wrap recentHits()'s query body in Cache::remember(cacheKey, ttl≈10s, ...), mirroring the sibling hits() cache-key shape on the same controller; TTL matched to the ~10s poll cadence (Q2) so polls/multiple tabs coalesce.", "reason": "Endpoint is currently uncached while its siblings hits()/stats() cache; adding a poll without a cache contradicts AC2.", "ref": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:510-577"},
+      {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php", "change": "Add test_recent_hits_response_is_cached mirroring the driver-side test, asserting Cache::has(cacheKey) after hitting /scout/org-map/api/dashboard/recent-hits.", "reason": "Pins the new admin caching behavior; driver side has the exact precedent test.", "ref": "tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php:669-684"}
+    ],
+    "target_files": [
+      "resources/js/clarity-scout/composables/useBirdsEyePolling.js",
+      "resources/js/clarity-scout/composables/useKitPositionPolling.js",
+      "resources/js/clarity-scout/components/MapShell.vue",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php"
+    ],
+    "out_of_scope": [
+      "Changing driver ClarityScoutDashboardController@recentHits TTL (90s) — unchanged per Q2 (driver poll rides the same tick; 'today' tolerates ~10-20s staleness).",
+      "WebSocket/Echo push for live hits — no HitCreated broadcast event, admin mode has no Echo/Sanctum connection; far larger scope (Q: poll vs push → poll).",
+      "DEV-2180 (hit-count data quality) and DEV-2181 (filter list by kit) — orthogonal siblings.",
+      "Broader DEV-2184 remediation beyond the single MapShell !adminMode guard (that guard IS in scope per Q3; any deeper admin-route audit stays on DEV-2184)."
+    ]
+  },
+
+  "acceptance_criteria": [
+    {"item": "AC1: pending list updates on its own (poll or push) without a manual refresh", "source": "ticket", "decision": "implement", "reason": "Fold dashboard.fetchRecentHits() into the existing ~10s poll loop(s)."},
+    {"item": "AC2: poll interval reconciled with existing cache (decide interval vs cache TTL)", "source": "ticket", "decision": "implement", "reason": "Resolved (Q2): recentHits rides the existing ~10s poll tick; admin endpoint gains a ~10s TTL cache so polls/tabs coalesce. Driver 90s TTL unchanged."},
+    {"item": "AC3: applies to the admin/org-wide view", "source": "ticket", "decision": "implement", "reason": "useBirdsEyePolling is the admin-specific loop, self-gated on map.adminMode."}
+  ],
+
+  "questions": [
+    {"q": "Scope: should auto-refresh also apply to the DRIVER PWA surface (the store/component are shared, so it's nearly free to add), or stay admin-only per the ticket title 'Scout Admin Map'? (PWA battery/data cost on the driver side.)", "answered": true, "answer": "BOTH surfaces — add fetchRecentHits to the driver poll loop (useKitPositionPolling) AND the admin poll loop (useBirdsEyePolling).", "source": "human:Dalton 2026-07-13"},
+    {"q": "Interval/staleness: what poll interval should recentHits use, and does the driver-side 90s cache TTL need to shrink to make polling meaningful — or is up to ~90s eventual-consistency acceptable for a 'live' feed? (The ticket's '~3s cache' premise is factually wrong; the reconciliation number is a real product/cost call.)", "answered": true, "answer": "COMBINE with the existing kit-position/stats polling — fold fetchRecentHits('today') into the SAME ~10s poll tick as fetchStats (no new timer), on both loops. Reconcile by caching the admin recentHits endpoint at a TTL matched to the poll cadence (~10s) so repeated polls/multiple tabs coalesce to at most one ClickHouse query per org per interval. No change to the driver 90s TTL is needed since the driver poll rides the same tick and the 'today' window tolerates ~10-20s staleness.", "source": "human:Dalton 2026-07-13"},
+    {"q": "Adjacent bug: the driver-only useKitPositionPolling currently mounts unconditionally in admin Bird's Eye mode (MapShell v-if lacks a !adminMode guard), double-firing fetchStats('today') and hitting nonexistent admin kit-position/live-path routes (200 text/html) — likely sibling DEV-2184. Fix it here (it bears directly on 'don't hammer the backend'), or leave it to DEV-2184?", "answered": true, "answer": "FIX HERE — add a !mapStore.adminMode guard to MapShell's LiveTracking mount so useKitPositionPolling runs only on the driver. This also cleanly separates the two loops so 'both surfaces' gives each surface exactly one fetchRecentHits (admin via useBirdsEyePolling, driver via useKitPositionPolling).", "source": "human:Dalton 2026-07-13"},
+    {"q": "Poll vs push?", "answered": true, "answer": "Poll (client interval). No HitCreated/broadcast event exists; admin Bird's Eye has no Echo/Sanctum connection (session-authed only, per birdseye.js); both sibling live-data composables already use chained-setTimeout polling. Push would require new backend broadcast infra — out of proportion.", "source": "code"},
+    {"q": "Should the admin Bird's Eye recentHits() endpoint gain server-side caching in this ticket?", "answered": true, "answer": "Yes — it currently has none while siblings hits()/stats() on the same controller cache; a poll without a cache directly contradicts AC2.", "source": "code"}
+  ],
+
+  "blockers": [],
+  "notes": [
+    "Correction: driver recentHits TTL = 90s (3s only under admin_impersonator), see ClarityScoutDashboardController.php:126-128.",
+    "Correction: ClarityScoutBirdsEyeController@recentHits has NO Cache::remember — runs two ClickHouse round trips (candidate hotlist_ids, then FINAL status) per call.",
+    "lib/fetch.js buildUrl()/authHeaders() already resolve BASE_URL per adminMode + auto-append kit_ids for admin — so fetchRecentHits() called from the poll loops routes correctly; the DEV-2184-style 'wrong endpoint → HTML' risk does NOT apply to the store call itself.",
+    "No JS test harness in this repo (package.json has only dev/build) — the frontend polling wiring cannot be pinned by an automated test; only the backend cache change can. Verification of the wiring is agent-QA/manual.",
+    "recent-hits routes carry no throttle: middleware (unlike map/kit-position's throttle:120,1) — relevant if the interval is tightened materially.",
+    "platform commits built assets (public/build) — a frontend change requires npm run build + committing the assets."
+  ],
+
+  "tests": [
+    {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php", "what_it_pins": "Admin recentHits response is now cached (Cache::has on the new key) after one hit — mirrors driver-side test_recent_hits_response_is_cached."},
+    {"file": "N/A (frontend polling wiring)", "what_it_pins": "No JS test runner exists; the composable change (fetchRecentHits added to the poll tick) is agent-QA/manual only."}
+  ],
+
+  "grounding": {
+    "key_files": [
+      "resources/js/clarity-scout/stores/dashboard.js:27-36 (fetchRecentHits)",
+      "resources/js/clarity-scout/stores/dashboard.js:38-54 (fetchAll — only current call site, one-time on mount)",
+      "resources/js/clarity-scout/components/DashboardOverlay.vue:34-96 (Live Hits card; reads dashboard.recentHits — reactive consumer, no change)",
+      "resources/js/clarity-scout/composables/useBirdsEyePolling.js:11-49 (admin poll loop, POLL_MS=10000, self-gates on map.adminMode + map.liveMode)",
+      "resources/js/clarity-scout/composables/useKitPositionPolling.js:5-109 (driver poll loop, POLL_MS=10000)",
+      "resources/js/clarity-scout/components/MapShell.vue:8 (LiveTracking v-if — no adminMode guard; mounts useKitPositionPolling in admin too)",
+      "resources/js/clarity-scout/App.vue:294-295 (useBirdsEyePolling mounted, self-gated)",
+      "resources/js/clarity-scout/lib/fetch.js:9,64-82 (BASE_URL per adminMode + kit_ids auto-scope — generic, no change)",
+      "app/Http/Controllers/Api/ClarityScoutDashboardController.php:113-164 (driver recentHits, TTL 90s/3s-impersonated)",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:510-577 (admin recentHits, UNCACHED)",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:270-351 (sibling hits() — caching pattern to mirror)",
+      "app/Http/Controllers/Api/Concerns/ScoutMapHelpers.php:46-58 (mapCacheTtl — 3s only under admin_impersonator, else 2-15min by range)",
+      "routes/api.php:35 (driver recent-hits) + routes/web.php:135 (admin recent-hits)"
+    ],
+    "code_flow": "Poll loop (useBirdsEyePolling admin / useKitPositionPolling driver, chained setTimeout ~10s) → [PROPOSED] dashboard.fetchRecentHits('today') → GET {BASE_URL}/dashboard/recent-hits → BirdsEye/Dashboard recentHits → ClickHouse Hit (hot/live, final(), forKitOrg/forKit) + Hotlist (FINAL semi-join, admin only) → JSON {data} → dashboard.recentHits ref → DashboardOverlay Live Hits card re-renders reactively.",
+    "tables": ["clarity.hits (hot partition, ClickhouseHit)", "clarity.hotlist (ClickhouseHotlist, FINAL semi-join — admin path)"],
+    "related_components": ["Pinia dashboard store (shared driver+admin)", "useBirdsEyePolling (admin)", "useKitPositionPolling (driver)", "Laravel Cache facade", "no observers/jobs/broadcast — pure read-path polling"]
+  },
+
+  "exhaustiveness": {
+    "patterns": ["git grep -n fetchRecentHits", "git grep -n 'useBirdsEyePolling|useKitPositionPolling'", "git grep -n recentHits", "git grep -n recent-hits", "git grep -n 'dashboard\\.recentHits'"],
+    "sites": [
+      {"site": "stores/dashboard.js fetchRecentHits + fetchAll", "class": "safe", "reason": "the store method to call; fetchAll is the only current (one-time) caller."},
+      {"site": "DashboardOverlay.vue dashboard.recentHits bindings", "class": "safe", "reason": "reactive consumer — updates automatically when the store ref changes; no edit."},
+      {"site": "useBirdsEyePolling.js tick()", "class": "buggy(missing-poll)", "reason": "admin loop refreshes stats but NOT recentHits — the AC3 fix site."},
+      {"site": "useKitPositionPolling.js tick()", "class": "buggy(missing-poll, conditional)", "reason": "driver loop refreshes stats but not recentHits; add pending Q1/Q5."},
+      {"site": "ClarityScoutBirdsEyeController@recentHits", "class": "buggy(uncached)", "reason": "no Cache::remember; add per AC2."},
+      {"site": "ClarityScoutDashboardController@recentHits", "class": "safe(deferred)", "reason": "already cached (90s); TTL change deferred to Q2 — not a silent miss."},
+      {"site": "DateRangeControl.vue / ScoutHome.vue / usePrefetch.js", "class": "safe", "reason": "existing (manual/one-time/prefetch) callers of the store; unaffected by adding a poll-loop caller."}
+    ]
+  },
+
+  "data_impact": {"pg_tables": ["kits", "kit_settings", "hotlist (read-only scoping)"], "ch_tables": ["clarity.hits", "clarity.hotlist"], "mv_or_cdc_implications": "none — pure read path; the only new write is a Laravel Cache entry on the admin endpoint.", "indexes_relied_on": "existing Hit hot-partition + Hotlist FINAL semi-join (unchanged)."},
+
+  "derivation_log": [],
+
+  "missed_caller_candidates": [
+    {"file": "resources/js/clarity-scout/components/DashboardOverlay.vue", "symbol": "dashboard.recentHits", "referenced_at": "DashboardOverlay.vue:51,53,78,80", "disposition": "already-covered: reactive consumer, no edit needed"},
+    {"file": "app/Http/Controllers/Api/ClarityScoutDashboardController.php", "symbol": "recentHits", "referenced_at": "ClarityScoutDashboardController.php:113", "disposition": "already-covered: driver endpoint already cached (90s); TTL change deferred to Q2"},
+    {"file": "resources/js/clarity-scout/views/ScoutHome.vue", "symbol": "dashboard.fetchAll", "referenced_at": "ScoutHome.vue:177", "disposition": "already-covered: one-time initial load"}
+  ],
+
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "AC1", "kind": "agent", "intent": "Seed an Open hotlist + a Live hit for a kit's org in CH hot rows; open admin Bird's Eye (and driver, if in scope) in Live/Today mode; insert a second hit and confirm the Live Hits card updates without a manual reload."},
+      {"ac": "AC2", "kind": "agent", "intent": "Confirm the admin recentHits endpoint is now cached (Cache::has true / repeat calls within TTL return cached) and browser request cadence stays within the reconciled interval."},
+      {"ac": "AC3", "kind": "agent", "intent": "Verify auto-refresh works specifically on the admin/org-wide Bird's Eye view (with the kit_ids selector applied)."}
+    ],
+    "seed_scenario": "An org with a Scout-enrolled kit (kit_settings row) + an Open hotlist; insert a CH hot-partition hit (hit_type='L', valid disposition, lat/lng set, hit_created_at=now) for that hotlist/kit in the 'today' window. Log in as that kit's driver on the PWA and as an org admin on Bird's Eye, both Live/Today, leave open across a poll cycle, insert a second hit, confirm both cards grow without reload.",
+    "personas": ["Scout driver (kit-scoped) — regression check on the shared component/store", "Org admin (Bird's Eye org-wide) — the ticket target surface"],
+    "pg_tables": ["kits", "kit_settings", "hotlist"],
+    "ch_tables": ["clarity.hits", "clarity.hotlist"]
+  },
+
+  "confidence": 72,
+  "escalate": {"recommend": true, "reason": "AC2 interval/TTL is a product decision; driver-scope question; discovered adjacent bug (DEV-2184); backend caching change on a CH endpoint."}
+}

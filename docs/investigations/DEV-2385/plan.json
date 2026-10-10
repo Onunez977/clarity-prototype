@@ -1,0 +1,30 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Cap shift summaries to the last 8 hours; whereIntegerInRaw; tries=2",
+      "approach": "In BuildShiftSummary::forShift, clamp the UTC read window to max(started_at, ended_at-8h) and use that window for CH counts, GPS, and the PG zone CTE. Replace Hit::whereIn('scan_id') with whereIntegerInRaw. Set SendEndOfShiftSummary::$tries = 2. DTO keeps the real shift timestamps. Tests: 17-day shift excludes scans older than 8h; 70k scan ids via whereIntegerInRaw do not HY000; job tries is 2; existing CTE pin still holds.",
+      "target_files": [
+        "app/Services/Scout/BuildShiftSummary.php",
+        "app/Jobs/Scout/SendEndOfShiftSummary.php",
+        "tests/Feature/Services/Scout/BuildShiftSummaryTest.php",
+        "tests/Feature/Jobs/Scout/SendEndOfShiftSummaryTest.php",
+        "tests/Feature/Services/Scout/BuildShiftSummaryWindowTest.php"
+      ],
+      "intended_diffs": "BuildShiftSummary: SUMMARY_WINDOW_HOURS=8 + summaryWindow() + whereIntegerInRaw. Job: tries 5\u21922. Tests: 8h clamp, pathological ids, tries pin.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "BuildShiftSummaryTest|SendEndOfShiftSummaryTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {
+      "file": "app/Services/Scout/BuildShiftSummary.php",
+      "line": 319,
+      "reason": "loadZonePolygonsForMap already uses ANY(?::int[]) on zone ids (bounded)."
+    }
+  ]
+}

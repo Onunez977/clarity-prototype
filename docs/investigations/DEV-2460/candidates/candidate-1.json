@@ -1,0 +1,28 @@
+{
+  "_meta": {"role": "blind candidate 1", "model": "sonnet", "confidence": 70},
+  "agrees_with_others_on": [
+    "canViewCardData() / expandableCards() / lockedStat() do NOT exist today -- the ticket introduces all three from scratch",
+    "RecoveryLeader carries the label in TWO places ($heading:25 AND a hardcoded Stat::make literal inside its own toStat() override:234) -- both must change in lockstep or grid card and expanded chart title disagree",
+    "KitUsers should be UNREGISTERED from cards(), not deleted; HotlistCount memoizes `new KitUsers` and calls its existing cached activeKitUsersCount()/cameraKitsCount()",
+    "Active Kit Users goes at header position 5 of 6, between Missing Plates Percentage and Staging",
+    "Dashboard::cardWidgets() must return expandableCards() rather than cards()",
+    "resource_envelope.scale_relevant = false",
+    "The 7-key order is exactly the row-major flattening of the mockup grid; all 9 future slots land between recovery-counts and recovery-leader"
+  ],
+  "unique_findings": [
+    "toggleCard() ORDER-OF-CHECKS BUG: it must still allow CLOSING an already-open card whose key later falls out of cardWidgets(). The closed DEV-2409 branch had to fix exactly this. If cardWidgets() narrows to expandableCards() without that guard, a card that becomes locked while open can never be closed.",
+    "PRODUCT REGRESSION: moving Kit Users to a header stat LOSES its click-to-expand table (KitUsers::table(), the list of currently-active kit names). HotlistCount header stats are not expandable today. The ticket does not say whether that interactive list needs a new home.",
+    "No FeatureEnum / ProTierEnum entry exists for ANY of today's 7 cards -- so canViewCardData() returning true for all 7 is correct and this ticket ships NO visible locked card in production.",
+    "The closed branch's DashboardCardVisibilityTest.php proves the gate runs BEFORE any value is computed, via a CACHE-LEAK test -- strong design reference for AC-4's 'shows no value'.",
+    "The closed branch's QA pass already made HotlistCount::getColumns() RESPONSIVE (default 1 / sm 2 / md 3 / xl 6) rather than a plain int 6. Independent corroboration of the theme.css sizing concern.",
+    "Pennant Feature::active() is the existing Pro-gate pattern (MissedOpportunityClientGraph::canView()) and HasProFeature.php is the full-page redirect concern -- neither is reusable here because canViewCardData() must work on the mount()-less adapter path."
+  ],
+  "open_questions": [
+    "canViewCardData(): STATIC (lets expandableCards() filter class-strings without instantiating -- the closed branch's design) or instance method?",
+    "Should RecoveryCounts::getDatasetLabel() ('Repossessions', chart tooltip series name) also become 'Total Repossessions', or may the internal dataset label diverge from the card title?",
+    "Kit Users loses click-to-expand: acceptable, or does the interactive kit list need a new home?",
+    "AC-7 measurement method given DB::listen is dead for the CH driver (confirmed against vendor/insight-lpr/laravel-clickhouse-eloquent/src/Connection.php): is a code-path audit + a spy-based no-new-query test an acceptable substitute for a real before/after round-trip count?",
+    "Should KitUsers' now-vestigial DashboardMetricCard/RendersDashboardStat/getCardKey()/toStat() machinery be cleaned up, or left (smallest change) since KitUsersTest.php exercises it directly?"
+  ],
+  "escalate": {"recommend": true, "reason": "four genuine unanswered design questions; epic's 8-round history with 'missed sibling call site' as named failure mode; a closed PR already implemented this seam and benefits from more than one independent read"}
+}

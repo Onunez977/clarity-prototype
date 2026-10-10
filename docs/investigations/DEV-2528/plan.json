@@ -1,0 +1,56 @@
+{
+  "key": "DEV-2528",
+  "route": "bug",
+  "base_branch": "main",
+  "approach": "Test-only. Pin the Postgres session timezone to UTC for the test suite via PGTZ in phpunit.xml, and add a regression test that fails loudly on any machine whose Postgres session is not UTC. No production-reaching file is touched.",
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Pin the test suite's Postgres session timezone to UTC + regression test",
+      "approach": "TDD. (1) Write tests/Feature/Database/PostgresConnectionTimezoneTest.php asserting (a) every pgsql connection's session TimeZone is UTC and (b) a naive Carbon round-trips through a timestamptz column with zero delta. Confirm RED on this box (session is America/Chicago). (2) Add <env name=\"PGTZ\" value=\"UTC\" force=\"true\"/> to phpunit.xml's <php> block. Confirm GREEN. (3) Re-run the two originally-failing files to confirm all three assertions pass.",
+      "target_files": [
+        "phpunit.xml",
+        "tests/Feature/Database/PostgresConnectionTimezoneTest.php"
+      ],
+      "intended_diffs": "phpunit.xml: one <env> line inside the existing <php> block, alongside the other force=\"true\" entries. New test file: a Feature test extending Tests\\TestCase with two test methods and no fixtures beyond a session-local TEMP table.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "PostgresConnectionTimezoneTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {
+      "site": "config/database.php ('timezone' => 'UTC' on the five pgsql connections)",
+      "reason": "Rejected by the operator, twice and on two distinct variants. (1) At the Phase 2 gate, the hardcoded 'timezone' => 'UTC' - config/database.php ships to production. (2) After review finding M1, the env-driven 'timezone' => env('DB_TIMEZONE') variant, which the driver verified is a byte-identical production no-op when DB_TIMEZONE is unset (PostgresConnector::configureTimezone guards on isset(), and null is not isset). The operator chose the smallest diff that touches nothing outside the test suite. KNOWN LIMITATION, accepted knowingly: on a non-UTC host every process other than PHPUnit - bootstrap seeding, Herd web requests, hand-run artisan commands, the QA seeder - still writes shifted timestamptz values."
+    },
+    {
+      "site": "app/Console/Commands/CloseInactiveShiftsCommand.php",
+      "reason": "No defect. All ->utc() calls are ->copy()->utc(); all Carbon::parse calls pass explicit 'UTC'. Confirmed independently by three blind prep passes."
+    },
+    {
+      "site": "app/Services/Scout/EnsureOpenShift.php",
+      "reason": "No defect. diffInMinutes calls already abs()-guarded since commit 37d48434a7."
+    },
+    {
+      "site": "app/Models/User.php::timezone",
+      "reason": "The ticket's stated hypothesis. Falsified - never referenced from either failing code path."
+    },
+    {
+      "site": "tests/Feature/Console/Commands/CloseInactiveShiftsCommandTest.php private requireClickhouse() 3-table truncate vs the 21-table RequiresClickhouse trait",
+      "reason": "Real convention drift found by prep pass A, but not the cause of this bug. Out of scope; worth a separate follow-up."
+    },
+    {
+      "site": "The local postgresql.conf TimeZone setting",
+      "reason": "Changing the developer's Postgres server config is outside the repo and would not protect anyone else or CI. The committed PGTZ fix covers the same ground and travels with the repo."
+    }
+  ],
+  "sizing": {
+    "files": 2,
+    "concerns": 1,
+    "verdict": "well under the 6-file / multi-concern split threshold"
+  },
+  "perf_validation_required": false
+}

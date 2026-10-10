@@ -1,0 +1,230 @@
+{
+  "key": "DEV-2233",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2233",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "prep-candidate:1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 485
+    },
+    {
+      "slot": "prep-candidate:2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 485
+    },
+    {
+      "slot": "prep-candidate:3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 485
+    },
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 174
+    },
+    {
+      "slot": "review",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 358
+    },
+    {
+      "slot": "agent-qa",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "verify",
+      "dur_s": 1635
+    },
+    {
+      "slot": "review:2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 423
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "clarity/scout.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "answered:false scope question",
+    "escalate.recommend from fast-pass",
+    "shared-component blast radius (Scans/Hits/MissedOp/cluster-group)"
+  ],
+  "best_of_n": true,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [
+    {
+      "file": "resources/js/clarity-scout/components/MapShell.vue",
+      "symbol": "disposition-popup",
+      "referenced_at": "MapShell.vue:75",
+      "assessment": "not-applicable (Scout PWA Vue, separate flow)"
+    }
+  ],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "0a95dd3f707d43137fc3cbef1ace7b3409480751",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "claude/DEV-2233 (on-branch fast path)",
+      "complexity": "simple",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 2,
+  "pr": {
+    "number": 290,
+    "url": "https://github.com/insight-lpr/platform/pull/290",
+    "draft": false
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": "already In Progress at intake (no transition posted)",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "clarity undraft did not auto-transition; pipeline moved To Do/In Progress -> In Code Review (transition id 4) via Atlassian MCP @ 2026-07-24",
+  "assumed": [],
+  "comment_ids": {
+    "status": "37603",
+    "build_record": "37711"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "provisioned_early": true,
+    "provisioning": {
+      "bootstrap": "ran",
+      "deps": "via-bootstrap",
+      "migrations": "ran",
+      "docker_daemon": "n/a",
+      "ch_container": "reused (clarity-qa-clickhouse; literal clarity/zod DBs)",
+      "frontend_build": "n/a",
+      "postgres_db": "zod_claude_dev_2233 (+ testing zod_testing_claude_dev_2233)",
+      "ch_strategy": "docker",
+      "herd_site": "clarity-claude_dev_2233.test"
+    }
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact tests/Feature/resources/views/components/scans/DispositionPopupTest.php",
+        "passed": 2,
+        "failed": 0
+      }
+    ],
+    "deviations": [
+      {
+        "source": "implement",
+        "edit": "worker committed the fix directly (b5d7490c) bypassing checkpoint.sh; low-risk (Blade + test), folded into the implemented boundary checkpoint + PII scan on this commit",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "qa-loop",
+        "edit": "Broadened the disposition-popup rowKey gate from (missedOpportunity && value===Invalid) to missedOpportunity only \u2014 so any disposition (Valid/Reviewed/Invalid) removes the Missed-Op row live. Driven by an agent-QA finding that the MO default view is awaiting-only (pre-existing), making Invalid-only inconsistent. Test updated; re-review RN2 + re-verify Phase 6.",
+        "ac_ref": "AC-1",
+        "ac_delta": "remove on Invalid only -> remove on ANY disposition (Valid/Reviewed/Invalid) in missed-op mode"
+      }
+    ],
+    "review": {
+      "lanes": [
+        "claude1:fresh-lane (RN1, 94)",
+        "claude1:fresh-lane (RN2, 90)"
+      ],
+      "scores": [
+        94,
+        90
+      ],
+      "findings_fixed": [],
+      "findings_residual": [
+        "RN2 High #1 (RESOLVED by evidence): 'remove on any' premise (awaiting-only default view) contradicted a passing test asserting Valid remains. Reviewer couldn't statically resolve [] vs null for the unset Filament filter. RESOLVED: QA browser on REAL ClickHouse showed 0 rows after disposing (=[]\u2192whereNull\u2192awaiting-only), so production IS awaiting-only and the change is correct/consistent (no reappear-on-refresh). The contradicting test only runs under the pgsql polyfill and is skipped on real CH.",
+        "RN2 Medium #2 (pre-existing, filed separately per Dalton option A): test_default_view_excludes_only_invalid_dispositions (MissedOpportunityResourceTest, NOT in this diff) is markTestSkipped under real CH and asserts the null-branch 'Valid remains' behavior that only holds under pgsql-bridge \u2014 a test-vs-reality gap tied to the MissedOpportunityResource `$data['dispositions'] !== null` filter (Filament passes []). Filed as a separate follow-up.",
+        "RN2 Medium #3 / RN1 residual (inherent): the render test pins the Blade wiring string, not the DOM removal (no JS runner). Covered by Phase-6 browser QA (A2/A3 confirmed live removal)."
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "harness-claude-p"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "17350763ce6456e89a79d84eb2b77bc035f2871a",
+      "rework_pivot": false
+    },
+    "ac": [
+      {
+        "item": "Selecting Valid/Reviewed/Invalid on a Missed Opportunity row removes it without a page refresh (revised: ANY disposition).",
+        "status": "SATISFIED",
+        "evidence": "Browser (real CH): Valid 3->2, Reviewed 2->1, Invalid 1->0, all POST 200, no reload, no console error [R2/R3/R4]; reload shows empty awaiting-only view [R5]."
+      },
+      {
+        "item": "The validation status is still persisted correctly.",
+        "status": "SATISFIED",
+        "evidence": "POST 200; Postgres meta.disposition set; CH read model reflects it (rows excluded on reload). Verified live + tinker."
+      },
+      {
+        "item": "The existing Scans 'Invalid Scan' removal behavior is unaffected.",
+        "status": "N/A",
+        "evidence": "Scans not surfaced in local CH scans tables; code-proven unaffected (fix gated to missedOpportunity, INVALID_SCAN reason-button path untouched). Deferred to human QA."
+      }
+    ]
+  }
+}

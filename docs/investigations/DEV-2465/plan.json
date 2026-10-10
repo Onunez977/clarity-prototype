@@ -1,0 +1,254 @@
+{
+  "key": "DEV-2465",
+  "app": "clarity",
+  "phase": "3-plan",
+  "uat_needed": true,
+  "sizing_gate": {
+    "tripped": true,
+    "file_count": 9,
+    "app_code_file_count": 2,
+    "distinct_concerns": [
+      "shared ClickHouse query extension",
+      "card data seams / rate rendering",
+      "COMPANY_METRICS entitlement gate",
+      "e2e browser coverage"
+    ],
+    "recommendation": "DO NOT SPLIT. Flagged as required, with reasons below.",
+    "reasoning": "The gate counts 9 files, but only TWO are app code (UniqueLprCaseClaimsQuery.php, UniqueScansToCaseClaims.php). The other seven are 1:1 pinning tests, a 2-line + 1-line test-allowlist edit, one e2e spec, three e2e helper constants, and one measurement artifact. The in-family precedent DEV-2463 (#392, 012030f3) shipped this same card shape across 47 files. Splitting further would ship something broken: dropping the entitlement node (t5) leaves a Pro-only metric visible to non-Pro orgs and violates AC-6; dropping the query node (t2) leaves the card with nothing to call; dropping the card node (t4) leaves an additive query change with zero callers.",
+    "only_clean_severance_point": "t6 (tests/e2e/unique-scans-to-case-claims.spec.ts + tests/e2e/helpers/company-metrics.ts). Playwright, additive-only, outside the PHPUnit CI lane, and verifies nothing at the value level that t4/t5's PHPUnit coverage does not. Severing it lands the ticket at 7 files. It is recommended to KEEP it in-ticket because DEV-2463, DEV-2461 and DEV-2467 each shipped their spec in-ticket and a deferred spec has historically not been written.",
+    "operator_action": "None required. If the operator wants <=6 files, drop t6 and open a follow-up. No other node is severable."
+  },
+  "preconditions": [
+    {
+      "id": "P1",
+      "what": "Re-key the ClickHouse database names before ANY measurement or CH test.",
+      "detail": "prep notes: this worktree's .env has CLICKHOUSE_DATABASE_CLARITY and CLICKHOUSE_DATABASE_ZOD set to zod_claude_dev_2465_f91033, a per-worktree name that does not exist on Cloud, so static::clarityDb()/zodDb() resolve to a nonexistent database. A read-only production measurement (t1) MUST target the LITERAL clarity / zod databases. Also: the names derive from the PRE-RENAME branch claude/dev-2465-f91033 while the run branch is claude/DEV-2465, so Phase 3.5 provisioning will re-key them again -- re-verify dev-login afterwards (this repo has broken it that way before).",
+      "blocks": [
+        "t1",
+        "t2",
+        "t3",
+        "t4",
+        "t5"
+      ]
+    },
+    {
+      "id": "P2",
+      "what": ".env.testing must set CLICKHOUSE_DRIVER=clickhouse against LITERAL clarity/zod before any CH test result is trusted.",
+      "detail": "prep notes: .env.testing currently has CLICKHOUSE_DRIVER=pgsql. RequiresClickhouse::setupRequiresClickhouse() markTestSkipped()s unless the driver is 'clickhouse' (tests/Concerns/RequiresClickhouse.php:45-48), so every ClickHouse test would report GREEN having executed NOTHING. This has produced a false pass in this repo before.",
+      "blocks": [
+        "t2",
+        "t3"
+      ]
+    },
+    {
+      "id": "P3",
+      "what": "Verify card values in a real browser, never by curl/grep.",
+      "detail": "prep notes: APP_ENV=local so deferLoading is ON -- an HTTP check of the dashboard returns 200 with an EMPTY SKELETON.",
+      "blocks": [
+        "t4",
+        "t5",
+        "t6"
+      ]
+    },
+    {
+      "id": "P4",
+      "what": "A ClickHouse test run wipes any QA seed in the LITERAL clarity/zod databases.",
+      "detail": "RequiresClickhouse truncates clarity.hits_cold, zod.public_billing_events, zod.public_api_keys and zod.public_orgs (tests/Concerns/RequiresClickhouse.php:21,39-41). Seed QA data LAST, after the final suite run.",
+      "blocks": [
+        "t6"
+      ]
+    }
+  ],
+  "settled_decisions_carried_in": {
+    "Q1": "Option C. Numerator AND denominator both counted on the (forwarder_org_id, agent_org_id, vin) triple. Numerator = uniqExact of triples whose claimed order has >=1 clarity.hits_cold row with scanned_at < that claim's own epoch ts. Denominator = UniqueLprCaseClaimsQuery's EXISTING `deduped` stage, unchanged. Jul 2026 fleet-wide: 11,573 / 11,975 = 96.6%. Zero orgs above 100%.",
+    "Q2": "Unbounded lookback. Any pre-claim sighting counts however old. Explicit caveat on the PR and Build Record.",
+    "Q3": "Render 0.0% on a legitimately zero denominator. Not N/A, not hidden. Precedent HotlistCount.php:209-211.",
+    "Q4": "EXTEND app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php to expose hotlist_id. Strictly ADDITIVE: window() and monthlySeries() keep {all_claims, successful, deduped} byte-for-byte, and DEV-2463's shipped tests must pass UNMODIFIED.",
+    "Q5": "Settle the hotlist_org_id prune/tenant question by EXPLAIN during implementation (t1). hotlist_org_id is hits_cold's leading sort-key column and the only real prune axis.",
+    "Q6": "Answered. Option C cannot exceed 100%."
+  },
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Reproduce option C read-only against production; settle Q5 and the perf gate before any app code",
+      "approach": "prep-context has the option-C figures in derivation_log but NO committed SQL file -- unlike DEV-2463, which shipped docs/investigations/DEV-2463/measure-claims-card.sql and then reused that body verbatim in the query class. Re-materialise the verified shape into docs/investigations/DEV-2465/measure-rate-card.sql and re-run it read-only against the LITERAL clarity / zod Cloud databases (precondition P1) for the Jul 2026 UTC calendar month, fleet-wide. Three results must hold before t2 starts: (a) deduped = 11,975 and numerator-on-the-triple = 11,573, giving 96.6% -- AC-1's figure; (b) the NAIVE predicate `first_scan < claim_ts` without the join-miss guard returns 11,819, recorded as a deliberate control so the trap in derivation_log entry 7 is reproducible and testable rather than folklore; (c) EXPLAIN plus the X-ClickHouse-Summary header (read_rows / read_bytes / memory_usage) for the combined shape, run twice -- with and without a hotlist_org_id predicate on the hits_cold side. (c) is the answer to Q5 and the WS6 perf gate that resource_envelope.unresolved says MUST be measured before Phase 4: the denominator alone already measures a contended p99 of 9.3s, and Q2's unbounded lookback removes the date floor that would otherwise let hits_cold partition-prune. Write the numbers into the .sql file's header comment and into the ticket, not into okf/ (CLAUDE.md WRITE rule -- wiki lands post-approval). NO app code in this node.",
+      "target_files": [
+        "docs/investigations/DEV-2465/measure-rate-card.sql"
+      ],
+      "intended_diffs": "docs/investigations/DEV-2465/measure-rate-card.sql (NEW): the full option-C statement -- orgs/claims/kept CTEs copied from UniqueLprCaseClaimsQuery::sql() with hotlist_id and the raw epoch ts additionally projected, an orders CTE grouping to (hotlist_id, min(ts)) carrying the triple, a seen CTE of (hotlist_id, min(scanned_at)) over clarity.hits_cold with _peerdb_is_deleted = 0, a LEFT JOIN, and BOTH the guarded numerator uniqExactIf(triple, s.hotlist_id != 0 AND s.first_scan < claim_ts) and the unguarded naive one side by side. Header comment records: the three measured numbers, both EXPLAIN plans, both X-ClickHouse-Summary envelopes, the Q5 verdict on hotlist_org_id, and the LITERAL-database caveat from P1.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": null,
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex",
+      "gate": "STOP and return to the operator if (a) does not reproduce 96.6%, or if (c) shows the combined shape is unaffordable (read_bytes or duration materially worse than the denominator's already-measured 9.3s p99 with no prune available). Do not proceed to t2 on an unreproduced figure."
+    },
+    {
+      "id": "t2",
+      "title": "Extend UniqueLprCaseClaimsQuery additively with the pre-claim rate methods (TDD: new query test first)",
+      "approach": "Q4's answer, implemented so that DEV-2463's merged contract cannot move. Write tests/Feature/Clickhouse/UniqueScansToCaseClaimsQueryTest.php FIRST -- a NEW file, so DEV-2463's UniqueLprCaseClaimsQueryTest.php stays byte-for-byte unmodified as the Q4 constraint requires -- then add to the query class: two new public statics, one new private SQL branch, and a clarityDb() helper. Strict additivity is mechanical, not aspirational: the hotlist_id projection, the raw `be.ts AS ts` projection and the hits_cold CTE are ALL conditional on a new `$withRate` flag defaulting to false, so window() and monthlySeries() emit byte-identical SQL and byte-identical {all_claims, successful, deduped} arrays. The join-miss guard from constraint 1 is the whole point of the node: hits_cold.scanned_at is non-Nullable DateTime and join_use_nulls defaults to 0, so a LEFT JOIN miss fills 1970-01-01, which is earlier than every claim ts -- the naive predicate counts all 370 hitless orders as pre-claim and inflates 96.6% to 99.7% silently. Guard with an explicit `s.hotlist_id != 0` term ANDed into the uniqExactIf condition (hits_cold.hotlist_id is Int64 non-Nullable so a miss fills 0, and derivation_log entry 5 measured zero successful claims with hotlist_id = 0 in the window, so 0 is a safe sentinel). Every aggregate is uniqExact -- hits_cold measures 1.543x over on this population via bare count() and FINAL does not fix it because hit_created_at is mutable and in the sort key. Read hits_cold, never hits_hot (its ~90-day TTL would truncate a metric that can span years). _peerdb_is_deleted = 0 on both hits_cold and public_billing_events; public_orgs and public_api_keys FINAL. Reject insightlpr on both org sides; NEVER filter titlemax. The rate itself is computed in PHP, not SQL -- `$denom > 0 ? round($num / $denom * 100, 1) : 0.0` -- because ClickHouse integer division by zero yields inf/nan and Q3 requires a clean 0.0. No try/catch anywhere: propagate Throwable, matching the class's existing deliberate stance (:86-88), because a genuine zero is a normal reading for ~83% of orgs.",
+      "target_files": [
+        "tests/Feature/Clickhouse/UniqueScansToCaseClaimsQueryTest.php",
+        "app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php"
+      ],
+      "intended_diffs": "app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php: (1) new `public static function windowWithPreClaimScans(?int $orgId, CarbonInterface $start, CarbonInterface $end): array` returning {all_claims:int, successful:int, deduped:int, pre_claim_seen:int, rate:float}, mirroring window() at :46 exactly including its recorded fail-open $orgId trap; (2) new `public static function monthlySeriesWithPreClaimScans(?int $orgId, CarbonInterface $through): array` keyed 'Y-m-01', mirroring monthlySeries() at :61 including the utc()->endOfMonth()/subMonthsNoOverflow(12) window derivation; (3) `sql(bool $bucketed)` -> `sql(bool $bucketed, bool $withRate = false)`; when $withRate the claims CTE additionally projects `JSONExtractInt(be.additional, 'hotlist_id') AS hotlist_id` and `be.ts AS ts`, a new `orders` CTE groups kept to (hotlist_id, min(ts) AS claim_ts) carrying any()-resolved forwarder/agent/vin (derivation_log entry 6: vin and forwarder never vary within an order; agent varies in 201 of 11,855), a new `seen` CTE reads `{clarity}.hits_cold` as (hotlist_id, min(scanned_at) AS first_scan) with _peerdb_is_deleted = 0 plus the t1-determined hotlist_org_id predicate, LEFT JOINed on hotlist_id, and the SELECT gains `uniqExactIf((forwarder_org_id, agent_org_id, vin), s.hotlist_id != 0 AND s.first_scan < claim_ts) AS pre_claim_seen`; when $withRate is false the emitted SQL is byte-identical to today's; (4) run() gains a `{clarity}` strtr key (no-op for the non-rate SQL); (5) new `private static function clarityDb(): string` mirroring the existing zodDb() at :175-180 -- this class is deliberately NOT a ClickhouseQuery subclass so it carries its own copies, never a hardcoded 'clarity.' or 'zod.' prefix; (6) new `normalizeRateRow()` alongside normalizeRow() at :95, with the PHP zero-denominator guard; (7) docblock additions: the option-C grain, the LEFT-JOIN default-fill trap and its measured 11,819-vs-11,573 control, Q2's unbounded-lookback caveat, and an explicit 'window()/monthlySeries() are frozen -- DEV-2463 #392 is QA-Complete' note. NO change to window(), monthlySeries(), normalizeRow() or the non-rate SQL body. tests/Feature/Clickhouse/UniqueScansToCaseClaimsQueryTest.php (NEW): #[Group('clickhouse')], use RequiresClickhouse, reusing UniqueLprCaseClaimsQueryTest's seedOrg/seedApiKey/seedClaim helper shape plus a new seedHit(); pins the join-miss guard (an order with ZERO hits_cold rows must NOT count -- the naive predicate makes it count), the strict `scanned_at < ts` boundary against == and >, uniqExact on a duplicated hits_cold id and on a duplicated claim triple, numerator <= denominator at the option-C grain, rate 0.0 on a zero denominator with no division error, insightlpr excluded on BOTH sides, an org named 'TitleMax' still counted, _peerdb_is_deleted = 1 tombstones excluded on both tables, an unbounded (years-old) pre-claim hit still counting, hits_hot never read (seed hits_hot only, assert 0), UTC calendar-month bucketing, exactly ONE round trip per public method (count clarity_clickhouse select() invocations), and that a genuine ClickHouse failure THROWS ClickhouseException rather than returning a fabricated 0 (driver=clickhouse against dead port 127.0.0.1:1 + DB::purge).",
+      "depends_on": [
+        "t1"
+      ],
+      "parallelizable": false,
+      "test_filter": "UniqueScansToCaseClaimsQueryTest",
+      "ui_impact": false,
+      "blast_radius": [
+        "qa_complete_shared_query"
+      ],
+      "complexity": "complex",
+      "blast_radius_note": "Tagged per the caller's explicit instruction: modifying the QA-Complete UniqueLprCaseClaimsQuery merged in DEV-2463 PR #392 is blast-radius. NOT tagged 'billing': the node reads the zod.public_billing_events CDC mirror read-only and touches no billing job, resource, or migration."
+    },
+    {
+      "id": "t3",
+      "title": "DEV-2463 no-regression gate: re-run all five shipped UniqueLprCaseClaims suites UNMODIFIED",
+      "approach": "The other half of Q4's hard constraint, made a DAG node rather than a bullet so it cannot be skipped. Run the five shipped DEV-2463 test files -- UniqueLprCaseClaimsQueryTest, UniqueLprCaseClaimsTest, UniqueLprCaseClaimsWindowSeamTest, UniqueLprCaseClaimsHerdGuardTest, UniqueLprCaseClaimsLabelAxisTest -- with ZERO edits to any of them, against the t2 working tree. Confirm P2 first: with CLICKHOUSE_DRIVER=pgsql these report GREEN having executed nothing, which would make this gate worthless. Additionally diff the emitted non-rate SQL by hand (dump sql(bucketed: false) and sql(bucketed: true) before and after t2) to prove the byte-for-byte claim directly rather than inferring it from green tests -- private-method reflection or a scratch script, NOT a committed test. If ANY of the five needs a change to pass, t2 was not additive: revert and re-approach, do not edit the shipped test.",
+      "target_files": [],
+      "intended_diffs": "No file changes. This node produces a verification record only, appended to docs/investigations/DEV-2465/measure-rate-card.sql's header or the ticket: the five suites' pass/fail counts and the before/after SQL diff (expected: empty).",
+      "depends_on": [
+        "t2"
+      ],
+      "parallelizable": true,
+      "test_filter": "UniqueLprCaseClaims",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple",
+      "gate": "STOP if any of the five fails or needs modification. Runs concurrently with t4 -- its file set is empty so it is disjoint from every other node."
+    },
+    {
+      "id": "t4",
+      "title": "Card data seams: float-safe getCardRate(), 13-month UTC rate series, percentage description and UTC label axis",
+      "approach": "Fill the stub's seams in place. Constraint 2 is the shape of the whole node: DashboardWidget declares getCardTotal(): int (:321), currentPeriodTotal(): int (:344) and getRangeTotal(string, string): int (:367), so PHP fatals at class-load on an int->float widening and using them unwidened truncates 96.6 to 96 or 0. The rate is therefore computed end-to-end inside the card's own getCardRate(): float for EVERY date option, and the surviving int stubs are left returning 0 with a docblock saying nothing routes through them -- pinned, not merely asserted, by the WindowSeamTest this node writes first. Mirror the shipped sibling UniqueLprCaseClaims for everything already solved there: this_month/last_month come free from the already-cached 13-month series (no extra query, exactly as getCardTotal() at :321-333 does for integer cards) while today/last_7d resolve through a single windowWithPreClaimScans() call, so no filter state can trigger more than one round trip -- AC-4. Split the call from the stage selection into fetchWindowRate()/runWindowRateQuery() seams, copying UniqueLprCaseClaims.php:339-355, because DEV-2463's own history shows a ['deduped'] -> ['successful'] mutant survived 35 tests until that split existed. getMonthlyData() returns 13 per-month RATE floats from ONE monthlySeriesWithPreClaimScans() call under Cache::flexible([3600, 86400]) with the UTC month IN the cache key (the sibling's :127-137 note: keyed only on the org, a series computed at 23:55 on the last UTC day of a month stays 'fresh' into the next one and the ?? 0 fabricates a zero indistinguishable from a real one). A rate series is not summable, so nothing may aggregate these buckets -- chartSeries() already casts each bucket to float and passes it through unchanged (BuildsDateFilterChartSeries.php:47-63), so the sparkline machinery needs no change. Because the month axis is UTC, the LABEL axis must co-vary: override getGraphLabels() and getHighlightedMonthsFromFilter() to UTC exactly as the sibling does at :234-254, or a Chicago viewer in the first 5-6 hours of a UTC month sees every bar labelled one month early. Override getDescription() to emit '%'-suffixed values from the rate series rather than the base's number_format(currentPeriodTotal()). Copy the sibling's cold-path herd guard (heldFlexible + COLD_BLOCK_SECONDS/COLD_LOCK_SECONDS/REFRESH_LOCK_SECONDS + flexibleCreatedKey) and its getCacheTTL() MIN_TTL_SECONDS floor: this query is the sibling's ~1.83GB scan PLUS a hits_cold join, so it is strictly worse than the 9.3s contended p99 those constants were sized against, and the 10s impersonator TTL collapse cannot be honoured. This is deliberate duplication -- extracting a shared trait would mean editing UniqueLprCaseClaims itself, widening the t2 blast radius for no correctness gain; docblock it and note DEV-2464 as the third caller that should trigger the extraction. Keep toStat() exactly as the stub has it (number_format(getCardRate(), 1).'%'). Do NOT add canViewCardData() here -- that is t5, deliberately isolated so this node carries no blast-radius tag. Delete the stub docblock's 'The card ticket replaces the data methods in place and removes this note.' line.",
+      "target_files": [
+        "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsWindowSeamTest.php",
+        "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsTest.php",
+        "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php"
+      ],
+      "intended_diffs": "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsWindowSeamTest.php (NEW, written first): mirrors UniqueLprCaseClaimsWindowSeamTest.php; pins that today/last_7d resolve through getCardRate()/fetchWindowRate() and NOT through currentPeriodTotal()/getRangeTotal()/getModelQueryForDates() (a StageProbingWindowWidget double whose int stubs return a poison value the rate must never show), that the rate seam reads pre_claim_seen/deduped and not another funnel stage, that a float rate survives to the rendered string un-truncated (96.6, never 96), and that resolveCardRange()'s naive strings are re-anchored to the VIEWER's timezone before conversion to UTC. tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsTest.php (NEW): getCardKey() = 'unique-scans-to-case-claims'; getStatColor() resolves to a non-gray registered colour ('success', the arm already at DashboardWidget.php:311); a '%'-suffixed rendered value; a zero denominator renders '0.0%' with no division error (Q3); the 13-month series is 13 rate floats and is never summed; getGraphLabels()/getHighlightedMonthsFromFilter() are UTC; getDescription() carries '%'; and exactly ONE ClickHouse round trip for a full render and for the 13-month series. app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php: getCardRate() reimplemented (this_month/last_month from getMonthlyData(formatted: false), today/last_7d via fetchWindowRate()); new protected fetchWindowRate()/runWindowRateQuery() seams; getMonthlyData() reimplemented as 13 UTC rate floats under a month-keyed Cache::flexible([3600, 86400]) via a copied heldFlexible(); new getDescription(), getGraphLabels(), getHighlightedMonthsFromFilter(), getCacheTTL() overrides; MIN_TTL_SECONDS/COLD_BLOCK_SECONDS/COLD_LOCK_SECONDS/REFRESH_LOCK_SECONDS constants and flexibleRefreshLock()/flexibleCreatedKey(); getModelQueryForDates() and currentPeriodTotal() KEPT as 0-returning int stubs with an 'unreachable by design' docblock; toStat() unchanged; stub note removed.",
+      "depends_on": [
+        "t2"
+      ],
+      "parallelizable": true,
+      "test_filter": "UniqueScansToCaseClaims",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t5",
+      "title": "Add the missing COMPANY_METRICS Pro gate and both hardcoded test allowlists",
+      "approach": "Constraint 3. The stub inherits RendersDashboardStat's guest-total-true default (:120-131) and has no canViewCardData() of its own, so today an unentitled org would see the real rate. Add the gate copying UniqueLprCaseClaims.php:101-106 verbatim in shape: auth()->check() FIRST (Dashboard::cardWidgets() reaches this unauthenticated and the Pennant resolver takes a non-nullable User), then static::canView() ANDed with (Feature::active(FeatureEnum::COMPANY_METRICS->slug()) || session()->has('admin_impersonator')). The AND is load-bearing -- cards are built as mount-less adapters so canView() is otherwise not enforced on the compact path, and Feature::active() is ORG-level so it does not subsume the role term. Then update BOTH hardcoded allowlists in DashboardCardVisibilityTest.php: $expectedGated at :59-64 and the array_diff literal at :481. These are deliberate explicit allowlists -- the file's own comment says 'Keep this an explicit allowlist, not a whatever-cards()-says tautology: gating a card is a deliberate, reviewed act and never an accident' -- so adding the gate without touching both turns BOTH tests red, and the Phase 1 fast pass and candidate 1 both declared this file out of scope, a genuine miss the reconcile caught. Also correct the adjacent prose from 'FOUR production cards are now gated' to FIVE. This node is deliberately separate from t4 so the entitlement blast-radius hard stop gates only these three files, not the card's whole data rewiring.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php",
+        "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsTest.php",
+        "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php"
+      ],
+      "intended_diffs": "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php: new `public static function canViewCardData(): bool` copying UniqueLprCaseClaims.php:101-106 including its docblock rationale; new `use App\\Enums\\FeatureEnum;` and `use Laravel\\Pennant\\Feature;` imports. tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php: add 'unique-scans-to-case-claims' to $expectedGated (:59-64) and to the array_diff literal (:481); FOUR -> FIVE in the comment at :52-58. tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsTest.php: add the full entitlement matrix -- guest / basic / pro_lite / clarity_pro / clarity_pro_plus / admin_impersonator -- plus a tripwire proving lockedStat() runs NO ClickHouse query for an unentitled viewer, and that the locked card keeps its grid slot rendering DashboardMetricCard::LOCKED_VALUE.",
+      "depends_on": [
+        "t4"
+      ],
+      "parallelizable": false,
+      "test_filter": "DashboardCardVisibilityTest|UniqueScansToCaseClaimsTest",
+      "ui_impact": true,
+      "blast_radius": [
+        "company_metrics_entitlement"
+      ],
+      "complexity": "complex",
+      "blast_radius_note": "Tagged per the caller's explicit instruction: the COMPANY_METRICS Pennant entitlement gate is blast-radius. No Shield policy, auth config or migration is touched.",
+      "serialization_note": "Cannot run parallel with t4: both edit app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php and tests/.../UniqueScansToCaseClaimsTest.php."
+    },
+    {
+      "id": "t6",
+      "title": "Add the Playwright spec and its e2e helper constants",
+      "approach": "Mirror tests/e2e/unique-lpr-case-claims.spec.ts, the precedent the driver verified exists alongside the missed-opportunities and staging-live-hit-leader specs (candidate 1 proposed this, candidate 3 called e2e out of scope; resolved toward the grounded side). tests/e2e/helpers/company-metrics.ts currently exports only 11 of the 16 card keys -- the five DEV-2409 stubs are absent -- so the spec needs new UNIQUE_SCANS_TO_CASE_CLAIMS_CARD_KEY / _HEADING constants and a COMPANY_METRICS_CARD_HEADINGS entry; additive only, no existing constant or entry changes, so the four sibling specs that import from this file are unaffected. Cover the compact card's heading and slot (row 2 col 3, already fixed by CompanyMetricsOverview.php:99), the '%' rendering, all four date filters, the sparkline, and the LOCKED_VALUE em dash plus UPSELL_COPY for a non-Pro org via loginAsNonProOrgAdmin. Per precondition P4, seed any QA fixtures AFTER the final PHPUnit run -- RequiresClickhouse truncates all four tables this spec's data lives in. Per P3, this is the only node that verifies the rendered value in a real browser; deferLoading makes every HTTP-level check useless.",
+      "target_files": [
+        "tests/e2e/helpers/company-metrics.ts",
+        "tests/e2e/unique-scans-to-case-claims.spec.ts"
+      ],
+      "intended_diffs": "tests/e2e/helpers/company-metrics.ts: add `export const UNIQUE_SCANS_TO_CASE_CLAIMS_CARD_KEY = 'unique-scans-to-case-claims';` and `export const UNIQUE_SCANS_TO_CASE_CLAIMS_HEADING = 'Unique Scans to Case Claims';` and one COMPANY_METRICS_CARD_HEADINGS entry -- three additive lines, nothing existing edited. tests/e2e/unique-scans-to-case-claims.spec.ts (NEW): mirrors unique-lpr-case-claims.spec.ts, including its assertNotProduction() guard, the four DATE_FILTERS iteration, expandCard()/expandedDetail() coverage, and the non-Pro locked-slot assertions.",
+      "depends_on": [
+        "t5"
+      ],
+      "parallelizable": true,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "simple",
+      "note": "test_filter is null because this is Playwright, not PHPUnit -- there is no --filter to substitute. Run via the repo's e2e command, not the PHP suite."
+    }
+  ],
+  "excluded_sites": [],
+  "must_touch_coverage": [
+    {
+      "site": "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php",
+      "verdict": "must-touch",
+      "covered_by": [
+        "t4",
+        "t5"
+      ]
+    },
+    {
+      "site": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php:59-64,481",
+      "verdict": "must-touch",
+      "covered_by": [
+        "t5"
+      ]
+    },
+    {
+      "site": "app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php",
+      "verdict": "conditional (Q4 resolved toward modifying it)",
+      "covered_by": [
+        "t2",
+        "t3"
+      ]
+    }
+  ],
+  "deliberately_untouched": [
+    {
+      "file": "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php",
+      "reason": "already registers this card at row 2 col 3 (:99); the key is both toggle key and cache namespace -- never re-insert or reorder"
+    },
+    {
+      "file": "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+      "reason": "the 'unique-scans-to-case-claims' => 'success' getStatColor() arm already exists (:311); the int-typed totals at :321/:344/:367 must NOT be widened -- that would ripple to every other card"
+    },
+    {
+      "file": "tests/Filament/Pages/DashboardCardExpansionTest.php",
+      "reason": "assertCount(16) at :95 and the layout-order assertions already read 16 and already list this card; the ticket's 'bump the card count' instruction is STALE, predating DEV-2409 #394. Re-run unmodified only"
+    },
+    {
+      "file": "tests/Feature/Clickhouse/UniqueLprCaseClaimsQueryTest.php and the four other UniqueLprCaseClaims* test files",
+      "reason": "DEV-2463's shipped tests must pass UNMODIFIED (Q4 constraint). New coverage goes in new files; t3 is the gate"
+    },
+    {
+      "file": "tests/Concerns/RequiresClickhouse.php",
+      "reason": "already truncates clarity.hits_cold, zod.public_billing_events, zod.public_api_keys and zod.public_orgs (:21,39-41) -- no test-infra change needed"
+    },
+    {
+      "file": "app/Clickhouse/Queries/Client/BatchMonthlySparklineData.php",
+      "reason": "do NOT import. Unanimous across all four candidates: client-portal class for a different metric family with ZERO callers in app/ or tests/. The ticket cites it as a PATTERN; the real in-family precedent is UniqueLprCaseClaimsQuery::monthlySeries()"
+    },
+    {
+      "file": "app/Filament/Widgets/Dashboard/LprRepossessions.php, UniqueScansToRepo.php, UniqueScansToLprRepossession.php, UniqueScansLeaderboard.php",
+      "reason": "still zero-query DEV-2409 stubs, each its own ticket (UniqueScansToRepo's is DEV-2464, on HOLD/unmerged)"
+    },
+    {
+      "file": "okf/concepts/company-metrics-dashboard.md",
+      "reason": "its cards() table lists 10 keys against the code's 16 and will need this card's row. Correct it POST-merge per the CLAUDE.md WRITE rule, not now"
+    }
+  ],
+  "caveats_for_the_pr_and_build_record": [
+    "Q2: the pre-claim lookback is UNBOUNDED -- any sighting counts however old. hotlist.lookback_days (default 270) is deliberately NOT used: per okf/concepts/lpr-assist.md:77 it governs only the Postgres find_historicals() H/Z trigger and is explicitly 'not the assist attribution window'. Tightening it later is a product decision, and the unbounded read is also why the hits_cold side cannot be partition-pruned by date.",
+    "Q3: a legitimately zero denominator renders 0.0%, matching the shipped DEV-2463 sibling and HotlistCount.php:209-211. Dalton's stated preference on record is N/A; Oscar has been asked twice (DEV-2409 comments 38625 and 39130, restated as item 3 of 39291) and has not answered. If N/A is chosen later it is retrofitted across all cards at once.",
+    "A ClickHouse failure on this card 500s the ENTIRE 16-card Company Metrics grid, in dev and in production. That is the deliberate pre-existing house pattern (unique-lpr-case-claims is already in that set), chosen because a genuine zero is normal for ~83% of orgs so a swallowed failure would be indistinguishable from real data. Do NOT 'improve' this with a try/catch.",
+    "The month axis is UTC while today/last_7d stay on the viewer's local day -- two calendars, deliberately, inherited from UniqueLprCaseClaims.php:31-41. Toggling the filter can make the headline FALL for an evening Chicago viewer. Both alternatives are worse: local months break AC-1's UTC-calendar-month reproduction, UTC days make a daily metric read ~0 every evening.",
+    "The cold-path herd guard and getCacheTTL() floor are COPIED from UniqueLprCaseClaims rather than extracted to a shared trait, to keep the t2 blast radius to a strictly additive query change. DEV-2464 will be the third caller and should trigger the extraction.",
+    "AC-1's 96.6% is fleet-wide PRODUCTION data. Agent QA must assert a hand-computable seeded ratio and the '%' format, NOT the literal 96.6%."
+  ]
+}

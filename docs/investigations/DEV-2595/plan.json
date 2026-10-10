@@ -1,0 +1,41 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Remove BirdsEye recentHits limit(20) + regression test",
+      "approach": "Delete the ->limit(20) on ClarityScoutBirdsEyeController::recentHits to match ClarityScoutDashboardController (95da4d7f). Keep limitBy(1,'ocr'), open-hotlist filter, actionableDisposition, and the 10s cache. Add a BirdsEye feature test that seeds >20 today-dated open actionable hits plus older hits in the last_7 window and asserts a pre-today hit_time is returned for range=last_7 (and smoke last_15/last_30).",
+      "target_files": [
+        "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php"
+      ],
+      "intended_diffs": {
+        "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php": "Remove ->limit(20); add comment mirroring driver 'No ->limit(20): \u2026 95da4d7f / DEV-2595'.",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php": "New test_recent_hits_last_7_returns_hits_older_than_today_when_today_exceeds_former_cap (and matrix for last_15/last_30)."
+      },
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "ClarityScoutBirdsEyeControllerTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple"
+    }
+  ],
+  "excluded_sites": [
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php::hits",
+      "reason": "MAX_MAP_HITS=100 is map-marker budget with capped flag; ticket is the Live Hits list"
+    },
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutMapController.php::hits",
+      "reason": "Same map-marker cap; driver map markers out of scope"
+    },
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutDashboardController.php::recentHits",
+      "reason": "Already uncapped (safe); regression covered by existing driver tests"
+    }
+  ],
+  "perf_validation": {
+    "required": false,
+    "reason": "Not deferring perf on a >1B-row redesign; removing a client-facing LIMIT on an already-filtered open-pending query that the driver already runs uncapped"
+  }
+}

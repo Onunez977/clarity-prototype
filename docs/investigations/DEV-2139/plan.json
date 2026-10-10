@@ -1,0 +1,23 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Fix Scout onboarding salutation to a markdown hard break + regression test",
+      "approach": "In ScoutOnboardingNotification::toMail(), replace ->salutation('Thanks,<br>Insight LPR Team') with ->salutation(\"Thanks,  \\nInsight LPR Team\") (two trailing spaces + newline = CommonMark hard break, which survives EncodedHtmlString escaping and renders a real line break in both HTML and plain-text parts). Add a feature test that renders the notification's MailMessage and pins: no literal/escaped <br> text, a real line break in HTML, and subject/action/expiry unchanged.",
+      "target_files": [
+        "app/Notifications/ScoutOnboardingNotification.php",
+        "tests/Feature/Mail/Scout/ScoutOnboardingNotificationTest.php"
+      ],
+      "intended_diffs": "ScoutOnboardingNotification.php:39 — swap the salutation string. New test file mirrors tests/Feature/Mail/Scout/OneTimePasswordNotificationTest.php convention.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "ScoutOnboardingNotificationTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple"
+    }
+  ],
+  "excluded_sites": [
+    "All static-blade markdown <br>/<strong>/<a> usages in resources/views/mail/** — classified safe by the prep exhaustiveness sweep (Mailable::markdown, html_input=ALLOW); not the escaped-echo pattern."
+  ]
+}

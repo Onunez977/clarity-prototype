@@ -1,0 +1,232 @@
+{
+  "_candidate": 1,
+  "_model": "sonnet",
+  "_note": "The Phase 1 FAST PASS. Escalation was decided from this output; candidates 2 and 3 were dispatched blind on the identical prompt.",
+  "synthesis": "DEV-2468 replaces the zero-query `UniqueScansLeaderboard` stub (already registered at its exact mockup slot, row 3 col 1, by the DEV-2409 stub PR) with a real per-kit unique-plate leaderboard for the Company Metrics dashboard. The underlying ClickHouse cost question the ticket worried about is already retired: DEV-2466's spike proved `GROUP BY kit_id WITH ROLLUP` on `clarity.scans_cold` (org_id-filtered, no FINAL) answers both DEV-2467's org total (the `kit_id=0` rollup row) and this card's per-kit ranking from one scan, and DEV-2467 already shipped that exact query (`ScanPlateStatsBatchQuery::handleRange()`) plus a class-neutral cache key (`sharedRangeCacheKey()`) built specifically so this card can read it instead of issuing a second scan. The genuine remaining work is narrower than the ticket implies: (1) swap the stub's base class from `DashboardWidget` to the ChartWidget-direct `DashboardMetricCard` shape `RecoveryLeader`/`StagingLiveHitLeader` use (a scalar-per-month model cannot hold a per-kit ranking), (2) wire the compact stat to the already-shared current-window rollup for the headline and to `UniqueScanCounts`'s already-cached monthly org-total series for the sparkline (both zero-marginal-cost reads, not new queries), and (3) resolve one real design fork the ticket does not settle: whether the expanded detail view needs a genuine 13-month x per-kit breakdown, which `ScanPlateStatsBatchQuery::handle()` deliberately does not provide and DEV-2466 never measured, or whether a leaderboard's expanded view is just the current-window ranked list plus the same org-total sparkline the compact card shows.",
+  "scope": {
+    "summary": "Rewrite `UniqueScansLeaderboard` in place to extend `ChartWidget` + `implements DashboardMetricCard` (the RecoveryLeader/StagingLiveHitLeader shape) instead of `DashboardWidget`, gate it on `FeatureEnum::COMPANY_METRICS` (matching UniqueScanCounts/StagingLiveHitLeader), source its headline + per-kit ranking from the already-shared `ScanPlateStatsBatchQuery::handleRange()` rollup via `sharedRangeCacheKey()` (zero new ClickHouse calls when UniqueScanCounts, which renders first, has already populated it for the same org/window/tz), and source its 13-point sparkline from `UniqueScanCounts`'s already-cached monthly org-total buckets rather than any new query. Remove the now-dead `'unique-scans-leaderboard'` arm from `DashboardWidget::getStatColor()` since a ChartWidget-direct card never calls that method (matching the precedent that neither RecoveryLeader nor StagingLiveHitLeader has an arm there); hardcode `->color('success')` in the card's own `toStat()` instead, matching the stub's existing `getRgbColor(): [34, 197, 94]`.",
+    "proposed_changes": [
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueScansLeaderboard.php",
+        "change": "Full rewrite in place: extend ChartWidget, implement DashboardMetricCard, `use BuildsDateFilterChartSeries, RendersDashboardStat, StatHelper` directly (not DashboardWidget). Own mount()/canView()/getCardKey()('unique-scans-leaderboard')/getMaxHeight()/refreshData(). canViewCardData() = the standard COMPANY_METRICS Pro-gate shape (auth()->check() && canView() && (Feature::active(...) || admin_impersonator)). toStat(): headline = the top per-kit count from the current-window rollup (never the kit_id=0 org total -- AC-2), hardcoded ->color('success'), ->chart(chartSeries()). chartSeries() override reads UniqueScanCounts's own buildWidgetCacheKey()-derived monthly cache entries (13 scalar org totals), NOT a new query. leaderboardForSelectedRange()-style method reads ScanPlateStatsBatchQuery::handleRange() via sharedRangeCacheKey() (identical org/start/end/timezone to UniqueScanCounts's call), strips key 0 (the rollup total) from the per-kit ranking, and resolves kit names via a small join/lookup (RecoveryLeaderQuery joins clarity.kits inline; handleRange() returns raw kit_id => count and has NO name, so this card must resolve names itself -- see open question).",
+        "reason": "Stub docblock: 'that ticket also swaps the base class to the RecoveryLeader shape inside this file' -- a per-kit array cannot be modeled by DashboardWidget's scalar-per-month getMonthlyData(). Reuse rather than re-query is DEV-2466/2467's entire cost argument for this ticket.",
+        "ref": "app/Filament/Widgets/Dashboard/RecoveryLeader.php; app/Filament/Widgets/Dashboard/StagingLiveHitLeader.php; app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php:317 (sharedRangeCacheKey); app/Filament/Widgets/Dashboard/UniqueScansLeaderboard.php:1-16 (docblock)"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+        "change": "Split the combined match arm 'unique-scans-to-case-claims', 'unique-scans-leaderboard' => 'success' into just 'unique-scans-to-case-claims' => 'success', removing the 'unique-scans-leaderboard' key.",
+        "reason": "Once UniqueScansLeaderboard extends ChartWidget directly (per the required base-class swap) it never calls getStatColor() -- exactly the situation this same method's own docblock calls out for RecoveryLeader ('does NOT explain RecoveryLeader's colour ... hardcodes ->color(...) in its own toStat()'). Verified exhaustively: every OTHER key in this match statement corresponds to a live DashboardWidget subclass; only this one becomes orphaned by this ticket's own required change.",
+        "ref": "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php:294-312"
+      },
+      {
+        "file": "tests/Filament/Widgets/Dashboard/UniqueScansLeaderboardTest.php",
+        "change": "NEW. Mirrors UniqueScanCountsTest.php's shape (Pro-gate: entitled/locked/admin_impersonator-bypass with a zero-ClickHouse-calls assertion for the locked path) plus RecoveryLeaderTest.php/StagingLiveHitLeaderTest.php's rendering assertions. Adds: (a) a round-trip-count assertion proving the card issues ZERO new handleRange() calls when UniqueScanCounts has already warmed the shared key for the same org/window/tz (the whole point of the shared cache key), via a protected countable seam; (b) an assertion that the headline/ranking never uses the kit_id=0 rollup value as a per-kit entry and never sums per-kit values into a displayed 'total' (AC-2); (c) a hardcoded-color assertion against toStat()->getColor(), not DashboardWidget::getStatColor() (which this card never calls).",
+        "reason": "AC-2, AC-4/5 (round-trip regression), AC-6 need a test that can actually fail; DB::listen never fires for the ClickHouse driver (repo convention).",
+        "ref": "tests/Filament/Widgets/Dashboard/UniqueScanCountsTest.php; tests/Filament/Widgets/Dashboard/StagingLiveHitLeaderTest.php"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php",
+        "change": "Doc-only: remove the '(stub)' marker next to 'Unique Scans Leaderboard' in the mockup-grid docblock comment. No registration change -- 'unique-scans-leaderboard' => UniqueScansLeaderboard::class is already correctly placed at index 8 (row 3 col 1).",
+        "reason": "Hygiene only; not asserted by any test. Registration and card-order tests are already satisfied (intake finding #1).",
+        "ref": "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php:46-62"
+      }
+    ],
+    "target_files": [
+      "app/Filament/Widgets/Dashboard/UniqueScansLeaderboard.php",
+      "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+      "tests/Filament/Widgets/Dashboard/UniqueScansLeaderboardTest.php",
+      "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php"
+    ],
+    "out_of_scope": [
+      "Registering the cards() key or updating DashboardCardExpansionTest.php's card-order/count assertions -- already correct at 16 cards including 'unique-scans-leaderboard' (intake finding #1, verified against the working tree).",
+      "A new ScanPlateStatsBatchQuery method for a combined 13-month x per-kit shape -- NOT committed to scope; see open question (a). If the human decision requires it, it is a new, unmeasured production query shape and its own sizing exercise, not a drop-in addition to this ticket.",
+      "Any change to ScanPlateStatsBatchQuery::handle()/handleRange() themselves -- both are already correct for this card's needs as shipped by DEV-2467.",
+      "AffiliateStatsHourly / affiliateStatsQuery() -- confirmed live and correct for its own report, but structurally cannot serve this card's settled period-distinct definition (see question (c)); no change to it.",
+      "The kit_id=0-sentinel latent bug in handleRange() (a real kit id 0 would be silently dropped from the per-kit map) -- already documented as latent-not-live in ScanPlateStatsBatchQuery's own docblock; DEV-2467 explicitly defers the CDC kit_id-immutability validation to this ticket (see question below), but a new safety net there is a judgment call, not a required change.",
+      "The unmitigated cold-start cache-stampede residual DEV-2467 recorded -- explicitly deferred to its own ticket.",
+      "Fixing any of the 5 pre-existing hardcoded 'clarity.' prefixes elsewhere in the query classes."
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "Card present in its mockup slot, ranked by distinct ocr per kit, scoped by org_id directly, _peerdb_is_deleted=0, FINAL omitted.", "source": "ticket", "decision": "implement", "reason": "Already served by ScanPlateStatsBatchQuery::handleRange() (DEV-2467); slot registration already shipped (intake finding #1)."},
+    {"item": "Any org-level total the card shows comes from the WITH ROLLUP kit_id=0 row, never a sum of per-kit values.", "source": "ticket", "decision": "implement", "reason": "handleRange() already returns key 0 as the GROUPING-identified rollup total; the card must read it explicitly for any 'total' and never Sum the per-kit array."},
+    {"item": "Respects the Today / Last 7d / This Month / Last Month filter.", "source": "ticket", "decision": "implement", "reason": "Inherited via BuildsDateFilterChartSeries::resolveCardRange(), used identically by RecoveryLeader/StagingLiveHitLeader/UniqueScanCounts."},
+    {"item": "The 13-month series is served by ONE batched call, sharing DEV-2467's cache key rather than issuing a second scan.", "source": "ticket", "decision": "partially implement -- needs a human decision", "reason": "The COMPACT sparkline satisfies this literally today with ZERO new calls (reads UniqueScanCounts's already-batched, already-cached monthly org-total series). Whether the EXPANDED view also needs a genuine 13-month x PER-KIT series is unresolved -- see question (a); that specific shape was deliberately not built by DEV-2467 and was never measured."},
+    {"item": "Measured cost recorded and within the DEV-2466 envelope; per-render ClickHouse round-trip count does not regress.", "source": "ticket", "decision": "implement", "reason": "Achievable with a countable seam + test, mirroring UniqueScanCountsTest's round-trip assertion, PROVIDED the card only reads shared cache keys and issues no new query shape (i.e. contingent on question (a) resolving toward the minimal design)."},
+    {"item": "Non-Pro orgs do not see the value. Existing metrics and their values are unaffected.", "source": "ticket", "decision": "implement", "reason": "Standard canViewCardData() COMPANY_METRICS shape, verified to exist as FeatureEnum::COMPANY_METRICS (app/Enums/FeatureEnum.php:91)."}
+  ],
+  "questions": [
+    {
+      "q": "(a) What data shape does the leaderboard's EXPANDED (detail) view actually need -- a genuine 13-month x per-kit stacked breakdown (like RecoveryLeader's and StagingLiveHitLeader's expanded charts), or just the current-window ranked list (same as the compact card) plus the same org-total-only sparkline? The former requires a new, never-measured ScanPlateStatsBatchQuery shape (handle() deliberately carries no kit dimension -- its docblock: 'the combined 13-month x per-kit rollup was never measured and would take the group count from 13 to roughly 13 x kits against a 2.18B-row table'); the latter is achievable today with zero new queries by reusing handleRange() (ranking) and UniqueScanCounts's cached monthly totals (sparkline).",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    },
+    {
+      "q": "(b) What does the base-class swap to 'the RecoveryLeader shape' mean precisely, and does it break anything?",
+      "answered": true,
+      "answer": "RecoveryLeader extends ChartWidget directly and implements DashboardMetricCard, using BuildsDateFilterChartSeries/RendersDashboardStat/StatHelper directly rather than extending the abstract DashboardWidget (which also extends ChartWidget + implements DashboardMetricCard via those same three traits, plus a scalar-per-month getMonthlyData()/getData()/getDescription()/getCardTotal()/getSparklinePoints() that cannot represent a per-kit array). 'Swap the base class' means: own every one of those methods directly, as RecoveryLeader and StagingLiveHitLeader already do. DashboardMetricCard's four required methods (getCardKey, toStat, canViewCardData, lockedStat) are fully satisfiable outside DashboardWidget -- proven by both existing siblings. Side effect discovered and now in scope: DashboardWidget::getStatColor() already carries an arm for 'unique-scans-leaderboard' => 'success' that becomes dead code the moment this swap ships (a ChartWidget-direct card never calls that method), exactly as its own docblock already notes is true for RecoveryLeader's colour. That arm should be removed; the card should hardcode ->color('success') in its own toStat(), matching the KitUsers/RecoveryLeader/StagingLiveHitLeader precedent of hardcoding rather than routing through getStatColor().",
+      "source": "code"
+    },
+    {
+      "q": "(c) Does the affiliate_stats_hourly 3.7M-row pre-aggregate (comment 39125) remain a live alternative to the scans_cold GROUP BY, given the 1.56x definitional divergence it flags?",
+      "answered": true,
+      "answer": "No -- unambiguously settled, on three independent grounds. (1) AffiliateStatsHourly::affiliateStatsQuery() DOES exist and IS live (used by App\\Filament\\Resources\\AffiliateStatsResource.php:126 and App\\Filament\\Exports\\AffiliateStatsExporter.php -- the comment's factual claim was correct; this is a DIFFERENT symbol from the dead AggregateScanCountByHour::affiliateStatsReportQuery() the DEV-2467 reconcile separately ruled out). (2) The canonical KB page okf/models/clickhouse/affiliate_stats_hourly.md states explicitly: 'unique_scans here is NOT period-distinct plates ... Any new surface wanting period-distinct plates must compute uniqExact(ocr) over the window against clarity.scans_cold -- this table cannot answer that question.' (3) DEV-2467's prep-context.json records a direct human product decision, Oscar Nunez, 2026-09-09 (one day AFTER this ticket's 2026-09-08 description rewrite): 'unique by reporting window/timeframe is right' -- settling period-distinct as correct for the entire unique-scans card family this leaderboard belongs to (per the DEV-2409 gate's 2026-08-25 settlement of 'unique = distinct plate (ocr)'). Given the definition is settled as period-distinct and the affiliate table is structurally incapable of answering that question, the comment's cost-driven fork is moot regardless of its cost argument -- reusing it would ship a silently WRONG (1.556x-divergent) number, not merely a cheaper-but-equivalent one. Build against scans_cold as the description instructs.",
+      "source": "code+ticket"
+    },
+    {
+      "q": "(d) What does getStatColor() need, and is there an existing arm?",
+      "answered": true,
+      "answer": "getStatColor() lives on DashboardWidget (the abstract base). It already has an explicit arm for 'unique-scans-leaderboard' => 'success' -- but per question (b), the base-class swap this ticket requires means the card will never call that method, making the existing arm dead code that this ticket must remove. Pro gate: FeatureEnum::COMPANY_METRICS (confirmed to exist, app/Enums/FeatureEnum.php:91), matching UniqueScanCounts's and StagingLiveHitLeader's canViewCardData() shape exactly.",
+      "source": "code"
+    },
+    {
+      "q": "Does handleRange()'s per-kit map need to resolve kit NAMES, and if so, from where? handleRange() returns only kit_id => count; RecoveryLeaderQuery joins clarity.kits FINAL inline for the name, but re-running that join here would be a second, unshared query path.",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    },
+    {
+      "q": "handleRange()'s docblock records that kit_id CDC-immutability was never measured (unlike ocr's, which DEV-2466 sec 5 confirmed) -- a scan whose kit_id changed mid-window would double-count under both kits in the per-kit map this card displays. Must this ticket validate that assumption (the way sec 5 validated ocr) or apply FINAL to the per-kit read before shipping a customer-visible ranking built on it?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "Exhaustiveness (idiom: cards reaching vs. not reaching DashboardWidget::getStatColor()) -- grep patterns used: `grep -rln \"implements DashboardMetricCard\" app/Filament/Widgets/Dashboard/*.php` -> KitUsers.php, RecoveryLeader.php, StagingLiveHitLeader.php (ChartWidget-direct, no getStatColor() arm, each hardcodes its own ->color() -- all SAFE, established precedent); `grep -rln \"extends DashboardWidget\" app/Filament/Widgets/Dashboard/*.php` -> 13 classes including UniqueScansLeaderboard (stub's CURRENT state); cross-referencing getStatColor()'s 14 match-arm keys against both lists shows exactly ONE orphan-in-waiting: 'unique-scans-leaderboard' -- BUGGY once this ticket's required base-class swap ships, unless removed in the same change. Every other arm (scan-count, recovery-counts, unique-lpr-case-claims, missed-opportunities, live-hits, historical-hits, staging-live-hits, staging-historical-hits, lpr-repossessions, unique-scans-to-repo, unique-scans-to-lpr-repossession, unique-scans-to-case-claims, unique-scan-counts) is SAFE -- each maps to a class that genuinely extends DashboardWidget.",
+    "Confirmed by grep that ScanPlateStatsBatchQuery/sharedRangeCacheKey() currently has exactly one reader (UniqueScanCounts) -- this ticket is the intended second reader DEV-2466/2467 built the key for; no other card touches it.",
+    "cards() order matters for the zero-marginal-cost claim: 'unique-scan-counts' is index 4, 'unique-scans-leaderboard' is index 8 in CompanyMetricsOverview::cards() -- UniqueScanCounts always renders first for the same date filter, so by construction its fetchRangeRollup() has already populated the shared key before this card's toStat() runs, for any entitled org (both cards share the same Pro gate).",
+    "Repo convention (laravel-boost-guidelines.md, applies to any new PHP here): constructor property promotion, explicit return/param types, `declare(strict_types=1)` -- HitPlateStatsBatchQuery/ScanPlateStatsBatchQuery already use it; match that, not the older HitStatsBatchQuery/RecoveryLeaderQuery convention.",
+    "Keep comments/docblocks sparse per operator preference, except where a genuine trap exists (the shared-cache-key contract and the kit_id-immutability caveat both warrant a short note, mirroring the existing sibling files' style).",
+    "Local ClickHouse test conventions apply if any new Feature/RequiresClickhouse test is added: literal clarity/zod database names, CLICKHOUSE_DRIVER=clickhouse (pgsql silently skips), raised memory_limit for a full-suite run.",
+    "getStatColor()'s docblock is the authoritative record for this exact 'ChartWidget-direct cards never reach this method' fact -- cite it directly in the PR/Build Record rather than re-deriving it, per the KB-precedence rule."
+  ],
+  "tests": [
+    {"file": "tests/Filament/Widgets/Dashboard/UniqueScansLeaderboardTest.php", "what_it_pins": "Pro-gate (entitled/locked/admin_impersonator bypass, zero ClickHouse calls when locked), the kit_id=0-never-in-ranking / never-summed invariant (AC-2), a round-trip-count assertion proving zero NEW handleRange() calls when the shared key is already warm, and the hardcoded (not getStatColor()-routed) success color."},
+    {"file": "tests/Filament/Pages/DashboardCardExpansionTest.php", "what_it_pins": "test_all_four_hit_cards_are_contiguous() and test_company_metrics_cards_are_in_layout_order() must keep passing UNMODIFIED -- they already reflect the correct 16-card state; a regression here would mean the base-class swap accidentally changed getCardKey() or the registered class."},
+    {"file": "tests/Unit/Clickhouse/ScanPlateStatsBatchQueryContractTest.php", "what_it_pins": "No change expected unless question (a) resolves toward a new combined query shape, in which case this is the natural home for its pure-logic (GROUPING, no-FINAL, no-hardcoded-prefix) contract guards, mirroring the existing handle()/handleRange() coverage."}
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Filament/Widgets/Dashboard/UniqueScansLeaderboard.php:1-16",
+      "app/Filament/Widgets/Dashboard/UniqueScanCounts.php:1-460",
+      "app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php:1-330",
+      "app/Filament/Widgets/Dashboard/RecoveryLeader.php:1-40",
+      "app/Filament/Widgets/Dashboard/StagingLiveHitLeader.php:42-235",
+      "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php:294-312 (getStatColor)",
+      "app/Filament/Widgets/Dashboard/Concerns/DashboardMetricCard.php",
+      "app/Filament/Widgets/Dashboard/Concerns/RendersDashboardStat.php",
+      "app/Filament/Widgets/Dashboard/Concerns/BuildsDateFilterChartSeries.php:36-52 (chartSeries)",
+      "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php:46-107 (cards() registry)",
+      "app/Clickhouse/Models/AffiliateStatsHourly.php:8-56",
+      "app/Enums/FeatureEnum.php:91",
+      "tests/Filament/Pages/DashboardCardExpansionTest.php:85-97, 152-177",
+      "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php:189-198"
+    ],
+    "code_flow": "CompanyMetricsOverview::getStats() iterates cards() -> makeMetricWidget(UniqueScansLeaderboard::class) -> canViewCardData() (COMPANY_METRICS Pennant gate) -> toStat() [headline via handleRange()'s shared-cache rollup, ranking via the same call minus key 0, sparkline via UniqueScanCounts's already-cached monthly totals] OR lockedStat() if ungated. Expanded detail (if a per-kit history is kept) would additionally hit getData()/getMonthlyLeaderData(), the surface still unresolved by question (a).",
+    "tables": ["clarity.scans_cold (read via ScanPlateStatsBatchQuery, already shipped)", "clarity.kits (name resolution for the per-kit ranking, unresolved -- see open question)"],
+    "related_components": [
+      "ScanPlateStatsBatchQuery::handleRange()/sharedRangeCacheKey() (DEV-2467, already shipped, this ticket's sole intended consumer besides UniqueScanCounts)",
+      "DashboardWidget::getStatColor() (loses its 'unique-scans-leaderboard' arm)",
+      "CompanyMetricsOverview::cards()/expandableCards() (registration, already correct)",
+      "RendersDashboardStat::lockedStat()/canViewCardData() default (Pro-gate contract)"
+    ],
+    "kb": {
+      "dir": "okf",
+      "pages_consulted": [
+        "okf/models/clickhouse/affiliate_stats_hourly.md",
+        "okf/concepts/company-metrics-dashboard.md",
+        "okf/concepts/data-architecture.md",
+        "okf/index.md"
+      ],
+      "names_searched": ["ScanPlateStatsBatchQuery", "UniqueScanCounts", "UniqueScansLeaderboard", "affiliate_stats_hourly", "RecoveryLeader", "scans_cold", "COMPANY_METRICS"],
+      "no_match": ["ScanPlateStatsBatchQuery", "UniqueScanCounts", "UniqueScansLeaderboard (no dedicated KB page for these two-day-old classes -- expected, WRITE gate defers wiki updates until after merge/QA)"]
+    }
+  },
+  "exhaustiveness": {
+    "idiom": "Cards that reach vs. do not reach DashboardWidget::getStatColor() (ChartWidget-direct DashboardMetricCard implementers vs. DashboardWidget subclasses)",
+    "grep_patterns": [
+      "grep -rln \"implements DashboardMetricCard\" app/Filament/Widgets/Dashboard/*.php",
+      "grep -rln \"extends DashboardWidget\" app/Filament/Widgets/Dashboard/*.php",
+      "grep -oE \"'[a-z-]+'\" app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php (cross-referenced against both lists above and against cards())"
+    ],
+    "sites": [
+      {"site": "DashboardWidget.php:311 'unique-scans-leaderboard' => 'success'", "status": "buggy", "reason": "will become an unreachable match arm the moment this ticket's required base-class swap ships (ChartWidget-direct cards never call getStatColor()); must be removed in the same change"},
+      {"site": "DashboardWidget.php: all 13 OTHER match arms", "status": "safe", "reason": "each corresponds to a class that genuinely extends DashboardWidget (verified by grep) and reaches getStatColor() via toStat()"},
+      {"site": "KitUsers.php:71 ->color('gray') hardcoded in own toStat()", "status": "safe", "reason": "pre-existing precedent for the ChartWidget-direct pattern; no getStatColor() arm exists for 'kit-users'"},
+      {"site": "RecoveryLeader.php toStat() ->color('info') hardcoded", "status": "safe", "reason": "no 'recovery-leader' arm exists in getStatColor() -- exactly the precedent this ticket's card should match"},
+      {"site": "StagingLiveHitLeader.php:232 ->color('warning') hardcoded", "status": "safe", "reason": "no 'staging-live-hit-leader' arm exists in getStatColor() -- second confirming precedent"}
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [],
+    "ch_tables": ["clarity.scans_cold (read-only, via the already-shipped ScanPlateStatsBatchQuery -- no new query planned in the minimal-scope design)", "clarity.kits (name resolution for the per-kit ranking -- open question, no shape decided yet)"],
+    "mv_or_cdc_implications": "None new. Reuses DEV-2467's already-CDC-aware read path verbatim (_peerdb_is_deleted=0, no FINAL, per DEV-2466's measured decision). If question (a) resolves toward a new combined month x kit shape, that would be a NEW, unmeasured allocation against the same 2.18B-row table and would need its own production measurement before shipping.",
+    "indexes_relied_on": "clarity.scans_cold ORDER BY (org_id, scanned_at, kit_id, id) -- unchanged, inherited from the already-shipped query."
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "Reads clarity.scans_cold (2.18B rows) via the dashboard page-load path, sharing DEV-2467's already-measured query -- app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php (ClickHouse query class family)",
+    "driving_tables": [
+      {
+        "table": "clarity.scans_cold",
+        "source": "prior-measurement (DEV-2466, production ClickHouse Cloud, 2026-09-08; the ticket bundle carries these figures verbatim)",
+        "prod_rows": 2180621658,
+        "group_by": "org_id (leading sort-key column); kit_id WITH ROLLUP for the shared window read",
+        "largest_group_rows": 65427573
+      }
+    ],
+    "growth": "Per-org cost scales with that org's own scan volume, not fleet-wide row count (org_id leads the sort key). No new probe run here -- this driving table is ClickHouse, not the Postgres CDC mirror prod-cardinality.sh targets.",
+    "schedule": {"expression": "n/a -- request-time widget render, not a scheduled command", "interval_seconds": null, "without_overlapping_minutes": null},
+    "allocation_sketch": "Minimal-scope design (recommended): ZERO new ClickHouse round trips. The compact card reads two ALREADY-CACHED values written by UniqueScanCounts's own already-batched, already-measured calls (worst case org 469: 60,738,996 rows / 2.44 GB peak / 1,102 ms for the monthly series; 5,573,739 rows / 249 MB peak / 606 ms for the window rollup -- both DEV-2466 sec 4/sec 7, both already paid for by UniqueScanCounts's render). If question (a) resolves toward a genuine 13-month x per-kit expanded view, that is a NEW, unmeasured shape (DEV-2467's plan.md explicitly declined to adopt it: 'would take the group count from 13 to roughly 13 x kits (~1,500 uniqExact states) against 2.18B rows') and would require its own production measurement before shipping.",
+    "oracle_status": "prior-measurement (DEV-2466, 2026-09-08) for the minimal-scope design; unavailable for the combined 13-month x per-kit shape, which was never measured and is not something a Postgres-CDC-mirror probe can answer",
+    "unresolved": ["If question (a) resolves toward a combined 13-month x per-kit query, its cost is genuinely unmeasured and must be probed against production ClickHouse before that shape ships."]
+  },
+  "derivation_log": [
+    {
+      "query_shape": "read of DEV-2468 ticket-bundle.md's embedded DEV-2466 measurement citations (sec 1a/1c/4/5/6/7) -- no live query issued by prep",
+      "param_classes": "n/a",
+      "aggregate_result": "sort key (org_id, scanned_at, kit_id, id); 2,180,621,658 rows / 122.58 GiB; org-filter prunes 266,535 -> 1,698 granules; FINAL costs +97% server ms / +149% bytes for an identical answer; WITH ROLLUP total exactly matches the standalone scalar; per-kit rollup for a single window costs the same as the org-total scalar (bounded by kit count, not row volume)",
+      "why": "The spike + DEV-2467 are the measurement source of truth for the shapes this ticket reuses."
+    },
+    {
+      "query_shape": "grep for 'implements DashboardMetricCard' and 'extends DashboardWidget' across app/Filament/Widgets/Dashboard/*.php, cross-referenced against DashboardWidget::getStatColor()'s match arms",
+      "param_classes": "n/a",
+      "aggregate_result": "3 ChartWidget-direct classes (KitUsers, RecoveryLeader, StagingLiveHitLeader), 13 DashboardWidget subclasses; exactly one getStatColor() arm ('unique-scans-leaderboard') becomes orphaned by this ticket's required change",
+      "why": "Proving the dead-code claim exhaustively rather than asserting it from a single file read."
+    },
+    {
+      "query_shape": "grep for 'AffiliateStatsHourly' and 'affiliateStatsQuery' across app/ and tests/",
+      "param_classes": "n/a",
+      "aggregate_result": "2 live call sites (AffiliateStatsResource.php:126, AffiliateStatsExporter.php) confirming the method is NOT dead code",
+      "why": "Question (c) required verifying the comment's factual claim independent of the definitional argument."
+    },
+    {
+      "query_shape": "grep for 'ScanPlateStatsBatchQuery' and 'sharedRangeCacheKey' across app/ and tests/",
+      "param_classes": "n/a",
+      "aggregate_result": "exactly one production reader today (UniqueScanCounts.php) plus its test files",
+      "why": "Verifying the cross-class reuse claim underlying the zero-marginal-cost design."
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "Card at mockup slot, ranked by distinct ocr per kit", "kind": "agent", "intent": "Render Company Metrics as an entitled ADMIN; assert the leaderboard card sits at row 3 col 1 and its ranking matches uniqExact(ocr) per kit for the seeded window."},
+      {"ac": "Rollup total never a sum of per-kit values", "kind": "agent", "intent": "Seed a plate scanned by two kits in the same window; assert the displayed org total equals the kit_id=0 rollup value, not the sum."},
+      {"ac": "Date filter", "kind": "agent", "intent": "Toggle all four windows and assert the ranking/headline tracks each."},
+      {"ac": "Shared-scan reuse", "kind": "agent", "intent": "Cold-cache render of UniqueScanCounts THEN the leaderboard for the same org/window; assert zero new handleRange() calls."},
+      {"ac": "Non-Pro sees no value", "kind": "agent", "intent": "Render for a non-entitled org; assert the locked placeholder and zero ClickHouse calls."},
+      {"ac": "Expanded-view data shape", "kind": "human", "intent": "Confirm the shipped expanded view matches the settled product decision."}
+    ],
+    "seed_scenario": "One entitled org with 3+ kits: a plate scanned by two kits in the same window, rows spread across the current month for a non-trivial ranking, and a second org's rows to prove org scoping. A third, non-entitled org proves the locked path. Anchor Carbon::setTestNow near the fixture.",
+    "personas": ["ADMIN/USER on a COMPANY_METRICS-entitled org", "ADMIN/USER on a non-entitled org", "admin_impersonator session"],
+    "pg_tables": [],
+    "ch_tables": ["clarity.scans_cold", "clarity.kits"]
+  },
+  "confidence": 74,
+  "escalate": {
+    "recommend": true,
+    "reason": "Open question (a) -- the expanded-view data shape -- is a genuine unresolved product/design fork with real cost implications (zero new queries vs an unmeasured production shape). Two further open questions (kit-name resolution, kit_id CDC-immutability) need a human or a measurement. Pro-gate + 2.18B-row ClickHouse blast-radius signals both apply."
+  }
+}

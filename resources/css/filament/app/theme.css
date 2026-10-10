@@ -1,0 +1,464 @@
+@import '../../../../vendor/filament/filament/resources/css/theme.css';
+
+@config './tailwind.config.js';
+
+@source '../../../../app/Filament';
+@source '../../../../resources/views/filament';
+@source '../../../../resources/views/components';
+@source '../../../../resources/views/otto';
+@source '../../../../resources/js/alpine-components';
+@source '../../../../resources/js/otto';
+@source '../../../../resources/views/vendor/filament-widgets';
+
+html:not(.dark) .fi-sidebar-nav {
+    background-color: hsl(227, 100%, 22%);
+}
+
+html:not(.dark) .fi-sidebar-group-label:not(.dark) {
+    @apply text-zinc-400;
+}
+
+html:not(.dark) .fi-sidebar-item .fi-sidebar-item-button:not(.dark) {
+    @apply text-zinc-50;
+}
+html:not(.dark) .fi-sidebar-item-label {
+    @apply text-zinc-50;
+}
+
+html:not(.dark) .fi-sidebar-item.fi-active .fi-sidebar-item-label, html:not(.dark) .fi-sidebar-item.fi-active .fi-sidebar-item-icon {
+    @apply text-zinc-600;
+}
+
+html:not(.dark) .fi-sidebar-item:hover .fi-sidebar-item-label, html:not(.dark) .fi-sidebar-item:hover .fi-sidebar-item-icon {
+    @apply text-zinc-800;
+}
+
+.fi-main {
+    @apply md:px-4 overflow-x-hidden;
+}
+
+.fi-sidebar-header, .fi-simple-main {
+    background-color: hsl(227, 100%, 22%);
+}
+.fi-sidebar-header, .fi-simple-main .fi-simple-header-heading,
+.fi-sidebar-header, .fi-simple-main .fi-fo-field-wrp-label span {
+    @apply text-gray-200;
+}
+
+.fi-fo-field-wrp-error-message {
+    @apply font-bold;
+}
+.fi-fo-field-wrp-hint-label {
+    @apply text-gray-200;
+}
+
+.scan-plate-modal .fi-modal-content {
+    @apply max-h-[77dvh]!;
+}
+
+/*
+ * EVERY OTHER stats-overview card in the app keeps its previous layout, unchanged.
+ *
+ * The published stat view used to hardcode this as inline styles, so it applied to all 11
+ * StatsOverviewWidget consumers across BOTH panels (/app and /client share this theme).
+ * Those inline styles had to go -- an inline `!important` (the sparkline's
+ * `height: 8rem !important`) cannot be overridden from a stylesheet at all, so scoping the
+ * Company Metrics change any other way was impossible. Re-declaring the same rules here,
+ * excluded from the dashboard cards, keeps every other consumer rendering exactly as it did
+ * before while the block below re-styles only the Company Metrics grid.
+ *
+ * No chart rules here on purpose: RecoveryLeader and DashboardWidget are the ONLY classes
+ * that attach ->chart() to a Stat, and both are Company Metrics cards, so no other card has
+ * a sparkline node to lay out. A stats widget that grows one later gets Filament's native
+ * bottom strip, which is a sane default rather than a regression of anything shipping today.
+ */
+.fi-wi-stats-overview-stat:not(.big-stat-chart) {
+    @apply relative flex flex-col;
+}
+.fi-wi-stats-overview-stat:not(.big-stat-chart) .fi-wi-stats-overview-stat-content {
+    @apply relative z-[1] min-w-0 flex-auto;
+}
+.fi-wi-stats-overview-stat:not(.big-stat-chart) .fi-wi-stats-overview-stat-description > span {
+    @apply block min-w-0 w-full;
+}
+
+/*
+ * Company Metrics cards, sized to match the HotlistCount row above them (Oscar,
+ * DEV-2324 follow-up). The sparkline is Filament's absolutely-positioned strip inside
+ * the card's bottom padding, so it adds no height of its own; the card's height comes
+ * from its content plus the floor below.
+ *
+ * Exact height parity with that row is Dalton's call.
+ * 10rem = 160px was measured when that row had FIVE columns, and its tallest card
+ * ("Missing Plates / Total Open Assignments") wrapped its description onto a second line.
+ * The metric cards carry one description line at most, so their natural height is
+ * 140px / 112px -- this pads the difference rather than shrinking anything.
+ *
+ * Deliberately a floor, not a fixed height: a card whose content ever grows past 160px
+ * still expands instead of clipping. It does NOT track the top row across viewports --
+ * if that row reflows to one description line it becomes 140px and these cards will be
+ * the taller pair.
+ *
+ * DEV-2460 CHANGED THAT ROW: six stats now, and HotlistCount::getColumns() is responsive
+ * rather than the flat 5 -- which, via HasColumns, had meant `lg: 5`, the ONE breakpoint the
+ * old 160px measurement applied to. So this floor no longer tracks a single-row header below
+ * `xl`, and it never precisely did. It is a floor, so it cannot clip.
+ *
+ * Measured heights, column counts and the sidebar arithmetic are in
+ * docs/investigations/DEV-2460/layout-findings.md. Do not restate them here.
+ */
+/*
+ * 20px instead of Filament's 24px, on this row only. At exactly 1280px -- where `xl` turns
+ * on with the least room it will ever have -- six cards are 134.66px, and Filament's 48px of
+ * horizontal padding leaves an 86.66px label box against an 86.83px "Assignments": a 0.17px
+ * deficit, enough to wrap three labels as "Assignment / s". 20px/side gives a 94.66px box,
+ * ~8px of real margin. Measured breaks at 1280 by padding: 24px -> 3, 22px -> 0, 20px -> 0.
+ */
+.company-metrics-header-stat {
+    @apply px-5;
+}
+
+/*
+ * BACKSTOP. At the shipped padding this rule is INERT -- `overflow-wrap: normal` measures 0
+ * breaks and 0 overhang too. It is kept as the net for a longer label or a font change: it is
+ * what turned the 1280px deficit above into a wrap rather than an overhang before the padding
+ * was trimmed.
+ *
+ * `break-word` will NOT substitute: only `anywhere` participates in min-content sizing, so
+ * with `break-word` the box never shrinks and the rule measures as a complete no-op.
+ *
+ * Scoped to the marker class HotlistCount::getStats() adds, so no other stats-overview
+ * consumer changes. NOT `:not(.big-stat-chart)` -- that reads like the narrow selector but is
+ * the widest available, since .big-stat-chart is the Company Metrics grid and negating it
+ * catches all 11 other consumers across both panels.
+ */
+.company-metrics-header-stat .fi-wi-stats-overview-stat-label,
+.company-metrics-header-stat .fi-wi-stats-overview-stat-description {
+    overflow-wrap: anywhere;
+}
+
+.big-stat-chart {
+    @apply min-h-47 flex flex-col;
+}
+.big-stat-chart.dashboard-stat-open {
+    box-shadow: 0 0 0 1px #FF6666;
+}
+/*
+ * pb-2 is the strip clearance, and it lives HERE rather than as slack under `mt-auto`:
+ * `mt-auto` only pays out the gap while the card is still at its floor, so a wrapping label
+ * (which grows the card past 188px) collapsed it back to 0.
+ */
+.big-stat-chart .fi-wi-stats-overview-stat-content {
+    @apply relative z-10 min-w-0 flex-none pb-2;
+}
+.big-stat-chart .fi-wi-stats-overview-stat-description {
+    @apply min-w-0 w-full;
+}
+.big-stat-chart .fi-wi-stats-overview-stat-description > span {
+    @apply block min-w-0 w-full;
+}
+/*
+ * The sparkline is an inline SVG (DashboardSparkline), not Filament's Chart.js canvas --
+ * Livewire morphing the Stat on a date-filter change leaves the canvas empty, an SVG path
+ * just redraws.
+ *
+ * Filament pins the strip with `position: absolute; bottom: 0`, so at a fixed card height it
+ * sits UNDER the content rather than after it. With a 64px strip on a 160px card the strip
+ * began 96px down while a card carrying a description ran to 116px -- the 20px overlap on
+ * the hit cards and the leaderboard. Taking the strip out of absolute positioning and giving
+ * it `mt-auto` makes it a normal last-in-flow block: it still sits against the card's bottom
+ * edge, but the content now reserves its own space and a description can never land on it.
+ * The negative margins restore the full-bleed Filament got from `inset-inline: 0` (the card
+ * pads 24px); the -24px bottom means the 64px strip contributes only 40px of flow height.
+ *
+ * min-h-47 = 188px, up from 160px: content with a description ends 116px down, + 8px
+ * clearance + the 64px strip. Every card is the same height whether or not it has a
+ * description, and it stays a floor -- a wrapping label grows the card instead of colliding.
+ */
+.big-stat-chart .fi-wi-stats-overview-stat-chart {
+    @apply static mt-auto flex-none;
+    margin-inline: -1.5rem;
+    margin-bottom: -1.5rem;
+}
+.big-stat-chart .fi-wi-stats-overview-stat-chart svg {
+    @apply block h-16! w-full;
+}
+
+#dashboard-expanded-detail .fi-wi-chart-canvas-ctn {
+    height: 600px;
+}
+#dashboard-expanded-detail .fi-wi-chart-canvas-ctn canvas {
+    height: 600px !important;
+    max-height: 600px;
+}
+.highlighted-widget {
+    @apply !ring-green-500 dark:!ring-green-700;
+}
+.full-height-widget {
+    @apply !h-full;
+}
+.fi-wi-widget:has(.full-height-widget),
+.fi-wi-widget:has(.full-height-widget) .fi-wi-stats-overview,
+.fi-wi-widget:has(.full-height-widget) .fi-wi-stats-overview > div,
+.fi-wi-widget:has(.full-height-widget) .fi-section,
+.fi-wi-widget:has(.full-height-widget) .fi-sc-section,
+.fi-wi-widget:has(.full-height-widget) .fi-section-content-ctn,
+.fi-wi-widget:has(.full-height-widget) .fi-section-content,
+.fi-wi-widget:has(.full-height-widget) .fi-grid,
+.fi-wi-widget:has(.full-height-widget) .fi-grid > div {
+    @apply h-full;
+}
+
+tr.invalid {
+    @apply bg-red-200/20! dark:bg-red-900/20!;
+}
+tr.shared {
+    @apply !bg-success-200/20 dark:!bg-success-900/20;
+}
+tr.flex-match,
+.cluster-group-section .flex-match {
+    @apply bg-rose-200/40! dark:bg-rose-900/30!;
+}
+
+/* Custom Filter Sidebar */
+.fi-resource-list-records-page:not(.fi-resource-scan-reports) .fi-page-content > div.fi-grid:has(.filament-tables-filters-sidebar) {
+    @apply xl:grid xl:grid-cols-5 gap-4;
+}
+.fi-resource-list-records-page .fi-page-content div.fi-grid:has(.filament-tables-filters-sidebar.hidden) {
+    @apply xl:!flex;
+}
+.filament-tables-filters-sidebar + div.fi-grid-col,
+.fi-resource-list-records-page section.cluster-view {
+    @apply w-full xl:col-span-4;
+}
+.fi-resource-list-records-page:has(section.cluster-view) .filament-tables-filters-sidebar + div.fi-grid-col {
+    @apply !hidden;
+}
+
+.filament-tables-filters-sidebar {
+    @apply w-full xl:col-span-1;
+}
+.filament-tables-filters-sidebar .fi-ta-filters {
+    @apply flex flex-col gap-4;
+}
+.filament-tables-filters-sidebar .fi-ta-filters-header {
+    @apply w-full !flex justify-between;
+}
+.filament-tables-filters-sidebar .sidebar-filter-section-wrapper > .fi-section-header {
+    @apply md:hidden!;
+}
+.filament-tables-filters-sidebar .sidebar-filter-section-wrapper > .fi-section-content-ctn.border-t {
+    @apply md:border-t-0!
+}
+.filament-tables-filters-sidebar button[wire\:click="applyTableFilters"],
+.filament-tables-filters-sidebar button[wire\:click="search"] {
+    @apply w-full!;
+}
+
+.filament-tables-filters-full .fi-ta-filters {
+    @apply flex flex-col gap-4;
+}
+.filament-tables-filters-full .fi-ta-filters-header {
+    @apply w-full !flex justify-between;
+}
+
+/* Scan Clustering */
+.cluster-group-section .fi-section-content {
+    @apply p-0!;
+}
+.cluster-group-section .fi-section-content .section-headers {
+    @apply p-4!;
+}
+.cluster-group-section .fi-section-content .fi-ta-header-cell {
+    @apply p-0!;
+}
+.cluster-group-section .fi-section-content .cluster-map-button {
+    @apply flex justify-center p-4 lg:pb-0;
+}
+.cluster-group-section .fi-fieldset {
+    @apply rounded-none! p-4!;
+}
+
+/* Custom Google Maps */
+.gm-style-iw {
+    @apply relative! p-0!;
+}
+.gm-style-iw .gm-style-iw-chr {
+    @apply relative!;
+}
+.gm-style-iw .gm-style-iw-chr .gm-style-iw-ch {
+    @apply hidden!;
+}
+.gm-style-iw .gm-style-iw-chr button {
+    @apply absolute! top-0! right-0! w-5! h-5! m-1!;
+}
+.gm-style-iw .gm-style-iw-chr button span {
+    @apply w-5! h-5! m-0!;
+}
+.gm-style-iw-d {
+    @apply p-4!;
+}
+.gm-style-iw-d .map-info-window {
+    @apply text-gray-600! text-base! flex! flex-col! items-start! m-1! gap-1!;
+}
+.gm-style-iw-d .map-info-window img {
+    @apply w-full!;
+}
+
+/* Methodology Page Styling */
+.methodology-section-number {
+    @apply inline-flex items-center justify-center w-8 h-8 rounded-full bg-primary-600 text-white font-semibold text-sm mr-3;
+}
+
+.methodology-metric-card {
+    @apply bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6 mb-6;
+}
+
+.methodology-metric-icon {
+    @apply w-12 h-12 rounded-lg flex items-center justify-center;
+}
+
+.methodology-metric-icon.blue {
+    @apply bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400;
+}
+.methodology-metric-icon.green {
+    @apply bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400;
+}
+.methodology-metric-icon.amber {
+    @apply bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400;
+}
+.methodology-metric-icon.purple {
+    @apply bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400;
+}
+.methodology-metric-icon.cyan {
+    @apply bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400;
+}
+
+.methodology-formula-box {
+    @apply bg-gray-100 dark:bg-gray-700 p-4 rounded-lg font-mono text-sm text-center my-3;
+}
+
+.methodology-example-box {
+    @apply bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 p-4 rounded-lg my-3;
+}
+
+.methodology-info-box {
+    @apply bg-gray-50 dark:bg-gray-800 border-l-4 border-primary-600 p-4 rounded-r-lg my-4;
+}
+
+.methodology-comparison-card {
+    @apply flex-1 min-w-[200px] p-5 rounded-xl text-center;
+}
+.methodology-comparison-card.improvement {
+    @apply bg-green-50 dark:bg-green-900/20 border-2 border-green-300 dark:border-green-700;
+}
+.methodology-comparison-card.decline {
+    @apply bg-red-50 dark:bg-red-900/20 border-2 border-red-300 dark:border-red-700;
+}
+
+.methodology-glossary-grid {
+    @apply grid grid-cols-1 md:grid-cols-2 gap-4 mt-5;
+}
+.methodology-glossary-item {
+    @apply p-4 bg-gray-50 dark:bg-gray-800 rounded-lg;
+}
+
+/* Missed Opportunity — group header divider styling */
+.fi-resource-missed-opportunities .fi-ta-group-header {
+    @apply bg-red-200/20 dark:bg-red-900/20 border-y-2 border-gray-300 dark:border-gray-600;
+}
+.fi-resource-missed-opportunities .fi-ta-group-header .fi-ta-group-heading {
+    @apply font-bold text-sm uppercase tracking-wide;
+}
+
+/* Make topbar blue like sidebar in light mode */
+html:not(.dark) .fi-topbar {
+    background-color: hsl(227, 100%, 22%);
+    box-shadow: none;
+    --tw-ring-opacity: 0;
+}
+
+/*
+ * Chip colours. The panel's `primary` ramp is flat (#FF6666 at every shade 100-950), so any
+ * component pairing two primary shades renders one colour twice. Fixing the ramp would move
+ * buttons and links in both panels, so chips carry their own tokens here instead. Values are
+ * the shades Color::hex('#FF6666') generates. DEV-2557.
+ */
+:root {
+    --clarity-chip-bg: #FFE7E4;
+    --clarity-chip-text: #8C3132;
+    --clarity-chip-icon-hover: #6E2728;
+    --clarity-chip-bg-dark: rgb(240 103 101 / 0.18);
+    --clarity-chip-text-dark: #FFCFCB;
+    --clarity-chip-icon-hover-dark: #F06765;
+}
+
+/*
+ * `fi-select-input-value-badges-ctn` is created only by Filament's Select JS and
+ * `fi-fo-tags-input-tags-ctn` only by TagsInput's blade, so this reaches every multi-value
+ * Select chip and TagsInput tag in both panels without touching table or status badges.
+ * These rules are unlayered, which beats badge.css's `layer(components)` regardless of
+ * specificity.
+ */
+.fi-select-input-value-badges-ctn .fi-badge.fi-color-primary,
+.fi-fo-tags-input-tags-ctn .fi-badge.fi-color-primary {
+    --text: var(--clarity-chip-text);
+    --dark-text: var(--clarity-chip-text-dark);
+    background-color: var(--clarity-chip-bg);
+}
+.dark .fi-select-input-value-badges-ctn .fi-badge.fi-color-primary,
+.dark .fi-fo-tags-input-tags-ctn .fi-badge.fi-color-primary {
+    background-color: var(--clarity-chip-bg-dark);
+}
+.fi-select-input-value-badges-ctn .fi-badge.fi-color-primary .fi-badge-delete-btn > .fi-icon,
+.fi-fo-tags-input-tags-ctn .fi-badge.fi-color-primary .fi-badge-delete-btn > .fi-icon {
+    color: var(--clarity-chip-text);
+}
+.dark .fi-select-input-value-badges-ctn .fi-badge.fi-color-primary .fi-badge-delete-btn > .fi-icon,
+.dark .fi-fo-tags-input-tags-ctn .fi-badge.fi-color-primary .fi-badge-delete-btn > .fi-icon {
+    color: var(--clarity-chip-text-dark);
+}
+/* badge.css:68-77 gives the delete icon hover/focus-visible states in `layer(components)`; the
+   unlayered overrides above beat them, so those states need restating here or the icon loses
+   its interaction feedback. */
+.fi-select-input-value-badges-ctn .fi-badge.fi-color-primary .fi-badge-delete-btn > .fi-icon:hover,
+.fi-select-input-value-badges-ctn .fi-badge.fi-color-primary .fi-badge-delete-btn > .fi-icon:focus-visible,
+.fi-fo-tags-input-tags-ctn .fi-badge.fi-color-primary .fi-badge-delete-btn > .fi-icon:hover,
+.fi-fo-tags-input-tags-ctn .fi-badge.fi-color-primary .fi-badge-delete-btn > .fi-icon:focus-visible {
+    color: var(--clarity-chip-icon-hover);
+}
+.dark .fi-select-input-value-badges-ctn .fi-badge.fi-color-primary .fi-badge-delete-btn > .fi-icon:hover,
+.dark .fi-select-input-value-badges-ctn .fi-badge.fi-color-primary .fi-badge-delete-btn > .fi-icon:focus-visible,
+.dark .fi-fo-tags-input-tags-ctn .fi-badge.fi-color-primary .fi-badge-delete-btn > .fi-icon:hover,
+.dark .fi-fo-tags-input-tags-ctn .fi-badge.fi-color-primary .fi-badge-delete-btn > .fi-icon:focus-visible {
+    color: var(--clarity-chip-icon-hover-dark);
+}
+
+/*
+ * Manage Zones' ZIP chip and drawing banner are hand-rolled Tailwind, not `.fi-badge`, so the
+ * selectors above don't reach them.
+ */
+.clarity-chip {
+    background-color: var(--clarity-chip-bg);
+    color: var(--clarity-chip-text);
+}
+.dark .clarity-chip {
+    background-color: var(--clarity-chip-bg-dark);
+    color: var(--clarity-chip-text-dark);
+}
+.clarity-chip-btn {
+    color: var(--clarity-chip-text);
+}
+.dark .clarity-chip-btn {
+    color: var(--clarity-chip-text-dark);
+}
+/* Restate the danger hover after the unlayered override above, same reasoning as the delete
+   icon: an unlayered `color:` here would otherwise beat the `hover:text-danger-600` utility. */
+.clarity-chip-btn:hover,
+.clarity-chip-btn:focus-visible {
+    color: var(--danger-600);
+}
+.dark .clarity-chip-btn:hover,
+.dark .clarity-chip-btn:focus-visible {
+    color: var(--danger-400);
+}

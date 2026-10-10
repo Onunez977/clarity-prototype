@@ -1,0 +1,70 @@
+{
+  "key": "DEV-2309",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "synthesis": "CloseInactiveShiftsCommand runs every 30 min to close Scout shifts inactive >=3h. Its latestActivityFor() computes max(scanned_at) via Scan::query(), which carries the model's ScanTimezoneScope global scope. That scope injects a LEFT JOIN timezones ON ST_Within(scans.geo, timezones.geom) spatial predicate that contributes nothing to the aggregate but is expensive enough to exceed the Postgres statement timeout on the zod read-replica, canceling the query (SQLSTATE[57014]) on every run so kit 10224's inactive shift is never closed (39 failures/day). Outcome: strip the pointless spatial join from the activity aggregate so it runs index-friendly and completes.",
+  "scope": {
+    "summary": "Bypass the ScanTimezoneScope global scope on the max(scanned_at) aggregate in latestActivityFor(); keep ShowVisibleScan (is_visible=true) so the query stays covered by the (kit_id, is_visible, scanned_at) index the ticket references.",
+    "proposed_changes": [
+      {"file": "app/Console/Commands/CloseInactiveShiftsCommand.php", "change": "Add ->withoutGlobalScope(ScanTimezoneScope::class) to the Scan::query() aggregate in latestActivityFor() (line ~110-113).", "reason": "The timezones/ST_Within LEFT JOIN is injected by the ScanTimezoneScope global scope and is irrelevant to max(scanned_at); removing it eliminates the spatial cost that trips the statement timeout.", "ref": "app/Console/Commands/CloseInactiveShiftsCommand.php:110"},
+      {"file": "tests/Feature/Console/Commands/CloseInactiveShiftsCommandTest.php", "change": "Add a pinning test asserting the executed scans max(scanned_at) query contains no timezones join / ST_Within.", "reason": "Behavioral tests don't catch the regression because the join doesn't change the aggregate result; a query-shape assertion pins the fix.", "ref": "tests/Feature/Console/Commands/CloseInactiveShiftsCommandTest.php"}
+    ],
+    "target_files": ["app/Console/Commands/CloseInactiveShiftsCommand.php", "tests/Feature/Console/Commands/CloseInactiveShiftsCommandTest.php"],
+    "out_of_scope": [
+      "Adding/altering the (kit_id, is_visible, scanned_at) index on scans — scans lives in the zod database (Scan::$connection='zod'), managed by a separate zod-migrations package, NOT platform's database/migrations. The ticket frames the index as 'confirm' + a contingency ('if it still times out without the join, escalate to a query/infra review'). The spatial ST_Within join over PostGIS is the timeout cause, not a missing btree index; removing it independently satisfies the ACs. Index verification/creation, if still needed post-deploy, is a separate zod/infra task.",
+      "Removing ShowVisibleScan / the is_visible=true filter — the ticket deliberately retains is_visible (its suggested covering index includes it), and keeping it preserves pre-bug behavior (the failing query already filtered is_visible=true)."
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "CloseInactiveShiftsCommand completes without SQLSTATE[57014] timeouts (verify against laravel.log post-deploy).", "source": "ticket", "decision": "implement", "reason": "Removing the spatial join removes the timeout cause; final laravel.log confirmation is a post-deploy human/prod check."},
+    {"item": "latestActivityFor() no longer joins timezones for the activity lookup.", "source": "ticket", "decision": "implement", "reason": "Directly addressed by withoutGlobalScope(ScanTimezoneScope::class); pinned by the new query-shape test."},
+    {"item": "kit_id = 10224's inactive shift is closed on the next scheduled run.", "source": "ticket", "decision": "implement", "reason": "Follows automatically once the query completes; specific prod verification is post-deploy."}
+  ],
+  "questions": [],
+  "blockers": [],
+  "notes": [
+    "Fix idiom (->withoutGlobalScope(ScanTimezoneScope::class)) is already the established convention: Scan::scanCountByKitNameAggregate() (Scan.php:402) and ListScans::buildPostgresQuery() (ListScans.php:329).",
+    "Command is gated behind app.experimental.clarity_scout; the scheduled failures still occur because the scope join runs regardless of feature gate once handle() proceeds when the flag is on. In prod the flag is evidently on (39 failures/day).",
+    "Two existing tests in the file exercise the GPS/ClickHouse path and self-skip when CLICKHOUSE_DRIVER!=clickhouse; this change does not touch that path."
+  ],
+  "tests": [
+    {"file": "tests/Feature/Console/Commands/CloseInactiveShiftsCommandTest.php", "what_it_pins": "The scans max(scanned_at) activity lookup executes with no timezones join / ST_Within predicate."}
+  ],
+  "grounding": {
+    "key_files": ["app/Console/Commands/CloseInactiveShiftsCommand.php:110", "app/Models/Scan.php:149", "app/Models/Scan.php:410", "app/Models/Scopes/ScanTimezoneScope.php:16"],
+    "code_flow": "handle() iterates open KitShift rows -> latestActivityFor(kit_id) -> Scan::query()->where('kit_id',...)->max('scanned_at'); global scopes ShowVisibleScan (visible()) + ScanTimezoneScope (scanTimezone() -> leftJoin timezones ON ST_Within) are auto-applied from Scan::booted() (Scan.php:149-150). scanTimezone() defined at Scan.php:410-428.",
+    "tables": ["scans (zod)", "timezones (zod, PostGIS)", "kit_shifts (platform)", "kits (zod)", "clarity.sc_positions (ClickHouse, read-only, unchanged)"],
+    "related_components": ["App\\Models\\Scopes\\ScanTimezoneScope", "App\\Models\\Scopes\\ShowVisibleScan", "App\\Jobs\\Scout\\SendEndOfShiftSummary"]
+  },
+  "exhaustiveness": {
+    "grep_patterns": ["max\\('scanned_at", "Scan::query|Scan::where|Scan::.*(max|count|sum|min|avg)\\(", "withoutGlobalScope\\(ScanTimezoneScope"],
+    "sites": [
+      {"site": "app/Console/Commands/CloseInactiveShiftsCommand.php:113 max('scanned_at')", "verdict": "buggy", "reason": "The one aggregate over Scan that carries ScanTimezoneScope and hits the timezones spatial join in this command; sole max('scanned_at') in the app."},
+      {"site": "app/Models/Scan.php:402 scanCountByKitNameAggregate()", "verdict": "safe", "reason": "Already removes ScanTimezoneScope."},
+      {"site": "app/Filament/Resources/ScansResource/Pages/ListScans.php:329 buildPostgresQuery()", "verdict": "safe", "reason": "Already removes ScanTimezoneScope."}
+    ]
+  },
+  "data_impact": {
+    "pg_tables": ["scans (zod, read)", "timezones (zod, PostGIS — join being removed)", "kit_shifts (platform, write on close)", "kits (zod, read)"],
+    "ch_tables": [],
+    "mv_or_cdc_implications": "None. The command reads clarity.sc_positions (ClickHouse) via latestGpsFor(), but that path is unchanged by this fix and degrades to null on CH errors. This change does not touch the ClickHouse path, so CH provisioning is not required for its test.",
+    "indexes_relied_on": ["scans(kit_id, is_visible, scanned_at) — suggested by the ticket for an index-only aggregate; zod-managed, out of platform scope (see out_of_scope)."]
+  },
+  "derivation_log": [
+    {"query_shape": "grep max('scanned_at') across app/", "param_classes": ["static source scan"], "aggregate_result": "1 occurrence (the buggy site)", "why": "Confirm the buggy aggregate is unique."},
+    {"query_shape": "grep withoutGlobalScope(ScanTimezoneScope) across app/", "param_classes": ["static source scan"], "aggregate_result": "2 existing safe usages", "why": "Confirm the fix idiom is the established codebase convention."}
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "latestActivityFor() no longer joins timezones", "kind": "agent", "intent": "Enable query log, run scout:close-inactive-shifts against a seeded open shift + stale scan, assert no executed scans query contains timezones/ST_Within."},
+      {"ac": "Command completes without SQLSTATE[57014]", "kind": "agent", "intent": "Run the command end-to-end on the branch DB; assert exit 0 and no exception."},
+      {"ac": "kit 10224 shift closes next run", "kind": "human", "intent": "Post-deploy laravel.log verification on prod (cannot reproduce prod replica locally)."}
+    ],
+    "seed_scenario": "One org+kit with an open KitShift started >3h ago and a single visible Scan scanned ~4h ago (outside the 3h window), so the command closes the shift; app.experimental.clarity_scout=true.",
+    "personas": [{"role": "scheduled command (no UI persona)", "why": "This is a console command, not a portal surface; QA is command + query-log driven, not browser-driven."}],
+    "pg_tables": ["scans", "kit_shifts", "kits"],
+    "ch_tables": []
+  },
+  "confidence": 95,
+  "escalate": {"recommend": false, "reason": "Single-file, well-understood root cause; fix matches an existing codebase convention; no open questions, no blockers, no blast-radius (no migration in platform)."}
+}

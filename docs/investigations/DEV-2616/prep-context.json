@@ -1,0 +1,289 @@
+{
+  "key": "DEV-2616",
+  "generated_at": "2026-09-28T13:49:23Z",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "confidence": 91,
+  "base_sha": "76d4f5fcfdb37a9cb3b7b667c9e34a0d2f4f3266",
+  "branch_path": "main→main",
+  "provisioned": false,
+  "product_code_changed": false,
+  "escalate": {
+    "recommend": false,
+    "reason": "The named offender already uses clarityDb() on origin/main, with a contract test. Remaining FROM clarity. / FROM zod. hits are off the Company Metrics path. No product decision is open."
+  },
+  "jira": {
+    "url": "https://insightlpr-team.atlassian.net/browse/DEV-2616",
+    "id": "31077",
+    "summary": "ScanStatsBatchQuery hardcodes clarity. — Company Metrics 500s under local ClickHouse QA",
+    "type": "Bug",
+    "priority": "Medium",
+    "status": "To Do",
+    "sprint": "Sprint 42",
+    "application": "Clarity",
+    "assignee": "Dalton McCleery",
+    "parent": "parent epic",
+    "first_glance_comment": "42081",
+    "supersedes_comment": "42080",
+    "branch_path": "main→main",
+    "verdict": "Ready → Ultra-Prep (Path A parallel with the soft-twin fleet)",
+    "hardness": "Low–Med",
+    "relates": {
+      "prior QA view-shim work": "QA Complete",
+      "Company Metrics paired-count commit": "QA Complete"
+    },
+    "reget_at": "2026-09-28T13:45:00Z"
+  },
+  "reconcile": {
+    "method": "Single prep pass on origin/main 76d4f5fcfdb37a9cb3b7b667c9e34a0d2f4f3266 after git fetch origin main. Live Jira re-GET matches type Bug, status To Do, Sprint 42, assignee Dalton McCleery, parent epic. Comment 42081 supersedes 42080. Both say base main, target main.",
+    "candidates": 1,
+    "driver_verified": [
+      "ScanStatsBatchQuery::handleSql assigns $clarityDb = static::clarityDb() at app/Clickhouse/Queries/ScanStatsBatchQuery.php:47 and interpolates FROM {$clarityDb}.scan_report_hourly at line 53. Blame is 93f9a2497bd40ccb9956608099a501823563248d (Company Metrics paired-count commit, 2026-09-22). The ticket's cited line 19 is the pre-port location.",
+      "ClickhouseQuery::clarityDb() is app/Clickhouse/Queries/ClickhouseQuery.php:102-107. zodDb() is lines 115-120. pgsql bridge returns the literal schema name. Otherwise the value is config database.connections.clarity_clickhouse.database or public_clickhouse.database.",
+      "HitStatsBatchQuery documents the footgun at app/Clickhouse/Queries/HitStatsBatchQuery.php:8-13 and calls static::clarityDb() at lines 52 and 91. Commit 879695d8d3e1490216437684c3c207aa097bd7ff.",
+      "UniqueScanCounts::fetchTotalMonthlySeries at app/Filament/Widgets/Dashboard/UniqueScanCounts.php:753-765 calls ScanStatsBatchQuery::handle. CompanyMetricsOverview::cards() key unique-scan-counts is the absorbed Scan Count card (Company Metrics paired-count commit, `93f9a249`). Dashboard::getWidgets mounts CompanyMetricsOverview. The current-month total leg uses Scan::hot() on unqualified scans_hot, not this batch query.",
+      "ScanStatsBatchQueryContractTest::test_the_database_prefix_is_resolved_not_hardcoded sets the configured database to clarity_some_worktree and asserts FROM clarity_some_worktree.scan_report_hourly and the absence of FROM clarity.scan_report_hourly. Sibling tests pin the viewer-zone month grouping and the UTC bounds.",
+      "CompanyMetricsOverview::getStats at app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php:208-213 catches Throwable from toStat() and renders that card unavailable. HotlistCount::kitUserCounts degrades a KitUsers failure to 0. A leftover literal clarity. on the header kit count does not 500 /app.",
+      "Executable FROM clarity. / FROM zod. under app/Clickhouse/Queries on this SHA: LprVisitCountQuery.php:19, RdnScanHourCountQuery.php:27, RdnHitHourCountQuery.php:38, Client/CohortClosedQuery.php, Client/CohortDeclinedQuery.php. None of those classes are imported by app/Filament/Widgets/Dashboard.",
+      "The twelve Company Metrics query classes (ScanStatsBatchQuery, ScanPlateStatsBatchQuery, HitStatsBatchQuery, HitPlateStatsBatchQuery, StagingLiveHitLeaderQuery, RecoveryLeaderQuery, RecoveryTotalsBatchQuery, UniqueLprCaseClaimsQuery, LprRepossessionsQuery) interpolate clarityDb(), zodDb(), or {clarity_db}/{db} placeholders. Docblock mentions of clarity. and zod. in those files are not SQL.",
+      "The prior QA view-shim journal records the QA shim (CREATE VIEW clarity.* / zod.* → per-worktree DBs) and its teardown. Jira status is QA Complete. This prep does not reopen it."
+    ]
+  },
+  "synthesis": "The 500 this ticket names was ScanStatsBatchQuery addressing literal clarity.scan_report_hourly. That port already landed on main inside the Company Metrics paired-count commit (`93f9a249`), with a unit guard. The Company Metrics grid query classes already follow HitStatsBatchQuery. The three classes the ticket names as possible stragglers serve the LPR visit endpoint and the RDN metrics publisher, not /app. Ultra-Plan is a no-product-PHP close: keep the existing monthly-total tests, ticket the off-path qualifiers out, and do not add a view shim or a new helper.",
+  "scope": {
+    "summary": "Company Metrics path database qualifiers. The named offender is already ported. Off-path hardcoded FROM clauses are ticket-out, not edited here.",
+    "in": [
+      "Confirm ScanStatsBatchQuery uses clarityDb() and that ScanStatsBatchQueryContractTest still pins the prefix and the monthly grouping.",
+      "Inventory remaining hardcoded FROM clarity. / FROM zod. and classify them."
+    ],
+    "out_of_scope": [
+      "Re-editing ScanStatsBatchQuery SQL.",
+      "A QA clarity/zod view shim.",
+      "Porting LprVisitCountQuery, RdnScanHourCountQuery, or RdnHitHourCountQuery in this key.",
+      "Porting Client CohortClosedQuery / CohortDeclinedQuery.",
+      "Eloquent $table prefixes on Kit, Recovery, HitStatsDaily, and RecoveryKitScanReport, including the header kit count that fail-softs.",
+      "Raw SQL in LprAssist and AffiliateStatsHourly.",
+      "soft-twin fleet branch, claim, status, or env ledger.",
+      "prior QA view-shim reopen.",
+      "Cloud ClickHouse writes.",
+      "Fleet or Mac Herd DSN.",
+      "okf/ edits during this run.",
+      "New query abstractions."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "ScanStatsBatchQuery uses clarityDb() (no hardcoded clarity. table qualifier).",
+      "source": "ticket description",
+      "decision": "already_on_main",
+      "reason": "handleSql line 47 calls static::clarityDb(). FROM uses {$clarityDb}.scan_report_hourly at line 53. Landed in 93f9a249."
+    },
+    {
+      "item": "Company Metrics /app loads against a local-CH QA worktree DB without a clarity view shim.",
+      "source": "ticket description",
+      "decision": "verify_later",
+      "reason": "The query that 500'd under the prior QA view-shim work is ported. Per-card toStat() failures are caught. Proving HTTP 200 is Agent QA after provision, not this prep. This run does not provision and does not stand up a shim."
+    },
+    {
+      "item": "Scan Count card still returns correct monthly totals in unit/feature coverage.",
+      "source": "ticket description",
+      "decision": "keep_existing_tests",
+      "reason": "The card is unique-scan-counts. Past-month totals come from ScanStatsBatchQuery::handle via UniqueScanCounts::fetchTotalMonthlySeries. ScanStatsBatchQueryContractTest pins the prefix and the zone-aware month cut. Do not change the SELECT list."
+    },
+    {
+      "item": "Grep for other hardcoded FROM clarity. / FROM zod. in dashboard query classes and fix or ticket remaining stragglers.",
+      "source": "ticket description",
+      "decision": "ticket_out",
+      "reason": "No remaining executable qualifier in the Company Metrics query classes. LprVisitCountQuery, RdnScanHourCountQuery, and RdnHitHourCountQuery are real and off-path. Fixing them is a different surface. Name them; do not edit them in this key."
+    }
+  ],
+  "inventory": {
+    "offender": {
+      "class": "App\\Clickhouse\\Queries\\ScanStatsBatchQuery",
+      "path": "app/Clickhouse/Queries/ScanStatsBatchQuery.php",
+      "status": "ported",
+      "clarity_db_line": 47,
+      "from_line": 53,
+      "consumer": "app/Filament/Widgets/Dashboard/UniqueScanCounts.php:760",
+      "pattern": "app/Clickhouse/Queries/HitStatsBatchQuery.php",
+      "helper": "app/Clickhouse/Queries/ClickhouseQuery.php:102"
+    },
+    "in_scope_company_metrics": [
+      {
+        "class": "ScanStatsBatchQuery",
+        "path": "app/Clickhouse/Queries/ScanStatsBatchQuery.php",
+        "qualifier": "static::clarityDb()",
+        "action": "none — already ported"
+      },
+      {
+        "class": "ScanPlateStatsBatchQuery",
+        "path": "app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php",
+        "qualifier": "static::clarityDb()",
+        "action": "none"
+      },
+      {
+        "class": "HitStatsBatchQuery",
+        "path": "app/Clickhouse/Queries/HitStatsBatchQuery.php",
+        "qualifier": "static::clarityDb()",
+        "action": "none — pattern"
+      },
+      {
+        "class": "HitPlateStatsBatchQuery",
+        "path": "app/Clickhouse/Queries/HitPlateStatsBatchQuery.php",
+        "qualifier": "static::clarityDb()",
+        "action": "none"
+      },
+      {
+        "class": "StagingLiveHitLeaderQuery",
+        "path": "app/Clickhouse/Queries/StagingLiveHitLeaderQuery.php",
+        "qualifier": "static::clarityDb()",
+        "action": "none"
+      },
+      {
+        "class": "RecoveryLeaderQuery",
+        "path": "app/Clickhouse/Queries/RecoveryLeaderQuery.php",
+        "qualifier": "static::clarityDb()",
+        "action": "none"
+      },
+      {
+        "class": "RecoveryTotalsBatchQuery",
+        "path": "app/Clickhouse/Queries/RecoveryTotalsBatchQuery.php",
+        "qualifier": "static::clarityDb()",
+        "action": "none"
+      },
+      {
+        "class": "UniqueLprCaseClaimsQuery",
+        "path": "app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php",
+        "qualifier": "{clarity_db} replaced by its clarityDb()",
+        "action": "none"
+      },
+      {
+        "class": "LprRepossessionsQuery",
+        "path": "app/Clickhouse/Queries/LprRepossessionsQuery.php",
+        "qualifier": "{clarity_db} and {db} replaced by clarityDb()/zodDb()",
+        "action": "none"
+      }
+    ],
+    "ticket_out": [
+      {
+        "class": "LprVisitCountQuery",
+        "path": "app/Clickhouse/Queries/LprVisitCountQuery.php",
+        "line": 19,
+        "sql": "FROM clarity.scans_cold",
+        "consumer": "app/Http/Controllers/LprVisitCountController.php",
+        "why": "Named in the ticket. Not imported by the Company Metrics widgets."
+      },
+      {
+        "class": "RdnScanHourCountQuery",
+        "path": "app/Clickhouse/Queries/RdnScanHourCountQuery.php",
+        "line": 27,
+        "sql": "FROM clarity.scan_report_hourly",
+        "consumer": "app/Services/Rdn/RdnMetricsPublisher.php",
+        "why": "Named in the ticket. RDN hourly publish, not the dashboard."
+      },
+      {
+        "class": "RdnHitHourCountQuery",
+        "path": "app/Clickhouse/Queries/RdnHitHourCountQuery.php",
+        "line": 38,
+        "sql": "FROM clarity.hits_hot FINAL",
+        "consumer": "app/Services/Rdn/RdnMetricsPublisher.php and app/Jobs/Rdn/DispatchRdnMetricsHourly.php",
+        "why": "Named in the ticket. RDN hourly publish, not the dashboard."
+      },
+      {
+        "class": "CohortClosedQuery",
+        "path": "app/Clickhouse/Queries/Client/CohortClosedQuery.php",
+        "sql": "FROM zod.public_hotlist_status_log",
+        "consumer": "Client Analytics cohort",
+        "why": "Not a Company Metrics dashboard query."
+      },
+      {
+        "class": "CohortDeclinedQuery",
+        "path": "app/Clickhouse/Queries/Client/CohortDeclinedQuery.php",
+        "sql": "FROM zod.public_hotlist_status_log",
+        "consumer": "Client Analytics cohort",
+        "why": "Not a Company Metrics dashboard query."
+      },
+      {
+        "class": "Clickhouse\\Models\\Kit",
+        "path": "app/Clickhouse/Models/Kit.php",
+        "line": 14,
+        "sql": "$table = clarity.kits",
+        "consumer": "KitUsers::cameraKitsCount, called from HotlistCount on /app. Failure degrades to 0.",
+        "why": "Eloquent table prefix, not a query-class FROM. Header still renders. Wider than this key."
+      },
+      {
+        "class": "Clickhouse\\Models\\Recovery",
+        "path": "app/Clickhouse/Models/Recovery.php",
+        "line": 16,
+        "sql": "$table = clarity.recoveries",
+        "why": "Not on the Company Metrics query path. Company Metrics reads recoveries through RecoveryTotalsBatchQuery and RecoveryLeaderQuery, which use clarityDb()."
+      },
+      {
+        "class": "Clickhouse\\Models\\HitStatsDaily",
+        "path": "app/Clickhouse/Models/HitStatsDaily.php",
+        "line": 12,
+        "sql": "$table = clarity.hit_stats_daily",
+        "why": "Company Metrics hit tiles use HitStatsBatchQuery, which uses clarityDb()."
+      },
+      {
+        "class": "Clickhouse\\Models\\RecoveryKitScanReport",
+        "path": "app/Clickhouse/Models/RecoveryKitScanReport.php",
+        "line": 13,
+        "sql": "$table = clarity.recovery_kit_scan_report",
+        "why": "Not a Company Metrics card query."
+      },
+      {
+        "class": "LprAssist",
+        "path": "app/Clickhouse/Models/LprAssist.php",
+        "line": 64,
+        "sql": "FROM clarity.lpr_assists",
+        "why": "Not a Company Metrics card query."
+      },
+      {
+        "class": "AffiliateStatsHourly",
+        "path": "app/Clickhouse/Models/AffiliateStatsHourly.php",
+        "line": 41,
+        "sql": "FROM clarity.affiliate_stats_hourly FINAL",
+        "why": "Not a Company Metrics card query."
+      }
+    ]
+  },
+  "questions": [],
+  "ultra_plan_outline": {
+    "smallest_change": "No product PHP. The AC-1 port is 93f9a249 on main. Ultra-Plan writes that close and the ticket-out list. It does not add a helper, a shim, or a second database resolver.",
+    "tests": [
+      "tests/Unit/Clickhouse/ScanStatsBatchQueryContractTest.php — prefix guard plus timezone-aware monthly grouping. Keep green. Do not change the SELECT.",
+      "tests/Filament/Widgets/Dashboard/UniqueScanCountsTest.php — asserts the card calls ScanStatsBatchQuery::handle. Keep green.",
+      "tests/Filament/Widgets/Dashboard/Concerns/CardQuerySqlFidelityTest.php — delegation only. Not the prefix guard."
+    ],
+    "do_not": [
+      "Implement in the prep run.",
+      "Mark provisioned.",
+      "Invent a fleet or Mac Herd DSN.",
+      "Write Cloud ClickHouse.",
+      "Reopen the prior QA view-shim work.",
+      "Share a worktree or ledger with the soft-twin fleet.",
+      "Edit okf/ before approval."
+    ]
+  },
+  "jira_drift": [
+    {
+      "item": "Description still cites app/Clickhouse/Queries/ScanStatsBatchQuery.php:19 as a hardcoded FROM clarity.scan_report_hourly, and AC-1 is unchecked.",
+      "versus": "origin/main line 47 calls clarityDb() and line 53 interpolates it. The contract test asserts a worktree database name.",
+      "material": false,
+      "action": "Journal only. The description was not edited. No ping. Ultra-Plan treats AC-1 as already satisfied."
+    },
+    {
+      "item": "okf/concepts/company-metrics-dashboard.md says UniqueScanCounts ScanStatsBatchQuery::handle propagates to a grid 500.",
+      "versus": "CompanyMetricsOverview::getStats catches toStat() and renders that card unavailable.",
+      "material": false,
+      "action": "Queue the wiki correction. Do not edit okf in this run. Code wins."
+    }
+  ],
+  "okf": [
+    "okf/index.md",
+    "okf/concepts/data-architecture.md",
+    "okf/concepts/clickhouse-integration.md",
+    "okf/concepts/company-metrics-dashboard.md"
+  ]
+}

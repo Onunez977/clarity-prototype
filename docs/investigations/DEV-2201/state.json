@@ -1,0 +1,279 @@
+{
+  "key": "DEV-2201",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "only base-resolve candidate was 'deploy' (deploy branch, behind main by 23, carries no KML/Scout-zone feature); net-new feature belongs off main",
+  "branch": "claude/DEV-2201",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "prep-candidate:1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 646
+    },
+    {
+      "slot": "prep-candidate:2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 766
+    },
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 1214
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 762
+    },
+    {
+      "slot": "review-rn2",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 952
+    },
+    {
+      "slot": "review-rn3",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 275
+    },
+    {
+      "slot": "review-rn4",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 349
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "clarity/analytics.md",
+    "clarity/scout.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "answered:false material questions (.kmz, naming collisions, polygon holes, sync-vs-queue)",
+    "fast-pass confidence 76 (<80)",
+    "escalate.recommend across all 3 passes",
+    "first-of-its-kind flow (first file upload + first bulk-creation)"
+  ],
+  "best_of_n": true,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "e7dd934d5011710563bb41244cfa11b99285f5de",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "REPO_PATH (single-node fast path)",
+      "branch": "claude/DEV-2201",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 4,
+  "pr": {
+    "number": 279,
+    "url": "https://github.com/insight-lpr/platform/pull/279",
+    "draft": false
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": "already In Progress at intake (no transition needed)",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "undraft did not auto-transition (no GH action fired; ticket still In Progress after ready); pipeline transitioned To Do->In Code Review via Atlassian MCP (transition id 4) @ 2026-07-21",
+  "assumed": [],
+  "comment_ids": {
+    "status": "36636",
+    "build_record": "36870"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "provisioned_early": true,
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "n/a",
+      "ch_container": "n/a",
+      "frontend_build": "n/a",
+      "postgres_db": "zod_claude_dev_2201_80957d (dev) + zod_testing_claude_dev_2201_80957d (testing)",
+      "ch_strategy": "deferred",
+      "herd_site": "clarity-claude_dev_2201_80957d.test"
+    }
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact tests/Services/Zones/KmlZoneParserTest.php tests/Jobs/ImportZonesFromKmlTest.php tests/Filament/Resources/ZoneResourceTest.php",
+        "passed": 38,
+        "failed": 0
+      },
+      {
+        "cmd": "tests/Feature/Events/ZoneListBroadcastsTest.php (blast-radius sibling, worker-run)",
+        "passed": 13,
+        "failed": 0
+      }
+    ],
+    "deviations": [
+      {
+        "source": "qa-loop",
+        "edit": "Human QA found real .kml uploads were rejected by FilePond's client-side acceptedFileTypes (a .kml reports an empty/unknown browser MIME so it matched none of the listed types). Removed acceptedFileTypes; .kml is enforced server-side by the existing extensions:kml rule (reliable) + the graceful parser. AC-2.",
+        "ac_ref": "AC-2",
+        "ac_delta": null
+      },
+      {
+        "source": "qa-loop",
+        "edit": "Human QA with the real 84KB CPZones.kml: the upload failed CORS because Livewire's temporary_file_upload.disk was null -> default disk = s3 (FILESYSTEM_DISK=s3), so Livewire did a browser-direct-to-S3 temp upload requiring bucket CORS. Fix (config/livewire.php temp disk -> local) was applied + RN4-reviewed 100/100, then REVERTED post-review at Dalton's request: the global Livewire upload-staging config is out of scope for this feature PR. NET RESULT in the PR: config/livewire.php unchanged from main. Upload staging (S3-CORS / temp disk) deferred to env/infra or a separate change; AC-2 real-upload-in-prod is NOT wired by this PR.",
+        "ac_ref": "AC-2",
+        "ac_delta": null
+      }
+    ],
+    "review": {
+      "lanes": [
+        "lane1",
+        "lane2",
+        "lane3"
+      ],
+      "rn1_scores": [
+        72,
+        55,
+        72
+      ],
+      "rn2_scores": [
+        90,
+        100,
+        97
+      ],
+      "scores": [
+        100
+      ],
+      "findings_fixed": [
+        "H1 (HIGH, 3/3 lanes): ->rules(['mimes:kml']) rejected real KML in prod (content-sniffed text/xml -> guessExtension xml) -> switched to extensions:kml (client-extension, test/prod-consistent)",
+        "M1 (MEDIUM, 2/3): zero-area/collinear outer ring persisted empty-geom zone (AC5 gap) -> ST_IsEmpty guard in per-placemark txn -> rollback + skip",
+        "M2 (MEDIUM lane3 / LOW x2): queued path missing-file '?? ' -> false success -> throw on null read + $tries=1 + queue disk config('filesystems.default')",
+        "TEST-INTEGRITY (MEDIUM, 3/3): fixtures masked H1 -> extension rule is now test/prod-consistent",
+        "QA-LOOP RN3 (AC-2, human QA): removed FileUpload acceptedFileTypes (client MIME filter blocked real .kml \u2014 empty browser MIME) -> extensions:kml enforces .kml server-side; RN3 re-review 100/100",
+        "QA-LOOP RN4 (AC-2, human QA w/ real CPZones.kml): config/livewire.php temporary_file_upload.disk -> env(...,'local') so temp uploads stage server-side (was s3 default -> browser-direct-to-S3 CORS failure, would have broken prod too); RN4 re-review 100/100 \u2014 NOTE: REVERTED post-review at Dalton's request (global Livewire config out of scope for this PR); config/livewire.php ships unchanged from main."
+      ],
+      "findings_residual": [
+        "NON-SCORING: AC7 self-intersecting 'repaired->created' branch untested (AC7 satisfied; no-500 architecturally guaranteed)",
+        "NON-SCORING: KML namespace rigidity (only 2.2 fully handled; 2.0/2.1/non-namespaced import 0 gracefully)",
+        "NON-SCORING: confirm prod filesystems.default is shared/s3 for distributed Horizon workers (fails gracefully otherwise)",
+        "NON-SCORING: ManageZones map-editor reuse of rebuildGeometryFromDefinition unguarded for empty-geom (pre-existing sibling)",
+        "NON-SCORING: analytics/notification on empty imports; MultiGeometry first-polygon-only; prolog-less .kml text/plain edge",
+        "NON-SCORING (RN4): Livewire local temp disk has a latent multi-node upload-split risk if the web tier is scaled horizontally without sticky routing \u2014 NOT triggered on the current single-host deploy; env LIVEWIRE_TEMPORARY_FILE_UPLOAD_DISK is the escape hatch (point at a shared disk). Flag to scaling owner."
+      ],
+      "lane_sources": [
+        {
+          "lane": "lane1",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "lane2",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "lane3",
+          "source": "in-session-agent"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "f2d8a7695ba040a06c790cfac79fc0fdad98cef3",
+      "reviewed_sha_note": "post-done revert of config/livewire.php returns the tree to byte-identical tracked-non-docs content of b7c99002 (RN3-reviewed 100/100); reviewed_sha bumped to the revert HEAD so rework-gate reflects that the shipped code == the RN3-reviewed baseline (no new review round needed for a revert-to-reviewed-state).",
+      "rework_pivot": false
+    },
+    "ac": [
+      {
+        "item": "AC-1 Import KML action visible + gated like the resource",
+        "status": "SATISFIED",
+        "evidence": "button visible for gated admin (browser A1); wired at ZoneResource.php:173; gating parity in feature tests"
+      },
+      {
+        "item": "AC-2 only .kml accepted, sane max size",
+        "status": "SATISFIED (code); upload-staging deferred",
+        "evidence": "Validation complete: extensions:kml + maxSize(10MB); non-.kml rejected (feature test); client-side acceptedFileTypes filter removed (RN3 100/100). Real drag-drop upload verified LOCALLY by Dalton only with a local Livewire temp disk; that config change was reverted post-review (out of scope). So in an s3-default env the real upload depends on the env's Livewire/S3 upload staging (bucket CORS or a separate temp-disk setting) \u2014 NOT wired by this PR; confirm for prod."
+      },
+      {
+        "item": "AC-3 one org-scoped zone per polygon (incl. holes), geometry correct on map + list",
+        "status": "SATISFIED",
+        "evidence": "importer created 6 org-scoped zones, non-empty geom, hole preserved (2 rings); render in list (A4). Map-view render + real UI upload deferred to human QA (A3 CLI limit)"
+      },
+      {
+        "item": "AC-4 placemark name -> zone name, fallback when absent",
+        "status": "SATISFIED",
+        "evidence": "names mapped; 'Imported Zone 3/4' fallbacks (importer + parser tests)"
+      },
+      {
+        "item": "AC-5 invalid geometry skipped, never an empty zone",
+        "status": "SATISFIED",
+        "evidence": "<Point> skipped; 0 empty-geom zones (real ST_IsEmpty query); M1 guard test"
+      },
+      {
+        "item": "AC-6 N created / M skipped feedback; one bad shape doesn't fail the batch",
+        "status": "SATISFIED",
+        "evidence": "clean 3/0, messy 3/1 (Point skipped without failing batch); per-placemark txn. On-screen notification text deferred to human QA"
+      },
+      {
+        "item": "AC-7 self-intersecting/non-closed repaired or skipped, never a 500",
+        "status": "SATISFIED",
+        "evidence": "auto-close + ST_MakeValid + per-placemark catch (tests + review); self-intersecting positive branch = non-scoring test gap"
+      }
+    ]
+  }
+}

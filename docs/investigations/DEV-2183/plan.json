@@ -1,0 +1,26 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Hardcode order-query plate guard `> 3` -> `>= 3` (all callers)",
+      "approach": "REVISED (param dropped per q2 revision). TDD: (1) add `$plate` param to seedGeohashCell + tests asserting a length-3 plate surfaces and a length-2 does not, at both the query level and the Direct/Staging endpoints. (2) HotlistAddressGeohashQuery: change the guard `AND length(plate) > 3` -> `AND length(plate) >= 3` (literal). All three callers (Scout driver, admin Bird's Eye, non-Scout KitUserPathController) now use `>= 3`. No caller edits, no param.",
+      "target_files": [
+        "app/Clickhouse/Queries/HotlistAddressGeohashQuery.php",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php"
+      ],
+      "intended_diffs": "One SQL line `> 3` -> `>= 3` + a 2-line comment. seedGeohashCell gains a $plate param; 3 CH-backed tests pin the boundary + both endpoints.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "HotlistAddressGeohashQueryTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "KitUserPathController.php:73", "reason": "non-Scout repo heatmap; now ALSO `>= 3` via the shared query (q2 revised: hardcode everywhere, accepted)."},
+    {"site": "ScoutCheckInRollupQuery.php:108", "reason": "out of scope per q3 (kept narrow)."},
+    {"site": "ClarityScoutDashboardController.php:173,183", "reason": "out of scope per q3."},
+    {"site": "Hotlist.php:119,124", "reason": "CH model scopes, unrelated to the order map."}
+  ]
+}

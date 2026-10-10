@@ -1,0 +1,89 @@
+{
+  "sizing_gate": {
+    "fired": true,
+    "reason": "13 target files and 4 nameable concerns (layout reorder, 2 relabels, Kit Users move, Pro-gate seam) exceed the >6-files / multiple-concerns threshold.",
+    "recommendation": "DO NOT SPLIT. The epic DEV-2409 has already split this work ten ways, and this ticket is the irreducible foundation all 9 siblings are blocked on. The four concerns are not separable: the reorder and the Kit Users removal are the SAME array edit, and the Pro-gate seam rewrites the same getStats() the reorder touches. Splitting would create sub-PRs conflicting on the same three files while leaving every sibling blocked longer. Recorded and proceeding.",
+    "files_note": "9 of the 13 are the tightly-coupled Company Metrics grid surface; 5 are tests."
+  },
+  "execution": {
+    "path": "single-node fast path",
+    "why": "The DAG's real dependencies (seam -> grid wiring -> seam test) serialize most of the work anyway, so fan-out would buy one parallel wave at the cost of 3 worktrees, 3 vendor copies and 3 DB provisions. More importantly, this epic's documented failure mode is SLICE BLINDNESS -- eight review rounds, each finding an unrepaired sibling of the previous fix. One worker holding the whole coherent change in a single context is the better defence against that than three workers each seeing a third of it."
+  },
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Company Metrics foundation: seam, reorder, relabels, Kit Users move",
+      "approach": "Execute in this order; each step's rationale is in prep-context.json (settled[]) and driver-verifications.md. TDD: write/adjust the pinning test first, confirm red, then green.",
+      "ordered_steps": [
+        "STEP 1 -- shared label source. Move getCardLabel() from DashboardWidget.php:272 into the RendersDashboardStat trait and DELETE the DashboardWidget copy (DashboardWidget already `use`s the trait at line 17, so all 6 subclasses are unaffected). Guard it: `$heading = \\method_exists($this, 'getHeading') ? $this->getHeading() : null;` -- KitUsers uses this trait but extends TableWidget and has NO getHeading(); unguarded this is a latent fatal. Behaviour is byte-identical for every current caller. See driver-verifications.md #7.",
+        "STEP 2 -- the seam. Add `public static function canViewCardData(): bool;` and `public function lockedStat(?string $selectedCard = null): Stat;` to the DashboardMetricCard interface. Supply defaults in RendersDashboardStat: canViewCardData() returns true; lockedStat() builds a Stat from getCardLabel() with NO computed value, NO ->chart(), and NO wire:click / x-bind / data-description in extraAttributes (use a distinct data-dashboard-locked attribute instead of the clickable chrome from dashboardStatAttributes()). canViewCardData() MUST be static -- expandableCards() filters class-strings without instantiating.",
+        "STEP 3 -- stale comment in this file. Fix DashboardWidget.php:299 ('so the eight cards stay color-coordinated').",
+        "STEP 4 -- relabels. RecoveryCounts.php: $heading -> 'Total Repossessions' AND getDatasetLabel() -> 'Total Repossessions' (operator-approved, Q3). RecoveryLeader.php: BOTH $heading at :25 AND the hardcoded Stat::make() literal at :234 -- it overrides toStat() and bypasses getCardLabel(), so changing only one leaves the collapsed card and the expanded chart title disagreeing.",
+        "STEP 5 -- Kit Users move. HotlistCount.php: getColumns() becomes RESPONSIVE (['default' => 1, 'sm' => 2, 'md' => 3, 'xl' => 6]) per operator answer Q1, not a flat int 6. Add a memoized `private ?KitUsers $kitUsers` composed via `new KitUsers` (never Livewire-mounted -- the same adapter pattern CompanyMetricsOverview already uses) and insert a Stat at INDEX 4 (between 'Missing Plates Percentage' and 'Staging'): Stat::make('Active Kit Users', number_format(activeKitUsersCount()))->description(number_format(cameraKitsCount()).' camera kits'). NOTE the description is CAMERA kits, NOT the 'inactive kits' KitUsers::toStat() currently shows -- that is a genuine value change settled by the mockup, easy to get backwards.",
+        "STEP 6 -- theme.css. Update the .big-stat-chart min-h-40 calibration comment so it describes the 6-column reality; its current text pins 160px to 'that row's height at the default 5-column width' and instructs the reader to revisit when the top row's copy changes. Do NOT change the 160px value blind -- flag it for visual re-check in human QA (operator answer Q1).",
+        "STEP 7 -- grid. CompanyMetricsOverview.php: cards() becomes exactly ['scan-count','recovery-counts','recovery-leader','live-hits','historical-hits','staging-live-hits','staging-historical-hits'] (kit-users dropped). Rewrite BOTH docblocks (:12 '8-card grid' and :34 'The 8 compact cards') to record the 4x4 mockup with the 9 empty slots named and marked load-bearing, explicitly forbidding a future re-tidy to append order. Add static expandableCards() = array_filter(cards(), fn ($c) => $c::canViewCardData()). In getStats(), branch on $class::canViewCardData() BEFORE calling toStat() -- gating after the value is computed is the data-leak defect this seam exists to prevent.",
+        "STEP 8 -- page wiring. Dashboard.php: cardWidgets() returns CompanyMetricsOverview::expandableCards() instead of cards(); rewrite the stale :84 docblock (wrong on count, labels, membership AND row structure). DO NOT add key validation to toggleCard() -- see driver-verifications.md #1: it needs none, and an `if (! isset(...)) return;` guard breaks closing a card that became locked while open.",
+        "STEP 9 -- tests. DashboardCardExpansionTest.php: assertCount(8)->7, update the exact key-order array, drop the stale 'RecoveryLeader/KitUsers do not implement getCardKey() yet' comment (both do). Leave test_all_four_hit_cards_are_contiguous() UNMODIFIED -- it is order-agnostic and must pass as-is. RecoveryLeaderTest.php:214: the assertSame() exact match becomes 'LPR Recovery Leaderboard'. HotlistCountTest.php: pre-seed the 'kit-status:active-ids:org=' and 'kit-status:total:org=' cache keys (mirroring the existing hotlist-count pre-seed pattern) so no live ClickHouse call is attempted, then assert the new stat and its camera-kits description. NEW tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php: with local stub cards on a CompanyMetricsOverview subclass, prove a canViewCardData()=false card (a) stays in cards(), (b) is ABSENT from expandableCards(), (c) renders with no value/chart/click affordance, and (d) has its value never computed -- assert the gated card's cache key is never written, which is the AC-4 'shows no value' proof.",
+        "STEP 10 -- AC-7. No new ClickHouse call site may be introduced. KitUsers' two queries already run today (it is currently a grid card), so relocating them is net-neutral; the regression guarded against is a re-implementation that does not reuse those two cache keys. Prove it by code-path audit + the HotlistCountTest cache-key assertions from step 9. DB::listen does NOT fire for the CH driver -- do not attempt a query-listener count."
+      ],
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/Concerns/DashboardMetricCard.php",
+        "app/Filament/Widgets/Dashboard/Concerns/RendersDashboardStat.php",
+        "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+        "app/Filament/Widgets/Dashboard/RecoveryCounts.php",
+        "app/Filament/Widgets/Dashboard/RecoveryLeader.php",
+        "app/Filament/Widgets/Dashboard/HotlistCount.php",
+        "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php",
+        "app/Filament/Pages/Dashboard.php",
+        "resources/css/filament/app/theme.css",
+        "tests/Filament/Pages/DashboardCardExpansionTest.php",
+        "tests/Filament/Widgets/Dashboard/RecoveryLeaderTest.php",
+        "tests/Filament/Widgets/Dashboard/HotlistCountTest.php",
+        "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php"
+      ],
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [
+        "pro-gate-visibility-seam"
+      ],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {
+      "site": "app/Filament/Widgets/Dashboard/KitUsers.php",
+      "reason": "Unregistered from cards() but otherwise UNTOUCHED. Its vestigial getCardKey()/toStat()/static $heading stay per smallest-coherent-change; KitUsersTest.php and DashboardWidgetTest.php:286 both exercise the class directly and must keep passing."
+    },
+    {
+      "site": "tests/Filament/Widgets/Dashboard/RecoveryCountsTest.php:27,41",
+      "reason": "assertSeeText('Repossessions') is a SUBSTRING match and stays green against 'Total Repossessions'. Left alone to keep the diff minimal."
+    },
+    {
+      "site": "app/Filament/Widgets/Client/ClientTable.php:202, app/Filament/Pages/Concerns/HasStatDrillDown.php:253",
+      "reason": "CORRECTED in round 4: these are ADMIN-panel files, not /client panel -- the client panel discovers only app/Filament/Client/Widgets, and HasStatDrillDown is used by the admin ClientAnalytics/IndividualClientAnalytics pages. The exclusion still holds (HasStatDrillDown already reads 'Total Repossessions', so it now agrees with the card), but the original reasoning was wrong and would mislead a sibling doing the same grep."
+    },
+    {
+      "site": "app/Filament/Tables/Filters/KitUsersFilter.php and ~11 consumers",
+      "reason": "Unrelated class; name-collision only on the grep for 'KitUsers'."
+    },
+    {
+      "site": "app/Filament/Widgets/Dashboard/Concerns/SharedHitStatsData.php",
+      "reason": "Its toStat() override uses getCardLabel() generically; the 4 hit cards are unaffected by the relabels and their contiguity is preserved by the new order."
+    },
+    {
+      "site": "app/Filament/Widgets/Dashboard/MissedOpportunityClientGraph.php",
+      "reason": "Not registered in cards(); a separately Pennant-gated widget."
+    },
+    {
+      "site": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardMetricsTest.php",
+      "reason": "Backstop-flagged; verified it never enumerates cards() or CompanyMetricsOverview. Unaffected."
+    }
+  ],
+  "human_approval_required": {
+    "blast_radius_node": "t1",
+    "tag": "pro-gate-visibility-seam",
+    "status": "APPROVED at the Phase 2 gate \u2014 the operator answered all three questions and the seam design (gate BEFORE toStat(), static canViewCardData(), interface + trait defaults) is recorded as settled in prep-context.json."
+  }
+}

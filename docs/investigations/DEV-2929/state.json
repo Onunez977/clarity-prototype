@@ -1,0 +1,295 @@
+{
+  "key": "DEV-2929",
+  "track": "product",
+  "label": "LPR Repossessions CSV export: filename + tooltip reflect the export window",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "sprint": "Sprint 42",
+  "repo": "insight-lpr/platform",
+  "epic": "DEV-1580",
+  "phase": "done",
+  "provisioned": true,
+  "base_branch": "main",
+  "target_branch": "main",
+  "branch_path": "main→main",
+  "base_sha": "0e5ae042729e47afcc1e024efca4d6773ebd1b89",
+  "base_branch_reason": "First Glance comment 43362 (live re-GET 2026-10-07 ~6:21pm CDT)",
+  "branch": "cursor/dev-2929-export-window-filename",
+  "pr": {
+    "number": 511,
+    "url": "https://github.com/insight-lpr/platform/pull/511",
+    "draft": false,
+    "base": "main",
+    "head_sha": "c532abb48730cbc293155a10afae37ee3c6d354d",
+    "status_rewritten": "HITL GO (Dalton, 10:46am CDT) · Undrafted · Next: CI -> QA Ready (2026-10-08 ~10:50am CDT)"
+  },
+  "github_assignee": {
+    "requested": "DaltonMcCleery",
+    "set": true,
+    "pr": 511
+  },
+  "artifact_dir": "docs/investigations/DEV-2929/",
+  "gate": "CLEAN",
+  "next": "CI -> QA Ready (PM)",
+  "worktree_mac": "<mac-run-dir>/platform-wt",
+  "checkout_box": "/workspace/dev-2929-wt",
+  "flags": {
+    "provision": true,
+    "implement": true,
+    "review": true,
+    "qa": true,
+    "stop_at": "provisioned",
+    "cloud_ch_writes": false,
+    "cloud_touched": false,
+    "ch_touch": false,
+    "preflight_25": "N/A",
+    "preflight_26": "main→main",
+    "preflight_9_deviation": "PM-accepted: keyed test PG + vendor + .env.testing only; Agent QA twin at QA Ready",
+    "path_a_stood": true,
+    "pr_draft": false,
+    "never_touch": [
+      "PR #374",
+      "PR #509",
+      "PR #510",
+      "claude/DEV-2442",
+      "cursor/dev-2450-kit-path-map-enriched",
+      "cursor/dev-2928-rdn-backfill-branches"
+    ],
+    "scratch_clone_readonly": "/workspace/dev-2929-fg",
+    "verify": true,
+    "preflight_18": "soft (ch_touch:no; real Docker CH evidence present)",
+    "preflight_27": "comment 6063513644; media upload_blocked disk-only",
+    "preflight_24": "PASS two inline closures only"
+  },
+  "jira": {
+    "key": "DEV-2929",
+    "id": "31475",
+    "url": "https://insightlpr-team.atlassian.net/browse/DEV-2929",
+    "type": "Task",
+    "status": "In Progress",
+    "priority": "Medium",
+    "assignee": "Dalton McCleery",
+    "labels_live": [],
+    "links": [
+      "DEV-2904 (relates, Done)"
+    ],
+    "reget_at": "2026-10-08T07:36:00-05:00 (Planner re-read)",
+    "comment_ids": {
+      "first_glance": "43362",
+      "plan": "43365",
+      "implement": "43368",
+      "build_record": "43372"
+    }
+  },
+  "hard_stops": [
+    "Smallest change (#24): two closures in exportAction() + tests; no new helper/class/trait; reuse exportWindow()",
+    "Exported rows, CSV columns, query and exportWindow()/date-window logic unchanged",
+    "Out of scope: notifications, CSV columns, exporter job batch name, chart/cards, date-filter behavior",
+    "Months = UTC calendar month; Today/Last 7d viewer TZ; never convert UTC month bounds to viewer TZ",
+    "No Cloud ClickHouse access",
+    "No bot names on Jira/GitHub (#17)",
+    "Never touch #374/#509/#510 branches"
+  ],
+  "forecast_gates": [
+    "Tests: getFileName()/getTooltip() for a month filter, Last 7d, Today + one UTC month edge for a Chicago viewer",
+    "#25 N/A (no query/path rewrite)",
+    "#31 ch_touch: no in spec test map",
+    "#27 Agent QA UI evidence on a running site (tooltip per toggle, refresh clip, downloaded filename)",
+    "Tooltip copy follows ticket examples",
+    "Soft: PR #489 (Filament 5.9) lands first → re-run tests"
+  ],
+  "timeline": {
+    "prep_start": "2026-10-07T18:20:00-05:00",
+    "pr_opened": "2026-10-07T18:23:29-05:00",
+    "plan_start": "2026-10-08T07:36:16-05:00",
+    "plan_end": "2026-10-08T07:52:28-05:00",
+    "plan_posted": "2026-10-08T07:59:48-05:00",
+    "provisioned": "2026-10-08T08:01:07-0500",
+    "review_start": "2026-10-08T08:12:00-05:00",
+    "review_end": "2026-10-08T08:27:00-05:00",
+    "verify_start": "2026-10-08T10:42:00-05:00",
+    "verify_end": "2026-10-08T10:45:00-05:00",
+    "build_record_posted": "2026-10-08T10:44:52-05:00",
+    "hitl_go": "2026-10-08T10:46:00-05:00",
+    "undraft": "2026-10-08T10:50:00-05:00"
+  },
+  "open_questions": [
+    "Q1 verify cacheAction()/tooltip HTML encoding with installed Filament (Implement)",
+    "Q2 browser tooltip refresh on toggle — Agent QA proof; blade change needs PM/Dalton go-ahead"
+  ],
+  "prep_tip_sha": "ab002e99a3e32000ae885493f158ac7dac2dab8c",
+  "blocked_history": [
+    {
+      "at": "2026-10-07T18:38:00-05:00",
+      "reason": "Mac mini offline 6:20–6:40pm CDT",
+      "cleared": "2026-10-08T07:27:00-05:00"
+    }
+  ],
+  "spec": {
+    "path_mac": "<mac-run-dir>/platform-wt/.ai/specs/DEV-2929.md",
+    "path_box": "/workspace/dev-2929-wt/.ai/specs/DEV-2929.md",
+    "mirror": "docs/investigations/DEV-2929/DEV-2929.md",
+    "status": "READY",
+    "ch_touch": "no",
+    "self_check": "CLEAN"
+  },
+  "plan": {
+    "plan-cli_wall_seconds": 972,
+    "model": "opus-5.5",
+    "effort": "high",
+    "meta": "docs/investigations/DEV-2929/harness/meta.json",
+    "aborted_starts": 2
+  },
+  "provision": {
+    "mode": "keyed_test_pg_only",
+    "pg": "Mac 127.0.0.1:5432/zod_testing_dev_2929",
+    "baseline": "39 passed (201 assertions), 0 failed",
+    "ledger": "docs/investigations/DEV-2929/provision.json"
+  },
+  "pm_rulings": [
+    "2026-10-08: tooltip copy word for word from the ticket ('as CSV' only on month variant)",
+    "2026-10-08: yearless Last 7d form across a year OK"
+  ],
+  "reviewed_sha": "c532abb48730cbc293155a10afae37ee3c6d354d",
+  "review": {
+    "rn": 1,
+    "verdict": "PASS",
+    "score": 99,
+    "lanes": {
+      "correctness": 97,
+      "conventions": 96,
+      "blast_radius": 99
+    },
+    "min": 96,
+    "gate": "PASS rc=0",
+    "engine": "review engine (Mac mini, reviewer card, opus-5.5 medium)",
+    "findings": {
+      "blockers": 0,
+      "should_fix": 0,
+      "nits": 1
+    },
+    "minimal_first": "PASS",
+    "reviewed_sha": "c532abb48730cbc293155a10afae37ee3c6d354d",
+    "at": "2026-10-08T08:25:00-05:00",
+    "artifacts": "docs/investigations/DEV-2929/harness/review/ (disk only)"
+  },
+  "path_a": {
+    "live": true,
+    "site": "http://127.0.0.1:18093",
+    "pg": "127.0.0.1:15445/zod_dev_2929",
+    "ch": "127.0.0.1:18136 clarity/zod",
+    "QA_SITE_URL": "https://rivers-planned-leonard-championships.trycloudflare.com",
+    "mac_mini_route": "LIVE (cloudflared quick tunnel + basic auth), verified from mini 9:33am CDT",
+    "ledger": "docs/investigations/DEV-2929/qa-prep-ledger.json",
+    "tunnel_pid": 1785848
+  },
+  "review_number": 1,
+  "comment_ids": {
+    "first_glance": "43362",
+    "plan": "43365",
+    "implement": "43368",
+    "build_record": "43372"
+  },
+  "record": {
+    "ac": [
+      {
+        "ac": 1,
+        "text": "Filename shows export-window start/end (single date when same day) for each toggle",
+        "verdict": "PASS",
+        "evidence": "provider 9 rows + Agent QA Content-Disposition This Month 17 / Last Month 3 / Last 7d 17 / Today 3"
+      },
+      {
+        "ac": 2,
+        "text": "Tooltip shows period dates and updates when toggle changes",
+        "verdict": "PASS",
+        "evidence": "provider + toggle test + Agent QA Q2 refresh no reload U+2013"
+      },
+      {
+        "ac": 3,
+        "text": "Exported rows and query unchanged",
+        "verdict": "PASS",
+        "evidence": "Verify S3.1: product diff only exportAction tooltip/filename; exportWindow/exportRowsSql/exporter untouched; suites green"
+      },
+      {
+        "ac": 4,
+        "text": "Tests cover filename for month / Last 7d / Today",
+        "verdict": "PASS",
+        "evidence": "LprRepossessionsTest provider"
+      },
+      {
+        "ac": 5,
+        "text": "Tests cover tooltip for month / Last 7d / Today",
+        "verdict": "PASS",
+        "evidence": "LprRepossessionsTest provider + toggle test"
+      }
+    ],
+    "review": {
+      "rn": 1,
+      "verdict": "PASS",
+      "score": 99,
+      "lanes": {
+        "correctness": 97,
+        "conventions": 96,
+        "blast_radius": 99
+      },
+      "min": 96,
+      "threshold": 85,
+      "gate_rc": 0,
+      "gate_line": "REVIEW_GATE: pass min=96 threshold=85 lanes=3 rn=1 scores=97/96/99 conventions=96 sources=reviewer:3 source=lane-min",
+      "engine": "review engine (Mac mini, reviewer card, opus-5.5 medium)",
+      "reviewed_sha": "c532abb48730cbc293155a10afae37ee3c6d354d",
+      "code_sha": "40b9cc8878fee4e97447f6294ec6fec76bd84c19",
+      "base_sha": "0e5ae042729e47afcc1e024efca4d6773ebd1b89",
+      "findings": {
+        "blockers": 0,
+        "should_fix": 0,
+        "nits": 1
+      },
+      "nits": [
+        "LprRepossessionsTest.php:1370 heading assert ASCII-prefix-only (non-blocking)"
+      ],
+      "scores": [
+        97,
+        96,
+        99
+      ],
+      "rerun_required": false,
+      "artifacts": "docs/investigations/DEV-2929/harness/review/ (disk only)",
+      "nit_disposition": "skipped at undraft: adds a test assertion (not a comment/naming nit)"
+    },
+    "verify": {
+      "verdict": "PASS",
+      "at": "2026-10-08T10:44:52-05:00",
+      "build_record_id": "43372",
+      "pint": "passed (changed product PHP)",
+      "phpstan": "1 error L529 match.unhandled identical on base 0e5ae042 (pre-existing)",
+      "config_diff_empty": true,
+      "horizon_unchanged": true,
+      "preflight_14": "PASS",
+      "preflight_24": "PASS",
+      "preflight_25": "N/A",
+      "preflight_26": "main→main",
+      "preflight_18": "soft ch_touch:no; real CH evidence present",
+      "preflight_27": "comment posted; media upload_blocked",
+      "qa_caveats": [
+        "filenames from Content-Disposition (tunnel download crashed page)",
+        "toggle radio set directly rather than clicked"
+      ],
+      "qa_verdict_owner_note": "VERDICT.md thin summary; results.md signed as QA Runner; Agent QA owner signed the PASS verdict (reported to PM). Real Docker CH evidence present -> Verify proceeded."
+    },
+    "agent_qa": {
+      "verdict": "PASS",
+      "tip": "c532abb48730cbc293155a10afae37ee3c6d354d",
+      "soft18": "LprRepossessionsTest 49/245 + LprRepossessionExporterTest 1/14 CLICKHOUSE_DRIVER=clickhouse :18136",
+      "soft27_comment": "https://github.com/insight-lpr/platform/pull/511#issuecomment-6063513644",
+      "rows": "17/3/17/3"
+    }
+  },
+  "hitl": {
+    "verdict": "GO",
+    "by": "Dalton McCleery",
+    "at": "2026-10-08T10:46:00-05:00",
+    "note": "DEV-2929 is ready to go to QA Ready"
+  }
+}

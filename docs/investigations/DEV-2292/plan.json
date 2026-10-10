@@ -1,0 +1,25 @@
+{
+  "key": "DEV-2292",
+  "authored_by": "driver-inline (opus) — single fully-specified subtask; no fresh-context arbiter dispatch needed",
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Make the Org Map \"No kits reporting GPS\" notice dismissible (✕ on the centered card, hides both surfaces, session-scoped)",
+      "approach": "In resources/js/clarity-scout/App.vue: (1) add `const noticeDismissed = ref(false)` in <script setup> (import `ref` — already imported alongside computed/watch). (2) Change BOTH notice v-if conditions from `noKitsReporting` to `noKitsReporting && !noticeDismissed` (centered card line ~37, bottom pill line ~81). (3) Add a close ✕ button inside the centered card (lines 37-48), mirroring Toast.vue's dismiss convention: type=button, aria-label=\"Dismiss\", the same X-path SVG (w-4 h-4), positioned top-right of the card; give the BUTTON `pointer-events-auto` (leave the outer container `pointer-events-none` so the map stays draggable around it); `@click=\"noticeDismissed = true\"`. No watcher, no localStorage/sessionStorage — the ref resets naturally on a fresh App mount (page reload / new session), matching Dalton's session-scoped choice. `noKitsReporting` computed (330-336) is unchanged, so AC3 (auto-hide when kits report) still holds.",
+      "target_files": ["resources/js/clarity-scout/App.vue"],
+      "intended_diffs": "App.vue: +noticeDismissed ref in script setup; two v-if edits (card + pill) to `&& !noticeDismissed`; a new absolutely-positioned ✕ button (pointer-events-auto) inside the centered card that sets noticeDismissed=true. Then `npm run build` to regenerate + commit public/build assets.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "simple"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "App.vue:330-336 noKitsReporting computed", "reason": "Unchanged — reactive trigger stays as-is; AC3 relies on it. Only the v-if consumers gain the `&& !noticeDismissed` guard."}
+  ],
+  "sizing": "1 file, 1 concern (notice dismissibility). Well under the >6-file / multi-concern split threshold.",
+  "blast_radius_check": "none — frontend Vue SPA only; no migrations, billing, auth/Shield/policies, or ClickHouse purge/prune globs touched.",
+  "perf_gate": "not required — no ClickHouse surface touched (perf_validation.required=false)."
+}

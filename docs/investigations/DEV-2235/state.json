@@ -1,0 +1,484 @@
+{
+  "key": "DEV-2235",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "base-resolve.sh returned 2 candidates (hotfix/DEV-2246-scout-signed-url, hotfix/DEV-2246-scout-signed-url-main) \u2014 both are DEV-2246 signed-URL hotfix branches, 32 commits behind main, carrying no Birds-Eye/disposition work. Ticket is a fresh feature, so main is the correct base.",
+  "branch": "claude/DEV-2235",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "grep-backstop",
+      "model": "haiku",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 260
+    },
+    {
+      "slot": "prep-candidate:1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 448
+    },
+    {
+      "slot": "prep-candidate:2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 579
+    },
+    {
+      "slot": "prep-candidate:3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 717
+    },
+    {
+      "slot": "reconcile",
+      "model": "opus-in-session",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 178
+    },
+    {
+      "slot": "plan-arbiter",
+      "model": "opus-in-session",
+      "effort": "inherit",
+      "phase": "plan",
+      "dur_s": 98
+    },
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 310
+    },
+    {
+      "slot": "implement:t2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 569
+    },
+    {
+      "slot": "implement:t4",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 225
+    },
+    {
+      "slot": "implement:t3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 117
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 61
+    },
+    {
+      "slot": "review-lane:insession1",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 942
+    },
+    {
+      "slot": "review-lane:insession2",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 942
+    },
+    {
+      "slot": "review-lane:insession3",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 942
+    },
+    {
+      "slot": "agent-qa",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "verify",
+      "dur_s": 656
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "clarity/scout.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "fast-pass confidence 78 (<80)",
+    "fast-pass escalate.recommend=true",
+    "unanswered needs-human question (analytics discriminator)",
+    "auth/tenancy-sensitive write path"
+  ],
+  "best_of_n": true,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [
+    {
+      "file": "resources/js/clarity-scout/stores/dashboard.js",
+      "symbol": "hiddenScanIds",
+      "referenced_at": "37",
+      "note": "Dashboard store shares the map store's hidden-scan tracking \u2014 the Birds Eye Live Hits list renders from dashboard.js, so AC-2's optimistic keep/hide crosses BOTH stores, not just map.js.",
+      "materiality": "high \u2014 bears directly on AC-2"
+    },
+    {
+      "file": "resources/js/clarity-scout/lib/analyticsEvents.js",
+      "symbol": "ScoutAnalyticsPage",
+      "referenced_at": "3",
+      "note": "Client-side mirror of the PHP ScoutAnalyticsPage enum \u2014 if the new Birds Eye disposition event needs a page/event constant, this mirror may need it too.",
+      "materiality": "medium \u2014 depends on the open analytics question"
+    },
+    {
+      "file": "app/Models/Hit.php",
+      "symbol": "DispositionEnum",
+      "referenced_at": "7",
+      "note": "Postgres Hit model (distinct from app/Clickhouse/Models/Hit.php) filters on DispositionEnum; read-side only, no write path.",
+      "materiality": "low \u2014 read-only consumer"
+    },
+    {
+      "file": "tests/Feature/Http/Controllers/DispositionControllerTest.php",
+      "symbol": "ScanDispositionRequest",
+      "referenced_at": "5",
+      "note": "Existing org-scoped disposition test \u2014 the convention the new controller's test should mirror.",
+      "materiality": "informational \u2014 test convention"
+    },
+    {
+      "file": "tests/Feature/Http/Controllers/Api/ClarityScoutScanDispositionControllerTest.php",
+      "symbol": "ScoutScanDispositionRequest",
+      "referenced_at": "348",
+      "note": "Existing driver disposition test incl. analytics tracking assertions \u2014 second convention source + the driver-regression guard.",
+      "materiality": "informational \u2014 test convention"
+    },
+    {
+      "file": "resources/js/clarity-scout/components/ScannerMap.vue",
+      "symbol": "selectedHit",
+      "referenced_at": "1447",
+      "note": "Watches selectedHit to position the map marker; consumer of the payload gaining scan_id/disposition.",
+      "materiality": "low \u2014 no change expected"
+    },
+    {
+      "file": "app/Filament/Resources/{HitsResource,MissedOpportunityResource,ScansResource/Pages/ListScans}.php",
+      "symbol": "DispositionEnum",
+      "referenced_at": "7,6,8",
+      "note": "Filament admin surfaces that read/filter dispositions; unaffected by a new write caller.",
+      "materiality": "low \u2014 read-only consumers"
+    }
+  ],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "additive projected columns on existing read queries + reuse of the existing SyncDispositionToClickhouse job",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "458e277f42a8eb94051ea8b95bb7e3a7ae0c4180",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "(none \u2014 ran serially in REPO_PATH)",
+      "branch": "claude/DEV-2235",
+      "complexity": "simple",
+      "model": "sonnet"
+    },
+    {
+      "id": "t2",
+      "status": "merged",
+      "worktree_path": "(none \u2014 ran serially in REPO_PATH)",
+      "branch": "claude/DEV-2235",
+      "complexity": "complex",
+      "model": "sonnet"
+    },
+    {
+      "id": "t3",
+      "status": "merged",
+      "worktree_path": "(none \u2014 ran serially in REPO_PATH)",
+      "branch": "claude/DEV-2235",
+      "complexity": "simple",
+      "model": "sonnet"
+    },
+    {
+      "id": "t4",
+      "status": "merged",
+      "worktree_path": "(none \u2014 ran serially in REPO_PATH)",
+      "branch": "claude/DEV-2235",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 3,
+  "pr": {
+    "number": 302,
+    "url": "https://github.com/insight-lpr/platform/pull/302",
+    "draft": false
+  },
+  "pr_urls": {
+    "main": "https://github.com/insight-lpr/platform/pull/302"
+  },
+  "jira_in_progress_by": null,
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "Transitioned To Do->In Code Review by the pipeline via Atlassian MCP (transition id 4) at 2026-08-04T13:13:58Z. NOT a manual intervention: 'In Code Review' was still offered in getTransitionsForJiraIssue after the PR was undrafted, proving no GH Action performed it \u2014 this is the designed fallback working. (The Phase-4 In Progress transition was skipped because the ticket was already In Progress at intake.)",
+  "assumed": [],
+  "comment_ids": {
+    "status": "37971",
+    "build_record": "37990"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "provisioning": {
+      "provision_mode": "provision-only",
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "n/a",
+      "ch_container": "created",
+      "frontend_build": "not-needed (no resources/js, resources/css or *.vue in the diff \u2014 the change is backend-only by design)",
+      "postgres_db": "zod_claude_dev_2235_4db0ff (dev) + zod_testing_claude_dev_2235_4db0ff (testing)",
+      "ch_strategy": "docker (lazy-ensured at Phase 4: clarity-qa-clickhouse on 127.0.0.1:18123, LITERAL clarity+zod DBs; up.sh refused literal names after creating the container+schema, so .env/.env.testing were wired by hand off ClickHouse Cloud. Full-file backups .env.ch-qa-backup / .env.testing.ch-qa-backup hold the originals.)",
+      "herd_site": "clarity-claude_dev_2235_4db0ff (probe: root 302, /__qa/login 200, /__qa/login/1 302)",
+      "postgis_patch": "applied (tiger.state simplified_geom + geom_4326)",
+      "baseline_reseed": "ran (patch changed) \u2014 LocalDataSeeder created scans for kits 18-30, Scout user, hotlists; only the CH seeder skipped (driver not pgsql)",
+      "ch_seed": ".context/qa-ch-seed.sql (4 hits_hot + 4 hotlist rows, org 2, applied over HTTP because clickhouse-qa seed.sh refuses the literal `clarity` db name)"
+    },
+    "provisioned_early": true,
+    "plans": [
+      ".context/qa-plan-agent.md",
+      ".context/qa-plan-human.md"
+    ],
+    "human_guide": ".context/qa-human-guide.html",
+    "teardown_note": "Teardown-only qa-complete. Dropped the two branch Postgres DBs (shape-guarded) and the LITERAL clarity/zod ClickHouse DBs; unlinked the Herd site; restored .env/.env.testing to pre-QA shape (file backups + the ledger's env_restore on top, because the backups were taken after Phase 3.5 had already neutralized CH). KEPT the clarity-qa-clickhouse container deliberately \u2014 it also holds clarity_claude_dev_2177 + zod_claude_dev_2177, another worktree's live QA env, so removing it or running down.sh --all would have destroyed DEV-2177's environment. Receipt at .context/qa-complete.md carries the full qa_log forward; ledger deleted."
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact --filter=ClarityScoutBirdsEyeControllerTest",
+        "passed": 22,
+        "failed": 0,
+        "node": "t1"
+      },
+      {
+        "cmd": "php artisan test --compact --filter=ClarityScoutBirdsEyeDispositionControllerTest",
+        "passed": 13,
+        "failed": 0,
+        "node": "t2"
+      },
+      {
+        "cmd": "php artisan test --compact --filter=ClarityScoutBirdsEyeControllerTest",
+        "passed": 28,
+        "failed": 0,
+        "node": "t4 (includes t1's tests)"
+      },
+      {
+        "cmd": "php artisan test --compact --filter=ClarityScoutOrgMapRoutingTest",
+        "passed": 5,
+        "failed": 0,
+        "node": "t3"
+      },
+      {
+        "cmd": "php artisan test  (FULL SUITE)",
+        "passed": null,
+        "failed": 2,
+        "status": "INCOMPLETE \u2014 did not run to completion",
+        "detail": "The suite aborts on PHP memory_limit 128M (compiled Blade view, then HtmlSanitizerConfig.php). `php -d memory_limit=2G artisan test` does NOT help: artisan test spawns child processes that don't inherit the CLI flag. Before aborting it reported exactly 2 failures, both in Tests\\Feature\\Console\\Commands\\CloseInactiveShiftsCommandTest.",
+        "failures_are_preexisting": true,
+        "preexisting_proof": "A/B verified, not assumed: reverted app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php and routes/web.php to the pre-change base 458e277f (confirmed 0 occurrences of actionableDisposition/scan_id and no route line) and re-ran the class \u2014 IDENTICAL result, '2 failed, 5 passed (23 assertions)'. Then restored from HEAD.",
+        "root_cause": "Timezone bug in the TEST, not the code: the delta is exactly 18000s = 5h = the local America/Chicago offset. The test asserts now()->subHours(4)->timestamp against a shift ended_at that comes back 5h later (CloseInactiveShiftsCommandTest.php:74 and :175). Nothing in this diff can shift shift-end timestamps.",
+        "honest_note": "Because the suite cannot complete locally, a clean full-suite pass is NOT claimed. CI on the PR (which targets main, so platform's lint_check_and_test does run) is the authoritative full-suite signal."
+      },
+      {
+        "cmd": "php artisan test --compact --filter=ClarityScoutBirdsEyeDispositionControllerTest",
+        "passed": 14,
+        "failed": 0,
+        "node": "post-review fixes"
+      },
+      {
+        "cmd": "php artisan test --compact --filter=ClarityScoutBirdsEyeControllerTest",
+        "passed": 28,
+        "failed": 0,
+        "node": "post-review fixes"
+      },
+      {
+        "cmd": "php artisan test --compact --filter=ClarityScoutOrgMapRoutingTest",
+        "passed": 5,
+        "failed": 0,
+        "node": "post-review fixes"
+      }
+    ],
+    "deviations": [
+      {
+        "source": "implementation-discovery",
+        "edit": "Added node t4: switch admin hits() + recentHits() from validDisposition() to actionableDisposition() (leaving stats() unchanged), matching the driver's DEV-2059 correction.",
+        "ac_ref": "AC-2",
+        "ac_delta": "AC-2 was unmet for Accessible before this: the client treats Accessible as KEEP but the admin surfaces filtered it out, so the hit vanished on the next poll instead of being kept. Approved by Dalton 2026-08-03."
+      },
+      {
+        "source": "implementation-discovery",
+        "edit": "t4 side effect: actionableDisposition() = {NULL, New Hit, Accessible} vs validDisposition() = {New Hit/NULL, Valid}. The admin hits()/recentHits() surfaces therefore GAIN Accessible hits and LOSE 'Valid' hits. This is exactly the driver's set (parity achieved), but it is a BIDIRECTIONAL read-surface change, not purely additive. A t1 fixture using disposition=Valid had to be changed to New Hit for this reason.",
+        "ac_ref": "AC-2",
+        "ac_delta": "None to the AC text; this records the full consequence of the approved AC-2 fix. MUST be called out for human QA: admins previously saw 'Valid'-dispositioned hits on the map/Live Hits and will no longer."
+      },
+      {
+        "source": "qa-loop",
+        "edit": "QA fixture only (no production code): re-applied .context/qa-ch-seed.sql to re-date the four hits to now() and moved their coordinates from Indianapolis into the Wyoming viewport Bird's Eye opens on. Human QA initially saw no hits because the seed was created the previous afternoon and Bird's Eye defaults to `today`, so the window had rolled past it overnight; the Indianapolis coordinates were also off-screen.",
+        "ac_ref": null,
+        "ac_delta": null
+      }
+    ],
+    "review": {
+      "lanes": [
+        "rn2:insession1",
+        "rn2:insession2",
+        "rn2:insession3",
+        "rn3:insession1(fresh verification)"
+      ],
+      "scores": [
+        100,
+        94,
+        94,
+        100
+      ],
+      "rounds": [
+        {
+          "rn": 1,
+          "result": "FAILED CLOSED \u2014 review.sh lanes wrote 'Not logged in \u00b7 Please run /login'; nested claude -p cannot authenticate under this embedded harness. Evidence preserved at .ai/review-1-DEV-2235-claude{1,2,3}.md."
+        },
+        {
+          "rn": 2,
+          "result": "gate pass min=94 lanes=3 (in-session fallback)",
+          "scores": [
+            100,
+            94,
+            94
+          ]
+        },
+        {
+          "rn": 3,
+          "result": "gate pass min=100 lanes=1 (fresh verification lane after fixes)",
+          "scores": [
+            100
+          ]
+        }
+      ],
+      "findings_fixed": [
+        "Test adequacy (lane 2 M1): the reason-normalization guard was only half-pinned \u2014 reason='not a plate' + disposition='Moving' is a VALID request body, so replacing the ternary with `$request->input('reason') ?? 'other'` passed all 13 tests while creating a spurious ScanValidation row. Added the driver sibling's test_a_hand_crafted_review_reason_is_ignored_for_a_non_invalid_scan_disposition and PROVED it real by temporarily breaking the ternary.",
+        "Cache staleness (lane 3 L1): hits()/recentHits() cache keys were not versioned despite the payload gaining scan_id/disposition, and mapCacheTtl() is up to 15 MINUTES for last_60 \u2014 post-deploy the disposition control would silently not render and AC-1 would appear unmet. Bumped both keys to -v2 per the driver's own scanner:map-hits-v2 precedent. NOTE: lane 1 had explicitly cleared this on a wrong short-TTL assumption; the zero-tolerance single-lane-finding floor is what caught it.",
+        "Test integrity (lane 3 L3): test_stats_excludes_an_accessible_disposition_hit was a vacuous negative assertion (one hit, assert direct_hits===0) that would go green if the fixture failed to land. Added a positive control asserting direct_hits===1.",
+        "Documentation correctness (lanes 1+2): the okf wiki \u2014 declared canonical by CLAUDE.md \u2014 contradicted the code in three places (missing POST endpoint in scout-api.md's exhaustive table; 'neither surface sets a page tag' in scout-analytics-taxonomy.md; 'no analytics'/GET-only in scout-birds-eye.md). All corrected."
+      ],
+      "findings_residual": [
+        "PRE-EXISTING, OUT OF DIFF, FILED AS ITS OWN TASK: BulkDispositionAction and DispositionController pass a null `reason` into Scan::updateDisposition, whose guard `if ($reason !== 'other')` is satisfied by null -> a spurious ScanValidation human-review row per scan (50 selected scans = 50 bogus rows). Same defect class this ticket guarded against. All 3 lanes found it; 2 of 3 classed it non-scoring since this PR neither introduced nor touched it. Durable fix is at the sink (Scan::updateDisposition), which is why it needs its own QA.",
+        "PRE-EXISTING (verified unchanged vs base): hits() and stats() cache keys omit the admin's timezone while recentHits() includes it. Two admins in one org with different timezones and the same range share a cache entry and one sees the other's day window. Different defect class from the shape-staleness fixed above.",
+        "t4 drops 'Valid'-dispositioned hits from the admin map/Live-Hits (gains Accessible). Driver parity \u2014 an explicit approved product decision \u2014 but stats() still counts Valid, so an admin can see direct_hits:1 with no marker. This asymmetry already exists on the driver surfaces (accepted in DEV-2059). MUST be confirmed in human QA.",
+        "Non-scoring nits posted to the PR as one comment: duplicated reason guard across two controllers; 'disposition-saved' as a bare literal in three controllers with no enum case; mixed auth()->user()/$request->user(); scan_id emitted uncast; org-level admin read cache means admin B sees admin A's dispositioned hit for up to the TTL; buildUrl appends kit_ids[] to the POST; 419 unhandled client-side; the csrf-token meta tag is now load-bearing for the first admin-mode write but unpinned."
+      ],
+      "lane_sources": [
+        {
+          "lane": "rn2:insession1",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "rn2:insession2",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "rn2:insession3",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "rn3:insession1",
+          "source": "in-session-agent"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "1ed7d513e688cb3f6f4eb600fb46f3706c99b4b1",
+      "rework_pivot": false
+    },
+    "ac": [
+      {
+        "item": "AC-1",
+        "status": "SATISFIED",
+        "evidence": "Verified end-to-end over real HTTP as org-2 admin (user 1 via dev-login). GET /scout/org-map/api/map/hits returned scan_id AND disposition on every row \u2014 scan_id is the sole gate on MapShell.vue's disposition control, so it now renders. POST /scout/org-map/api/scan/disposition {scan_id:745,disposition:'Accessible'} -> 200; public.scans_metadata.meta->>'disposition'='Accessible'; clarity.hits_hot FINAL scan_id=745 disposition='Accessible' (SyncDispositionToClickhouse mutation landed); platform.activity_log log_name='Disposition' has exactly 1 row, causer_type=user causer_id=1 \u2014 attributed to the ADMIN."
+      },
+      {
+        "item": "AC-2",
+        "status": "SATISFIED",
+        "evidence": "Live round trip, and the decisive proof t4 was load-bearing. KEEP: after setting scan 745 to 'Accessible' the hit REMAINED on the next poll (visible scan_ids [708,725,745]) \u2014 under the old validDisposition() ({New Hit,Valid}) an Accessible hit would have been DROPPED, so this exact assertion would have failed before t4. HIDE: setting scan 725 to 'Inaccessible' dropped it from the next poll (visible [708,745]) once the CH sync landed. Both admin surfaces carry scan_id, which is what makes the client hiddenScanIds suppression work on the Live Hits card too."
+      },
+      {
+        "item": "AC-3",
+        "status": "SATISFIED",
+        "evidence": "POSITIVE path verified across MULTIPLE kits in the admin's own org \u2014 scan 745 (kit 63) and scan 725 (kit 62) both dispositioned successfully, which is exactly the org- vs kit-scoping the ticket required (an admin is no kit's driver). Staging-Live retained: the S-type hit with hotlist_org_id=3 != kit_org_id=2 is returned by both admin surfaces, confirming kit_org_id scoping (DEV-2053) and that actionableDisposition() \u2014 not liveActionable() \u2014 was used. Driver behavior unchanged by construction (no driver file in the diff). ENV LIMIT: the cross-org NEGATIVE was not exercisable over HTTP because org 2 owns every VISIBLE scan in this seed DB; that case is pinned by test_cannot_disposition_a_scan_belonging_to_a_different_org (404 + asserts no write) and is flagged for human QA."
+      },
+      {
+        "item": "AC-4",
+        "status": "SATISFIED",
+        "evidence": "Derived AC \u2014 the defect reusing DispositionController would have introduced. POSTed exactly what map.js sends ({scan_id,disposition} with NO reason key): public.scan_validations for scan 745 stayed 0. activity_log properties show \"reason\":\"other\", proving the controller normalized a null reason before Scan::updateDisposition, whose guard `if ($reason !== 'other')` would otherwise have created a human-review row. Also pinned both directions by unit tests, incl. the hostile-key case (reason='not a plate' + disposition='Moving') added in the review-fix round."
+      },
+      {
+        "item": "AC-5",
+        "status": "SATISFIED",
+        "evidence": "Derived AC. A nonexistent scan_id returned a clean 404 (not 500), exercising the same firstOrFail-outside-the-try/catch path the cross-org case uses \u2014 confirming the deliberate divergence from DispositionController, whose own test pins a 500 there. The cross-org variant itself is unit-test pinned (see AC-3 env limit)."
+      },
+      {
+        "item": "AC-6",
+        "status": "N/A",
+        "evidence": "Not exercisable in this environment: config('database.track_analytics') is FALSE locally, so AnalyticsService::track early-returns and emits nothing regardless of correctness (clarity.analytics count = 0). Pinned by test_disposition_analytics_fires_with_from_scout_and_birds_eye_page, a Mockery expectation asserting BOTH from_scout===true AND page==='clarity-scout-birds-eye' (verified at teardown, so the controller's catch around track() cannot swallow a mismatch). ScoutAnalyticsPage::BirdsEye resolves to 'clarity-scout-birds-eye' as expected. Deferred to human QA / a staging env with analytics enabled."
+      },
+      {
+        "item": "DECISION-Q2 (enum breadth)",
+        "status": "SATISFIED",
+        "evidence": "The approved decision \u2014 admins restricted to the 5 driver-facing dispositions \u2014 holds server-side: POST with disposition='Valid' returned 422, so the wider admin-only set is rejected even if a client hand-crafts it."
+      }
+    ]
+  }
+}

@@ -1,0 +1,85 @@
+{
+  "_meta": {
+    "author": "driver (Phase 1)",
+    "purpose": "Facts the DRIVER verified first-hand by reading source and by a read-only production probe. These outrank a candidate's assertion: where a candidate disagrees with one of these, the candidate is wrong unless it cites better evidence. Fed to the reconcile as ground truth.",
+    "verified_at": "2026-09-03",
+    "base_sha": "d46b5a6f"
+  },
+  "verified": [
+    {
+      "id": "V1",
+      "fact": "The insertion point is unambiguous: 'missed-opportunities' goes BETWEEN 'recovery-counts' and 'recovery-leader'.",
+      "evidence": "CompanyMetricsOverview::cards() currently holds exactly 7 entries in this order: scan-count, recovery-counts, recovery-leader, live-hits, historical-hits, staging-live-hits, staging-historical-hits. The docblock's 4x4 mockup grid puts Missed Opportunities at row 3 col 3 and LPR Recovery Leaderboard (recovery-leader) at row 3 col 4, so the new key immediately precedes recovery-leader.",
+      "ref": "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php:85-98 (array) + :42-84 (mockup docblock)",
+      "confirms": "fast-pass claim C9"
+    },
+    {
+      "id": "V2",
+      "fact": "The array is explicitly NOT append-only, and the docblock says so in shouting caps: '==> THOSE 9 GAPS ARE LOAD-BEARING. THIS ARRAY IS NOT APPEND-ONLY. <=='. It also warns not to reorder it to make a diff look smaller.",
+      "evidence": "The Company Metrics foundation deliberately paid the reorder cost once so nine sibling tickets each drop in without repeating it.",
+      "ref": "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php:42-84",
+      "implication": "Appending the card to the end of the array would satisfy a naive reading of 'add a card' and still be wrong."
+    },
+    {
+      "id": "V3",
+      "fact": "THREE assertions break in tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php -- a file the TICKET NEVER MENTIONS -- and one of them is a tripwire the foundation PR left deliberately for this ticket.",
+      "evidence": "(a) :44-64 test_every_real_card_is_ungated_and_therefore_expandable() loops every card asserting canViewCardData() is true, with the comment 'the Company Metrics foundation builds the seam but gates nothing. If this ever fails, a card was gated without the ticket that did it updating this expectation.' -- this card is the FIRST real gated card, so it trips by design. (b) :144 assertCount(7, CompanyMetricsOverview::cards()) must become 8. (c) :57-62 assertSame(cards(), expandableCards()) 'with nothing gated, expandableCards() must equal cards()' -- no longer true once a real gate exists for a non-Pro viewer.",
+      "ref": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php:44-64,144",
+      "confirms": "fast-pass claim C6, and finds one more touch point than the fast pass listed"
+    },
+    {
+      "id": "V4",
+      "fact": "The guest path is real, load-bearing, and has bitten this code before. canViewCardData() MUST be guest-safe, and must return TRUE for a guest -- not false.",
+      "evidence": "(a) expandableCards() is array_filter(cards(), fn => $class::canViewCardData()); array_filter PRESERVES keys, so a card returning false is DROPPED from expandableCards(). (b) tests/.../DashboardCardVisibilityTest.php:335-348 test_can_view_card_data_is_total_with_no_authenticated_user() asserts, with NO actingAs, that array_keys(cards()) === array_keys(expandableCards()). A card gated false for a guest breaks that equality. (c) That same test records a prior regression in its comment: 'an earlier version of this default called static::canView() unguarded and errored with hasAnyRole() on null'. (d) The Pennant flag resolver is Feature::define(FeatureEnum::MISSED_OPPORTUNITY->slug(), fn (User $user) => ...) -- a NON-NULLABLE User parameter, so invoking it with a guest's null scope throws a TypeError.",
+      "ref": "app/Providers/PennantServiceProvider.php:22; app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php:111-117; tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php:335-348",
+      "confirms": "fast-pass claim C5 IN FULL, including its conclusion that the closed reference implementation's `auth()->check() && (...)` shape (which returns FALSE for a guest) is wrong against the CURRENT test contract",
+      "significance": "The ticket tells the implementer to read the reference implementation for approach. On this specific point the reference implementation would introduce a failing test. This is the single most important thing for the implementer to get right."
+    },
+    {
+      "id": "V5",
+      "fact": "MISSED_OPPORTUNITY is a CLARITY_PRO tier feature. It is absent from BASIC and from PRO_LITE.",
+      "evidence": "ProTierEnum::CLARITY_PRO's feature list includes FeatureEnum::MISSED_OPPORTUNITY; PRO_LITE's does not; BASIC's is empty.",
+      "ref": "app/Enums/ProTierEnum.php:40-62",
+      "implication": "AC-5 ('Non-Pro orgs do not see the value') is well-defined: BASIC and PRO_LITE orgs get the locked card, CLARITY_PRO orgs get the value. InsightLPR staff bypass via isInsightLpr()."
+    },
+    {
+      "id": "V6",
+      "fact": "NOTHING in the test suite constrains getStatColor(). A missing arm really is a silent failure.",
+      "evidence": "git grep 'getStatColor' over tests/ returns zero matches. So the ticket's warning that the `default => 'gray'` arm 'fails silently' is accurate, and no existing test would catch the omission.",
+      "ref": "git grep -n 'getStatColor' -- tests/  =>  (no matches)",
+      "implication": "The new test file should pin the colour arm, since no existing test will."
+    },
+    {
+      "id": "V7",
+      "fact": "The three card widgets that reference CompanyMetricsOverview (HotlistCount:63, KitUsers:47, RecoveryLeader:140) do so ONLY in docblock prose. None carries a hardcoded card count or index.",
+      "evidence": "Read each reference in context; all three are explanatory comments about where the key registry lives.",
+      "ref": "backstop candidates, checked by hand",
+      "implication": "These backstop hits are NOT misses. No code change needed in them."
+    },
+    {
+      "id": "V8",
+      "fact": "Production probe (read-only, ClickHouse Cloud): the grain error is 3.68x fleet-wide and 4.32x in the largest org; and FINAL provably does not change a distinct-hotlist count (delta exactly 0 at full scale).",
+      "evidence": "See derivation-log-driver.json entries A1-A4.",
+      "ref": "docs/investigations/DEV-2462/derivation-log-driver.json",
+      "confirms": "fast-pass claims C1 and C3, the latter by measurement rather than by argument"
+    }
+  ],
+  "backstop_disposition": {
+    "candidates_returned": 40,
+    "real_misses": [
+      "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php (already caught by the fast pass; see V3)"
+    ],
+    "checked_and_dismissed": [
+      "app/Filament/Widgets/Dashboard/{HotlistCount,KitUsers,RecoveryLeader}.php - docblock prose only (V7)",
+      "The 6 DashboardWidget subclasses (HistoricalHits, LiveHits, RecoveryCounts, ScanCount, StagingLiveHits, StagingHistoricalHits) - they merely extend the base class; adding a match arm to getStatColor() does not touch them",
+      "app/Filament/Pages/Dashboard.php:79 - hosts the widget, no per-card knowledge",
+      "The MISSED_OPPORTUNITY consumers (AlertSettingsForm, ActivityResource, MissedOpportunityResource, ListMissedOpportunities, LifetimeMissedOpportunitiesWidget, client MissedOpportunitiesWidget, MissedOpportunityNotification, MissedOpportunityPolicy) - all read the same flag but are untouched by adding a dashboard card; explicitly out of scope",
+      "app/Enums/FeatureEnum.php, app/Enums/ProTierEnum.php - read for V5, no change needed",
+      "scopeSelectTotal siblings (ClientHistoricalHits, HotlistStatusAggregate) - unrelated models sharing a scope name",
+      "app/Filament/Pages/Concerns/HasStatDrillDown.php, ClientAnalytics, IndividualClientAnalytics - client-panel consumers of the CLIENT MissedOpportunitiesWidget, a different widget from the dashboard card",
+      "Mail/, Actions/, FilamentServiceProvider - name-collision on the string 'MissedOpportunities', not the dashboard card"
+    ],
+    "symbols_with_no_external_references": ["makeMetricWidget"],
+    "note": "The backstop was capped at 40 entries and reported truncated:true; the excluded remainder was a DB seeder, a CSS comment, and okf/ docs. Given every one of the 40 resolved to either a known target file or a dismissable reference, the truncation is not material."
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "knowledge_cards": {
+    "matched": [
+      "okf/index.md",
+      "okf/concepts/data-architecture.md",
+      "okf/concepts/clickhouse-integration.md",
+      "okf/concepts/company-metrics-dashboard.md"
+    ],
+    "note": "OKF cite 2026-09-28. ClickHouse is the analytical read side (clarity and zod databases) and stays read-only. Local QA names those databases clarity_<worktree> and zod_<worktree>. ClickhouseQuery::clarityDb() and zodDb() are the resolvers. Wiki edits are queued, not made. company-metrics-dashboard.md still says a ScanStatsBatchQuery::handle failure propagates to a grid 500; CompanyMetricsOverview::getStats catches toStat() per card. Code wins. Do not edit okf in this run."
+  },
+  "precedents": [
+    {
+      "key": "prior QA view-shim work",
+      "status": "QA Complete (Jira re-GET 2026-09-28, relates link). Do not reopen.",
+      "relevance": "Agent QA hit a Company Metrics 500 because ScanStatsBatchQuery hardcoded FROM clarity.scan_report_hourly. The workaround was a temporary QA-only CREATE VIEW clarity.* / zod.* pointing at the per-worktree databases. The shim was torn down with that environment.",
+      "applicable": "Context only. This key removes the need for that shim. The shim is not the fix."
+    },
+    {
+      "key": "HitStatsBatchQuery",
+      "status": "on main since 879695d8d3e1490216437684c3c207aa097bd7ff (2026-08-25)",
+      "relevance": "Class docblock records the footgun: this class previously hardcoded clarity. while HitPlateStatsBatchQuery used clarityDb(), so a tile could read two databases when CLICKHOUSE_DATABASE_CLARITY is not the literal clarity.",
+      "applicable": "Pattern to copy. clarityDb() at ClickhouseQuery.php lines 102-107. zodDb() at lines 115-120. Both return the literal schema name under the pgsql bridge and the configured database otherwise."
+    },
+    {
+      "key": "Company Metrics paired-count commit",
+      "status": "QA Complete (Jira re-GET 2026-09-28, relates link). Merged as 93f9a2497bd40ccb9956608099a501823563248d.",
+      "relevance": "Operator-approved scope expansion during verify ported ScanStatsBatchQuery off the hardcoded prefix and added ScanStatsBatchQueryContractTest::test_the_database_prefix_is_resolved_not_hardcoded. The in-code note says DEV-2616 stays open for the other query classes.",
+      "applicable": "The named offender is already fixed on main. This prep does not re-edit that SQL. The residual is the off-path stragglers, which this key tickets out."
+    },
+    {
+      "key": "parent epic",
+      "status": "In Code Review (parent epic)",
+      "relevance": "Company Metrics dashboard build-out. The grid this bug was filed against.",
+      "applicable": "Scope stays the Company Metrics qualifier path. Do not redesign the grid."
+    },
+    {
+      "key": "soft-twin fleet",
+      "status": "Parallel stream (First Glance 42081, Path A). No shared artifact in this worktree.",
+      "relevance": "Separate worktree, PR, claim, status, and env ledger.",
+      "applicable": "Do not share a branch or ledger. This prep writes only under docs/investigations/DEV-2616/."
+    },
+    {
+      "key": "ScanStatsBatchQuery isolation comment",
+      "status": "Cited by the ScanStatsBatchQuery comment on main",
+      "relevance": "Pointing QA at literal clarity/zod databases de-isolates the worktree. A hardcoded prefix is a bug to fix.",
+      "applicable": "Reinforces 'no view shim' and 'no shared literal database'. Already applied to ScanStatsBatchQuery."
+    }
+  ]
+}

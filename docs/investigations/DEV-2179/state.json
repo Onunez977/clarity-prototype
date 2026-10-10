@@ -1,0 +1,209 @@
+{
+  "key": "DEV-2179",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2179",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "recall",
+      "model": "haiku",
+      "effort": "inherit",
+      "phase": "intake",
+      "dur_s": 212
+    },
+    {
+      "slot": "prep-candidate",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 402
+    },
+    {
+      "slot": "grep-backstop",
+      "model": "haiku",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 55
+    },
+    {
+      "slot": "review-lane",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 276
+    },
+    {
+      "slot": "review-lane",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 286
+    },
+    {
+      "slot": "review-lane",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 207
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "knowledge/clarity/scout.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "confidence<80 (72)",
+    "escalate.recommend=true",
+    "material design questions (driver-scope + interval/staleness)",
+    "backend caching change on a ClickHouse endpoint"
+  ],
+  "missed_caller_candidates": [
+    {
+      "file": "resources/js/clarity-scout/components/DashboardOverlay.vue",
+      "symbol": "dashboard.recentHits",
+      "referenced_at": "DashboardOverlay.vue:51",
+      "disposition": "already-covered: reactive consumer"
+    },
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutDashboardController.php",
+      "symbol": "recentHits",
+      "referenced_at": "ClarityScoutDashboardController.php:113",
+      "disposition": "already-covered: driver already cached (90s); TTL deferred to Q2"
+    }
+  ],
+  "diff_base": "c7197cd6a40270afdbdbedef4f63c74b0726bd4b",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "complex",
+      "model": "driver-opus (single-node, direct)"
+    }
+  ],
+  "review_number": 2,
+  "pr": {
+    "number": 264,
+    "url": "https://github.com/insight-lpr/platform/pull/264",
+    "draft": false
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": "dalton.mccleery @ 2026-07-13T13:19:38Z",
+  "jira_transitioned_by": "manual-dalton.mccleery",
+  "assumed": [],
+  "comment_ids": {
+    "status": "35365",
+    "build_record": "35432"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "torn_down": true,
+    "provisioning": {
+      "bootstrap": "ran",
+      "deps": "via-bootstrap",
+      "migrations": "ran",
+      "docker_daemon": "already-running",
+      "ch_container": "created (clarity-qa-clickhouse)",
+      "frontend_build": "ran",
+      "postgres_db": "zod_claude_dev_2179 (+testing zod_testing_claude_dev_2179)",
+      "ch_strategy": "docker",
+      "herd_site": "clarity-claude_dev_2179.test"
+    },
+    "provisioned_early": true,
+    "human_guide": ".context/qa-human-guide.html"
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact --filter=ClarityScoutBirdsEyeControllerTest",
+        "passed": 14,
+        "failed": 0
+      }
+    ],
+    "deviations": [
+      "Local CH test run required literal clarity/zod DBs (tests hardcode the prefix, matching CI) + .env.testing repoint \u2014 infra only, not a code change.",
+      "Full suite deferred to CI per project policy (CLAUDE.md); only the directly-affected controller test run locally (14/14).",
+      "npm build regenerated the boost docs (CLAUDE.md/AGENTS.md/.junie) to local PHP 8.4.23 and a checkpoint committed the flip; reverted all 3 to origin/main's 'php - 8.3' (prod runs 8.3)."
+    ],
+    "review": {
+      "lanes": [
+        "adversarial-reviewer (in-session substitution for rigor review.sh \u2014 embedded-harness login limit)",
+        "x3 opus, perspective-diverse: tenancy/cache-key, frontend-regression, AC/cost/staleness"
+      ],
+      "scores": [
+        90,
+        100,
+        100
+      ],
+      "findings_fixed": [
+        "recentHits cache key omitted $user->timezone (day-window derived from it) \u2014 same-org cross-timezone admins could share a mismatched 'today' window near midnight for <=10s; added timezone to the key (RN2). Test updated + 14/14 green."
+      ],
+      "findings_residual": [
+        "NON-SCORING (posted to PR, not fixed): the 4 sibling caches (hits/stats/driver recentHits) share the same timezone-omission latent gap \u2014 repo-wide Low follow-up, out of this ticket's scope.",
+        "NON-SCORING: useKitPositionPolling.tick() has no catch (pre-existing; a rejected fetch is an unhandled rejection but the finally{} reschedules) \u2014 parity suggestion.",
+        "Design-sanctioned (not a finding): driver list refreshes ~90s vs admin ~10s (Dalton's Q2: driver TTL unchanged)."
+      ]
+    },
+    "ac": [
+      {
+        "item": "AC1: live hits pending list auto-updates without a manual refresh",
+        "status": "SATISFIED",
+        "evidence": "fetchRecentHits('today') folded into both ~10s poll loops (useBirdsEyePolling admin tick; useKitPositionPolling driver tick + visibility catch-up). 3 review lanes confirmed the wiring; the built bundle contains 4 fetchRecentHits refs (vs 1 at base). Live visual (watch the list grow on a timer) to be confirmed in human QA."
+      },
+      {
+        "item": "AC2: poll interval reconciled with cache TTL (don't hammer backend)",
+        "status": "SATISFIED",
+        "evidence": "Admin recentHits endpoint now Cache::remember(key, now()->addSeconds(10)) matching the ~10s poll; test_recent_hits_response_is_cached passes (Cache::has false->true); live endpoint returns 200 (cached). Driver 90s TTL unchanged absorbs the driver poll."
+      },
+      {
+        "item": "AC3: applies to the admin/org-wide view",
+        "status": "SATISFIED",
+        "evidence": "useBirdsEyePolling (admin, org-wide BirdsEyeController@recentHits) refreshes every tick; live org-map route + recent-hits endpoint boot 200 via dev-login; MapShell !adminMode guard confirmed (driver poller no longer mounts org-wide)."
+      },
+      {
+        "item": "Note: behaves sensibly on BOTH surfaces",
+        "status": "SATISFIED",
+        "evidence": "Shared dashboard store + DashboardOverlay; MapShell guard cleanly separates the two poll loops so each surface gets exactly one fetchRecentHits; 14/14 controller tests incl. existing driver-side behavior."
+      }
+    ]
+  }
+}

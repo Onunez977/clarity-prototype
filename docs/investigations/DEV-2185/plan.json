@@ -1,0 +1,99 @@
+{
+  "key": "DEV-2185",
+  "uat_needed": true,
+  "sizing_verdict": "ONE PR — do not split the ticket. 14 source files, but a single coherent perf concern (zoom-gate + bbox-fetch for the long-window path/order/hit-density layers) with interdependent ACs, inflated by tests + two parallel query techniques + shared frontend components.",
+  "parallel_groups": [
+    ["t1", "t2"],
+    ["t3", "t4"],
+    ["t5"]
+  ],
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Add optional bbox WHERE to the driver historical path query (KitHistoricPositionsQuery)",
+      "approach": "Add an OPTIONAL/additive lat/lng bbox to the DRIVER historical path source. KitHistoricPositionsQuery::handle (app/Clickhouse/Queries/KitHistoricPositionsQuery.php:26-68) currently filters only by kit_mapping + timestamp; add optional north/south/east/west args applied as a plain WHERE on tupleElement(geo,2) (lat) and tupleElement(geo,1) (lng) before the 3s decimation groupBy. Omitting the bbox MUST reproduce today's rows exactly. Because HistoricPathBuilder::build (app/Support/Scout/HistoricPathBuilder.php:52-80) decides line breaks by comparing each kept point to its predecessor, filter against the viewport bbox after it has been snapped OUTWARD one 0.02deg grid step (its inherent segmentation margin) so an edge point anchoring a segment isn't dropped and spurious breaks aren't introduced. Under the margin approach HistoricPathBuilder needs no change; it is a verify-only target here (edit only if a post-build render filter is chosen instead).",
+      "intended_diffs": "app/Clickhouse/Queries/KitHistoricPositionsQuery.php: read optional north/south/east/west from $arguments; when all four present, whereRaw('tupleElement(geo, 2) BETWEEN ? AND ?', [south, north]) and whereRaw('tupleElement(geo, 1) BETWEEN ? AND ?', [west, east]); kit_mapping + start/end untouched; no bbox = current SQL. || app/Support/Scout/HistoricPathBuilder.php: VERIFY build() (~52-80) segment-break logic is unaffected by the bbox-scoped, outward-snapped point set; no functional change expected — edit ONLY if the margin is insufficient and post-build render filtering is required. || tests/Unit/Clickhouse/Queries/KitHistoricPositionsQueryTest.php (NEW): follow HotlistAddressGeohashQueryTest convention (RequiresClickhouse trait); seed sc_positions points inside + outside a bbox, assert the WHERE restricts to in-bbox points, assert omitting bbox returns all points (backward-compat).",
+      "target_files": [
+        "app/Clickhouse/Queries/KitHistoricPositionsQuery.php",
+        "app/Support/Scout/HistoricPathBuilder.php",
+        "tests/Unit/Clickhouse/Queries/KitHistoricPositionsQueryTest.php"
+      ],
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "KitHistoricPositionsQueryTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t2",
+      "title": "Add optional arrayExists bbox predicate to the admin path query (KitScanPathsQuery)",
+      "approach": "Add an OPTIONAL/ADDITIVE bbox predicate to the ADMIN/Bird's-Eye path source. KitScanPathsQuery::handle (app/Clickhouse/Queries/KitScanPathsQuery.php:63-101) reads path_points Array(Tuple(Float64,Float64)) per bucket; add optional north/south/east/west args and, when all present, push down an arrayExists any-point-in-bbox predicate (a bucket is kept if ANY of its points falls in the viewport) alongside the existing length(path_points) >= 2 guard (:96). Semantics per resolved decision (c): arrayExists, pushed down in ClickHouse, no MV/point-level restructure. CORRECTNESS CONSTRAINT (blast_radius kit-user-path-non-scout-backward-compat): the bbox MUST stay optional — app/Http/Controllers/KitUserPathController.php:44 is a non-Scout Filament caller of this same class and must be byte-for-byte unaffected when no bbox is passed. This tag is a backward-compat correctness gate, NOT a sensitive-glob approval gate; no file here matches the sensitive globs and no human pre-approval line is required.",
+      "intended_diffs": "app/Clickhouse/Queries/KitScanPathsQuery.php: read optional north/south/east/west from $arguments; when all present, whereRaw('arrayExists(p -> tupleElement(p, 2) BETWEEN ? AND ? AND tupleElement(p, 1) BETWEEN ? AND ?, path_points)', [south, north, west, east]); no bbox args = unchanged SQL. Confirm path_points tuple order is (lng, lat) against the client PathLayer render before finalizing. || tests/Unit/Clickhouse/Queries/KitScanPathsQueryTest.php (NEW): RequiresClickhouse; seed kit_scan_paths buckets whose polylines fall inside / partly-inside / fully-outside a bbox; assert arrayExists keeps any-touching buckets and drops fully-outside ones; assert omitting bbox preserves current rows (KitUserPathController backward-compat).",
+      "target_files": [
+        "app/Clickhouse/Queries/KitScanPathsQuery.php",
+        "tests/Unit/Clickhouse/Queries/KitScanPathsQueryTest.php"
+      ],
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "KitScanPathsQueryTest",
+      "ui_impact": false,
+      "blast_radius": ["kit-user-path-non-scout-backward-compat"],
+      "complexity": "complex"
+    },
+    {
+      "id": "t3",
+      "title": "Thread optional bbox + cache-key through the driver scanPaths controller",
+      "approach": "Thread the OPTIONAL bbox through the DRIVER scanPaths endpoint and fold it into the cache key. ClarityScoutMapController::scanPaths (app/Http/Controllers/Api/ClarityScoutMapController.php:39-112) has zero geographic scoping on the historical branch. Add optional north/south/east/west validation (numeric, NOT required — a bbox-less call must still work), snap them OUTWARD on the same 0.02deg grid the order layers use. This controller does NOT use ScoutMapHelpers — add a small PRIVATE snap/parse helper mirroring its existing private getDateRange/mapCacheTtl near-duplicates (do NOT force a trait dedup). Pass the snapped bbox into KitHistoricPositionsQuery (t1) and fold the snapped bbox into the Cache::remember key (:75) so two viewports at the same range don't share a stale entry. depends_on t1 (the query must accept bbox first).",
+      "intended_diffs": "app/Http/Controllers/Api/ClarityScoutMapController.php: in scanPaths() add optional bbox parse + outward-snap (new private helper); on the range branch pass north/south/east/west into the KitHistoricPositionsQuery::query args; extend $cacheKey (\"scanner:density:{org}:{kit}:{range}\") to include the snapped bbox; leave the no-range 'today' branch and no-bbox behavior unchanged. || tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php: keep existing bbox-less tests green (test_can_get_scan_paths, test_scan_paths_accepts_each_new_day_count_range, test_scan_paths_range_returns_hourly_segments_from_sc_positions ~69-176); ADD a bbox-excludes-out-of-viewport-points test (mirror test_heatmap_orders_bbox_fallback_excludes_cells_outside_the_viewport ~681) and a cache-key regression test (two different bboxes at the same range don't collide).",
+      "target_files": [
+        "app/Http/Controllers/Api/ClarityScoutMapController.php",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php"
+      ],
+      "depends_on": ["t1"],
+      "parallelizable": true,
+      "test_filter": "ClarityScoutMapControllerTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t4",
+      "title": "Thread optional bbox through the Bird's-Eye org-wide scanPaths controller",
+      "approach": "Thread the same OPTIONAL bbox through the ADMIN/Bird's-Eye org-wide scanPaths endpoint. ClarityScoutBirdsEyeController::scanPaths (app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:219-263) fans KitScanPathsQuery across ALL scoped kits with no viewport restriction — the stated 'all kits + 30/60 days' crash trigger. This controller DOES use ScoutMapHelpers, so reuse snapBbox() (ScoutMapHelpers.php:67) for the outward snap; add optional (NOT required — do NOT reuse validateHeatmapRequest, which marks bbox required) north/south/east/west validation and pass the snapped bbox into KitScanPathsQuery (t2). The CH query is cached via KitScanPathsQuery::query(cache:true, cacheTTL) whose key derives from the args array, so adding bbox to the args differentiates the cache automatically — verify this and add an explicit key component only if needed. depends_on t2.",
+      "intended_diffs": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php: in scanPaths() validate optional numeric north/south/east/west; when present, snap via $this->snapBbox($request) and pass into the KitScanPathsQuery::query args; bbox-less call = unchanged (today + historical). || app/Http/Controllers/Api/Concerns/ScoutMapHelpers.php: OPTIONAL — add a small optional-bbox reader/snap helper (parallel to snapBbox/validateHeatmapRequest but not requiring the params). Leave untouched if controller-local inline validation is cleaner (prep flags this as a DRY note, not a mandate). || tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php: ADD org-wide/all-kits scanPaths bbox-filtering coverage + a multi-kit scenario (the historically reported crash trigger); assert out-of-viewport kit buckets are excluded and bbox-less behavior is preserved.",
+      "target_files": [
+        "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+        "app/Http/Controllers/Api/Concerns/ScoutMapHelpers.php",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php"
+      ],
+      "depends_on": ["t2"],
+      "parallelizable": true,
+      "test_filter": "ClarityScoutBirdsEyeControllerTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t5",
+      "title": "Frontend: shared zoom-gate + bbox scan-path fetch + drop long-range prefetch + snap-to-zoom + rebuild assets",
+      "approach": "Single cohesive FRONTEND change landing on BOTH surfaces (ScoutHome.vue is the shared mount). Implements resolved decisions (a),(b),(d),(e). (1) One shared local const PATH_LAYERS_MIN_ZOOM=12 in ScannerMap.vue (mirroring RANGE_HIT_MARKERS_MIN_ZOOM=12 at :106-117) gates the scan-path PathLayer (:1174-1193), the direct/staging order GeoJsonLayer (:1089-1111) AND the Direct Hit Density circle layer ('hits'); the gate MUST skip the FETCH (network call), not just render, since scan-paths has no server-side row cap — add eligibility + syncVisibility fns mirroring rangeHitMarkersEligible()/syncRangeHitVisibility() (:425-509), wired into the debounced onBoundsChanged idle listener (:808-824). (2) fetchScanPaths(range) in stores/map.js (:166-185) gains a bounds arg (north/south/east/west, reusing the client VIEW_SNAP_STEP=0.02 refetch-gate) + an AbortController, mirroring fetchOrdersHeatmap (:273-306); pathsByRange caching keyed to include the snapped bbox (or dropped for latest-viewport data). (3) DROP the long-range background prefetch: remove/neuter prefetchAllRangePaths (:222-227) and stop usePrefetch.js calling mapStore.prefetchAllRangePaths() (:10); confirm dashboard.js prefetchAllRanges (:85-92) is stats-only and never drags path data. (4) Snap-to-zoom: DateRangeControl.vue selectRange() (:48-64) bumps a zoom-snap request nonce via the existing focus-request pattern (cf. zoneFocusRequest/hitFocusRequest/kitRecenterRequest) consumed by ScannerMap, which snaps to zoom>=12 on 15/30/60; the fitToScanPaths() zoom-OUT (:1413-1445) is DROPPED/neutralized. ScoutHome.vue (:166-184) passes current map bounds into fetchScanPaths at range-watch time. No JS test runner — behavior verified via browser/agent QA. Finish with npm run build and commit the rebuilt Scout bundles. depends_on t3, t4 (consumes the additive bbox contract from both endpoints).",
+      "intended_diffs": "resources/js/clarity-scout/components/ScannerMap.vue: add PATH_LAYERS_MIN_ZOOM=12 const; add pathLayersEligible()/syncPathVisibility() + order/hit-density gate mirroring rangeHitMarkers*; gate FETCH+render below the floor; consume the DateRangeControl zoom-snap nonce -> snap to zoom 12; neutralize fitToScanPaths() zoom-out. || resources/js/clarity-scout/stores/map.js: fetchScanPaths(range, bounds) + AbortController + north/south/east/west params; rework pathsByRange key/semantics for bbox; drop/neuter prefetchAllRangePaths. || resources/js/clarity-scout/composables/usePrefetch.js: stop calling mapStore.prefetchAllRangePaths() (drop long-range background path prefetch); keep the dashboard stats prefetch. || resources/js/clarity-scout/views/ScoutHome.vue: pass current map bounds into mapStore.fetchScanPaths at the range watch (:166-172) and onMounted (:178-184). || resources/js/clarity-scout/components/DateRangeControl.vue: in selectRange() for 15/30/60, bump a zoom-snap request nonce (focus-request pattern) so ScannerMap snaps to the gate zoom. || resources/js/clarity-scout/stores/dashboard.js: VERIFY prefetchAllRanges (:85-92) is stats-only; no functional change expected. || public/build/*: regenerate via npm run build and commit the rebuilt Scout bundles; revert the boost-doc regen side effects (CLAUDE.md/AGENTS.md/copilot/junie + boost.json) before committing.",
+      "target_files": [
+        "resources/js/clarity-scout/components/ScannerMap.vue",
+        "resources/js/clarity-scout/stores/map.js",
+        "resources/js/clarity-scout/composables/usePrefetch.js",
+        "resources/js/clarity-scout/views/ScoutHome.vue",
+        "resources/js/clarity-scout/components/DateRangeControl.vue",
+        "resources/js/clarity-scout/stores/dashboard.js"
+      ],
+      "depends_on": ["t3", "t4"],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": []
+}

@@ -1,0 +1,64 @@
+{
+  "synthesis": "SendEndOfShiftSummary fails deterministically on long-open shifts (17+ days, >65K scans) due to PostgreSQL's 65535 bind-parameter limit at BuildShiftSummary.php:262 whereIn('scan_id', $orderedScanIds). The zone ST_Contains query can also timeout over a multi-week window, though DEV-2325 already added a MATERIALIZED CTE fence. The job retries 5 times with identical inputs (same unbounded scan set) before exhausting, which is wasteful for a deterministic input-size failure. Production cardinality: kit 175 (the failing shift) has 15.6M total scans; largest kit 11310 has 19.9M. A 17-day shift easily crosses 65K scans, and the whereIn loads all hits for those scans to attribute them to zones.",
+  "scope": {
+    "summary": "Chunk the scan_id whereIn to respect PostgreSQL's 65535-param limit; optionally skip summary build (with logged reason) when scan count exceeds a known-good threshold; stop blind retries on deterministic failures. Regression test at pathological cardinality (100K scans).",
+    "proposed_changes": [
+      {
+        "file": "app/Services/Scout/BuildShiftSummary.php",
+        "change": "Chunk the whereIn('scan_id', $orderedScanIds) at line 262 into batches of ≤60K scan_ids (safety margin under 65535). Use chunkById or LazyCollection to avoid materializing the full result set. Optionally: guard at the top of buildZoneSummaries — if count($orderedScanIds) > known-good threshold (e.g. 200K), return [] and let the caller log the skip.",
+        "reason": "Avoid HY000 65535-param limit; the parameter count is exactly the scan count, which is unbounded for long-open shifts.",
+        "ref": "BuildShiftSummary.php:262"
+      },
+      {
+        "file": "app/Jobs/Scout/SendEndOfShiftSummary.php",
+        "change": "In handle(), wrap the $builder->forShift() call in try/catch. On QueryException with SQLSTATE[HY000]: record summary_skipped_reason = 'input_too_large' (or similar) and bail without retrying. Alternatively: check shift duration before calling forShift; if ended_at - started_at > 30 days, skip with 'shift_too_long'. Keep existing QueryException → 'build_failed' in failed() for other failures.",
+        "reason": "Deterministic input-size failures (param limit, extreme scan count) should not retry 5 times. Log a distinct skip reason so support knows it's a scale issue, not a transient failure.",
+        "ref": "SendEndOfShiftSummary.php:94, 151"
+      }
+    ],
+    "target_files": [
+      "app/Services/Scout/BuildShiftSummary.php",
+      "app/Jobs/Scout/SendEndOfShiftSummary.php",
+      "tests/Feature/Services/Scout/BuildShiftSummaryTest.php",
+      "tests/Feature/Jobs/Scout/SendEndOfShiftSummaryTest.php"
+    ],
+    "out_of_scope": [
+      "The zone ST_Contains query timeout — DEV-2325 already fixed this with the MATERIALIZED CTE fence. AC-2's 'zone query bounded' is already done; if timeouts recur, it's a Postgres tuning issue, not a query-shape bug.",
+      "Revising the 5-retry policy for SendEndOfShiftSummary in general.",
+      "Estimating scan count before the zone query to decide whether to run it.",
+      "Switching to ClickHouse for the hit attribution.",
+      "Any change to CloseInactiveShiftsCommand or ClarityScoutShiftController."
+    ]
+  },
+  "acceptance_criteria": [],
+  "questions": [
+    {
+      "q": "Should we attempt to build a summary for shifts >65K scans (via chunking), or fail fast with a logged skip?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    },
+    {
+      "q": "What is the known-safe scan-count threshold for skipping?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    },
+    {
+      "q": "Should the skip reason be 'input_too_large', 'shift_too_long', or 'build_failed'?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    }
+  ],
+  "blockers": [],
+  "confidence": 88,
+  "escalate": {
+    "recommend": false,
+    "reason": "Root cause and chunking fix are clear; remaining questions are product policy, not code-complexity blockers. Incorrectly treats AC-2 as already done (prod 57014 still fired after the CTE fence)."
+  },
+  "notes": [
+    "Candidate 3 incorrectly claimed whereIntegerInRaw has zero app/ uses (repo has many). Prefer whereIntegerInRaw over chunking whereIn per repo convention.",
+    "Candidate 3 incorrectly treated AC-2 as already satisfied: prod still hit 57014 on the 17-day MATERIALIZED CTE window after DEV-2325."
+  ]
+}

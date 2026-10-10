@@ -1,0 +1,137 @@
+{
+  "key": "DEV-2448",
+  "authored_by": "opus driver inline (TICKET_PLAN_ARBITER_MODEL tier), not a dispatched sub-agent \u2014 the driver holds the production measurements and the four human decisions first-hand, and re-serialising them into a fresh context would lose fidelity. Journaled for transparency.",
+  "inputs": [
+    "docs/investigations/DEV-2448/prep-context.json",
+    "knowledge/clickhouse/core.md"
+  ],
+  "decisions_locked_before_planning": {
+    "Q1": "Last scan received comes from zod.kit_last_scan.",
+    "Q2": "ClickHouse failure renders an explicit 'unknown', distinct from a confirmed 'not reporting'.",
+    "Q3": "Access gated on RoleEnum::ADMIN for v1 (no black-adam PermissionEnum change).",
+    "Q4": "Owned-only kits; 'Company owner' shows the viewing org's own name (a deliberate constant column)."
+  },
+  "plan_level_choices": [
+    {
+      "choice": "Write a NEW lean OrgKitReportingStatusQuery instead of reusing OrgLivePositionsQuery with a 14-day cutoff.",
+      "why": "Decisive reason is blast radius, not style: reuse-with-modification would pull OrgLivePositionsQuery's three existing consumers into scope \u2014 including ClarityScoutBirdsEyeController, which serves Scout Bird's Eye in production \u2014 plus its existing unit test. A new class touches nothing that exists. Secondary reasons: measured ~110ms and ~42 MB cheaper per load (it drops 5 argMax columns this feature never reads), and DEV-2450 will consume this too, so a purpose-named class with an honest docblock beats overloading the Scout live-dots contract.",
+      "consequence": "The four missed_caller_candidates the grep backstop found are all N/A: OrgLivePositionsQuery is not modified."
+    },
+    {
+      "choice": "No table filters in v1, and therefore NO edit to app/Providers/FilamentServiceProvider.php.",
+      "why": "The ticket asks for a list with four columns and never mentions filtering. Sorting comes free with Filament columns. Registering an unused page in $filterableResources would be dead configuration.",
+      "consequence": "This is the deliberate answer to the grep backstop's strongest finding, not an oversight. If a 'reporting: yes/no/unknown' filter is wanted later it is a small addition PLUS the $filterableResources registration \u2014 recorded in excluded_sites so a reviewer sees the reasoning."
+    },
+    {
+      "choice": "Tenancy is resolved in PostgreSQL, never in ClickHouse.",
+      "why": "zod.kit_last_scan's sort key is (org_id, kit_id), so its ReplacingMergeTree cannot collapse a kit's stale row under a former org \u2014 275 of 4,755 kits measurably carry rows under more than one org_id. The Resource's Eloquent query is the tenancy boundary; the ClickHouse reads only ever receive an id/mapping list already scoped by it.",
+      "consequence": "Both query classes take an explicit id/mapping list and MUST NOT derive scope themselves. Pinned by a test."
+    }
+  ],
+  "sizing_gate": {
+    "production_files": 4,
+    "test_files": 3,
+    "total_files": 7,
+    "distinct_concerns": 1,
+    "verdict": "no split",
+    "reasoning": "The >6-file trigger is a scope-sprawl detector. Counting the files that carry behaviour, this is 4 new production files serving ONE concern: a single admin page plus the two batched reads it needs. The 3 test files are the mandated companions of those files, not additional scope, and nothing here is separable \u2014 the page cannot ship without its data sources, and the queries have no other consumer until DEV-2450. Splitting would create two tickets that must merge together. Recorded explicitly so a reviewer can challenge the judgement rather than find it unstated."
+  },
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "OrgKitLastScanQuery \u2014 batched last-scan per kit from zod.kit_last_scan",
+      "approach": "New ClickhouseQuery subclass. handle(['org_id' => int, 'kit_ids' => list<int>]) short-circuits to [] on an empty kit_ids list, then runs: SELECT kit_id, max(last_scan) AS last_scan FROM zod.kit_last_scan WHERE org_id = ? AND kit_id IN (?) GROUP BY kit_id. Returns array<int, string> keyed by kit_id. max() is mandatory, not cosmetic \u2014 the table is a ReplacingMergeTree that was observed un-merged (7,405 rows / 4,755 kits at one moment, 5,042 / 5,042 minutes later), so a bare SELECT can return duplicate rows per kit. The org_id predicate is for sort-key pruning; the caller-supplied kit_ids are what make tenancy authoritative. Docblock must state: the table is chlocal/CDC-owned, platform is its first consumer, and why max() and the PostgreSQL-resolved id list are both load-bearing. Use DB::clickhouse('kit_last_scan', 'zod') \u2014 NOT a hardcoded 'zod.' prefix (see verified_apis).",
+      "target_files": [
+        "app/Clickhouse/Queries/OrgKitLastScanQuery.php",
+        "tests/Unit/Clickhouse/Queries/OrgKitLastScanQueryTest.php"
+      ],
+      "intended_diffs": "New query class (~55 lines incl. docblock) modelled on OrgLivePositionsQuery's structure \u2014 placeholder-built IN list, early return on empty input, array-shape PHPDoc on handle(). New unit test using the RequiresClickhouse trait with fixtures anchored to now().",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "OrgKitLastScanQueryTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex",
+      "why_complex": "Two correctness traps that a reviewer must grade: the un-merged ReplacingMergeTree (needs max()) and the multi-org stale-row trap (tenancy must come from the caller). Neither is visible from the diff shape alone."
+    },
+    {
+      "id": "t2",
+      "title": "OrgKitReportingStatusQuery \u2014 batched 14-day sc_positions reporting probe",
+      "approach": "New ClickhouseQuery subclass. handle(['mappings' => list<string>, 'cutoff' => ?string]) lowercases and de-duplicates mappings, short-circuits to [] on empty, then runs: SELECT lower(kit_mapping) AS mapping, toString(max(timestamp_utc)) AS ts FROM clarity.sc_positions WHERE timestamp_utc >= ? AND lower(kit_mapping) IN (?) GROUP BY lower(kit_mapping). Default cutoff = now()->utc()->subDays(14)->toDateTimeString() \u2014 built in UTC regardless of APP_TIMEZONE, because timestamp_utc is UTC. Returns array<string, string> keyed by the lowercased mapping. lower() on BOTH sides is mandatory: ClickHouse IN is case-sensitive, platform lowercases kit_mapping and the scanner feed does not, and getting it wrong silently reports every kit as not-reporting. EXPLAIN-confirmed that this shape uses DEV-2381's proj_kit_mapping_lc projection (13 of 42,128 granules). Use DB::clickhouse('sc_positions') \u2014 NOT a hardcoded 'clarity.' prefix (see verified_apis).",
+      "target_files": [
+        "app/Clickhouse/Queries/OrgKitReportingStatusQuery.php",
+        "tests/Unit/Clickhouse/Queries/OrgKitReportingStatusQueryTest.php"
+      ],
+      "intended_diffs": "New query class (~55 lines incl. docblock). Unit test pins: the 14-day boundary (13 days ago included, 15 days ago excluded), an UPPERCASE mapping still matching, and an empty mapping list short-circuiting without a query.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "OrgKitReportingStatusQueryTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex",
+      "why_complex": "Date-boundary logic plus a case-sensitivity trap whose failure mode is silent and total (every kit reads false). Exactly the semantic-correctness territory a review lane should attack."
+    },
+    {
+      "id": "t3",
+      "title": "GlKitsResource \u2014 the read-only per-company GL kits page",
+      "approach": "New Filament Resource on App\\Models\\Kit, app panel, navigationGroup 'Reports', slug 'gl-kits', read-only (canCreate/canEdit/canDelete all false), getPages() = index only. canAccess(): auth()->user()->hasRole(RoleEnum::ADMIN->value) per Q3. getEloquentQuery(): parent::getEloquentQuery()->where('org_id', auth()->user()->org_id)->where('kit_type', KitType::GENETEC->value)->excludingDeleted()->with('org'). Columns: name ('Kit'), org.name ('Company owner'), last-scan (TextColumn + getStateUsing off a memoized batch map \u2014 NOT the shared DateTimeColumn, which reads the Eloquent attribute rather than getStateUsing and so cannot show a cross-connection computed value), and reporting ('Reporting (14d)') rendering THREE states per Q2. Both batch lookups are memoized once per render via once() following UsersResource::scoutEnabledUserIds, and each calls ::handle() inside its own try/catch \u2014 never ::query(), because the base class swallows Throwable to [] on production and would make an outage indistinguishable from a dark fleet. A caught failure yields null for that map, which the column renders as 'Unknown' with a distinct icon/colour; an empty-but-successful map yields false ('Not reporting'). Last-scan renders a placeholder when a kit has no row.",
+      "target_files": [
+        "app/Filament/Resources/GlKitsResource.php",
+        "app/Filament/Resources/GlKitsResource/Pages/ListGlKits.php",
+        "tests/Filament/Resources/GlKitsResourceTest.php"
+      ],
+      "intended_diffs": "Resource (~140 lines) + index page (~20 lines) + resource test. Test pins: index renders; only kit_type=1 kits appear; another org's GL kit never appears; soft-deleted kits excluded; a kit with no scans and no positions renders placeholders without erroring; a kit whose kit_last_scan row sits under a DIFFERENT org_id never surfaces (the 275-kit trap); and with ClickHouse on a dead port the reporting column renders 'Unknown' rather than 'Not reporting' (the Q2 guarantee).",
+      "depends_on": [
+        "t1",
+        "t2"
+      ],
+      "parallelizable": false,
+      "test_filter": "GlKitsResourceTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex",
+      "why_complex": "Three files, a tenancy boundary, a three-state rendering contract that is the whole point of Q2, and the only user-facing surface in the change."
+    }
+  ],
+  "excluded_sites": [
+    {
+      "site": "app/Providers/FilamentServiceProvider.php:108-120 ($filterableResources)",
+      "reason": "No table filters in v1, so there is nothing for the sidebar-filter render hooks to show. Deliberate, not missed \u2014 see plan_level_choices."
+    },
+    {
+      "site": "app/Clickhouse/Queries/OrgLivePositionsQuery.php + its 3 consumers + its unit test",
+      "reason": "Not modified. t2 adds a new class instead, precisely so Scout Bird's Eye stays outside this change's blast radius."
+    },
+    {
+      "site": "The 12 other clarity.sc_positions readers",
+      "reason": "Prep's sweep graded every one 'safe' \u2014 all already lower() both sides of the mapping comparison. This is an additive feature with no existing defect to fix."
+    },
+    {
+      "site": "database/schema/clickhouse-schema.sql stale scans_cold/scans_hot sort keys",
+      "reason": "A real defect found during prep, but it misrepresents the two largest tables in the system to every future reader \u2014 far wider blast radius than this ticket. Queued for its own ticket; this change reads neither table."
+    },
+    {
+      "site": "okf/ wiki corrections (4 queued)",
+      "reason": "CLAUDE.md forbids okf/ writes before the change is approved/merged. Held in prep-context.wiki_queue for the post-approval pass."
+    }
+  ],
+  "review_plan": {
+    "lanes": 3,
+    "why": "Two independent escalation triggers both fire: (a) semantic-correctness territory \u2014 the change turns on date-boundary logic (the 14-day cutoff) and dedup/aggregation (max per kit), and (b) resource_envelope.scale_relevant is true. Either alone mandates 3 lanes.",
+    "no_blast_radius_escalation": "No plan node carries a blast_radius tag and no changed file will match the sensitive globs \u2014 worth re-checking mechanically at Phase 4 step 4 regardless."
+  },
+  "verification_plan": {
+    "full_suite_after_merge": true,
+    "blast_radius_recheck": "git diff --name-only vs the sensitive globs; any hit is a hard stop even though none is expected.",
+    "format": "vendor/bin/pint --dirty --format agent"
+  },
+  "verified_apis": {
+    "DB::clickhouse(string $table, string $connection = 'clarity', bool $final = false, ?string $as = null)": {
+      "defined_at": "app/Providers/AppServiceProvider.php:69-81",
+      "why_it_matters": "It resolves the database name from config rather than hardcoding a 'clarity.'/'zod.' prefix, which is what keeps a query class working under BOTH ClickHouse Cloud and the local pgsql test bridge. Roughly 15 query classes in this repo hardcode the prefix and are known to break local CH QA \u2014 do not add a 16th.",
+      "t1_usage": "DB::clickhouse('kit_last_scan', 'zod') \u2014 the 'zod' alias maps to the public_clickhouse connection (line 70).",
+      "t2_usage": "DB::clickhouse('sc_positions') \u2014 default 'clarity' connection, matching every existing sc_positions reader.",
+      "final_flag_note": "The macro appends FINAL only when the driver is actually 'clickhouse' (line 74), so it is bridge-safe. We nonetheless use max(last_scan) GROUP BY kit_id in t1 rather than final: true \u2014 it is engine-agnostic (behaves identically under the pgsql bridge), independent of merge state, AND collapses the 275 multi-org kits into one row per kit, which FINAL would not do because it dedups only within the (org_id, kit_id) sort key."
+    }
+  }
+}

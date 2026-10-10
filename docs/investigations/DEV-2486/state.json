@@ -1,0 +1,462 @@
+{
+  "key": "DEV-2486",
+  "app": "clarity",
+  "route": "hotfix",
+  "mode": "normal",
+  "base_branch": "deploy",
+  "base_branch_reason": "hotfix route (summary prefix 'Hotfix |' + HOTFIX label) -> CLARITY deploy branch; origin/deploy == worktree HEAD bdfe7c88 and is fully contained in origin/main (main ahead 31, deploy ahead 0), and the GL Kits files are byte-identical on both, so the second PR to main will be clean",
+  "branch": "claude/DEV-2486",
+  "phase": "handoff",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "plan-arbiter",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "plan",
+      "dur_s": 689
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 51
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false,
+    "eli5": true
+  },
+  "knowledge_cards_loaded": [
+    "clarity/testing",
+    "clickhouse/core"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "prep confidence 52 (<80)",
+    "escalate.recommend=true from the prep pass",
+    "5 questions with answered:false",
+    "blast-radius-adjacent: database/schema/clickhouse-schema.sql is a CI-wide artifact (a bad line fails the whole ClickHouse job)"
+  ],
+  "best_of_n": false,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [
+    {
+      "file": "tests/e2e/gl-kits.spec.ts",
+      "symbol": "GlKitsResource column contract",
+      "referenced_at": "tests/e2e/gl-kits.spec.ts:23,53-69"
+    },
+    {
+      "file": "tests/e2e/helpers/gl-kits.ts",
+      "symbol": "COLUMN_HEADERS",
+      "referenced_at": "tests/e2e/helpers/gl-kits.ts:5"
+    }
+  ],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [
+      "zod.aggregate_kit_camera_name",
+      "zod.kit_last_scan",
+      "clarity.sc_positions"
+    ],
+    "approach": "PG-scoped kit_id IN-list against a 12,414-row MV-fed table; the two existing CH queries are unchanged",
+    "measurement": "n/a \u2014 no >1B-row surface is newly queried. zod.aggregate_kit_camera_name is 12,414 raw / 10,600 deduped rows and zod.kit_last_scan ~7,405. clarity.sc_positions is large but its query is byte-unchanged by this ticket. The >1B-row alternative (clarity.scans_hot) was measured at 4.2 s / 412 MB and REJECTED on the ticket before planning.",
+    "verdict": "go",
+    "measured_at": "2026-09-04"
+  },
+  "diff_base": "d5a07d19160f23a0533826a4c944ace6dcbc5324",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "complex",
+      "model": "sonnet-driver-inline"
+    },
+    {
+      "id": "t2",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "complex",
+      "model": "sonnet-driver-inline"
+    },
+    {
+      "id": "t3",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "complex",
+      "model": "sonnet-driver-inline"
+    },
+    {
+      "id": "t4",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "simple",
+      "model": "sonnet-driver-inline"
+    },
+    {
+      "id": "t5",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "simple",
+      "model": "sonnet-driver-inline"
+    }
+  ],
+  "review_number": 4,
+  "pr": {
+    "number": 388,
+    "url": "https://github.com/insight-lpr/platform/pull/388",
+    "draft": true
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": "pipeline-mcp @ 2026-09-04T15:35:00Z",
+  "jira_transitioned_by": null,
+  "jira_transitioned_detail": null,
+  "assumed": [],
+  "comment_ids": {
+    "status": "39133"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": false,
+    "resource_envelope": {
+      "path": ".context/qa-resource-envelope.json",
+      "verdict": "PASS",
+      "peak_rss_bytes": 82837504,
+      "peak_delta_bytes": 0,
+      "wall_clock_seconds": 0.0218,
+      "wall_clock_warm_seconds": 0.0027,
+      "plausible_concurrency": null,
+      "projected_marginal_gb": 0.0,
+      "headroom_gb": null,
+      "host_ram_gb": 68,
+      "extrapolation_factor": 4.9,
+      "basis": "measured (seeded 106 GLs) + extrapolated (production 524 GLs)",
+      "note": "0 bytes peak growth = below PHP's 2 MB arena granularity, i.e. unmeasurably small, not literally zero. No cadence condition applies: synchronous admin page load, not a scheduled command or queued job."
+    },
+    "provisioning": {
+      "postgres_db": "reused-already-provisioned: zod_claude_dev_2486_a5ca80 (dev, migrated + seeded, 1 user) and zod_testing_claude_dev_2486_a5ca80 (testing, migrated, 0 users as expected under RefreshDatabase). Verified platform.migrations, public.kits, public.orgs all present in both.",
+      "bootstrap": "not re-run \u2014 the worktree was already bootstrapped for branch claude/DEV-2486 and .env/.env.testing already point at the branch-isolated DBs, never shared `zod`",
+      "deps": "composer install re-run: vendor/insight-lpr/{black-adam,laravel-zod-migrations} present, InsightLPR\\BlackAdam\\Enum\\KitType resolves. Tree stayed clean (no boost-doc regen).",
+      "migrations": "already-migrated (both DBs)",
+      "ch_strategy": "docker (reused, not created by this run) \u2014 .env.testing repointed to CLICKHOUSE_DRIVER=clickhouse, 127.0.0.1:18123, literal clarity/zod. Prior pgsql-bridge values saved to the session scratchpad for restore.",
+      "ch_container": "reused",
+      "docker_daemon": "already-running",
+      "frontend_build": "not-needed (the diff touches no resources/ asset)",
+      "herd_site": "https://clarity-claude_dev_2486_a5ca80.test (pre-existing)",
+      "notes": "No ledger written by this phase because nothing was CREATED \u2014 provisioning was a verified reuse. Phase 4's qa-prep ensure call writes the real ledger when it starts Docker ClickHouse, which is what Phase 7 tears down.",
+      "seed_method": "tinker (Postgres) + clickhouse-client --multiquery (ClickHouse)",
+      "browser_lanes": "3 parallel agent-browser lanes, sessions reaped after the pass"
+    },
+    "provisioned_early": true,
+    "human_guide": ".context/qa-human-guide.html",
+    "plans_rebaselined": "HEAD moved on investigation artifacts only (docs/investigations/{journal.md,state.json}); re-stamped head_sha/wip_sha on both plans rather than re-prepping, which would have re-seeded and discarded the verified QA state. Verified with `git diff --name-only <plan head_sha>..HEAD` excluding docs/investigations/ = empty."
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php -d memory_limit=1G vendor/bin/phpunit --filter 'GlKits|OrgKitCameraNames|OrgKitLastScan|OrgKitReportingStatus'",
+        "passed": 46,
+        "failed": 0,
+        "note": "all DEV-2486 tests plus the two sibling query-class suites"
+      },
+      {
+        "cmd": "php -d memory_limit=2G vendor/bin/phpunit  (FULL SUITE at HEAD, freshly-restarted ClickHouse)",
+        "passed": 1725,
+        "failed": 5,
+        "note": "1730 tests / 6978 assertions; 2 errors + 3 failures + 1 risky. NO DEV-2486 test among them."
+      },
+      {
+        "cmd": "php -d memory_limit=2G vendor/bin/phpunit  (FULL SUITE at BASE d5a07d19, for comparison)",
+        "passed": 1704,
+        "failed": 6,
+        "note": "1710 tests; 1 error + 5 failures + 1 risky \u2014 the pre-existing baseline"
+      },
+      {
+        "cmd": "php -d memory_limit=1G vendor/bin/phpunit --filter GlKitsResourceAccessTest   (CLICKHOUSE_DRIVER=pgsql)",
+        "passed": 6,
+        "failed": 0,
+        "note": "Q2's guarantee: the access class passes with NO ClickHouse, and GlKitsResourceTest skips 18/18"
+      },
+      {
+        "cmd": "php -d memory_limit=1G vendor/bin/phpunit --filter 'GlKits|OrgKitCameraNames'",
+        "passed": 39,
+        "failed": 0,
+        "note": "after the tooltip edit: 39 tests / 124 assertions"
+      }
+    ],
+    "deviations": [
+      {
+        "source": "qa-loop",
+        "edit": "Repaired .context/qa-human-guide.html \u2014 the render sub-agent had escaped the qa-data payload's CLOSING </script> tag, so the element never terminated, swallowed the app script, and the guide rendered blank. Restored a real closing tag.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "qa-loop",
+        "edit": "Added tooltips explaining each Reporting (14d) badge state (Reporting / Not Reporting / Unknown) plus column header tooltips, and the same for Last Scan Received's Never/Unknown sentinels. The Unknown tooltip states in words that it is NOT the same as Not Reporting \u2014 the distinction the whole tri-state exists for. Two new tests pin it, asserting the RENDERED markup, not just the column config.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "qa-loop",
+        "edit": "Trimmed the Unknown tooltip from 35 words to 15 at the operator's request: 'Nothing was checked - no scanner mapping, or the lookup failed. Different from \"Not Reporting\".' Kept both load-bearing halves and re-pinned each with a mutation. Reporting (17 words) and Not Reporting (18) untouched - only Unknown was named.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "qa-loop",
+        "edit": "Reworded the Unknown tooltip to 'No scanner mapping to look up, or the lookup failed. Different from \"Not Reporting\".' (14 words). The operator objected that 'Nothing was checked' implied negligence. Semantics unchanged and deliberately so \u2014 see ac_delta note.",
+        "ac_ref": "AC-6",
+        "ac_delta": "NO CHANGE to AC-6. The operator's phrasing ('we should be checking SOMETHING but not finding anything') describes rank 1 = Not Reporting, which is already the checked-and-found-nothing state. Unknown (rank 2) is only reachable when every kit on the GL was skipped \u2014 blank kit_mapping, or the reporting read failed. Rewording Unknown to 'checked but found nothing' would have made it synonymous with Not Reporting and broken AC-6's 'the two are not collapsed' requirement. Raised with the operator instead of applying it."
+      }
+    ],
+    "review": {
+      "lanes": [
+        "claude1",
+        "claude2",
+        "claude3"
+      ],
+      "scores_rn2": {
+        "claude1": 82,
+        "claude2": 90,
+        "claude3": 94
+      },
+      "gate_rn2": "fail \u2014 MIN 82 < 90 (the gate is MIN across lanes, never average)",
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "claude2",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "claude3",
+          "source": "in-session-agent"
+        }
+      ],
+      "substitution_reason": "review.sh at RN=1 wrote an error manifest \u2014 all 3 lanes emitted 'Not logged in \u00b7 Please run /login', i.e. nested `claude -p` could not authenticate. Blessed in-session fallback used at RN=2 and RN=3, recorded rather than silent. NO fake status:complete manifest was authored.",
+      "findings_fixed": [
+        "lane1 MAJOR (docblock half): OrgKitCameraNamesQuery claimed the kit_id list is the ONLY tenancy boundary and that foreign ids are the only way to get foreign GLs. Driver-verified false: the feeding MV is append-only with no expiry, so 535/1365 GLs (39%) resolve for more than one org and 12 of org 1143's 49 do. Docblock rewritten to state the real, current-ownership-only boundary with the measured numbers and the follow-up per-GL table pointer.",
+        "lane1 MINOR: GL grouping was case-sensitive, so one camera could render as two rows with independent rollups (measured: 16 of 2,190 names exist in two case variants). Now merged onto one entry keeping the first spelling in sort-key order. New test test_case_variant_names_merge_onto_one_entry; mutation-verified.",
+        "lane3 MEDIUM: unclamped $page. Driver-reproduced: ?page=0 -> slice offset -100 -> serves the LAST 100 rows under a 'page 1' footer; ?page=abc -> TypeError. Now max(1,(int)$page) and the signature accepts Filament's real int|string. New test test_an_out_of_range_page_falls_back_to_the_first_page; mutation-verified.",
+        "lane3 LOW + lane2 L4a: nothing exercised page>1 on the hand-rolled paginator. New test test_pagination_slices_the_right_rows_on_each_page (105 GLs, both pages).",
+        "lane2 L1 + lane3 LOW: clarity.sc_positions carries TTL timestamp_utc + toIntervalDay(120) and ClickHouse evaluates TTL against the server's REAL clock, so the absolute frozen literal 2026-08-31 would have rotted two tests after 2026-12-28 (115 days of runway, driver-verified). All fixtures re-anchored to now()->startOfHour(); zero absolute date literals remain.",
+        "lane2 L2: GlKitsResourceAccessTest's new test claimed 'this class runs with no ClickHouse at all', which is FALSE in CI (CI sets CLICKHOUSE_DRIVER=clickhouse and the class does not use RequiresClickhouse), and its assertCountTableRecords(0) could false-FAIL locally because that class never truncates zod.aggregate_kit_camera_name while RefreshDatabase resets the kits sequence. Now asserts only that the page renders, with an honest docblock pointing at the test that really pins the discovery-failure behaviour.",
+        "lane2 L4b: the ORDER BY was documented as load-bearing but assertEqualsCanonicalizing did not pin order, so deleting it stayed green. Now assertSame; mutation-verified (3 failures without it).",
+        "lane2 L4c: test_duplicate_pairs_collapse_to_one_kit_id could false-PASS if ClickHouse merged the parts before the SELECT. Reshaped to three inserts with a third distinct pair so dedup is exercised regardless of merge state.",
+        "lane3 L3 + lane2 L3: tests/e2e/gl-kits.spec.ts asserted an IMPOSSIBLE state (CH outage -> Unknown cells; an outage now empties the table) and carried a VACUOUS assertion (hidden KIT names, but the Kit column is gone, so it passed for any input including a visible GL) plus 5 dangling PHPUnit references. Outage test now asserts an empty table; exclusions test switched to E2E_HIDDEN_GL_NAMES with a guard that fails if unset; all cross-references corrected.",
+        "all three lanes (non-scoring, fixed anyway): ->defaultSort('gl') was inert on a ->records() table and read as the source of truth. Removed, with a comment naming where the default actually lives.",
+        "lane2 nit 3: glMap()'s bare catch(\\Throwable) contradicted reportClickhouseFailure()'s stated contract on the ONE lookup that owns row identity. Now re-throws InvalidArgumentException like its siblings.",
+        "lane3 nit + lane1 nit: clickhouse-schema.sql header said '-- TABLES (62)'; corrected to 63.",
+        "lane3 nit: the 'double-counts a rollup' rationale for FINAL was false (max/min are idempotent over a repeated kit_id). Rewritten to say what FINAL actually prevents.",
+        "RN3 consensus (lane1 L1 + lane3 MEDIUM): the FINAL bullet described a failure mode the in_array guard makes impossible, so `final: true` was unfalsifiable and the test docblock claimed a mutation it could not detect. Rewritten to state what EACH construct actually does \u2014 FINAL collapses byte-identical duplicates at the source (fewer rows on the wire), while in_array handles the case-fold collision FINAL cannot (two DISTINCT rows 'GLx'/'GLX' for one kit merging onto one key). New test test_one_kit_under_two_case_variants_appears_once pins the guard; mutation-verified.",
+        "RN3 lane2 L1 (scoring, driver-reproduced): the GL sort used Collection::sortByMany's default SORT_REGULAR, so PHP's `<=>` compared two NUMERIC strings numerically and fell back to strcmp for mixed pairs \u2014 NOT a total order. Reproduced: {999,3113,3113-Left,GL100,9,10,Clone} sorted to '999,3113,3113-Left,9,10,Clone,GL100' in insertion order but '9,10,3113,3113-Left,999,Clone,GL100' with the input reversed, i.e. the same GLs re-sort differently as the org's kit set changes. Fixed with SORT_STRING; new test test_digit_leading_gl_names_sort_as_strings_not_numbers; mutation-verified.",
+        "RN3 lane3 Low: the GL sort was also byte-CASE-sensitive ('ZZ-EAST' before 'gl3113'), a behaviour change from the PostgreSQL-collated column it replaced. Added a lowercased `gl_sort` key used for both the default sort and the tiebreak.",
+        "RN3 lane1 L3 + lane2 L2 (scoring): an empty camera_name would render a blank-GL row aggregating every unnamed camera, against AC1/AC2. Driver-MEASURED as 0 in the aggregate table today, even though 2.77M of 20.5M recent source scans carry '' (so the MV filters it) \u2014 but that is the MV's behaviour, not a guarantee. Added a `continue` guard plus test_a_blank_camera_name_is_skipped; mutation-verified.",
+        "RN3 lane1 L2 + lane2 N-T2: the case-variant merge test never pinned WHICH spelling wins, so `??=` -> `=` (last-seen-wins) and even lowercasing every GL identifier shipped green \u2014 on a value that is both the rendered identity and the Filament record key. Now assertSame(['GLcase' => [4601, 4602]]); mutation-verified (2 failures).",
+        "RN4 L1 (introduced BY MY OWN fix batch, caught by the confirming lane): my mutation-restore sed `s/^        ]);$/        ], SORT_STRING);/` matched TWO sites, injecting a stray third argument into Log::warning(). No runtime effect (Facade::__callStatic spreads ...$args and PHP discards the extra), and unpinnable by the suite because both failure tests use shouldHaveReceived('warning') with no ->with(). Removed. This is exactly why the confirming round was worth running.",
+        "RN4 L2: the test docblock still carried the refuted 'dropping FINAL lets the same kit appear twice' claim after the class docblock had been corrected \u2014 two docblocks in one diff asserting opposite things. Rewritten to say it pins the PHP-side de-dup and is deliberately not a FINAL test.",
+        "DRIVER-FOUND after RN4 (composer analyse, which CI does NOT run, and which crashes at the default 128M \u2014 same trap as `php artisan test`): THREE phpstan findings new to this diff, all fixed. `nullsafe.neverNull` on auth()->user()->org?->name; `staticClassAccess.privateConstant` reaching a private const via static:: (now self::); and a return.type degradation from an unparameterised Builder generic (now @return Builder<Kit> on glKitsQuery() and getEloquentQuery()). Confirmed against d5a07d19 that only the pre-existing excludingDeleted() error remains."
+      ],
+      "findings_residual_deferred": [
+        "The 39% cross-org GL overlap is a property of the SOURCE OF TRUTH the ticket specifies ('zod.aggregate_kit_camera_name joined to zod.public_kits ... all-time'), not a deviation. The ticket's own accepted answer for org 1143 (49 GLs) already includes its 12 shared ones. Surfaced to the operator on the PR and Jira rather than silently re-architected; the follow-up per-GL ClickHouse table is the real fix.",
+        "OrgKitReportingStatusQuery has no org fence (matches lower(kit_mapping) alone) \u2014 pre-existing from the prior GL Kits page, untouched here, flagged for the wiki pass.",
+        "glKits() selects all kit columns when only id and kit_mapping are read \u2014 pre-existing from the prior GL Kits page.",
+        "okf/ pages (kit.md:87, clickhouse-integration.md:65,138) now under-describe the page; CLAUDE.md forbids in-flight wiki writes, so queued for the post-approval pass.",
+        "app/Filament/Widgets/Client/ClientTable.php:138,320,344 carries the SAME unclamped-page defect this ticket fixed (?page=0 serves the last page under a page-1 footer; ?page=abc is a 500 on the client dashboard). Independently found by lanes 2 and 3. Pre-existing, a different feature, and untouched by this diff \u2014 deliberately NOT fixed here on a hotfix. Needs its own ticket.",
+        "ClientTable.php:434 has the same numeric-string sort class on client_name (transitive there, but divergent from a string sort). Pre-existing.",
+        "lastScanCell()'s ['Unknown','2'] branch is now covered by no test \u2014 genuinely hard to reach, since glMap and lastScanMap share the public_clickhouse connection so breaking it empties the table first. Noted by lanes 1 and 3, neither deducted.",
+        "$sortColumn is not validated against sortable columns, so ?sort=company_owner:desc silently sorts GL descending. Cosmetic.",
+        "A per-page value of 'all' would render one row; unreachable via the UI ([50,100,250] contains no 'all') but tableRecordsPerPage is a public Livewire property."
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "03dd2e8b8dbd75adceafd8dc672e5a979154c547",
+      "rework_pivot": false,
+      "scores_rn3": {
+        "claude1": 90,
+        "claude2": 90,
+        "claude3": 94
+      },
+      "gate_rn3": "pass min=90 lanes=3 rn=3 sources=in-session-agent:3",
+      "review_number": 4,
+      "scores_rn4": {
+        "claude1": 90
+      },
+      "gate_rn4": "pass min=90 lanes=1 rn=4 sources=in-session-agent:1",
+      "post_lane_delta": "RN4's score covers the code as the lane saw it. The three changes made after it returned are a stray-argument removal with no runtime effect, docblock text, and phpstan type annotations plus two micro-changes (?-> to ->, static:: to self::). No behaviour the lane graded was altered, all 37 ticket tests stayed green after each change, and reviewed_sha is stamped at the final commit. Recorded rather than spawning an RN5 for annotation-only edits."
+    },
+    "ac": [
+      {
+        "item": "AC-1",
+        "status": "SATISFIED",
+        "evidence": "One row per distinct GL, no Kit column. Lane 1: headers are exactly GL / Company Owner / Last Scan Received / Reporting (14d) with NO Kit header; 106 total records, 100 rows on page 1 (verified against the real table element, after excluding hidden Debugbar tables). GL9001 appears exactly once despite being shared by two kit users. Backend B2 independently returned 106 case-folded keys with GL9001 => [1,3]."
+      },
+      {
+        "item": "AC-2",
+        "status": "N/A",
+        "evidence": "Org 1143 is production-only and unreachable from local QA, so the MECHANISM was asserted instead and passed: two kits sharing GL9001 collapse to one row, and 9 kits resolve to 106 distinct GLs rather than 9 kit rows. The production figure itself (272 kits -> 49 GLs) was measured read-only against ClickHouse Cloud during prep. Deferred to human QA / production observation."
+      },
+      {
+        "item": "AC-3",
+        "status": "SATISFIED",
+        "evidence": "Both computed columns sort in both directions, and the order genuinely reverses. Lane 2: Last Scan asc first-5 = 999, 10, GLcase, GL0001, GL0002 with the three Never rows clustered at the very end; desc puts them at the very start. Reporting asc groups Reporting -> Not Reporting -> Unknown; desc reverses it cleanly. GL asc gives 10, 9, 999 \u2014 text order, not numeric, which is the SORT_STRING fix."
+      },
+      {
+        "item": "AC-4",
+        "status": "SATISFIED",
+        "evidence": "Footer reads 'Showing 1 to 100 of 106 results' (100 per page, not the app-wide 50), and page 2 holds exactly the remaining 6 rows (GL0097, GL0098, GL9001, GL9002, GL9003, GLcase) with no overlap. Confirmed three ways: lane 2 by URL navigation, lane 3 by traversal, and the backend closure returning 6."
+      },
+      {
+        "item": "AC-5",
+        "status": "SATISFIED",
+        "evidence": "GL9001 is shared by kits 1 and 3. It renders ONCE with kit 1's timestamp (Sep 4 10:06 AM CDT, ~3h old \u2014 the NEWER of the two) AND a green Reporting badge, which comes from kit 3, the kit with the OLDER scan and the only GPS fix. That is both rollups at once: max() on last scan and any-kit-reporting."
+      },
+      {
+        "item": "AC-6",
+        "status": "SATISFIED",
+        "evidence": "Never and Unknown are not collapsed. GL9002 = Never + amber Unknown badge (fi-color-warning); GL9003 = Never + grey Not Reporting badge (no fi-color class). Lane 1 confirmed three visibly distinct colours/icons in one view. Note the GL-DISCOVERY failure case renders zero rows by explicit operator decision, which cannot be exercised from a browser; it is pinned by GlKitsResourceTest::test_a_gl_discovery_failure_renders_zero_rows_and_is_reported."
+      },
+      {
+        "item": "AC-7",
+        "status": "SATISFIED",
+        "evidence": "Admin-only and org-scoped. Non-admin (user 2, no roles) gets HTTP 403 Forbidden on direct navigation and has no Reports section in the sidebar at all. As admin, GL-OTHERORG (another org), GL-SOFTDELETED and GL-WRONGTYPE (kit_type=2) are absent from both pages and from individual searches \u2014 no cross-tenant leak. Backend B4 confirmed the kit-id list is the only boundary: kit 16 alone yields only its own GL."
+      },
+      {
+        "item": "AC-8 (blocker) zod.aggregate_kit_camera_name present in the CI ClickHouse dump",
+        "status": "SATISFIED",
+        "evidence": "Added to database/schema/clickhouse-schema.sql with the Cloud-only SharedReplacingMergeTree engine translated to OSS ReplacingMergeTree(), per the rule the dump's own header and .claude/commands/chlocal.md state. The translated line was loaded into a real OSS clickhouse-server container and insert-round-tripped before being trusted. Header count corrected 62 -> 63; table added to RequiresClickhouse's truncation list and to the generator's manually-maintained-additions list."
+      }
+    ],
+    "full_suite_analysis": {
+      "verdict": "no regression introduced by this change",
+      "evidence": [
+        "No DEV-2486 test (GlKits*, OrgKitCameraNames*) failed in ANY run.",
+        "The failure SET churns between identical-code runs \u2014 16 problems on a pressured ClickHouse, 5 on a restarted one, with DIFFERENT names each time. That churn is the signature of shared-state flakiness, not a regression.",
+        "ClickHouse container memory pressure is a confirmed amplifier: restarting clarity-qa-clickhouse (3.70 GiB -> 2.17 GiB of 5.79 GiB) took the HEAD full suite from 16 problems to 5 \u2014 fewer than BASE's 6, which was itself measured under pressure. This is the documented failure mode in the clarity/testing knowledge card (error 241 raised inside RequiresClickhouse's TRUNCATE setup, before any test logic, presenting as a batch of unrelated failures).",
+        "Isolated-class comparison HEAD vs BASE over every implicated class (180 tests): HEAD's failure set is a strict SUBSET of BASE's. Nothing failed at HEAD that did not also fail at BASE.",
+        "The two names unique to the clean HEAD run (HitDirectHotspotQueryTest::test_resolves_latest_hotlist_version_on_status_transition, DashboardCardExpansionTest::test_dispatching_dashboard_toggle_card_expands_the_matching_chart) both PASS in isolation at HEAD (24/24) and neither file references any DEV-2486 symbol.",
+        "The 4 stable failures (CloseInactiveShiftsCommandTest x2, EnsureOpenShiftTest, ScoutUsersResourceTest risky) reproduce identically at BASE."
+      ],
+      "stable_preexisting_failures": [
+        "Tests\\Feature\\Console\\Commands\\CloseInactiveShiftsCommandTest::command_closes_shift_stamping_the_latest_gps_fix_as_the_end",
+        "Tests\\Feature\\Console\\Commands\\CloseInactiveShiftsCommandTest::command_reads_scans_cold_when_shift_started_more_than_ninety_days_ago",
+        "Tests\\Feature\\Services\\Scout\\EnsureOpenShiftTest::test_current_open_opens_a_fresh_shift_after_a_confirmed_end",
+        "Tests\\Filament\\Resources\\ScoutUsersResourceTest::test_cross_org_kit_cannot_be_edited_via_direct_url (risky: no assertions)"
+      ],
+      "caveat": "The local literal clarity/zod ClickHouse databases are SHARED across worktrees, so another session running tests concurrently perturbs any full-suite result here. CI runs an isolated ClickHouse service and is the authoritative signal.",
+      "concurrency_confirmation": "CONFIRMED at BASE under identical conditions. Two peer sessions were active on this machine and the literal clarity/zod ClickHouse databases are SHARED across worktrees. clarity.hotlist was observed holding 3 foreign rows mid-run. HasStatDrillDownTest run ALONE fails at d5a07d19 as well (2 failures) as it does at HEAD (1 error + 2 failures) \u2014 seconds apart, same live concurrent writer. Four independent confirmations in total: (1) no DEV-2486 test ever failed in any run, (2) the failure set churns names between identical-code runs, (3) restarting the container took HEAD from 16 problems to 5, (4) the implicated classes fail at BASE too when run alone. CI's isolated ClickHouse service is the authoritative signal."
+    },
+    "mutation_tests": [
+      {
+        "mutation": "remove ->recordAction(null)->recordUrl(null)",
+        "result": "caught \u2014 reproduces the exact TypeError the plan predicted (Argument #1 ($record) must be of type Model, array given), proving both the finding and that the tests really render rows"
+      },
+      {
+        "mutation": "defaultPaginationPageOption(100) -> (50)",
+        "result": "caught \u2014 1 failure"
+      },
+      {
+        "mutation": "reportingRank min() -> max() (breaks any-reporting-wins)",
+        "result": "caught \u2014 3 failures"
+      },
+      {
+        "mutation": "drop the sort-column mapping",
+        "result": "caught \u2014 2 failures AFTER fixing a weakness it exposed in my own test (see below); 1 before"
+      },
+      {
+        "mutation": "last-scan rollup newest-wins -> first-found",
+        "result": "caught \u2014 1 failure"
+      },
+      {
+        "mutation": "delete ->where('org_id', $orgId)  [with CLICKHOUSE_DRIVER=pgsql]",
+        "result": "caught \u2014 1 failure with NO ClickHouse, which is Q2's whole guarantee"
+      },
+      {
+        "mutation": "canAccess() -> return true  [pgsql]",
+        "result": "caught \u2014 1 failure"
+      },
+      {
+        "mutation": "delete ->excludingDeleted()  [pgsql]",
+        "result": "caught \u2014 1 failure"
+      },
+      {
+        "mutation": "drop the per-cell reporting ->tooltip()",
+        "result": "caught \u2014 1 error"
+      },
+      {
+        "mutation": "weaken the Unknown wording (remove the 'Not Reporting' contrast)",
+        "result": "caught \u2014 1 failure"
+      },
+      {
+        "mutation": "drop the last_scan ->headerTooltip()",
+        "result": "caught \u2014 1 failure"
+      },
+      {
+        "mutation": "drop the 'Different from \"Not Reporting\"' contrast from the trimmed tooltip",
+        "result": "caught \u2014 1 failure"
+      },
+      {
+        "mutation": "drop the 'no scanner mapping' cause from the trimmed tooltip",
+        "result": "caught \u2014 1 failure"
+      }
+    ],
+    "self_correction": "Mutation-testing the sort exposed a weakness in my OWN test: test_reporting_sorts_best_known_first named its GLs GL-A-REPORTING / GL-B-NOTREPORTING / GL-C-UNKNOWN, so alphabetical order coincided with rank order and the test passed even with the sort deleted. Renamed to GL-ZED-REPORTING / GL-ABEL-NOTREPORTING / GL-MID-UNKNOWN so the two orders differ, and re-confirmed the mutation now fails 2 tests instead of 1.",
+    "blast_radius_recheck": "pass \u2014 10 changed files, none matching database/migrations/**, billing, Shield/Policies/auth config, Clickhouse*Purge|Cleanup or PruneScans. database/schema/clickhouse-schema.sql carries the plan's ci_schema_dump tag and was pre-approved via prep-context question 6.",
+    "unexpected_files_check": "pass \u2014 the changed set is exactly the plan's 10 target files; no drift.",
+    "ac_gate": "pass \u2014 no AC confirmed NOT SATISFIED",
+    "verification_lesson": "My first guide check grepped for strings INSIDE the JSON payload and passed. That proves nothing about rendering \u2014 the payload was present but unparseable, so JSON.parse threw and the page was blank. Verification for a rendered artifact must load it in a browser and assert on the DOM. Repeated on the tooltip edit: my first test asserted only $column->getTooltip($state), which proves the CONFIG is set. TextColumn emits x-tooltip only when filled($tooltip), so the test was strengthened to assert the RENDERED Livewire markup contains each tooltip string."
+  },
+  "notes_driver": "best-of-N deliberately skipped: residual uncertainty is 5 human-decidable design questions, not groundable by more blind passes. Grep backstop run inline by the driver and it found 2 files the prep pass missed.",
+  "sizing_gate": {
+    "files": 10,
+    "verdict": "no-split",
+    "decided_by": "human:Dalton McCleery 2026-09-04",
+    "reason": "one concern; only 2 of 10 files are app code; no part independently shippable"
+  },
+  "housekeeping": {
+    "stale_context_archived": "the worktree's .context/ held the PRIOR ticket's QA artifacts (dated 2026-09-01: qa-ac-results.json, qa-agent-report.md, qa-plan-*.md, qa-human-guide.html, qa-ch-seed.sql, qa-complete.md, qa-resource-envelope.json, qa-screenshots/, qa-seed.tinker.php). Archived to the session scratchpad so a stale qa-ac-results.json cannot false-pass the Phase 6 AC fold-in.",
+    "stale_ai_archived": "the worktree's .ai/ held a prior ticket's 3-round review lanes and manifest (2026-09-01). Archived to the session scratchpad so a stale review-manifest.json cannot false-pass the Phase 5 gate.",
+    "dev_env_ch_note": "the dev .env points CLICKHOUSE_HOST at Cloud (port 8443, https) but sets CLICKHOUSE_DATABASE_CLARITY/_ZOD to a POSTGRES database name (zod_claude_dev_2486_a5ca80), so an unqualified dev CH query would fail and be swallowed to []. Prep's production measurements are unaffected because every query it ran was fully qualified (zod.* / clarity.*), which bypasses the configured database name."
+  },
+  "handoff_parked": "awaiting human QA"
+}

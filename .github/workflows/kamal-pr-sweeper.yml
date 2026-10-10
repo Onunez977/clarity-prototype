@@ -1,0 +1,57 @@
+name: Kamal PR Preview Sweeper
+
+# Safety net for previews whose teardown never fired (PR force-closed, runner
+# outage). Nightly, lists running platform-pr-<N> containers and reaps any whose
+# PR is closed/merged. Mirrors Overwatch's pr-preview-sweeper.
+# PROTOTYPE: the nightly preview sweeper is disabled.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    name: Reap previews for closed/merged PRs
+    # Kill-switch (see kamal-pr-preview.yml): dormant until PREVIEW_ENABLED='true'.
+    if: vars.PREVIEW_ENABLED == 'true'
+    environment: preview
+    runs-on: [self-hosted, kamal]
+    timeout-minutes: 30
+
+    env:
+      KAMAL_SERVER: ${{ vars.QA_KAMAL_SERVER }}
+      KAMAL_SSH_USER: ${{ vars.KAMAL_SSH_USER || 'ubuntu' }}
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-2' }}
+      AWS_DEFAULT_REGION: ${{ vars.AWS_REGION || 'us-east-2' }}
+      AWS_ECR_REPOSITORY: ${{ vars.PLATFORM_AWS_ECR_REPOSITORY || 'insight-lpr/platform' }}
+      # AWS_ACCOUNT_ID/region/repo are non-secret config the Kamal ERB needs to
+      # render the registry URL. No AWS credentials: the sweeper only runs scoped
+      # `kamal remove`, which makes no AWS/ECR calls.
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Kamal setup (Ruby, Kamal, SSH)
+        uses: ./.github/actions/kamal-setup
+        with:
+          kamal-server: ${{ env.KAMAL_SERVER }}
+          ssh-key: ${{ secrets.KAMAL_SSH_KEY }}
+          ssh-known-hosts: ${{ secrets.KAMAL_SSH_KNOWN_HOSTS }}
+          # No AWS or composer creds: the sweeper only runs scoped `kamal
+          # app/accessory remove` (kamal-setup skips AWS + composer when empty).
+
+      - name: Ensure gh CLI is available
+        run: |
+          if ! command -v gh >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gh
+          fi
+          gh --version
+
+      - name: Reap previews for closed/merged PRs
+        run: bash .github/scripts/pr-preview-sweep.sh

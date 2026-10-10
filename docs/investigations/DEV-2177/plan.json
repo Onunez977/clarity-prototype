@@ -1,0 +1,31 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Continuous Kit User Path route via CH-side sc_positions assembly (new KitRangePathsQuery) + controller swap",
+      "approach": "TDD, single coherent node (controller depends on the new query class; co-designed). (1) NEW app/Clickhouse/Queries/KitRangePathsQuery.php: read-only over clarity.sc_positions. Inner subquery = the SAME 3s decimation OrgLivePathsQuery/KitHistoricPositionsQuery use (argMin lng/lat by timestamp_utc per toStartOfInterval(timestamp_utc, INTERVAL 3 SECOND), WHERE lower(kit_mapping) IN (?) AND timestamp_utc BETWEEN ? AND ?). Outer wrap: GROUP BY mapping, toStartOfHour(ts); collect arraySort(x -> x.1, groupArray(tuple(ts_string, lng, lat))) per (mapping,hour) [arraySort is REQUIRED — groupArray does not guarantee input order]; cap each bucket array length to a private const POINTS_PER_SEGMENT_CAP=200 AFTER the sort via even-interval subsample (not naive head-truncate, so a dense/idle hour is not visually chopped). handle() then flattens the grouped rows into the exact flat list<array{mapping,lng,lat,timestamp_utc}> shape OrgLivePathsQuery::handle() returns. Ride the DB::clickhouse('sc_positions') macro (no manual clarity./FINAL — sc_positions has no ReplacingMergeTree collapse). Mirror the class-const + query(..., cache:) conventions of the sibling classes. (2) KitUserPathController::paths() ONLY: resolve org-scoped $kits -> Kit models -> private byMapping() (lower(kit_mapping) => Kit, skip null/empty mapping, mirror ClarityScoutBirdsEyeController::kitsByMapping), call KitRangePathsQuery::query(['mappings'=>..., 'start'=>..., 'end'=>...], cache:true) instead of KitScanPathsQuery, feed points to the ALREADY-PUBLIC OrgLivePathsQuery::segmentByMapping($points,$timezone), map each mapping's segments back to {kit_id, name, color: KitScanPathsQuery::getColor((int)$kit->id), path, layerId: date_toggles, trip_date} — byte-identical response shape. Do NOT touch geojson()/hitDensity(). Do NOT touch KitScanPathsQuery (shared by 2 other controllers) except calling its existing public static getColor(). No JS change.",
+      "target_files": [
+        "app/Clickhouse/Queries/KitRangePathsQuery.php",
+        "app/Http/Controllers/KitUserPathController.php",
+        "tests/Unit/Clickhouse/Queries/KitRangePathsQueryTest.php",
+        "tests/Feature/Http/Controllers/KitUserPathControllerTest.php"
+      ],
+      "intended_diffs": "NEW KitRangePathsQuery.php (~90-130 lines, patterned on OrgLivePathsQuery + KitHistoricPositionsQuery); KitUserPathController::paths() body swapped (query class + byMapping resolver + segmentByMapping + row mapping), geojson()/hitDensity() unchanged; NEW unit test (decimation, per-kit-hour grouping row-count collapse, arraySort chronological order, 200-pt cap bounding, AC-5 single/zero-point degrade, absent-mapping = no rows); NEW feature test (permission gate, cross-org isolation, All-Kits resolution, scan-free continuous drive = non-empty path, AC-5, exact response shape).",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "KitRangePathsQueryTest|KitUserPathControllerTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "KitUserPathController::geojson() / hitDensity()", "reason": "read HotlistAddressGeohashQuery / HitDensityGeohashQuery (public_address/hotlist, hits_cold) — unrelated tables, not the fragmented-route bug."},
+    {"site": "KitScanPathsQuery.php + its other callers (ClarityScoutMapController, ClarityScoutBirdsEyeController::scanPaths)", "reason": "shared unchanged class; repo convention (DEV-2185/DEV-2199) forbids modifying it. Only its existing public static getColor() is reused."},
+    {"site": "resources/js/components/kit-user-path.js", "reason": "PathLayer/tooltip read only path/color/name; response shape preserved → no JS change."},
+    {"site": "app/Support/Scout/HistoricPathBuilder.php + OrgLivePathsQuery.php", "reason": "reused as-is (segmentByMapping is public static); segmentation logic is NOT forked."},
+    {"site": "DEV-2222 scan-only fallback / DEV-2223 AC-4 overlay", "reason": "explicit separate follow-ups; no groundwork here (human:Dalton)."}
+  ],
+  "sizing": {"files": 4, "concerns": 1, "verdict": "in-bounds (<=6 files, single concern) — no split recommended"},
+  "perf_gate": {"ch_at_scale": true, "ch_tables": ["clarity.sc_positions"], "deferred": false, "note": "Perf is a first-class design constraint (this rebuild exists because the prior PHP approach OOM'd). NOT deferred to QA — the CH-side groupArray+cap approach is validated at prod scale in Phase 3.5 before implementation (WS6)."}
+}

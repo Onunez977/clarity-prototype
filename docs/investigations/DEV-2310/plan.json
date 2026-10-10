@@ -1,0 +1,34 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Decouple the Scout active-kit layer (icons + trails) from liveMode/date filter on both driver and admin surfaces",
+      "approach": "Frontend-only. Split the two concepts the mapStore.liveMode flag currently conflates: (A) genuinely historical-vs-live overlays (scan-paths, zoom defaults, today-scoped stats/hits) — LEAVE gated; (B) the always-current active-kit layer (marker icons + live GPS trail + trail arrows + the polls that feed them) — DECOUPLE from liveMode so it renders and keeps polling across all five date ranges, layered over the historical scan-path overlay in non-Today views. No backend change (endpoints are already range-agnostic).",
+      "target_files": [
+        "resources/js/clarity-scout/stores/map.js",
+        "resources/js/clarity-scout/components/MapShell.vue",
+        "resources/js/clarity-scout/components/ScannerMap.vue",
+        "resources/js/clarity-scout/composables/useBirdsEyePolling.js"
+      ],
+      "intended_diffs": {
+        "resources/js/clarity-scout/stores/map.js": "In setLiveMode(on) (906-923): in the `else` (leaving Live) branch, remove the clearKitPosition() call so the driver's own kitPosition + liveTrail survive the transition; keep activeHeatmaps.delete('hits'). Update the clearKitPosition (891-893) and setLiveMode (903-905) comments to reflect that the dot/trail now persist and only the poll start/stop follows LiveTracking's mount.",
+        "resources/js/clarity-scout/components/MapShell.vue": "Line 12: drop the `mapStore.liveMode &&` clause from the LiveTracking v-if (keep `mapStore.viewMode === 'dashboard' && !mapStore.adminMode`) so useKitPositionPolling (driver dot + fetchLivePath trail) stays mounted across ranges. Lines 324-328: remove the defensive `watch(() => mapStore.liveMode, on => { if(!on) clearKitPosition() })` (and its comment).",
+        "resources/js/clarity-scout/components/ScannerMap.vue": "updateDriverMarkers (708-716): remove the `if (!mapStore.liveMode){ clear all driverMarkers; return; }` early-return so admin markers always reconcile from driverPositions; update comment 710-711. updateOverlayLayers live-trail: drop `mapStore.liveMode &&` at 1354 (dot-extension) and 1366 (live-trail PathLayer). Admin driver-trails: drop `mapStore.liveMode &&` at 1383 (keep `adminMode &&`). Trail arrows: drop the `mapStore.liveMode` gate in updateTrailArrows (817) and syncTrailArrowVisibility (863). LEAVE the scan-paths layer (1322 render / 992 fetch) and zoom-default gates (156, 329-346, 1549) untouched. Keep the liveMode watcher (1807-1812) — now a harmless repaint no-op — but update its comment (1805-1806).",
+        "resources/js/clarity-scout/composables/useBirdsEyePolling.js": "Split fetchLive() (26-37): always run map.fetchDriverPositions() + map.fetchDriverPaths() on every tick()/onOnline(); keep dashboard.fetchStats('today') + fetchRecentHits('today') gated on map.liveMode (today-only). Update tick() (43) and onOnline() (56) so the position/path fetch runs regardless of map.liveMode while preserving the isOnline()+visible pause; the stats/hits half stays behind map.liveMode."
+      },
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex",
+      "excluded_sites": [
+        "ScannerMap.vue:1322 / :992 (historical scan-path overlay) — stays; trail layers over it",
+        "ScannerMap.vue:156,329-346,1549 (liveMode zoom defaults) — unrelated",
+        "App.vue My Location button + noKitsReporting banner — Dalton: leave as-is",
+        "useKitPositionPolling.js:60,102 — grep-backstop false positive; position fetch already unconditional",
+        "Backend kitPosition()/driverPositions() — already range-agnostic"
+      ]
+    }
+  ]
+}

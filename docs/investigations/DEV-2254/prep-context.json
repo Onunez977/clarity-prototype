@@ -1,0 +1,354 @@
+{
+  "key": "DEV-2254",
+  "gate": "CLEAN",
+  "mode": "normal",
+  "reconciled_from": [
+    "prep-candidate:1",
+    "prep-candidate:2",
+    "prep-candidate:3"
+  ],
+  "synthesis": "On the Scout admin org map (Bird's Eye, /scout/org-map), the bottom stat sheet (MapStatsBar.vue) shows Scans / Direct Live Hits / Staging Live Hits with no indication of WHOSE activity they represent. The backend is correct and needs no change: ClarityScoutBirdsEyeController::stats() sums over scopedKits(), and scopedKits() returns ALL of the org's Scout kits when the client sends no kit_ids -- so the default numbers really are org-wide aggregates. The org map has THREE scope states, only ONE of which is labelled today: (a) nothing followed, nothing selected -> true org-wide aggregate [UNLABELLED], (b) a subset selected via DriverSelector, none followed -> filtered [UNLABELLED], (c) a driver followed -> already labelled by an existing crimson pill reading \"Showing only {name}'s stats\" (App.vue:92-96). Compounding it, MapStatsBar's four tile tooltips assert singular ownership unconditionally -- 'your kit read', 'Plates you scanned' -- which is literally false when an admin is reading an org-wide total. So this is FINISHING an existing mechanism, not building one: the fix is a client-only Vue label/copy change, gated on mapStore.adminMode so the driver PWA is untouched.",
+  "scope": {
+    "summary": "Client-only Vue label/copy change in resources/js/clarity-scout. Extend the existing adminMode scope pill in App.vue so every scope state is labelled (not just the followed-driver one), and make MapStatsBar's tile tooltip copy admin-aware so it stops claiming singular ownership of aggregated numbers. No backend, route, query, or schema change. Built assets must be rebuilt and committed.",
+    "proposed_changes": [
+      {
+        "file": "resources/js/clarity-scout/App.vue",
+        "change": "Generalize the followedDriverName-gated pill into a full scope indicator that renders in every adminMode state: followed -> existing driver-name text (unchanged); subset selected -> an N-selected label; otherwise -> an aggregate / 'All Drivers' label.",
+        "reason": "Literal AC. Reuses the mechanism already built for the followed case rather than inventing a parallel indicator.",
+        "ref": "resources/js/clarity-scout/App.vue:90-96,344-353"
+      },
+      {
+        "file": "resources/js/clarity-scout/components/MapStatsBar.vue",
+        "change": "Branch the four tile description strings on mapStore.adminMode, mirroring the existing ternary idiom in DashboardOverlay.vue:85-88, so admin sees org-wide wording instead of 'your kit' / 'you scanned'.",
+        "reason": "Most literal instance of the reported symptom: a tooltip explicitly asserting singular ownership of a multi-driver total. Confirmed in scope by the gate interview (question 3).",
+        "ref": "resources/js/clarity-scout/components/MapStatsBar.vue:170,180,187,198"
+      },
+      {
+        "file": "resources/js/clarity-scout/components/DashboardOverlay.vue",
+        "change": "Replace the binary adminMode ternary on the Live Hits Pending Repossession description with scope-aware copy: followed driver's name while following, subset wording when filtered, org-wide only when genuinely unfiltered.",
+        "reason": "Same root cause as the stat sheet, pointing the other way -- it claims org-wide while the list is actually scoped by the same followedKitId/selectedKitIds. Confirmed in scope by the gate interview (question 4).",
+        "ref": "resources/js/clarity-scout/components/DashboardOverlay.vue:85-88"
+      }
+    ],
+    "target_files": [
+      "resources/js/clarity-scout/App.vue",
+      "resources/js/clarity-scout/components/MapStatsBar.vue",
+      "resources/js/clarity-scout/components/DashboardOverlay.vue",
+      "public/build/**"
+    ],
+    "out_of_scope": [
+      "Backend: ClarityScoutBirdsEyeController::stats()/scopedKits() aggregation is correct and already covered by ClarityScoutBirdsEyeControllerTest. Display-only fix.",
+      "Driver (non-admin) surface copy: 'your kit' / 'you scanned' is CORRECT there and must not change. Every edit is adminMode-gated.",
+      "ProfilePanel.vue -- ScoutHome.vue's panel computed resolves 'profile' only when !mapStore.adminMode; unreachable for an admin.",
+      "DayOverlay/TripOverlay/FloatingStatCard -- auth.js forces tripsEnabled=false in adminMode; unreachable in Bird's Eye.",
+      "ScannerMap heatmap legends -- those layers are deliberately org-wide and selector-independent, so their org-wide language is always accurate.",
+      "HelpPanel.vue glossary copy ('your camera', 'your hits') -- VERIFIED reachable in admin only by a hand-typed ?help deep link (ScoutHome.vue's panel computed has no adminMode gate on help), with no in-app admin affordance. Static documentation, not the live stat display this ticket names. Pre-existing and unreported; left out.",
+      "repos_affected / Repos tile -- deliberately pulled from the stat row since DEV-2138; do not re-add while editing MapStatsBar."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "When no driver is followed and no DriverSelector filter is applied on the org map, a clear aggregate / 'All Drivers' label is visible with the stat sheet.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "The ticket's stated requirement."
+    },
+    {
+      "item": "The aggregate label is visually distinguishable from the existing single-driver 'Showing only {name}'s stats' state, and that existing state is preserved unchanged.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "The two states must not be confusable -- that confusion is the bug."
+    },
+    {
+      "item": "The driver (non-admin) Scout surface is unchanged: no scope pill, and tile copy still reads 'your kit' / 'you scanned'.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Shared component; this is the regression risk the knowledge card warns about."
+    },
+    {
+      "item": "MapStatsBar tile tooltips no longer assert singular ownership ('your kit', 'you scanned') when rendered in admin mode.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Confirmed in scope by the Phase 2 gate interview (human:Dalton McCleery 2026-09-01)."
+    },
+    {
+      "item": "A subset selected via DriverSelector (none followed) carries its own label.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Confirmed in scope by the Phase 2 gate interview (human:Dalton McCleery 2026-09-01)."
+    },
+    {
+      "item": "DashboardOverlay's Live Hits header states the actual scope: the followed driver's name while following, and org-wide only when genuinely unfiltered.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Added by the Phase 2 gate interview (question 4) -- same root cause pointing the other way."
+    }
+  ],
+  "questions": [
+    {
+      "id": 1,
+      "q": "Exact wording and visual treatment for the aggregate label -- 'All Drivers' vs 'Aggregate' vs 'Org-wide', and should it be a persistent pill in the same slot/style as the existing crimson 'Showing only X's stats' pill?",
+      "answered": true,
+      "answer": "\"All Drivers\". Treatment confirmed as offered: a persistent pill in the same slot as the existing \"Showing only {name}'s stats\" pill, but neutral grey rather than crimson -- crimson reads as \"you are narrowed\", and the aggregate state is the default.",
+      "source": "human:Dalton McCleery 2026-09-01"
+    },
+    {
+      "id": 2,
+      "q": "Does the subset-selected-but-not-followed state (e.g. 3 of 10 drivers picked in the Driver Selector) get its own label, or is 'All Drivers' vs 'Showing only X' the only distinction wanted?",
+      "answered": true,
+      "answer": "Yes -- label all three scope states. The subset state gets its own label, e.g. \"Showing 3 of 10 drivers\". Same mechanism, closes the identical misreading risk.",
+      "source": "human:Dalton McCleery 2026-09-01"
+    },
+    {
+      "id": 3,
+      "q": "Is the MapStatsBar tooltip copy fix in this PR -- branching 'The total number of license plates your kit read...' / 'Plates you scanned...' on adminMode -- or label-only now and copy separately?",
+      "answered": true,
+      "answer": "Yes -- fix the MapStatsBar tile tooltip copy in this PR. Branch the four description strings on adminMode using the DashboardOverlay ternary idiom. Driver surface copy stays exactly as-is.",
+      "source": "human:Dalton McCleery 2026-09-01"
+    },
+    {
+      "id": 4,
+      "q": "DashboardOverlay.vue:85-88 hardcodes \"Org-wide hits that haven't been repossessed yet\" whenever adminMode is true, even while a driver is followed or a subset is selected (recentHits is scoped by the same followedKitId/selectedKitIds via lib/fetch.js). That is the same bug pointing the other way. Fix it here, or a separate ticket?",
+      "answered": true,
+      "answer": "Yes -- fix DashboardOverlay.vue:85-88 in this PR. Its Live Hits header must reflect the ACTUAL scope: the followed driver's name when following, and org-wide only when genuinely unfiltered.",
+      "source": "human:Dalton McCleery 2026-09-01"
+    },
+    {
+      "id": 5,
+      "q": "Is the backend aggregation itself correct, or does the ticket imply a change to WHAT is aggregated?",
+      "answered": true,
+      "answer": "Correct and unchanged. scopedKits() returns all non-deleted org Scout kits when no kit_ids filter is supplied; stats()'s docblock and okf/concepts/scout-birds-eye.md both state this is intentional. Independently confirmed by all three prep candidates. This is purely a labelling gap, not a data-correctness bug.",
+      "source": "code"
+    },
+    {
+      "id": 6,
+      "q": "Does a scope label already exist, or must one be built from scratch?",
+      "answered": true,
+      "answer": "One already exists for the followed-driver state only: App.vue:92-96, a crimson pill reading \"Showing only {name}'s stats\", driven by the followedDriverName computed at App.vue:344-353. The work is to extend it to the other two scope states, not to build a new indicator. DashboardOverlay.vue:85-88 supplies the established adminMode ternary idiom for the copy half.",
+      "source": "code"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "public/build is tracked (15 files). A Vue change MUST be followed by npm run build with the built assets committed, or the fix never reaches the served app.",
+    "Driver and admin Scout surfaces share App.vue and MapStatsBar.vue. MapStatsBar has NO adminMode branch today, so any copy fix must be conditional -- a blanket string replacement would break the driver surface, where 'your kit' is correct.",
+    "DashboardOverlay.vue:85-88 is BOTH the pattern to copy (correct adminMode ternary) AND itself incomplete (claims org-wide while possibly filtered). Candidates 2 and 3 saw the first; candidate 1 saw the second. Both readings are true; question 4 resolves the scope call.",
+    "No JS/Vue test runner exists (package.json has dev/build/test:e2e only; the single Playwright spec tests/e2e/gl-kits.spec.ts does not touch Scout). Repo memory also notes platform CI's lint_check_and_test runs only on main/deploy PRs, so a Scout PR gets no CI test run either way.",
+    "selectedKitIds and followedKitId are module-level refs exported from lib/adminScope.js, not Pinia state. Import them the way DriverSelector.vue and stores/map.js already do rather than re-deriving.",
+    "DriverSelector's 'select all' path resets selectedKitIds to null, so client-side the value is either null (true aggregate) or a strict subset -- never 'all, explicitly'. That makes the three-state branch a clean if/else-if/else with no boundary case.",
+    "Grep backstop returned 15 referencing files, overwhelmingly generic adminMode checks. The only one relevant to the plan is ScannerMap.vue (setFollowedDriver:794, clearFollowedDriver:313) -- the transitions between scope states, worth exercising in QA but not edited."
+  ],
+  "tests": [
+    {
+      "file": "(none -- no JS/Vue test runner in this repo)",
+      "what_it_pins": "Nothing. A template/copy-only Vue change cannot be pinned by an automated test with this repo's existing infrastructure. The real pin is agent-browser / human QA across the three scope states plus a driver-surface regression check."
+    },
+    {
+      "file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php",
+      "what_it_pins": "Existing, unaffected. Already pins that stats() aggregates correctly across kit_ids scopes; cite only as evidence the backend is untouched."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "resources/js/clarity-scout/App.vue:90-96",
+      "resources/js/clarity-scout/App.vue:344-353",
+      "resources/js/clarity-scout/components/MapStatsBar.vue:166-200",
+      "resources/js/clarity-scout/components/DashboardOverlay.vue:85-88",
+      "resources/js/clarity-scout/components/DriverSelector.vue:127-192",
+      "resources/js/clarity-scout/lib/adminScope.js:1-24",
+      "resources/js/clarity-scout/lib/fetch.js:64-86",
+      "resources/js/clarity-scout/stores/map.js:1444-1465",
+      "resources/js/clarity-scout/stores/dashboard.js:1-26",
+      "resources/js/clarity-scout/views/ScoutHome.vue:68-79",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:870-930",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:1131-1144"
+    ],
+    "code_flow": "Admin opens /scout/org-map -> ClarityScoutAdminMiddleware gate -> birdseye.js boots App.vue with adminMode=true -> App.vue always renders the expanded MapStatsBar (mapStore.adminMode || barExpanded) -> MapStatsBar reads useDashboardStore().stats -> dashboard.fetchStats() GETs /scout/org-map/api/dashboard/stats via lib/fetch.js buildUrl(), which auto-appends kit_ids[] from lib/adminScope.js (selectedKitIds / followedKitId; null = all) -> ClarityScoutBirdsEyeController::stats() intersects the requested kit_ids with scopedKits() (absent = ALL org kits) -> sums ClickHouse scans_hot/cold + hits_hot/cold across them -> MapStatsBar renders the totals with unconditional driver-voiced copy, and App.vue shows a scope pill ONLY in the followed-driver state.",
+    "tables": [],
+    "related_components": [
+      "App\\Http\\Controllers\\Api\\ClarityScoutBirdsEyeController (stats, scopedKits, orgScoutKits)",
+      "lib/adminScope.js (selectedKitIds, followedKitId)",
+      "lib/fetch.js (kit_ids auto-scoping)",
+      "stores/map.js (setFollowedDriver, clearFollowedDriver, setSelectedKits)",
+      "components/DriverSelector.vue",
+      "composables/useBirdsEyePolling.js"
+    ],
+    "kb": {
+      "dir": "okf",
+      "pages_consulted": [
+        "okf/index.md",
+        "okf/concepts/scout-birds-eye.md",
+        "okf/concepts/scout-dashboard-stats.md",
+        "okf/concepts/scout-frontend.md",
+        "okf/concepts/scout-real-time-tracking.md",
+        "okf/concepts/laravel-boost-guidelines.md"
+      ],
+      "docblocks_read": [
+        "ClarityScoutBirdsEyeController class docblock",
+        "ClarityScoutBirdsEyeController::stats docblock",
+        "ClarityScoutBirdsEyeController::orgScoutKits/scopedKits docblock",
+        "lib/adminScope.js header",
+        "App.vue followedDriverName comment"
+      ]
+    },
+    "exhaustiveness": {
+      "idiom": "A figure (or copy describing one) displayed on a Scout surface without stating whose activity it covers, or actively asserting singular ownership of a possibly-aggregated number.",
+      "grep_patterns": [
+        "your kit",
+        "you scanned",
+        "Org-wide",
+        "org-wide",
+        "adminMode",
+        "followedDriverKitId",
+        "selectedKitIds",
+        "MapStatsBar",
+        "FloatingStatCard",
+        "description:"
+      ],
+      "sites": [
+        {
+          "site": "components/MapStatsBar.vue:170,180,187,198 (four tile descriptions)",
+          "status": "buggy",
+          "reason": "Renders the aggregate numbers themselves; tooltip copy hard-codes 'your kit read' / 'Plates you scanned' with no adminMode branch, literally false for an org-wide total."
+        },
+        {
+          "site": "App.vue:90-96 (scope pill)",
+          "status": "buggy (partial)",
+          "reason": "Labels the followed-driver state correctly but is the only one of three admin scope states with any label; the aggregate and subset states render none."
+        },
+        {
+          "site": "components/DashboardOverlay.vue:85-88 (Live Hits Pending Repossession description)",
+          "status": "buggy (inverse)",
+          "reason": "Says 'Org-wide hits...' whenever adminMode is true, even though recentHits is scoped by the same followedKitId/selectedKitIds -- so a followed or filtered view is mislabelled as org-wide. Same root class, opposite direction. Scope call = question 4."
+        },
+        {
+          "site": "components/DashboardOverlay.vue:246-247 ('For all drivers' layer-visibility toggle)",
+          "status": "safe",
+          "reason": "A static admin setting controlling map-layer visibility for drivers, not a stat aggregate; the phrase is accurate."
+        },
+        {
+          "site": "components/ScannerMap.vue (Live Hit Density / order-density heatmap legends and tips)",
+          "status": "safe",
+          "reason": "Those layers are deliberately org-wide and excluded from the kit_ids auto-scope in buildUrl, so their org-wide language is accurate in every scope state."
+        },
+        {
+          "site": "components/FloatingStatCard.vue via DayOverlay.vue / TripOverlay.vue",
+          "status": "safe",
+          "reason": "auth.js sets tripsEnabled=false on enterAdminMode(), so trip views are unreachable in Bird's Eye; single-kit by construction on the driver side."
+        },
+        {
+          "site": "components/ProfilePanel.vue:57-65 (stat mini-cards)",
+          "status": "safe",
+          "reason": "ScoutHome.vue's panel computed resolves 'profile' only when !mapStore.adminMode; never renders for an admin."
+        },
+        {
+          "site": "components/HelpPanel.vue (glossary: 'your camera', 'your hits')",
+          "status": "safe (pre-existing, out of scope)",
+          "reason": "VERIFIED: ScoutHome.vue's panel computed has NO adminMode gate on help, so a hand-typed ?help deep link does reach it in admin -- but no in-app admin affordance exists (ScoutControlsWidget is hidden in adminMode). Static glossary text, not a live stat display. Unreported and unrelated to this ticket's ask."
+        },
+        {
+          "site": "components/ScannerMap.vue driver marker hover/click",
+          "status": "safe",
+          "reason": "Only trail-highlight styling and a transient 'Following {name}' toast; no persistent stat display on the marker."
+        },
+        {
+          "site": "components/DriverSelector.vue",
+          "status": "safe",
+          "reason": "No ownership-implying copy; its driver-count options are already scope-neutral."
+        }
+      ]
+    }
+  },
+  "data_impact": {
+    "pg_tables": [],
+    "ch_tables": [
+      "clarity.scans_hot",
+      "clarity.scans_cold",
+      "clarity.hits_hot",
+      "clarity.hits_cold"
+    ],
+    "mv_or_cdc_implications": "None. Read-only, and the read path is unchanged -- these tables are listed only because the labelled numbers originate there. No writes, no schema change, no MV or CDC impact.",
+    "indexes_relied_on": []
+  },
+  "resource_envelope": {
+    "scale_relevant": false,
+    "trigger": "Client-side Vue label/copy change only. No command, job, query class, or migration touched, and no data-driven collection iterated. Backend aggregation unchanged.",
+    "driving_tables": [],
+    "growth": null,
+    "schedule": null,
+    "allocation_sketch": null,
+    "oracle_status": "not-configured",
+    "unresolved": []
+  },
+  "derivation_log": [],
+  "blast_radius": [],
+  "missed_caller_candidates_reviewed": "15 returned by the grep backstop; 14 are generic adminMode references in unrelated components. ScannerMap.vue (setFollowedDriver:794, clearFollowedDriver:313) drives the transitions between scope states -- exercised in QA, not edited.",
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC-1",
+        "kind": "agent",
+        "intent": "Open /scout/org-map as an org admin with nothing followed and no Driver Selector filter; confirm an aggregate / 'All Drivers' label is visible with the stat sheet."
+      },
+      {
+        "ac": "AC-2",
+        "kind": "agent",
+        "intent": "Click a driver's live dot to follow them; confirm the existing \"Showing only {name}'s stats\" pill appears, the aggregate label disappears, and the numbers drop to that one kit."
+      },
+      {
+        "ac": "AC-2b",
+        "kind": "human",
+        "intent": "Select a subset in the Driver Selector without following; confirm whichever behaviour question 2 settles on."
+      },
+      {
+        "ac": "AC-3",
+        "kind": "human",
+        "intent": "Open the driver (non-admin) Scout PWA as a kit user; confirm no scope pill and unchanged 'your kit' / 'you scanned' tile copy."
+      }
+    ],
+    "seed_scenario": "One org with CLARITY_SCOUT active and at least 2-3 Scout-enrolled kits (kit_settings rows with assigned users), each with a handful of today's scans in clarity.scans_hot and some Direct + Staging Live hits in clarity.hits_hot, sized so the org-wide total is visibly larger than any single kit's -- otherwise 'aggregate vs one driver' is not observable. Plus one org ADMIN user to reach /scout/org-map and one driver user for the non-admin regression check.",
+    "personas": [
+      "Org admin (ADMIN role + CLARITY_SCOUT grant, reaches /scout/org-map via ClarityScoutAdminMiddleware) -- the only user type that can see this label",
+      "Scout driver (kit-assigned user) -- regression check that the driver surface is untouched"
+    ],
+    "pg_tables": [
+      "public.kits",
+      "platform.kit_settings",
+      "public.users"
+    ],
+    "ch_tables": [
+      "clarity.scans_hot",
+      "clarity.hits_hot"
+    ]
+  },
+  "confidence": 92,
+  "escalate": {
+    "recommend": true,
+    "reason": "All three candidates independently returned 78 and recommended escalation for the same reason: the remaining uncertainty is product judgement (label wording, which scope states get labelled, how far the copy fix reaches), not code grounding. Reconciliation raised grounding confidence to 84 but cannot answer those -- they go to the human gate."
+  },
+  "label_contract": {
+    "states": [
+      {
+        "state": "aggregate",
+        "condition": "adminMode && !followedKitId && selectedKitIds == null",
+        "label": "All Drivers",
+        "style": "neutral grey pill, same slot/shape as the existing crimson pill"
+      },
+      {
+        "state": "subset",
+        "condition": "adminMode && !followedKitId && selectedKitIds != null",
+        "label": "Filtered to N driver(s)",
+        "style": "same pill; wording per gate answer 2",
+        "note": "Reworded from `Showing N of M drivers` at the human-QA park (Dalton). The denominator was the FULL roster while `select all` only picks the listed active-in-range drivers (DEV-2293), so `Showing 4 of 68 drivers` right after select-all read as confusing. Singular/plural handled by `statsScope.driverNoun`."
+      },
+      {
+        "state": "followed",
+        "condition": "adminMode && followedKitId != null",
+        "label": "Showing only {name}'s stats",
+        "style": "existing crimson pill -- UNCHANGED"
+      }
+    ],
+    "driver_surface": "No pill at all, and all existing 'your kit' / 'you scanned' copy unchanged. Every edit is adminMode-gated.",
+    "decided_by": "human:Dalton McCleery 2026-09-01"
+  }
+}

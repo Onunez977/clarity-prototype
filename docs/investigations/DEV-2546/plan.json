@@ -1,0 +1,45 @@
+{
+  "key": "DEV-2546",
+  "authored_by": "restored on resume 2026-09-17 — original plan.json was never committed; this records the AS-BUILT DAG that already shipped through RN5, not a fresh design",
+  "decision": "One StatsOverviewWidget with four AC-1 cards, counts over ListHits::getFilteredTableQuery(), no FINAL, uniqExact(id) on CH total, 5s Postgres statement_timeout on the aggregate, cache TTL on the repo ladder (10s / 3s under impersonation). Fifth Other Hits card REJECTED by operator (AC-1 wins).",
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Filter-reactive hit metric cards above the Hits table",
+      "approach": "Add HasHitMetricCards concern + HitMetricCards StatsOverviewWidget wired via ListHits getHeaderWidgets()/getWidgetData() + #[Reactive]. ONE grouped aggregate over the page's own getFilteredTableQuery(). Postgres: count(distinct scans.ocr) + count(*) with SET LOCAL statement_timeout=5s inside a savepoint. ClickHouse: uniqExact(ocr) + uniqExact(id); dialect follows clarity_clickhouse driver. Cache key = sha1(compiled SQL)+org+connection; TTL hitMetricCacheTtlSeconds().",
+      "target_files": [
+        "app/Filament/Concerns/HasHitMetricCards.php",
+        "app/Filament/Widgets/Hits/HitMetricCards.php",
+        "app/Filament/Resources/HitsResource/Pages/ListHits.php",
+        "tests/Filament/Concerns/HasHitMetricCardsTest.php",
+        "tests/Filament/Resources/HitsResourceTest.php",
+        "tests/Filament/Resources/HitsResourceMetricCardsClickhouseTest.php"
+      ],
+      "intended_diffs": "AS-BUILT — see journal RN1–RN5. Deviations from prep target_files: no HitMetricCardsQuery.php (static ClickhouseQuery cannot consume Filament filtered builder); one widget not four; HasClickableFilter untouched (getWidgetData + Reactive covers addFilter paths).",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "HitsResourceTest|HitsResourceMetricCardsClickhouseTest|HasHitMetricCardsTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex",
+      "status": "merged"
+    }
+  ],
+  "excluded_sites": [
+    "app/Clickhouse/Queries/HitMetricCardsQuery.php — never created; aggregate runs over the page builder so AC-4 is structural",
+    "app/Filament/Concerns/HasClickableFilter.php — untouched; Reactive + getWidgetData covers chip bypass",
+    "Four Company Metrics dashboard widgets / clarity.hit_stats_daily — out of scope",
+    "Hits filter definitions — out of scope; F/P card gap accepted under AC-1",
+    "Sibling bare count() sites on hits_cold (ClarityScoutTripsController, RdnHitHourCountQuery, HitDirectHotspotQuery) — follow-up, not this ticket",
+    "ListHits::shouldUseClickhouse() colon-vs-hyphen Pennant slug bug — pre-existing since dd2213685, not in this diff"
+  ],
+  "sizing_gate": "PASS retrospectively — 6 app/test files, one cohesive concern. No split.",
+  "perf_gate": "MEASURED — CH live Cloud (≤241ms all-time heaviest org); PG prod replica: 1y window times out at 30s statement_timeout; RN5 caps aggregate at 5s so the table keeps the remaining budget.",
+  "blast_radius_review": "No sensitive globs. No human pre-approval beyond Phase 2 / RN5 operator decisions already recorded.",
+  "risks": [
+    "Type F/P filters leave all four cards at 0 over a populated table — accepted (AC-1 wins)",
+    "total_hits means join-rows on PG and uniqExact(id) on CH behind one label — leave and document",
+    "Up to 10s card staleness under Live Polling / bulk disposition — accepted; mutation-driven bust out of scope",
+    "clickhouse:hits Pennant slug mismatch means every customer org is on the Postgres branch — H1 has maximum reach; flag bug is out of this ticket's diff"
+  ]
+}

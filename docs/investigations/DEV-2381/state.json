@@ -1,0 +1,75 @@
+{
+  "key": "DEV-2381",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "user: start from main; parent DEV-2342 W1",
+  "branch": "cursor/dev-2381-sc-positions-projection-95f7",
+  "phase": "handoff",
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": "handoff",
+    "only": null,
+    "skip": ["provision", "agent-qa", "human-qa"],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "okf/concepts/data-architecture.md",
+    "okf/concepts/platform-gotchas.md",
+    "okf/concepts/scout-check-in-recorder.md",
+    "okf/concepts/scout-clickhouse-queries.md"
+  ],
+  "escalated": false,
+  "best_of_n": false,
+  "needs_human_interview": false,
+  "gate": "CLEAN",
+  "platform_application_code": "none-until-cloud-apply",
+  "ci_schema_ahead_of_cloud": true,
+  "perf_validation": {
+    "required": false,
+    "verdict": "not-required",
+    "note": "CI dump/test does not prove Cloud prune; Cloud EXPLAIN/MATERIALIZE owned by chlocal"
+  },
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "complexity": "simple",
+      "title": "chlocal operator handoff + EXPLAIN runbook + queued wiki/schema-dump",
+      "depends_on": [],
+      "result": "No PHP/migration/schedule change. Operator packet in docs/investigations/DEV-2381/. Cloud DDL not applied this run (HARD OWNERSHIP). ClickHouse MCP unauthenticated; baseline cited from DEV-2342 derivation_log (3355/33096 vs 20/33096)."
+    },
+    {
+      "id": "t2",
+      "status": "merged",
+      "complexity": "simple",
+      "title": "CI dump + ScPositionsLowercaseProjectionTest for proj_kit_mapping_lc ahead of Cloud",
+      "depends_on": ["t1"],
+      "result": "Hand-edited clickhouse-schema.sql; PHPUnit pins projection on clarity.sc_positions. Workflow YAML unchanged. Cloud ALTER still chlocal-owned."
+    }
+  ],
+  "pr": {
+    "number": 338,
+    "url": "https://github.com/insight-lpr/platform/pull/338",
+    "draft": false,
+    "note": "operator handoff + CI dump/test; still not a Cloud ALTER or PHP matcher rewrite"
+  },
+  "jira_in_progress_by": "pipeline-mcp @ 2026-08-17",
+  "jira_in_progress_detail": "To Do -> In Progress via transition id 21",
+  "comment_ids": {
+    "status": "38312",
+    "build_record": "38318"
+  },
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "In Code Review via transition id 4 @ 2026-08-17 (docs-only PR #338)",
+  "qa": {
+    "verdict": "N/A",
+    "note": "CI dump pins the projection for PHPUnit. Remaining production work is chlocal Cloud apply + EXPLAIN, then W4 on DEV-2342."
+  },
+  "assumed": [],
+  "ticket_command_file": "not present in this checkout (.claude/commands has no ticket.md); artifacts follow docs/investigations/ contract from prior /ticket runs"
+}

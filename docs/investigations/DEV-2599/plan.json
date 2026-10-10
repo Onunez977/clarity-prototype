@@ -1,0 +1,88 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Enlarge Hit Details scan images without touching map or date range",
+      "approach": "Add ScanImageLightbox.vue: Teleport to body, fixed inset-0 z-[60] (above MapShell's DEV-2594 z-[45] sheet, App.vue's z-40 bottom cluster, and the z-50 end-shift dialog), role=dialog aria-modal, img object-contain max-w/max-h of the viewport, same src the button passed. Close via the close button, backdrop click, and Escape. Closing emits closed and does nothing else. In MapShell, wrap the existing plate img and vehicle img (lines 63-74) in type=button controls with min 44px hit area and aria-labels 'Enlarge plate image' / 'Enlarge vehicle image'. Click stores that src locally and opens the lightbox. Do not call focusHit, clearSelectedHit, setRange, or toggle liveHitsExpanded. When selectedHit identity changes (content key scan_id ?? id ?? plate) or becomes null, close the lightbox so a cluster cycle or sheet dismiss cannot leave a stale image. Do not mount the lightbox inside the z-[45] wrapper. After the Vue edit, run npm run build so committed public/build and public/clarity-scout-sw.js match; do not hand-edit those hashes.",
+      "target_files": [
+        "resources/js/clarity-scout/components/ScanImageLightbox.vue",
+        "resources/js/clarity-scout/components/MapShell.vue",
+        "public/build",
+        "public/clarity-scout-sw.js"
+      ],
+      "intended_diffs": {
+        "resources/js/clarity-scout/components/ScanImageLightbox.vue": "New dialog. Props: open, src, alt. Emit: close. No store imports.",
+        "resources/js/clarity-scout/components/MapShell.vue": "Image buttons + local enlargedSrc. Lightbox sibling of the z-[45] sheet, teleported. Watch selectedHit and clear enlargedSrc.",
+        "public/build": "Vite output from npm run build. Generated only.",
+        "public/clarity-scout-sw.js": "Service-worker stamp from npm run build. Generated only."
+      },
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "tests/e2e/dev-2599-enlarge-scan-image.spec.ts",
+      "ui_impact": true,
+      "blast_radius": [
+        "shared-map-shell",
+        "hit-details-also-used-by-map-markers",
+        "committed-vite-bundle"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "t2",
+      "title": "Playwright: enlarge, close, date range and sheet survive",
+      "approach": "Follow tests/e2e/dev-2597-org-map-live-hits-loading-truncation.spec.ts: isolated host only, Google Maps stub, quiet org-map routes, mock recent-hits with a plate_image and vehicle_image URL (can be a same-origin fixture or data URL the page can load). Login via the existing org-map admin helper. Select the 7 Days pill (aria-label '7 Days'). Open the live hit row. Click 'Enlarge vehicle image'. Assert a dialog is visible and its img src equals the vehicle URL, and the img is not limited to h-48. Close the dialog. Assert the Hit Details plate is still visible, the dialog is gone, and the 7 Days pill is still aria-pressed. Assert the map canvas node is still mounted (sheet close is what drops the focus marker; this test must not require a camera reset). Do not add a new driver login stack. Driver coverage is the shared MapShell binding plus the QA stub; adminMode does not fork these images.",
+      "target_files": [
+        "tests/e2e/dev-2599-enlarge-scan-image.spec.ts",
+        "tests/e2e/helpers/dev-2599.ts"
+      ],
+      "intended_diffs": {
+        "tests/e2e/dev-2599-enlarge-scan-image.spec.ts": "One serial admin org-map flow: 7 Days → open hit → enlarge vehicle → close → sheet and 7 Days remain.",
+        "tests/e2e/helpers/dev-2599.ts": "Mock recent-hit payload with stable image URLs. Reuse dev-2597 login/org-map/date-range helpers where they already exist; do not fork auth."
+      },
+      "depends_on": ["t1"],
+      "parallelizable": false,
+      "test_filter": "tests/e2e/dev-2599-enlarge-scan-image.spec.ts",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple"
+    }
+  ],
+  "excluded_sites": [
+    {
+      "file": "resources/js/clarity-scout/components/DashboardOverlay.vue",
+      "reason": "List rows have no thumbnail. selectHitFromCard and the DEV-2594 collapse watch stay as they are."
+    },
+    {
+      "file": "resources/js/clarity-scout/stores/map.js",
+      "reason": "focusHit / clearSelectedHit own map marker and camera. Enlarge must not call them."
+    },
+    {
+      "file": "resources/js/clarity-scout/stores/dashboard.js",
+      "reason": "Date range lives here. Enlarge must not call setRange."
+    },
+    {
+      "file": "resources/js/clarity-scout/components/TripOverlay.vue",
+      "reason": "Trip hits, not the live hit card."
+    },
+    {
+      "file": "resources/js/clarity-scout/components/DayOverlay.vue",
+      "reason": "Day hits, not the live hit card."
+    },
+    {
+      "file": "app/helpers.php",
+      "reason": "scan_img already returns the capture URL. No second resolution to add."
+    },
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+      "reason": "Admin recent-hits already includes plate_image and vehicle_image."
+    },
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutDashboardController.php",
+      "reason": "Driver recent-hits already includes plate_image and vehicle_image."
+    }
+  ],
+  "perf_validation": {
+    "required": false,
+    "reason": "No query, no payload growth, no new network endpoint."
+  }
+}

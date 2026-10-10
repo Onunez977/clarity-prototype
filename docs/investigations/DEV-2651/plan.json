@@ -1,0 +1,230 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Extract the shared ratio concern (RatioAgainstUniqueScans) with a standardized degrade path and a per-figure gate seam",
+      "approach": "Create app/Filament/Widgets/Dashboard/Concerns/RatioAgainstUniqueScans.php holding what is byte-identical across the three absorbed ratio widgets (UniqueScansToRepo.php:441-528, UniqueScansToCaseClaims.php:692-818, UniqueScansToLprRepossession.php:383-591): SERIES_ZONE='UTC', MIN_TTL_SECONDS=60 + pastMonthCacheTTL(), fetchUniqueScansSeries()/fetchUniqueScansRange()/runUniqueScansBatch() reading ScanPlateStatsBatchQuery::sharedMonthCacheKey()/sharedRangeCacheKey()/sharedFetchFailureMarkerKey(), the static ratio() zero-guard, the UTC getGraphLabels()/getHighlightedMonthsFromFilter(), the windowRatioMemo, and the re-declared #[On('refresh-dashboard')] refreshData() that clears it. Per decision 8, UNAVAILABLE_VALUE='--' and $numeratorUnavailable are standardized ON THE TRAIT so all three merges degrade identically (UniqueScansToLprRepossession has zero occurrences today). The DENOMINATOR is deliberately NOT in the trait: each survivor's existing headline series IS the denominator, which is what makes each merged card's two datasets share one month-key axis by construction (decision 9). Also declare the per-figure gate seam `public static function canViewRatioFigure(): bool` defaulting to `static::canViewCardData()` -- decision 3 needs a finer grain than the all-or-nothing canViewCardData(), and defaulting to it makes the three fully-gated survivors inherit correct behavior with no override. Terse docblocks per HeldFlexibleCache's style, not the narrated style of the widgets being merged.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/Concerns/RatioAgainstUniqueScans.php",
+        "tests/Filament/Widgets/Dashboard/Concerns/RatioAgainstUniqueScansTest.php"
+      ],
+      "intended_diffs": "NEW app/.../Concerns/RatioAgainstUniqueScans.php: trait with consts SERIES_ZONE/MIN_TTL_SECONDS/UNAVAILABLE_VALUE, protected bool $numeratorUnavailable = false, protected ?float $windowRatioMemo = null; methods pastMonthCacheTTL(), fetchUniqueScansSeries(?int,CarbonInterface), fetchUniqueScansRange(int,string,string,string), runUniqueScansBatch(int,string,string,string), static ratio(array), getGraphLabels(), getHighlightedMonthsFromFilter(), refreshData(string) with #[On('refresh-dashboard')], abstract-by-convention hooks the survivor supplies, and `public static function canViewRatioFigure(): bool { return static::canViewCardData(); }`. Copy the backoff-marker ordering and the env-gated report/mark/write-nothing/degrade block from UniqueScansToRepo.php:441-528 verbatim -- it is the reviewed shape. NEW tests/.../Concerns/RatioAgainstUniqueScansTest.php: a local stub card `use`ing the trait over a Counting* ScanPlateStatsBatchQuery seam (no real ClickHouse), pinning (a) the shared cache namespace is class-neutral, (b) a numerator failure sets $numeratorUnavailable and writes NOTHING to the month keys, (c) ratio() returns 0.0 on a zero denominator, (d) canViewRatioFigure() defaults to canViewCardData().",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "RatioAgainstUniqueScansTest",
+      "ui_impact": false,
+      "blast_radius": [
+        "auth"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "t2",
+      "title": "Merge scan-count into unique-scan-counts (two datasets, one Y axis) and REMOVE its COMPANY_METRICS gate",
+      "approach": "Decision 2. Port ScanCount's total-scan leg (ScanCount.php:36-192: resolvePastMonthsFromAggregate via ScanStatsBatchQuery + resolveCurrentMonthFromHot via Scan::hot()) onto UniqueScanCounts as a SECOND series, and delete UniqueScanCounts::canViewCardData() (UniqueScanCounts.php:84-89) so the class falls back to RendersDashboardStat's default (= canView(), the grid's own ADMIN/USER check) and every org sees both figures. toStat() gains ->description(number_format($total).' total scans') mirroring SharedHitStatsData.php:609-618; getData() returns two staticColourDataset-style datasets on ONE axis (no scales.y1 -- AC-4's explicit exception) with getOptions() enabling the legend only when $this->expanded, mirroring SharedHitStatsData.php:696-705. TWO hard constraints: (1) do not touch the ScanPlateStatsBatchQuery::sharedMonthCacheKey() namespace or the unique-plate fetch methods -- UniqueScansLeaderboard's sparkline is a passive reader of those keys and reads 0 on a cold cache if they move; (2) the ported total leg must bucket on UniqueScanCounts::bucketZone() (the sanitized zone, UniqueScanCounts.php:159) rather than ScanCount's raw viewer timezone, which is exactly what decision 9 requires of the card's two datasets, AND it must write under its own sub-namespace (e.g. buildWidgetCacheKey('scan-total:'.$dateType, $orgId)) because UniqueScanCounts::buildWidgetCacheKey() already appends ':tz=' and is used by currentPeriodTotal()/getRangeTotal() for the today/last_7d/last_month keys -- a bare reuse would let the total overwrite the unique-plate window value. Preserve ScanCount's the known setTable-discard bug Scan::hot()::query() setTable-discard bug verbatim when porting; do not fix it here.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/UniqueScanCounts.php",
+        "tests/Filament/Widgets/Dashboard/UniqueScanCountsTest.php",
+        "tests/Unit/Clickhouse/ScanPlateStatsBatchQueryContractTest.php",
+        "tests/Feature/Clickhouse/ScanPlateStatsBatchQueryTest.php"
+      ],
+      "intended_diffs": "UniqueScanCounts.php: delete canViewCardData() (:84-89) and the `use Laravel\\Pennant\\Feature` / `use App\\Enums\\FeatureEnum` imports if unused; add SCAN_TOTAL_FETCH sub-namespace helper, monthlyTotalData() (ported from ScanCount::getMonthlyData/resolvePastMonthsFromAggregate/resolveCurrentMonthFromHot, retargeted at bucketZone()), totalForWindow() for today/last_7d, toStat() override adding ->description('N total scans'), getData() override with two datasets, getOptions() override toggling legend on $this->expanded; extend getCardQueryStatements() with the ScanStatsBatchQuery leg; rewrite the class docblock to state that the card now carries BOTH figures and is UNGATED (decision 2) and that the two series share bucketZone(). UniqueScanCountsTest.php: add cases pinning the description text, the two-dataset getData() with 13 shared labels, getOptions() has NO scales.y1, canViewCardData() is true for a non-entitled org, and the two series bucket on the same zone; add a Counting* ScanStatsBatchQuery stub alongside the existing plate-query stub. ScanPlateStatsBatchQueryContractTest.php: the RecordingUniqueScanCountsForSharedKeyContract subclass (:340) must also stub the NEW total leg so the contract test stays ClickHouse-free; assertions at :119/:194 (key must not name the class) are unchanged. ScanPlateStatsBatchQueryTest.php:320: verify-only, amend the prose comparison if the merge makes it stale.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "UniqueScanCountsTest|ScanPlateStatsBatchQueryContractTest",
+      "ui_impact": true,
+      "blast_radius": [
+        "auth"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "t3",
+      "title": "Merge unique-scans-to-case-claims into unique-lpr-case-claims (dual Y axis)",
+      "approach": "Apply the t1 trait to UniqueLprCaseClaims. The absorbed ratio's denominator is the survivor's OWN existing 13-month deduped series (UniqueLprCaseClaims::getMonthlyData(), UniqueLprCaseClaims.php:139-174, already UTC-bucketed and UTC-labelled at :186-210) -- do not add a second denominator fetch, which is what guarantees the two datasets share one month-key axis (decision 9) and is why this card needs no further timezone work. toStat() gains ->description(number_format($ratio,1).' scans per case claim') and routes through the trait's $numeratorUnavailable branch so the description degrades to '--' instead of a fabricated ratio. getData() returns two datasets, the claims count on 'y' and the ratio on a new right-hand 'y1'; getOptions() merges scales.y1 (position 'right', grid.drawOnChartArea false, both axes titled) into $this->options and enables the legend when $this->expanded. The card keeps its existing full COMPANY_METRICS canViewCardData() gate (:124-137), so canViewRatioFigure() needs no override. The private heldFlexible() duplicate the ticket wanted collapsed lives on the DELETED UniqueScansToCaseClaims, not here -- this survivor already uses HeldFlexibleCache.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/UniqueLprCaseClaims.php",
+        "tests/Filament/Widgets/Dashboard/UniqueLprCaseClaimsTest.php",
+        "tests/Filament/Widgets/Dashboard/UniqueLprCaseClaimsLabelAxisTest.php",
+        "tests/Filament/Widgets/Dashboard/UniqueLprCaseClaimsHerdGuardTest.php",
+        "tests/Filament/Widgets/Dashboard/UniqueLprCaseClaimsWindowSeamTest.php"
+      ],
+      "intended_diffs": "UniqueLprCaseClaims.php: `use RatioAgainstUniqueScans;` alongside HeldFlexibleCache; add ratioSeries() zipping the trait's fetchUniqueScansSeries() over getMonthlyData(formatted:false) through the trait's ratio(); toStat() override (ratio computed FIRST because that is what sets the flag, per UniqueScansToRepo.php:165-183) adding ->description(); getData() override with yAxisID 'y'/'y1'; getOptions() override adding scales.y1; docblock notes the residual numerator-UTC vs denominator axis and points at the viewer-timezone follow-on. UniqueLprCaseClaimsLabelAxisTest.php is squarely in AC-4's blast radius: extend it to assert the y1 axis exists, is right-positioned, draws no grid, and that BOTH datasets index the same 13 labels. The Herd/WindowSeam tests need only to keep passing -- verify the trait's refreshData() override does not shadow the memo-clearing they assert.",
+      "depends_on": [
+        "t1"
+      ],
+      "parallelizable": true,
+      "test_filter": "UniqueLprCaseClaims",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t4",
+      "title": "Merge unique-scans-to-lpr-repossession into lpr-repossessions (dual Y axis)",
+      "approach": "Same shape as t3, against LprRepossessions (LprRepossessions.php:194-233 series, :242-266 UTC labels, :179-192 full COMPANY_METRICS gate). Denominator is the survivor's existing db_repos-stage series from LprRepossessionsQuery -- no second fetch. toStat() gains ->description(number_format($ratio,1).' scans per LPR repo'). The absorbed UniqueScansToLprRepossession has NO UNAVAILABLE_VALUE/numeratorUnavailable path today (verified: zero occurrences); adopting the t1 trait is precisely how decision 8 is satisfied -- this card gains the degrade path it never had, so a numerator failure renders '--' rather than a ratio built on fabricated zeros. getOptions() adds the same scales.y1 block as t3; keep LprRepossessions's own COLD_BLOCK/COLD_LOCK/REFRESH_LOCK constants (:101-137) untouched -- they are calibrated to its 33.7s observed p99 and re-measuring them is out of scope.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/LprRepossessions.php",
+        "tests/Filament/Widgets/Dashboard/LprRepossessionsTest.php"
+      ],
+      "intended_diffs": "LprRepossessions.php: `use RatioAgainstUniqueScans;`, ratioSeries(), toStat() override with ->description() and the $numeratorUnavailable branch, getData() with yAxisID per dataset, getOptions() with scales.y1, extended getCardQueryStatements() covering both legs, docblock noting the newly-adopted degrade path and the viewer-timezone follow-on residual. LprRepossessionsTest.php: new cases for the description text, the '--' degrade on a stubbed numerator failure (the case that could not exist before), two datasets with correct yAxisIDs, scales.y1 present and right-positioned.",
+      "depends_on": [
+        "t1"
+      ],
+      "parallelizable": true,
+      "test_filter": "LprRepossessionsTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t5",
+      "title": "Merge unique-scans-to-repo into recovery-counts: batched headline (the recovery-totals batching work), dual Y axis, PARTIAL Pro gate",
+      "approach": "The biggest of the four. RecoveryCounts is 51 lines with no ratio machinery, no herd guard, no gate, and 13 per-month Eloquent round trips (RecoveryCounts.php:32-38). Three things land together. (a) the recovery-totals batching work pull-in (decision 5): replace getModelQueryForDates()'s per-month Recovery::count() with RecoveryTotalsBatchQuery::handle()/handleRange() behind HeldFlexibleCache, exactly as UniqueScansToRepo.php:560-627 already does -- this is also what makes decision 9 hold for this card, because the headline and the ratio denominator then read the SAME repo_date month buckets and cannot disagree within a TTL or drift onto different axes. Note the consequence: the card's labels move from viewer-tz to the trait's UTC axis, which must co-vary or all 13 bars mislabel. (b) The t1 trait supplies the numerator, the degrade path and the UTC label axis; toStat() gains ->description(number_format($ratio,1).' scans per repo'); getData()/getOptions() add the second dataset and scales.y1. (c) Decision 3, the new seam: canViewCardData() stays at its ungated default so the Total Repossessions headline is visible to ALL orgs exactly as today, and RecoveryCounts overrides canViewRatioFigure() with the sanctioned Pro shape (auth()->check() && static::canView() && (Feature::active(FeatureEnum::COMPANY_METRICS->slug()) || session()->has('admin_impersonator'))). When canViewRatioFigure() is false the description line is omitted AND getData() returns the single count dataset with no y1 axis -- the ratio must never be COMPUTED on that path, or the gate leaks the 2.44 GB scan it exists to bound. Document the repo_date residual in the class docblock per the viewer-timezone follow-on AC-4: repo_date is a ClickHouse Date with no time axis and cannot be shifted.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/RecoveryCounts.php",
+        "tests/Filament/Widgets/Dashboard/RecoveryCountsTest.php",
+        "tests/Feature/Clickhouse/RecoveryTotalsBatchQueryTest.php"
+      ],
+      "intended_diffs": "RecoveryCounts.php grows from 51 lines to roughly 200: add `use RatioAgainstUniqueScans, HeldFlexibleCache;`, COLD_BLOCK/COLD_LOCK/REFRESH_LOCK accessors (reuse UniqueScansToRepo's measured values for the recoveries leg, ~15 ms, so the modest window is justified), getMonthlyData() override over heldFlexible(buildWidgetCacheKey('monthly-series:'.$through->format('Y-m'))) + fetchRepoSeries() via runRepoSeriesBatch(), currentPeriodTotal()/getRangeTotal() via runRepoWindowQuery(), canViewRatioFigure() override, toStat() override, getData()/getOptions() overrides, rewritten getCardQueryStatements() covering headline + numerator + denominator, and a class docblock carrying the viewer-timezone follow-on repo_date residual. RecoveryCountsTest.php: pin the headline is now batched (stub RecoveryTotalsBatchQuery, assert ONE call not 13), the headline and the ratio denominator read the same month keys, the description is PRESENT for an entitled org and ABSENT for a non-entitled one, getData() has 2 datasets + y1 for entitled and 1 dataset + no y1 for non-entitled, and -- the anti-leak case -- that the numerator query seam is NEVER invoked for a non-entitled viewer. RecoveryTotalsBatchQueryTest.php:18,136: verify-only, amend the docblock prose now that RecoveryCounts is a real caller.",
+      "depends_on": [
+        "t1"
+      ],
+      "parallelizable": true,
+      "test_filter": "RecoveryCountsTest",
+      "ui_impact": true,
+      "blast_radius": [
+        "auth"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "t6",
+      "title": "Drop 'unique' from all five user-facing sites on UniqueScansLeaderboard",
+      "approach": "Decision 7 / AC-5. Five sites, verified: :58 $heading 'Unique Scans Leaderboard' -> 'Scans Leaderboard'; :110 chart subtitle 'Top 10 kits by unique plates' -> 'Top 10 kits by plates'; :141 axis title 'Unique plates' -> 'Plates'; :255 dataset label 'Unique Plates' -> 'Plates'; :276-277 getDescription's two ' unique plates' tails -> ' plates'. Class name, card key ('unique-scans-leaderboard'), cache namespace and the ScanPlateStatsBatchQuery reads are all UNCHANGED -- AC-6 forbids renaming a surviving key, and the leaderboard's sparkline must keep reading the month keys UniqueScanCounts fills. The `Leader for {label}:` / `Runner-up for {label}:` prefixes are a house convention asserted by tests/e2e/staging-live-hit-leader.spec.ts: only the tail after the number changes.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/UniqueScansLeaderboard.php",
+        "tests/Filament/Widgets/Dashboard/UniqueScansLeaderboardTest.php"
+      ],
+      "intended_diffs": "UniqueScansLeaderboard.php: five string edits at :58, :110, :141, :255, :276-277 and nothing else. UniqueScansLeaderboardTest.php: a single test asserting the rendered heading, RawJs options source, dataset label and description contain no case-insensitive 'unique', plus an explicit assertion that getCardKey() is still 'unique-scans-leaderboard'.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "UniqueScansLeaderboardTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t7",
+      "title": "Registry cutover: 16 -> 12 cards in the confirmed order, docblock rewrite, registry + gating tests",
+      "approach": "The single serialization point -- every merge touches this registry, so it is its own node and runs AFTER all four merges so no intermediate commit ships a card whose figure has been deleted but not yet folded onto its survivor. Delete 'scan-count', 'unique-scans-to-repo', 'unique-scans-to-case-claims' and 'unique-scans-to-lpr-repossession' from CompanyMetricsOverview::cards() (:92-112) and reorder to decision 1's layout: unique-scan-counts, unique-lpr-case-claims, lpr-repossessions, recovery-counts, live-hits, historical-hits, staging-live-hits, staging-historical-hits, missed-opportunities, unique-scans-leaderboard, recovery-leader, staging-live-hit-leader. All three pinned constraints hold: leaderboards are the last three in order; the four hit cards are contiguous at indices 4-7; unique-scan-counts (0) precedes unique-scans-leaderboard (9). Rewrite the docblock (:46-91) using DashboardCardExpansionTest.php:156-159 as ground truth, NOT the class's own prose at :52-56 which already contradicts its own array. Also fix the two stale docblocks the merge invalidates and prune DashboardWidget::getStatColor()'s now-unreachable arms. The gated allowlist drops to five keys: unique-scan-counts leaves it (decision 2 ungates the card) and recovery-counts does NOT join it (decision 3 gates a figure, not the card) -- keep it an explicit allowlist, never a tautology over cards().",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php",
+        "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+        "app/Filament/Widgets/Dashboard/Concerns/DashboardMetricCard.php",
+        "app/Filament/Widgets/Dashboard/Concerns/SharedHitStatsData.php",
+        "tests/Filament/Pages/DashboardCardExpansionTest.php",
+        "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php"
+      ],
+      "intended_diffs": "CompanyMetricsOverview.php: cards() array cut to 12 keys in the order above; docblock grid table rewritten to row1 = Unique Scan Counts | Unique LPR Case Claims | LPR Repossessions | Total Repossessions, row2 = the four hit cards, row3 = Missed Opportunities | Scans Leaderboard | LPR Recovery Leaderboard | Staging Live Hit Leaderboard; drop the recent card-reorder FREEZE paragraph about Unique Scans to Case Claims's slot (that card no longer exists); drop the four `use` imports for the deleted classes. DashboardWidget.php:326-341 getStatColor(): remove the 'scan-count', 'unique-scans-to-repo', 'unique-scans-to-lpr-repossession' and 'unique-scans-to-case-claims' arms (hygiene -- an extra arm is safe, so this is cleanup, not a fix) and the comment that explains the scan-count colour pairing. DashboardMetricCard.php:41: the docblock names UniqueScanCounts as a canViewCardData() overrider -- it no longer is; restate the overriders as MissedOpportunities, StagingLiveHitLeader, UniqueLprCaseClaims, LprRepossessions, UniqueScansLeaderboard and mention RecoveryCounts's new per-figure seam. SharedHitStatsData.php:693: the docblock excludes 'ScanCount/RecoveryCounts' from the trait -- ScanCount is gone; say UniqueScanCounts/RecoveryCounts. DashboardCardExpansionTest.php: assertCount(16)->12 at :95, the full key/class map at :152-205 rewritten, the leaderboards-last-three and unique-scan-counts-precedes assertions re-verified, and the two unrelated tests that use 'scan-count' as a generic real key (:238-239, :389) repointed at 'unique-scan-counts'. DashboardCardVisibilityTest.php: assertCount(16)->12 at :208; the $expectedGated allowlist at :59-73 and the mirror at :481-497 become exactly ['staging-live-hit-leader','missed-opportunities','unique-lpr-case-claims','unique-scans-leaderboard','lpr-repossessions'] with a comment recording WHY unique-scan-counts left (decision 2) and why recovery-counts did not join (decision 3, partial gate); :237's 'scan-count' stand-in repointed.",
+      "depends_on": [
+        "t2",
+        "t3",
+        "t4",
+        "t5"
+      ],
+      "parallelizable": false,
+      "test_filter": "DashboardCardExpansionTest|DashboardCardVisibilityTest",
+      "ui_impact": true,
+      "blast_radius": [
+        "auth"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "t8",
+      "title": "Delete the four absorbed classes, repoint the ScanCount test fixtures, drop the orphaned suites",
+      "approach": "Decision 4, and it must follow t7 -- deleting a class still named in cards() fatals the grid. Delete ScanCount.php, UniqueScansToRepo.php, UniqueScansToCaseClaims.php and UniqueScansToLprRepossession.php plus their six dedicated test files (~3,300 lines). Three fixture sites use ScanCount as a generic non-hit-card exemplar and each needs a surviving replacement: ThrowingQueryCard.php:8 `extends ScanCount` fatals at class load -- repoint it at UniqueScanCounts (still a DashboardWidget + ExplainsCardQuery, still the scan family, and now ungated so the fixture needs no entitlement setup); DashboardMonthLabelsTest.php:7,95,173 pins the month-bucket overflow guard month-bucket overflow -- UniqueScanCounts is the closest analogue since it inherited the same monthKeyStart() anchoring in t2; DashboardCardMetricsTest.php:10,206,451,469,475 includes a Livewire::test mount, so the replacement must be mountable and ungated -- UniqueScanCounts again. Verify after repointing that DashboardMonthLabelsTest still fails when the monthKeyStart() anchoring is reverted; a fixture swap that silently defeats the regression it guards is the hazard here. UniqueScansToCaseClaims's private heldFlexible() duplicate (:457-491, the ticket's named cleanup target) is resolved by this deletion -- both surviving ratio cards already use HeldFlexibleCache.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/ScanCount.php",
+        "app/Filament/Widgets/Dashboard/UniqueScansToRepo.php",
+        "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php",
+        "app/Filament/Widgets/Dashboard/UniqueScansToLprRepossession.php",
+        "tests/Filament/Pages/ThrowingQueryCard.php",
+        "tests/Filament/Widgets/Dashboard/DashboardMonthLabelsTest.php",
+        "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardMetricsTest.php",
+        "tests/Filament/Widgets/Dashboard/ScanCountTest.php",
+        "tests/Filament/Widgets/Dashboard/UniqueScansToRepoTest.php",
+        "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsTest.php",
+        "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsHerdGuardTest.php",
+        "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsWindowSeamTest.php",
+        "tests/Filament/Widgets/Dashboard/UniqueScansToLprRepossessionTest.php"
+      ],
+      "intended_diffs": "git rm the four app classes and the six absorbed-card test files. ThrowingQueryCard.php: `class ThrowingQueryCard extends UniqueScanCounts implements ExplainsCardQuery` with the import updated. DashboardMonthLabelsTest.php: the `use` at :7 and the two fixture instantiations at :95/:173 move to UniqueScanCounts; the stubbed query seam changes from ScanStatsBatchQuery to whatever t2 named the ported total leg, so the month-overflow assertion still exercises the same monthKeyStart() path. DashboardCardMetricsTest.php: the `use` at :10 and the four sites at :206/:451/:469/:475 move to UniqueScanCounts, including the Livewire::test mount. Before deleting UniqueScansToRepoTest/UniqueScansToCaseClaimsTest/UniqueScansToLprRepossessionTest, read them for assertions the SURVIVORS now own (the shared-numerator month-key contract, the herd-guard windows, the '--' degrade) and fold any that t1/t3/t4/t5 did not already reproduce into the trait test or the survivor's own test rather than losing the coverage with the file.",
+      "depends_on": [
+        "t7"
+      ],
+      "parallelizable": false,
+      "test_filter": "DashboardMonthLabelsTest|DashboardCardMetricsTest|DashboardCardExpansionTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t9",
+      "title": "Fix all seven affected Playwright specs and the shared company-metrics helper",
+      "approach": "Decision 6 -- all seven, including the two ALREADY RED on main. Establish the red baseline first (check out main, run the two specs, record the failures) so the PR body can say plainly which failures pre-date this diff: unique-lpr-case-claims.spec.ts and lpr-repossessions.spec.ts assert claimsAt === recoveryCountsAt + 1, which is 2 === 4 against current cards(); the assertions date from an earlier card-slot mockup ticket/2464 and the recent card-reorder reordered cards() without updating them. Playwright is not wired into CI (no workflow references playwright or tests/e2e), so `npm run test:e2e` is the only gate. Two specs lose their subject entirely -- unique-scans-to-case-claims.spec.ts and unique-scans-to-lpr-repossession.spec.ts -- so delete them and fold any assertion that survives the merge (the ratio value, the degrade state) into unique-lpr-case-claims.spec.ts and lpr-repossessions.spec.ts respectively. The remaining adjacency arithmetic must be re-derived against the 12-card order, and unique-scans-leaderboard.spec.ts additionally asserts the old 'Unique Scans Leaderboard' heading (t6) and that scan-count is present in the Pro grid (now false).",
+      "target_files": [
+        "tests/e2e/helpers/company-metrics.ts",
+        "tests/e2e/unique-scans-to-case-claims.spec.ts",
+        "tests/e2e/unique-scans-to-lpr-repossession.spec.ts",
+        "tests/e2e/staging-live-hit-leader.spec.ts",
+        "tests/e2e/unique-scans-leaderboard.spec.ts",
+        "tests/e2e/missed-opportunities.spec.ts",
+        "tests/e2e/unique-lpr-case-claims.spec.ts",
+        "tests/e2e/lpr-repossessions.spec.ts"
+      ],
+      "intended_diffs": "helpers/company-metrics.ts:5-54: drop SCAN_COUNT_CARD_KEY and the three removed ratio card keys, correct the stale leaderboard heading to 'Scans Leaderboard', and rebuild COMPANY_METRICS_CARD_HEADINGS as the exact 12-entry registry (it already omits unique-scans-to-repo -- that omission is a bug, not a precedent). Delete unique-scans-to-case-claims.spec.ts and unique-scans-to-lpr-repossession.spec.ts. staging-live-hit-leader.spec.ts:129-158,445-455,506-516: the recoveryCountsAt+2/+3 offsets encode 16-card spacing; re-derive, and prefer an index-of-key lookup over arithmetic so the next reorder cannot silently rot them. unique-scans-leaderboard.spec.ts:41,209-226,437-455,504-506,540,545: remove the scan-count-present assertion, update the heading assertion to 'Scans Leaderboard', re-derive the adjacency. missed-opportunities.spec.ts:112-124,317-327,373-387: re-derive adjacency and repoint the expandCard(SCAN_COUNT_CARD_KEY) call at UNIQUE_SCAN_COUNTS_CARD_KEY. unique-lpr-case-claims.spec.ts:114-124,272-276,325-329,337 and lpr-repossessions.spec.ts:129-142,307-314,363-370: replace the broken adjacency chain outright against the new order, and add coverage for the merged card's description line and dual-axis chart.",
+      "depends_on": [
+        "t6",
+        "t7",
+        "t8"
+      ],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {
+      "site": "resources/ views, config/, database/ seeders and factories, routes/ (exhaustiveness #21)",
+      "reason": "grep-verified zero hits for any removed key or absorbed class -- nothing to change."
+    },
+    {
+      "site": "app/Models/AggregateScanCountByHour.php, AggregateScanCountUniqueByHour.php, RecoveriesKitUserScansReport.php, database/factories/AggregateScanCountByHourFactory.php, database/seeders/LocalDataSeeder.php (exhaustiveness #22)",
+      "reason": "False positives -- substring matches on 'ScanCount' in unrelated models; touching them would be unrelated drift."
+    },
+    {
+      "site": "okf/concepts/company-metrics-dashboard.md, billing-events.md, platform-gotchas.md, recovery.md, models/aggregate_scan_count_h.md, models/aggregate_scan_count_unq_h.md, models/index.md (exhaustiveness #23)",
+      "reason": "CLAUDE.md WRITE rule -- wiki edits land POST-merge only; company-metrics-dashboard.md is additionally stale on main (16 cards, 5-card gated list vs nine in code) and both drifts get corrected in one post-merge pass."
+    },
+    {
+      "site": "docs/investigations/** (106 hits, exhaustiveness #24)",
+      "reason": "Historical artifacts, not executable; rewriting them would falsify the record."
+    },
+    {
+      "site": "tests/Filament/Widgets/Dashboard/Concerns/CardQuerySqlFidelityTest.php",
+      "reason": "Iterates cards() dynamically so it self-adjusts; each survivor's extended getCardQueryStatements() is written under t2-t5 and this test is the consumer that proves it resolves, so it needs no edit of its own."
+    },
+    {
+      "site": "app/Clickhouse/Queries/* (ScanStatsBatchQuery, ScanPlateStatsBatchQuery, LprRepossessionsQuery, UniqueLprCaseClaimsQuery, RecoveryTotalsBatchQuery)",
+      "reason": "Explicitly out of scope -- only the widget layer changes; the hardcoded clarity-prefix issue's hardcoded `clarity.` prefix is a Phase 6 local-QA workaround, not a fix to make here."
+    },
+    {
+      "site": "ScanCount's Scan::hot()::query() setTable-discard bug (the known setTable-discard bug), ported verbatim into UniqueScanCounts by t2",
+      "reason": "Operator constraint: preserve as-is, do not silently fix unrelated drift."
+    }
+  ]
+}

@@ -1,0 +1,663 @@
+{
+  "key": "DEV-2463",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "base-resolve.sh returned 6 candidates, all in the otto/stack-otto family (cursor/95646b69, otto, stack-otto-hits, stack-otto-hotlist, stack-otto-scout, stack-otto-kb). None carries Company Metrics work. The DEV-2409 epic branch 'company-metrics' no longer exists on origin - it was merged to main via PR #384 - and the two most recent sibling cards (DEV-2461 b6df2039, DEV-2462 8d1cadd6) landed directly on main. Driver decision, no sub-agent dispatched: the candidate set had zero topical overlap with this ticket, so the pick was not a judgement call.",
+  "branch": "claude/DEV-2463",
+  "phase": "done",
+  "models": {
+    "base": "n/a (no dispatch)",
+    "recall": "n/a (driver direct)",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "grep-backstop",
+      "model": "haiku",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 238
+    },
+    {
+      "slot": "prep-candidate:2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 715
+    },
+    {
+      "slot": "prep-candidate:1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 738
+    },
+    {
+      "slot": "prep-candidate:3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 819
+    },
+    {
+      "slot": "plan-arbiter",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "plan",
+      "dur_s": 125
+    },
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 456
+    },
+    {
+      "slot": "implement:t2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 859
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false,
+    "eli5": true,
+    "stop_at_reason": "Operator said Continue 2026-09-08 -- stop_at cleared; one bounded fix cycle then RN=2."
+  },
+  "knowledge_cards_loaded": [
+    "clarity/testing.md",
+    "clarity/filament-tables.md",
+    "clickhouse/core.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "5 open questions named in the ticket body",
+    "competing options in comments (description says Postgres do-not-relitigate; comment 39116 recommends ClickHouse)",
+    "billing-adjacent blast radius",
+    "scale_relevant new CH query class on a dashboard render path",
+    "cross-branch dependency on two shared-infra fixes stranded on the held DEV-2464 branch"
+  ],
+  "best_of_n": true,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [],
+  "perf_validation": {
+    "required": true,
+    "ch_tables": [
+      "zod.public_billing_events",
+      "zod.public_api_keys",
+      "zod.public_orgs"
+    ],
+    "approach": "Single-pass ClickHouse claims funnel (count/countIf/uniqExactIf from ONE scan), one Cache::flexible([3600,86400]) query per resolved window, sparkline as a toStartOfMonth GROUP BY inside that same query.",
+    "measurement": "Server-side via the X-ClickHouse-Summary header (no READ ON REMOTE needed): read_rows 39,949,441 (identical for 1-month and 3-month), read_bytes 1.83-2.03 GB, peak memory_usage 489 MB. Interleaved A/B n=6 on the worst-case org: 1-month median 0.307s p90 0.308s max 0.322s; 3-month median 0.351s p90 0.356s max 0.378s (+14% median). All warm; cold first-touch measured 0.4-3.2s. All six of the ticket's target figures reproduced EXACTLY (15,128/14,288/11,975 total; 9,340/9,262/7,230 largest forwarder), and the insightlpr exclusion reproduced its own 15,160-32=15,128 self-check. Three-CTE-reference form costs 3x the read_rows (119.8M) -- use the single-pass form. Detail: docs/investigations/DEV-2463/perf-measurement.md CORRECTION after a second interleaved session: the earlier 'no fat tail' reading was a quiet-window artifact. Identical query, same org/window: median 3.616s, max 9.306s under contention vs 0.307s median quiet. read_rows byte-identical at 39,952,007 across 1-, 3- AND 13-month spans, so a 13-month sparkline is FREE (-1.0% vs 1 month). Worst-case org re-verified as org 165 (7,230 vs runner-up 2,696). SHIPPED-CLASS VERIFICATION 2026-09-08: SQL rendered out of UniqueLprCaseClaimsQuery::sql() by reflection (not the hand-written prep SQL) and run read-only against production -- all SIX target figures EXACT (15,128/14,288/11,975 platform-wide; 9,340/9,262/7,230 org 165). read_rows 39,967,136 identical org-scoped vs platform-wide (confirms nothing prunes); peak memory 399-403 MB; wall 5.8-7.0s (contended band). See docs/investigations/DEV-2463/shipped-class-verification.md",
+    "verdict": "go",
+    "measured_at": "2026-09-08"
+  },
+  "diff_base": "8b68529afd724c20be80632d1cbb6876129804ef",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": null,
+      "branch": "claude/DEV-2463 (on-branch, no worktree)",
+      "complexity": "complex",
+      "model": "sonnet"
+    },
+    {
+      "id": "t2",
+      "status": "merged",
+      "worktree_path": null,
+      "branch": "claude/DEV-2463 (on-branch, no worktree)",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 3,
+  "pr": {
+    "number": 392,
+    "url": "https://github.com/insight-lpr/platform/pull/392",
+    "draft": true
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": "pipeline-mcp @ 2026-09-08T15:05:00Z",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "Undraft did NOT trip a GH Action (status was still In Progress afterwards), so the pipeline transitioned via the Atlassian MCP: transition id 4 -> In Code Review.",
+  "assumed": [],
+  "comment_ids": {
+    "status": "39208",
+    "calculation_report": "39249",
+    "build_record": "39278",
+    "build_record_correction": "39279"
+  },
+  "inherits_from": {
+    "ticket": "DEV-2464",
+    "branch": "claude/DEV-2464",
+    "worktree": "/Users/daltonmccleery/Herd/platform/.claude/worktrees/dev-2441-6805e6",
+    "head": "cc34c05c",
+    "artifacts": [
+      "prep-context.json",
+      "perf-measurement.md",
+      "okf-findings.md",
+      "driver-verification.md"
+    ],
+    "stranded_infra_fixes": [
+      "database/schema/clickhouse-schema.sql (+zod.public_billing_events)",
+      "tests/Concerns/RequiresClickhouse.php (+4 zod.public_* truncations)"
+    ]
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "resource_envelope": {
+      "path": ".context/qa-resource-envelope.json",
+      "verdict": "PASS",
+      "basis": "production measurement via the X-ClickHouse-Summary response header (Phase 1); NOT re-measured against the 9-row local seed",
+      "scale_relevant": true,
+      "scheduled": false,
+      "peak_rss_bytes": 489000000,
+      "wall_clock_seconds": 9.3,
+      "plausible_concurrency": null,
+      "projected_marginal_gb": null,
+      "headroom_gb": null,
+      "host_ram_gb": 68,
+      "extrapolation_factor": null,
+      "read_rows": 40000000,
+      "read_bytes": 1830000000,
+      "notes": "Not a scheduled command or job -- no cadence, no overlap window, no concurrent-copy multiplier to grade. One cache-guarded query per resolved window per org on a page load. The 9.3 s fat tail (vs a 0.31 s quiet-window p50) is why COLD_BLOCK_SECONDS=12 and COLD_LOCK_SECONDS=90; the round-2 5 s block would never have bound. PHP-side allocation is O(1)."
+    },
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "already-running",
+      "ch_container": "clarity-qa-clickhouse (literal clarity/zod on :18123)",
+      "frontend_build": "n/a",
+      "postgres_db": "zod_claude_dev_2463_419347 (+ testing zod_testing_claude_dev_2463_419347)",
+      "ch_strategy": "docker",
+      "herd_site": "clarity-claude_dev_2463_419347.test",
+      "notes": "Warm path -- branch was renamed this session so DB names are keyed to the OLD name; both DBs already existed + were migrated, so NO bootstrap ran and nothing was re-keyed. Neutralized a PRODUCTION ClickHouse Cloud host out of .env/.env.testing. PostGIS tiger.state patch applied; baseline reseed took scans 0->862. AGENT-QA UPDATE: CH was later stood up for real (docker, literal clarity/zod DBs on :18123) and .env.testing's CLICKHOUSE_DRIVER was flipped from pgsql to clickhouse -- it would otherwise have silently SKIPPED every ClickHouse test (all green, nothing run). Container was at 61% memory after the pass; restart it before human QA."
+    },
+    "provisioned_early": true,
+    "verdict_at": "2026-09-08T19:21:22Z",
+    "verdict_run": "7944ebe0",
+    "agent_qa": {
+      "items_total": 11,
+      "items_passed": 11,
+      "red": 0,
+      "failed": 0,
+      "lanes": {
+        "browser": 2,
+        "backend": 1
+      },
+      "browser_sessions": [
+        "qa-release-skill-vpn-monitoring-8c2bc8-1",
+        "qa-release-skill-vpn-monitoring-8c2bc8-2",
+        "qa-release-skill-vpn-monitoring-8c2bc8-3"
+      ],
+      "sessions_reaped": true,
+      "screenshots": 3,
+      "screenshot_manifest": ".context/qa-screenshots/manifest.json",
+      "findings_yellow": 2,
+      "findings": [
+        "YELLOW (not a regression): one error-level log line, ClickHouse error 241 at 5.21 GiB container RSS, verified to belong to HitStatsBatchQuery (owned by SharedHitStatsData, the four hit cards) -- stack trace names only that file, UniqueLprCaseClaims appears 0 times in the new log, neither file is in this diff, and a reload immediately re-rendered This Month = 5. Local-container memory pressure. ALSO observed confirmation of the accepted finding-4 blast radius: CompanyMetricsOverview::getStats() has no per-card try/catch, so one card's CH failure 500s all ten. House-wide follow-up queued; deliberately not attempted here.",
+        "YELLOW (coverage gap): the locked / non-entitled render was not browser-verified -- this DB has exactly one entitled org. Covered by 6 gating-matrix unit tests + test_locked_stat_renders_the_placeholder_and_executes_no_query. Flagged to human QA as ec-1."
+      ],
+      "human_plan_revision": 2
+    },
+    "human_guide": ".context/qa-human-guide.html",
+    "awaiting_human_qa": false,
+    "parked_at": "2026-09-08T19:39:31Z",
+    "human_plan_revision": 2,
+    "env_correction_at_handoff": "A late bootstrap (after agent QA passed) had repointed .env/.env.testing at an unsuffixed set: DB_DATABASE=zod_claude_dev_2463 (thin: 4 orgs, 0 scans) instead of the seeded zod_claude_dev_2463_419347 (336 orgs, 862 scans), and CLICKHOUSE_DATABASE_CLARITY/_ZOD at zod_claude_dev_2463 -- a ClickHouse database that DOES NOT EXIST. The operator's card would have been dead on arrival. Restored to the QA-validated config (literal clarity/zod for CH) and re-verified through the booted app: window()=7/6/5, monthlySeries=1 bucket, cards()=10 with the card at index 2, GET /app -> 302. Backups in .context/env-*-before-handoff-fix.backup. Env only; no app code changed.",
+    "teardown_note": "TWO Postgres sets and TWO Herd sites exist (branch rename + a later bootstrap). The ledger records only the _419347 set, so a ledger-driven teardown will leave zod_claude_dev_2463, zod_testing_claude_dev_2463 and site clarity-claude_dev_2463.test orphaned -- remove by hand. ClickHouse: stop/remove the container clarity-qa-clickhouse ONLY; do NOT drop the literal clarity/zod databases (shared with other worktrees and local dev).",
+    "human_qa_completed_at": "2026-09-08T20:04:37Z",
+    "torn_down_at": "2026-09-09T14:13:41Z",
+    "teardown": {
+      "method": "MANUAL - deliberately NOT insightlpr:qa-complete / clickhouse-qa down.sh",
+      "why_manual": "down.sh drops $CH_DB_CLARITY and $CH_DB_ZOD. For this worktree those resolve to the LITERAL 'clarity' and 'zod' databases (required here: RequiresClickhouse truncates fully-qualified literals and ~10 query classes hardcode the prefix), which are SHARED with local dev and every other platform worktree. Running the sanctioned path would have executed DROP DATABASE clarity and DROP DATABASE zod, destroying data belonging to dev_2409, dev_2426 and local dev. Matches the repo's own standing guidance to tear ClickHouse down by hand.",
+      "postgres_dropped": [
+        "zod_claude_dev_2463_419347",
+        "zod_testing_claude_dev_2463_419347",
+        "zod_claude_dev_2463",
+        "zod_testing_claude_dev_2463"
+      ],
+      "postgres_note": "Four, not two. The ledger recorded only the _419347 pair; the unsuffixed pair was created by a later bootstrap after the branch rename and would have been orphaned by a ledger-driven teardown.",
+      "herd_unlinked": [
+        "clarity-claude_dev_2463_419347",
+        "clarity-claude_dev_2463"
+      ],
+      "herd_verified": "Other .test sites re-probed after the nginx restart (2dbiz.test -> 200); no 'rewrite ^ \"\" last;' bug present.",
+      "clickhouse": "Container clarity-qa-clickhouse KEPT ON PURPOSE - it hosts clarity_claude_dev_2409, zod_claude_dev_2409, clarity_claude_dev_2426, zod_claude_dev_2426 and the shared literal clarity/zod. This ticket created no per-worktree CH database.",
+      "clickhouse_residue": "9 synthetic case-claim rows remain in the shared zod.public_billing_events. Left in place deliberately: deleting them is a mutation on a database other worktrees share, and any full test-suite run truncates these tables anyway. Re-creatable from docs/investigations/DEV-2463/qa/ch-seed.sql.",
+      "context_destroyed": ".context/ removed, including env-restore.txt and the two env backups that held a live read-only ClickHouse Cloud credential. The tracked .context/.gitkeep was restored afterwards.",
+      "build_record_source_preserved": "docs/investigations/DEV-2463/qa/ledger-snapshot.json (all 7 qa_log entries, sanitized), plus agent-qa-report.md, ac-results.json, resource-envelope.json, both QA plans and ch-seed.sql - committed BEFORE teardown because Phase 7 forbids assembling the Build Record from session memory and the Build Record is deferred."
+    },
+    "calculation_signoff": {
+      "at": "2026-09-09T13:16:27Z",
+      "by": "Oscar Nunez (relayed by the operator)",
+      "verbatim": "Brek spot checked these and confirmed they were close enough to what hes tracking",
+      "scope": "A SPOT CHECK, not a line-by-line reconciliation. Brek confirmed the per-org figures are close enough to what he tracks. Recorded at that strength deliberately: the exact-match claim in this ticket rests on the platform-wide July 2026 totals (15,128 / 14,288 / 11,975), which reproduce Brek's Repo Report to the digit and were verified by rendering SQL out of the shipped class. The per-org numbers carry Brek's spot-check confidence, not a digit-exact reconciliation.",
+      "jira_comment": "39249"
+    },
+    "teardown_history": [
+      {
+        "at": "2026-09-09T14:13:41Z",
+        "round": 2,
+        "method": "MANUAL - deliberately NOT clickhouse-qa down.sh",
+        "why_manual": "Unchanged from round 1: down.sh drops $CH_DB_CLARITY/$CH_DB_ZOD, which for this worktree resolve to the LITERAL clarity/zod databases shared with local dev and with clarity_claude_dev_2409 / _2426. Running it would issue DROP DATABASE clarity.",
+        "postgres_dropped": [
+          "zod_claude_dev_2463",
+          "zod_testing_claude_dev_2463"
+        ],
+        "herd_unlinked": [
+          "clarity-claude_dev_2463"
+        ],
+        "clickhouse": "container clarity-qa-clickhouse KEPT (shared); no per-worktree CH database was ever created for this ticket",
+        "context_removed": ".context/ emptied; the tracked .gitkeep was preserved this time (round 1 deleted it by accident and it had to be restored)",
+        "herd_verified": "other .test sites re-probed after the nginx restart (2dbiz.test -> 200)",
+        "no_credential_present": "unlike round 1, .context held no credential-bearing file this run (env-restore.txt was destroyed in round 1 and never recreated)"
+      }
+    ],
+    "qa_rounds": 2,
+    "closeout_note": "Round-2 closeout intentionally did NOT post a QA-summary Jira comment or re-run the PR/transition steps: the Build Record (39278) plus its correction (39279) already cover QA performed in full, the PR is already undrafted and green, and the ticket is already In Code Review. A third QA comment would be duplicate noise on an already heavily commented ticket. Offered to the operator instead."
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --filter=UniqueLprCaseClaimsQueryTest",
+        "passed": 12,
+        "failed": 0,
+        "note": "12 real passes / 23 assertions, driver-reverified. NOT skipped -- confirmed real per-test durations after flipping .env.testing CLICKHOUSE_DRIVER from pgsql to clickhouse."
+      },
+      {
+        "cmd": "PHPRC=<memory_limit=3G> php vendor/bin/phpunit --no-coverage (FULL SUITE)",
+        "passed": 1790,
+        "failed": 11,
+        "note": "Tests: 1807, Assertions: 7328, Errors: 1, Failures: 10, Skipped: 4, Incomplete: 1, Risky: 1. ZERO REGRESSIONS: all 11 verified pre-existing by running the same suites on a detached origin/main. The suites are non-deterministic on main itself (HasStatDrillDownTest gave 4/4/7 failures on the SAME commit; ClarityScoutTripsControllerTest 0/1/0) because the CH container was at 73.9% memory -- the documented false-failure condition. After docker restart (down to 36.1%), main and this branch were IDENTICAL at 5/0/2/1 = 8 pre-existing failures. Detail: docs/investigations/DEV-2463/test-baseline.md"
+      },
+      {
+        "cmd": "php artisan test --filter=<this ticket's 7 suites>",
+        "passed": 94,
+        "failed": 0,
+        "note": "Incl. both sibling cards (MissedOpportunities 13/13, StagingLiveHitLeader 21/21) and FeatureEnumTest 3/3 (no new enum case, assertCount(18) intact)."
+      },
+      {
+        "cmd": "PHPRC=<3G> php vendor/bin/phpunit --no-coverage (FULL SUITE, round 2)",
+        "passed": 1789,
+        "failed": 21,
+        "note": "Tests: 1810, Errors: 5, Failures: 16. None in a touched file. NOT a regression -- investigated because the count rose from 11. 7 entries (incl. the MissedOpportunities sibling and 6 HotlistsResource) pass IN ISOLATION. The 2 stubborn ones were then run on both branches post-container-restart: this branch 4/4 GREEN where origin/main failed 3 of the same 4. The failing population's SIZE tracks ClickHouse container memory (52% at run time), not the diff. Detail: docs/investigations/DEV-2463/test-baseline.md"
+      },
+      {
+        "cmd": "PHPRC=<3G> php vendor/bin/phpunit --no-coverage (FULL SUITE, RN=3 tip)",
+        "passed": 1798,
+        "failed": 19,
+        "note": "Tests: 1817, Errors: 3, Failures: 16. None in a touched file. Same flaky population: MissedOpportunitiesTest 13/13, StagingLiveHitLeaderQueryTest 9/9 and ClarityScoutTripsControllerTest 22/22 all pass in ISOLATION; the only genuine isolated failure (ClarityScoutMapControllerTest) fails identically on origin/main. Container was at 60.2%. Across four runs the count went 10 -> 21 -> 10 -> 19 tracking container memory, not the diff. See test-baseline.md."
+      }
+    ],
+    "deviations": [
+      {
+        "source": "driver-review",
+        "edit": "t2 set getStatColor() to 'purple', which is NOT registered in PlatformPanelProvider::colors() -- FilamentColor::getColor('purple') returns null, so the card renders untinted with no error. The worker flagged this honestly rather than expanding scope. Driver resolved it WITHOUT touching the shared PlatformPanelProvider trait (it backs BOTH the app and client panels): changed the arm to 'success' (registered; neither immediate grid neighbour -- recovery-counts 'info', staging-live-hit-leader 'warning' -- collides), paired getRgbColor() to ScanCount's success RGB [34,197,94] because it still returned purple [147,51,234] and would have made the sparkline disagree with the stat tint, corrected the now-stale class docblock that still described the purple decision, and HARDENED the widget test to assert FilamentColor::getColor() resolves -- verified the hardened test fails on 'purple' and passes on 'success'.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "driver-review",
+        "edit": "CORRECTION to my own earlier claim, propagated into prep-context, plan.json, the PR body and the Jira mirror: I stated 'Cache::flexible has ZERO prior uses in this repo'. That is WRONG. The grep backstop searched the facade form 'Cache::flexible' and missed the helper form 'cache()->flexible(' -- there are THREE prior uses (app/Models/Org.php:197, :233, app/Models/Concerns/HitAlertSettings.php:29). Lane A caught it. This matters in the change's favour: Org::getHotlistClients() is a hot production path, which empirically rules out a Redis-cluster CROSSSLOT failure on flexible()'s two-key read.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "qa-loop",
+        "edit": "Restored .env/.env.testing to the QA-validated configuration (seeded _419347 Postgres set; LITERAL clarity/zod ClickHouse databases) after a late bootstrap re-keyed them. Environment only -- no application code changed.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "ci-fix",
+        "edit": "tests/Filament/Widgets/Dashboard/UniqueLprCaseClaimsLabelAxisTest.php: declare its own series stub (SeriesStubbingLabelAxisWidget) instead of borrowing StubbingUniqueLprCaseClaims from UniqueLprCaseClaimsTest.php. Also removed a copy-pasted docblock in the same file that described a counting subclass this file never uses.",
+        "why": "CI Pint & Tests shard 1/3 FAILED on 1e8f89ec with 'Class Tests\\Filament\\Widgets\\Dashboard\\StubbingUniqueLprCaseClaims not found'. CI shards by test FILE across 3 shards, so a stub borrowed from a sibling file resolves locally (one process loads every file) and dies on whichever shard lacks that sibling. My other three test files each declare their own stubs; LabelAxis was the lone outlier. The new stub is named distinctly on purpose -- a shared name would fatal on redeclaration when both files DO land on the same shard.",
+        "verification": "Reproduced the shard condition directly: loading ONLY the LabelAxis file resolves SeriesStubbingLabelAxisWidget and no longer references the sibling's stub; loading both files in one process raises no redeclaration fatal. Pint passes. A repo-wide sweep for the same cross-file test-helper borrowing found no other instance. The suite could NOT be run locally -- the branch testing database was dropped during QA teardown -- so CI is the verifier.",
+        "materiality": "ONE file, test-only, no application code touched, none of the sensitive/scoring globs, no approach change. Light path per the Phase 7 materiality guard: applied and logged rather than re-entering Phase 5.",
+        "ac_ref": null,
+        "ac_delta": null,
+        "at": "2026-09-09T13:19:32Z"
+      },
+      {
+        "source": "ticket-supersession",
+        "edit": "Route: implemented on ClickHouse, not the Postgres `zod` route the ticket description lists under \"Decided already \u2014 do NOT re-litigate\".",
+        "why": "Comment 39116 recommends ClickHouse and post-dates the description; all three independent prep passes converged on it, and sibling DEV-2464 (held so this card ships first) is built the same way. This card touches only billing_events + api_keys + orgs, never the 136M-row hotlist or 389M-row hotlist_status_log, so the joins the Postgres route guarded against are not in play. The ticket recorded production Postgres cost as an ACCEPTED UNMEASURED RISK (no live EXPLAIN reachable); the ClickHouse route is measured end to end. Recorded in the Build Record under a dedicated heading so a reader comparing ticket to code is not left confused.",
+        "ac_ref": null,
+        "ac_delta": null
+      }
+    ],
+    "review": {
+      "lanes": [
+        "claude1",
+        "claude2",
+        "claude3"
+      ],
+      "scores": [
+        92,
+        92,
+        92
+      ],
+      "findings_fixed": [
+        {
+          "id": "M1",
+          "class": "correctness/temporal",
+          "summary": "UTC data axis vs viewer-timezone label axis. getMonthlyData() bucketed in UTC but getGraphLabels(), getHighlightedMonthsFromFilter() and getDescription() all read auth()->user()->timezone, so for ~5-6h at every UTC month start every bar was labelled one month off its data and 'Current Month' showed the wrong month. DRIVER-CONFIRMED at DashboardWidget.php:161,171,172. FIXED: all three overridden to UTC.",
+          "found_by": [
+            "A",
+            "B"
+          ]
+        },
+        {
+          "id": "M2",
+          "class": "data/correctness",
+          "summary": "Monthly cache key carried NO window identity ('unique-lpr-case-claims:monthly-series:org=165'), so a UTC month rollover served a stale map whose new-month bucket was absent -> ?? 0 -> a FABRICATED ZERO indistinguishable from a legitimate zero (the very collision the ticket's own AC forbids). DRIVER-CONFIRMED by rendering the key. FIXED: the UTC month is now in the key; verified it rotates 2026-09 -> 2026-10 across the boundary.",
+          "found_by": [
+            "A",
+            "B"
+          ]
+        },
+        {
+          "id": "M4",
+          "class": "test-integrity",
+          "summary": "The two central counting rules were UNPINNED. DRIVER-CONFIRMED BY MUTATION: replacing uniqExactIf((forwarder,agent,vin), success AND vin!='') with countIf(vin!='') -- removing BOTH the dedup and the success filter -- passed all 12 tests. FIXED: added 3 regression tests (identical triples collapse; failed claims counted in all_claims but excluded from successful/deduped; same VIN + same forwarder + two agents = 2). Mutant now KILLED (2 failures); suite 15/15.",
+          "found_by": [
+            "A",
+            "B"
+          ]
+        }
+      ],
+      "findings_residual": [
+        {
+          "id": "B-L1",
+          "verdict": "REJECTED - misattributed",
+          "summary": "Lane B claimed the card newly breaks StagingLiveHitLeaderTest under CLICKHOUSE_DRIVER=pgsql. DRIVER-VERIFIED FALSE: the identical test fails on origin/main under the same bridge, at the same ScanCount.php:51. Not a regression. The underlying observation (raw CH SQL with no driver branch, rethrows under the bridge) is true but pre-existing house shape (CohortDeclinedQuery)."
+        },
+        {
+          "id": "A-M5 / B-M3",
+          "verdict": "OPEN - not yet actioned",
+          "summary": "Resource envelope: Cache::flexible's cold path has NO herd lock (Repository.php:631-636), so a cache:clear + login wave admits one 40M-row scan per entitled org per tab; and the today/last_7d seam runs the same 40M-row scan on a 10-min TTL (10s under impersonation), outside the flexible bound the prep claimed. Needs a decision."
+        },
+        {
+          "id": "A-L1 / B-M2c",
+          "verdict": "OPEN - not yet actioned",
+          "summary": "Cache::flexible([3600,86400]) bypasses DashboardWidget::getCacheTTL()'s impersonation collapse (okf PG-009 / clickhouse-query-patterns.md:42 document 3s/10s while impersonating). Siblings bypass it too but at 5-15min, not 1-24h."
+        },
+        {
+          "id": "B-L2",
+          "verdict": "OPEN - not yet actioned",
+          "summary": "CompanyMetricsOverview docblock counts now stale: '7 REMAINING GAPS' (should be 6), 'AT 9 CARDS', 'This card is the 9th'. The docblock declares itself the source of truth for the next sibling's slot arithmetic."
+        },
+        {
+          "id": "B-L3",
+          "verdict": "OPEN - not yet actioned",
+          "summary": "Mixed calendars: today/last_7d are viewer-local days while this_month/last_month are UTC months, so 'Today' can exceed 'This Month'."
+        },
+        {
+          "id": "A-L2/L3/L4/L5",
+          "verdict": "OPEN - not yet actioned",
+          "summary": "billing_events tombstones survive without FINAL; soft-deleted orgs escape the insightlpr LEFT JOIN (fails open); double report() then rethrow; zodDb() duplicated from the base class."
+        }
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "claude2",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "claude3",
+          "source": "in-session-agent"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "68cec23383974dc73c4a3af2402b634111d70dcc",
+      "rework_pivot": false,
+      "harness_failure": "review.sh FAILED all 3 lanes with 'Not logged in - Please run /login' (a genuine nested claude -p auth error, the documented condition for the blessed in-session fallback). Separately it swept ALL of docs/investigations/** into the lane prompt: 302KB against a 67KB source diff. Lanes were re-run in-session against a source-only patch. Provenance recorded as in-session-agent, NOT as a harness run.",
+      "rerun_reason": "CLEARED: RN=3 passed the gate (REVIEW_GATE: pass min=92 lanes=3 sources=in-session-agent:3).",
+      "sha_correction": "Lane C L2: artifacts cited DEV-2464 cc34c05c (that branch's HEAD) while the hunks actually come from commit 47612ab1 on it. Lane C independently verified git show 47612ab1 -- <the two files> is BYTE-IDENTICAL to what shipped, so the carry is clean; only the recorded SHA was loose.",
+      "round": 3,
+      "findings_fixed_round2": [
+        {
+          "id": "lane1-M1",
+          "summary": "The round-1 UTC label-axis fix was pinned by NOTHING -- deleting all three overrides left every test green and fully restored the defect. Added UniqueLprCaseClaimsLabelAxisTest (3 tests); MUTATION-VERIFIED (all 3 fail on the mutant, pass on the fix). DashboardMonthLabelsTest guards this exact class but iterates only [ScanCount, RecoveryLeader]."
+        },
+        {
+          "id": "lane2-M2",
+          "summary": "Six sibling e2e assertions in missed-opportunities.spec.ts and staging-live-hit-leader.spec.ts assert staging-live-hit-leader == recovery-counts + 1; this card sits between them so the truth is +2. All six corrected."
+        },
+        {
+          "id": "lane1-M2/lane2-M3/lane3-M6",
+          "summary": "My own e2e scenario D asserted 'Current Month:'/'Last Month:' -- literals the round-1 getDescription() override removed. The round-1 fix changed a format string duplicated across files and updated one consumer. Both the positive and the leak-detection negative assertion re-aligned."
+        },
+        {
+          "id": "lane1-L3",
+          "summary": "$ttl->lessThan() on a \\DateTimeInterface (Carbon-only) broke composer analyse. Now getTimestamp(). PHPStan level 5 on both changed files: no errors."
+        },
+        {
+          "id": "artifacts",
+          "summary": "test-baseline.md reported 12/12 (now 31 across 3 suites) and shipped-class-verification.md certified a pre-round-2 sql() body. Both refreshed; shipped SQL re-run against production after the revert -- all six figures still exact."
+        }
+      ],
+      "withdrawn_round2": [
+        {
+          "id": "guardedFlexible",
+          "summary": "WITHDRAWN as net-harmful, found independently by all 3 lanes. The marker was checked BEFORE the cache read and THREW, and getStats() has no per-card try/catch -- so one transient blip 500'd the whole ten-card dashboard for 60s even after ClickHouse recovered with a fresh value cached. Lane 1 also dismantled my justification: DashboardMetricCard::LOCKED_VALUE already provides a non-zero, non-numeric render, so 'degrading would render 0' was a FALSE DICHOTOMY. The herd lock also did not bind (block(5) vs a 5.8-9.3s p99 -> every waiter times out and computes anyway, +5s latency), guarded the lower-miss-rate seam, and never covered Cache::flexible's deferred stale path. Withdrawn rather than patched with a third layer."
+        },
+        {
+          "id": "orgs-CTE",
+          "summary": "WITHDRAWN. Lane 3 proved it INERT under both readings of FINAL (tombstone absent -> coalesce('') -> needle misses; tombstone present -> REPLICA IDENTITY DEFAULT means name='' -> needle misses). It also deleted a guard okf mandates verbatim, and my justifying comment was the direct negation of HitPlateStatsBatchQuery.php:25-28 about the same engine. I asserted a mechanism instead of measuring it. Reverted to _peerdb_is_deleted = 0."
+        }
+      ],
+      "open_findings_worked": [
+        {
+          "finding": "1 \u2014 cold-path herd on Cache::flexible",
+          "decision": "human:Dalton McCleery 2026-09-08 \u2014 fix it here, correctly this time",
+          "evidence": "Repository::flexible() line 631 total-miss branch is `tap(value($callback), ...)` with NO lock; the $lock argument (line 644) guards ONLY the stale-refresh branch. So Laravel gives no cold-path protection by design and it cannot be closed by passing $lock. 29 entitled orgs re-confirmed.",
+          "fix": "heldFlexible(): reads the cache FIRST and locks ONLY on a total miss -- the ordering is the whole point, since the round-2 version gated before the read and threw. Block window 12s (> the measured 9.3s contended p99, so waiters actually wait instead of timing out and computing anyway -- the reason the first attempt failed to bind). Cold lock TTL 90s (> the 60s CLICKHOUSE_TIMEOUT_QUERY, so a slow holder keeps the mutex). Also passes ['seconds' => 90] to Cache::flexible, which fixes finding 8 in the same change via the framework's own parameter.",
+          "tests": "UniqueLprCaseClaimsHerdGuardTest, 4 tests, ALL FOUR MUTANTS KILLED: (A) deleting the guard entirely -> the lock-probe test fails; (B) reinstating round 2's exact bug (gate before the cache read) -> the warm test blocks 13.8s and fails; (C) shrinking the block window to my original 5s -> the sizing test fails; (D) dropping the refresh-lock expiry -> sizing test fails. Mutant A initially SURVIVED, which is why the lock-probe test was added.",
+          "also_closes": "finding 8 (Cache::flexible's refresh lock had no expiry: $lock['seconds'] ?? 0)"
+        },
+        {
+          "finding": "2 \u2014 today/last_7d outside the claimed caching bound",
+          "decision": "human:Dalton McCleery 2026-09-08 \u2014 leave the window seam on the base class; correct the record only",
+          "fix": "No code change. prep-context allocation_sketch and perf-measurement.md section 8 corrected: the Cache::flexible bound holds ONLY for the monthly seam; the window seam is the base class's 10-min remember() at up to 6 computes/hour/org, shared with the nine sibling cards."
+        },
+        {
+          "finding": "3 \u2014 a cold today/last_7d render costs TWO ~40M-row scans, not one",
+          "decision": "record-only finding; closed by the same edit as finding 2",
+          "fix": "Now stated explicitly in perf-measurement.md section 8 with a per-filter table (~80M read_rows / ~3.7GB for a cold today render). It escaped the record because the one-cached-query AC is satisfied per SEAM, and the test that pins it asserts one call per seam."
+        },
+        {
+          "finding": "4 \u2014 no negative-cache / cooldown on failure",
+          "decision": "human:Dalton McCleery 2026-09-08 \u2014 keep throwing, no cooldown, stay house-consistent",
+          "evidence": "Throwing IS the house behaviour: RecoveryCounts::getModelQueryForDates() already propagates out of getStats(), which has no per-card try/catch, so a failure in several existing cards already 500s the whole grid. Lane 1 suggested degrading to DashboardMetricCard::LOCKED_VALUE, but that constant renders grey with a lock icon and an upsell line -- it is the ENTITLEMENT state, so reusing it would tell a paying Pro customer they lack the feature. A correct degrade would need a distinct 'temporarily unavailable' affordance.",
+          "fix": "No code change -- this is the current state. Accepted cost, recorded: during a ClickHouse incident every render re-fires the query and one card's failure takes the grid down. Deliberately NOT the round-2 cooldown, whose ordering caused a 60s outage."
+        },
+        {
+          "finding": "5 \u2014 mixed calendars (UTC months vs viewer-local days)",
+          "decision": "human:Dalton McCleery 2026-09-08 \u2014 keep the mix, document it in the class docblock",
+          "evidence": "Measured the alternative: at 20:00 America/Chicago on Aug 31 (01:00 UTC Sep 1), a UTC 'Today' window is 2026-09-01 00:00-23:59 UTC -- a day ~4h in the viewer's future, so a daily metric would read ~0 every evening. Local months would break the AC outright. The seam is inherent to those two requirements.",
+          "fix": "No behaviour change. Documented in the UniqueLprCaseClaims class docblock with the worked example, and flagged that DEV-2464/DEV-2465 inherit the same seam when they reuse this query."
+        },
+        {
+          "finding": "6 \u2014 soft-deleted org escapes the insightlpr exclusion",
+          "decision": "human:Dalton McCleery 2026-09-08 \u2014 leave as-is (keep the okf house rule), document the limitation",
+          "evidence": "MEASURED against production and it settles a repo documentation contradiction lane 3 could not resolve read-only: FINAL genuinely DOES drop tombstones on this engine (3 tombstoned orgs exist in zod.public_orgs; 0 are visible under FINAL). So HitPlateStatsBatchQuery's docblock is RIGHT and my own round-2 comment was WRONG. The hole is real in mechanism but unreachable today: the needle matches 4 orgs via the ship path and 4 via an any-version GROUP BY -- identical sets, all live, and none of the 3 tombstoned orgs matches.",
+          "fix": "No SQL change. The limitation, the measurement, and the settled contradiction are documented at the code site in the orgs CTE."
+        },
+        {
+          "finding": "7 \u2014 `?? 0` makes a null org mean platform-wide",
+          "decision": "human:Dalton McCleery 2026-09-08 \u2014 leave the signature, document the fail-open default",
+          "evidence": "users.org_id IS nullable (verified via Schema::getColumns). Only two app call sites, both in the widget. Unreachable today because DashboardWidget::buildWidgetCacheKey(string, int $orgId) is evaluated first and TypeErrors on null -- but that safety lives in a DIFFERENT class's type hint, not in this query's own contract.",
+          "fix": "No signature change. Documented at the window() API boundary, naming the exact classes the current safety depends on and the caller shapes that would defeat it."
+        },
+        {
+          "finding": "8 \u2014 Cache::flexible's refresh lock has no expiry",
+          "decision": "closed as part of finding 1",
+          "evidence": "Repository::flexible() line 644 uses `$lock['seconds'] ?? 0` -- no expiry by default, so a worker killed mid-refresh wedges the key until the 86400s hard TTL.",
+          "fix": "heldFlexible() passes ['seconds' => 90] to Cache::flexible, using the framework's own parameter. Pinned by the sizing test (mutant D: setting it to 0 fails)."
+        }
+      ],
+      "findings_fixed_round3": [
+        {
+          "id": "lane3-M2 / lane1-L3 / lane2-L1",
+          "summary": "THE GUARD I JUST FIXED WAS STILL WRONG. heldFlexible() tested cache()->has($key), but Cache::flexible's own miss test spans TWO keys ($key AND illuminate:cache:flexible:created:{$key}). With the companion evicted -- independently possible on a Redis cluster, where putMany() is non-atomic across slots -- the guard took the WARM path and skipped the lock entirely: exactly the state it exists for. Now tests both keys; pinned by a torn-state test that fails without the fix. This was the question I explicitly asked the lanes to check."
+        },
+        {
+          "id": "lane3-M1 / lane2-L2",
+          "summary": "Finding 8's fix was DELETABLE WITH THE SUITE GREEN. My sizing test asserted the CONSTANT was > 0, not that it reached Cache::flexible; dropping the 4th argument restored the no-expiry refresh lock and passed all 4 guard tests. Now flows through a flexibleRefreshLock() seam a recording subclass observes."
+        },
+        {
+          "id": "lane1-M1",
+          "summary": "THE BIGGEST GAP. The today/last_7d seam -- the headline for 2 of 4 filter states -- was pinned by nothing: every double overrode fetchWindowTotal() wholesale. TWO mutants survived all 35 tests: (a) ['deduped']->['successful'], rendering the funnel stage the ticket's Q1 explicitly REJECTED (~28% overstated at org 165), and (b) dropping the viewer timezone from Carbon::parse(), shifting a Chicago viewer's window 5-6h. Split out a runWindowQuery() seam and added UniqueLprCaseClaimsWindowSeamTest; both mutants now die."
+        },
+        {
+          "id": "lane1-M2",
+          "summary": "A FALSE CLAIM IN MY OWN DOCBLOCK. I wrote that impersonators 'still get the freshest value any sibling card offers within a minute'. Lane 1 verified most siblings route through getCacheTTL() and DO collapse to 10s -- 6x fresher than my 60s floor. Rewritten honestly: it IS a divergence from okf/concepts/impersonation.md, not unprecedented (MissedOpportunityClientGraph hardcodes 15min with no collapse), justified by the 9.3s p99, and needs an okf note post-merge."
+        },
+        {
+          "id": "lane1-L1 / lane2-L3 / lane3-L1",
+          "summary": "Citation error, twice. My original comment credited the FINAL rule to PG-027, which says the REVERSE for zod.public_* (platform-gotchas.md:221 -- verified). My first correction then cited clickhouse-integration.md; the canonical rule is PG-002 plus clickhouse-query-patterns.md:79. Corrected, and the stronger STRUCTURAL reason lane 3 supplied is now recorded: orgs is a JOIN source, so without FINAL a renamed org fans out claims x2."
+        },
+        {
+          "id": "all-3-lanes-both-rounds",
+          "summary": "test-baseline.md's counts were stale for three consecutive rounds. Refreshed to 39 tests across 5 suites, plus a full mutation ledger of all 9 mutants -- including the four that PASSED before their test existed."
+        }
+      ],
+      "reviewed_sha_history": [
+        {
+          "sha": "6ab936cb180bfb33e2ea05ee8d57786b4ef4e3df",
+          "superseded_at": "2026-09-08T19:23:27Z",
+          "reason": "Re-stamped to the current HEAD. Every commit since is artifacts-only (docs/investigations/**: journal, review-3 findings, state.json, and the committed agent-QA evidence). `git diff <old>..HEAD --name-only` excluding docs/investigations/ is EMPTY, so the reviewed source is byte-identical and the 92/92/92 review still applies. Re-stamped rather than force-pushed."
+        },
+        {
+          "sha": "5b9122447fb8e8d5c712f81b078ad5cb7fe1d27b",
+          "superseded_at": "2026-09-08T19:54:56Z",
+          "reason": "Re-stamped after the cardinality-accuracy test artifacts. git diff <old>..HEAD --name-only excluding docs/investigations/ is EMPTY - shipped source byte-identical, so the 92/92/92 review still applies."
+        },
+        {
+          "sha": "c4a9ec59126f05463a76a0b45357b1e3c9d5d083",
+          "superseded_at": "2026-09-09T13:19:46Z",
+          "reason": "Re-stamped over a REAL source change, NOT artifacts-only -- stated plainly because every earlier re-stamp in this run was justified by the shipped source being byte-identical and this one is not. The change is a one-file, TEST-ONLY fix for a CI shard failure (UniqueLprCaseClaimsLabelAxisTest now declares its own stub). No application code, none of the sensitive/scoring globs, no approach change -- the light path under the Phase 7 materiality guard, so it was applied and logged rather than sent back through Phase 5. The 92/92/92 lanes did not see this exact diff; they did review the file it lives in."
+        }
+      ]
+    },
+    "ac": [
+      {
+        "id": "AC-1",
+        "text": "Reproduces Brek's Repo Report funnel stage (15,128 / 14,288 / 11,975 for Jul 2026)",
+        "status": "SATISFIED",
+        "evidence": "B2 (agent QA): the shipped class's own SQL, rendered by reflection and run read-only, returns all 7 / successful 6 / deduped 5 against the seeded local world -- the exact designed figures. The production reproduction of all six of Brek's figures was proved in Phase 1 the same way (SQL rendered OUT of the shipped class, not from prep's hand-written draft) and is recorded in docs/investigations/DEV-2463/shipped-class-verification.md. A1 confirms the value reaches the UI."
+      },
+      {
+        "id": "AC-2",
+        "text": "Exactly one cached ClickHouse query per resolved window",
+        "status": "N/A",
+        "evidence": "Not verifiable in-browser: agent QA cannot count cache-guarded query executions from the DOM. Pinned instead by unit test -- getMonthlyData() makes ONE call with a month-stamped key, and the heldFlexible() cold-lock path is pinned by UniqueLprCaseClaimsHerdGuardTest (6 tests, incl. the torn-two-key state) plus UniqueLprCaseClaimsWindowSeamTest. A4 confirms no duplicate-query symptom (no errors, all requests 200/204)."
+      },
+      {
+        "id": "AC-3",
+        "text": "Respects Today / Last 7d / This Month / Last Month",
+        "status": "SATISFIED",
+        "evidence": "A5: all four states rendered a number with no error -- Today 0, Last 7d 0, This Month 5, Last Month 0 (both pinned assertions met). A6: the expanded detail shows UTC month labels (Sep '26: 5 | Aug '26: 0) with the base class's 'Current Month:' literal absent, confirming the override holds."
+      },
+      {
+        "id": "AC-4",
+        "text": "Non-Pro orgs do not see the value",
+        "status": "SATISFIED",
+        "evidence": "A1 verifies the entitled path end-to-end (value 5 renders for the Pro admin). The locked path was NOT browser-verified -- this DB has exactly one entitled org -- and is covered by 6 gating-matrix unit tests plus test_locked_stat_renders_the_placeholder_and_executes_no_query, which asserts the placeholder renders AND that no query is executed. Recorded as a yellow coverage gap and flagged to human QA as ec-1."
+      },
+      {
+        "id": "AC-5",
+        "text": "Sparkline consistent with existing card styling",
+        "status": "SATISFIED",
+        "evidence": "A3: the sparkline SVG renders with fi-color-success, stroke oklch(0.792 0.209 151.711) -- green, and not the locked grey. The lane corrected the plan's own wording here: Filament ->color() tints the CHART, not the numeric value. A6 confirms the expanded detail renders. The remaining judgment -- whether it reads as one family beside its neighbours -- is human-only and carried to hp-3."
+      },
+      {
+        "id": "AC-6",
+        "text": "Existing metrics unaffected",
+        "status": "SATISFIED",
+        "evidence": "B4: cards() returns 10 entries with unique-lpr-case-claims at index 2. A2: DOM order is scan-count, recovery-counts, unique-lpr-case-claims, staging-live-hit-leader -- insertion only, nothing displaced. A4: no Server Error / ErrorException / Whoops text, console empty, all requests 200/204. Four full-suite runs showed zero regressions attributable to the diff (the swinging skip counts tracked ClickHouse container memory, verified against a detached origin/main after a container restart)."
+      },
+      {
+        "id": "AC-7",
+        "text": "The five open questions are answered in the Build Record",
+        "status": "SATISFIED",
+        "evidence": "Build Record posted as Jira comment 39278 \u2014 see its \"Resolved questions\" table (8 questions, 4 human decisions + 4 code-resolved)."
+      }
+    ],
+    "verification": {
+      "cardinality_accuracy_tests": {
+        "artifact": "docs/investigations/DEV-2463/cardinality-accuracy-tests.md",
+        "helper": "docs/investigations/DEV-2463/prod-query-helper.py",
+        "test_1_population_parity": "PASS - shipped Org::isProEnabled(COMPANY_METRICS), run against production org_meta hydrated in memory with exact JSON type fidelity, agrees with the SQL denominator predicate on the EXACT SAME 29 ids (0 over-count, 0 under-count). Entitled resolve 27 clarity_pro + 2 clarity_pro_plus.",
+        "test_2_envelope_invariance": "PASS - read_rows = 40,046,830 on all 22 interleaved runs across 11 orgs, min==max, 0.00% spread. An org-scoped render costs exactly platform-wide. Fleet cold sweep = 29 x 40.05M = ~1.16B rows (~53 GB).",
+        "not_tested": "Concurrency (N orgs cache-missing together) - would require a deliberate production load test; not run. Cold reads (all samples warm, cluster quiet at 0.35-0.42s). The 30-min org_pro_enabled_<id> entitlement cache.",
+        "jira_comment": "39249 (tags Oscar Nunez, real mention node verified)"
+      }
+    },
+    "corrections": [
+      {
+        "what": "Production blast radius of a card failure on the Company Metrics grid.",
+        "wrong": "Claimed the four hit cards propagate identically and that the QA grid 500 was live confirmation of production behaviour.",
+        "right": "ClickhouseQuery::query() and SharedHitStatsData gate on app.env - degrade in production/testing, rethrow in local. QA ran APP_ENV=local. In production only recovery-counts, missed-opportunities and unique-lpr-case-claims propagate (3 of 10); the hit cards already degrade via report + a 60s marker.",
+        "where_corrected": [
+          "Jira Build Record 39278 (2 places, marked \"Corrected after posting\")",
+          "Jira correction comment 39279",
+          "okf/concepts/company-metrics-dashboard.md blast-radius section",
+          "okf/concepts/platform-gotchas.md PG-029"
+        ]
+      }
+    ]
+  },
+  "missed_caller_candidates_summary": {
+    "method": "haiku offload sub-agent, 18 symbols git-grepped repo-wide; distilled to 75 (file,symbol) pairs -- raw grep output never entered the driver context",
+    "notable": [
+      "Cache::flexible is NOT used anywhere in the repo -- this card would be the first",
+      "BatchMonthlySparklineData EXISTS at app/Clickhouse/Queries/Client/BatchMonthlySparklineData.php:9 but is CLIENT-panel only; no admin dashboard widget imports it",
+      "lockedStat() and makeMetricWidget() confirmed present on main (DEV-2460 deliverables): DashboardMetricCard:54 / RendersDashboardStat:165, CompanyMetricsOverview:194",
+      "getStatColor() appears in DashboardWidget:299 AND RendersDashboardStat:165 -- the planner must confirm which one owns the match arms",
+      "CompanyMetricsOverview::cards() at :90 is enumerated by 15+ test files, so a slot change ripples widely"
+    ]
+  },
+  "verified_at": "2026-09-08T19:21:22Z",
+  "done_at": "2026-09-09T13:32:09Z"
+}

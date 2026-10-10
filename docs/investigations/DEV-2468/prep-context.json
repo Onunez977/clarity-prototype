@@ -1,0 +1,469 @@
+{
+  "key": "DEV-2468",
+  "route": "feature",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "_reconcile": {
+    "method": "insightlpr:multi-candidate-merge, in-session at opus (driver)",
+    "candidates": 3,
+    "candidate_confidences": [
+      74,
+      55,
+      58
+    ],
+    "backstop": "1 haiku grep backstop; its two NOTES were both WRONG (assumed the card was being ADDED to cards(); it is already registered) and are recorded as corrected. Its real value was surfacing tests/e2e/, which no candidate inventory listed.",
+    "driver_verification": "Every load-bearing claim below was re-verified by the driver directly against the working tree or against live ClickHouse Cloud (read-only). Claims that only ONE candidate made are marked with their source and the driver's verification."
+  },
+  "synthesis": "Replace the already-registered zero-query UniqueScansLeaderboard STUB with a real per-kit leaderboard ranked by distinct plate (uniqExact(ocr)) over clarity.scans_cold. DEV-2409 PR #394 already shipped the stub at the exact mockup slot (row 3 col 1, cards() index 8) and DEV-2467 PR #393 already shipped the query and a deliberately class-neutral cache key (ScanPlateStatsBatchQuery::handleRange() / sharedRangeCacheKey()) so this card can ride that scan instead of issuing its own. The remaining work is: swap the base class off DashboardWidget onto the ChartWidget+DashboardMetricCard shape (a scalar-per-month model cannot hold a per-kit ranking), wire the compact stat and ranking to the shared window rollup, gate on COMPANY_METRICS, and avoid two specific traps this repo has already been bitten by. What is NOT settled is the 13-month surface: AC-4 asks for a batched 13-month series sharing DEV-2467's cache key, but that key covers a SINGLE window, and the 13-month buckets live under a class-prefixed key the leaderboard cannot read. That is a genuine, material fork.",
+  "settled": [
+    {
+      "id": "S1",
+      "claim": "Registration, mockup slot, card-order test and card-count test are ALREADY DONE.",
+      "evidence": "CompanyMetricsOverview::cards() has 16 ::class entries including 'unique-scans-leaderboard' at index 8 (row 3 col 1). tests/Filament/Pages/DashboardCardExpansionTest.php:172 already carries it. DashboardCardVisibilityTest.php:198 asserts count 16 and is CORRECT as-is.",
+      "consensus": "all 3 candidates",
+      "driver_verified": "yes -- grep counted 16 entries; the backstop's claim that this must become 17 is WRONG and is rejected."
+    },
+    {
+      "id": "S2",
+      "claim": "The base-class swap means: extend ChartWidget implements DashboardMetricCard, using BuildsDateFilterChartSeries + RendersDashboardStat + StatHelper directly. It does NOT break the DashboardMetricCard contract.",
+      "evidence": "RecoveryLeader.php:19 and StagingLiveHitLeader.php both do exactly this. cards()/getStats()/makeMetricWidget() only require getCardKey(), toStat(), canViewCardData(), lockedStat() -- all satisfied by RendersDashboardStat regardless of parent.",
+      "consensus": "all 3 candidates",
+      "driver_verified": "yes"
+    },
+    {
+      "id": "S3",
+      "claim": "DashboardWidget::getStatColor()'s 'unique-scans-leaderboard' key becomes dead code on the swap and must be removed; the card hardcodes ->color('success') in its own toStat().",
+      "evidence": "DashboardWidget.php:311 is a COMBINED arm: \"'unique-scans-to-case-claims', 'unique-scans-leaderboard' => 'success'\" -- only the second key is removed. Precedent: KitUsers ->color('gray'), RecoveryLeader ->color('info'), StagingLiveHitLeader ->color('warning'), none of which has an arm. getStatColor()'s own docblock already records that a ChartWidget-direct card never reaches it.",
+      "consensus": "candidates 1 and 2 say remove; candidate 3 calls it moot -- union resolves to remove",
+      "driver_verified": "yes -- line 311 confirmed as a combined arm"
+    },
+    {
+      "id": "S4",
+      "claim": "The affiliate_stats_hourly fork from comment 39125 is REJECTED, not merely unaddressed.",
+      "evidence": "okf/models/clickhouse/affiliate_stats_hourly.md:14 carries an explicit caution that unique_scans there is NOT period-distinct and that any surface wanting period-distinct plates must compute uniqExact(ocr) over clarity.scans_cold -- 'this table cannot answer that question'. The 2026-09-08 description rewrite mandates scans_cold. AffiliateStatsHourly::affiliateStatsQuery() IS live (AffiliateStatsResource, AffiliateStatsExporter) but answers a different (hourly-sum) question; the comment's own §3 measured the divergence at 1.556x.",
+      "consensus": "all 3 candidates, independently, from the KB",
+      "driver_verified": "yes -- the okf caution line confirmed"
+    },
+    {
+      "id": "S5",
+      "claim": "Pro gate = FeatureEnum::COMPANY_METRICS, and gating this card WILL FAIL an existing test unless that test is updated.",
+      "evidence": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php:59-64 holds an explicit $expectedGated allowlist ['staging-live-hit-leader','missed-opportunities','unique-lpr-case-claims','unique-scan-counts']. The loop asserts every NON-listed card IS visible, so gating this card without adding its key fails. The allowlist is deliberate ('gating a card is a deliberate, reviewed act and never an accident') -- adding the key is the intended act, not a workaround.",
+      "consensus": "candidate 3 ONLY",
+      "driver_verified": "yes -- read the allowlist and the assertion loop directly. Candidates 1 and 2 both missed this."
+    },
+    {
+      "id": "S6",
+      "claim": "TRAP: the inherited chartSeries() default array_sum()s each bucket. Copying RecoveryLeader verbatim would make the sparkline a SUM of per-kit distinct-plate counts -- a direct AC-2 violation, silently.",
+      "evidence": "BuildsDateFilterChartSeries::chartSeries() does `$points[] = is_array($bucket) ? (float) array_sum($bucket) : (float) $bucket;`. StagingLiveHitLeader.php:742 is the ONLY card that overrides it, and its docblock states the reason verbatim: the sparkline is the deduped org series 'never the sum of this card's own top-10-per-month leaderboard buckets'. RecoveryLeader relies on the default legitimately because its per-kit values are fractional attribution SHARES that do sum meaningfully; distinct-plate counts do not.",
+      "consensus": "candidate 3 ONLY",
+      "driver_verified": "yes -- read both the default and the StagingLiveHitLeader override. This is the single highest-value finding of the fan-out."
+    },
+    {
+      "id": "S7",
+      "claim": "Kit names need no join: clarity.scans_cold carries a denormalised kit_name String. Key results by kit_id, NEVER by name.",
+      "evidence": "database/schema/clickhouse-schema.sql scans_cold DDL includes `kit_name String DEFAULT ''`; okf/models/clickhouse/scans_cold.md documents it as 'Denormalized kit name.' StagingLiveHitLeaderQuery's docblock states the precedent and the reason: 'hits_cold carries both kit_id and the denormalised kit_name, so no join to clarity.kits is needed... never kit_name -- a kit name is not unique within an org, so a name-keyed result would silently collapse two same-named kits into one entry.' Use anyLast(kit_name) AS name. Do NOT copy RecoveryLeaderQuery's clarity.kits join (it also hardcodes the `clarity.` prefix, which the ticket names as a known-bad copy target).",
+      "consensus": "candidates 1 and 2 left this OPEN; driver resolved it from schema + precedent",
+      "driver_verified": "yes"
+    },
+    {
+      "id": "S8",
+      "claim": "Cap the leaderboard at top 10 with a deterministic tiebreak: ORDER BY total DESC, kit_id ASC.",
+      "evidence": "RecoveryLeaderQuery: ORDER BY total DESC LIMIT 10. StagingLiveHitLeaderQuery:69-70: ORDER BY total DESC, kit_id ASC LIMIT 10, and :115 LIMIT 10 BY month for the monthly form. Two independent sibling leaderboards agree; the kit_id tiebreak is the newer, better one.",
+      "consensus": "candidate 3 raised it as open; driver resolved it from precedent",
+      "driver_verified": "yes"
+    },
+    {
+      "id": "S9",
+      "claim": "kit_id IS immutable across a scan's CDC versions. FINAL is therefore NOT required on the per-kit read. This discharges the obligation ScanPlateStatsBatchQuery::handleRange()'s docblock assigns to THIS ticket by name.",
+      "evidence": "MEASURED by the driver, read-only, against production ClickHouse Cloud on 2026-09-10 -- see derivation_log entries D2 and D3. Fleet-wide 2026-09-01..08 across 101 orgs: 4,951 duplicate-id groups, 0 with a divergent kit_id, 0 with a divergent ocr. Org 469, 2026-08: 1,639 duplicate-id groups, 0 divergent kit_id, 0 divergent ocr (the 1,639 closely matches DEV-2466 sec 5's 1,635 for the same population, so this is the same check on a second axis).",
+      "consensus": "candidates 2 and 3 raised it as an open question needing a human or a probe; the driver ran the probe",
+      "driver_verified": "yes -- this is now a measured fact, at the same epistemic bar (observational, two windows) that DEV-2466 sec 5 set for ocr, which is exactly what the docblock asked for."
+    },
+    {
+      "id": "S10",
+      "claim": "sharedRangeCacheKey() IS cross-class reusable. The 13-month monthly buckets are NOT.",
+      "evidence": "sharedRangeCacheKey() returns 'scan-plate-stats:unique-range:org={id}:{start}:{end}:tz={tz}' -- class-neutral by construction, and its docblock names DEV-2468 as the intended second reader. By contrast DashboardWidget::buildWidgetCacheKey() prefixes Str::snake(class_basename(static::class)), so UniqueScanCounts' 13-month buckets are stored under 'unique-scan-counts:2026-08:org=469:tz=...' and are unreadable from this card. This asymmetry IS the AC-4 problem.",
+      "consensus": "candidates 2 and 3 identified it; candidate 1 assumed the monthly buckets were readable (INCORRECT)",
+      "driver_verified": "yes -- read both key builders. Candidate 1's proposal to 'read UniqueScanCounts's already-cached monthly buckets' does not work as written."
+    }
+  ],
+  "scope": {
+    "summary": "Rewrite app/Filament/Widgets/Dashboard/UniqueScansLeaderboard.php in place: ChartWidget implements DashboardMetricCard + the three concern traits; COMPANY_METRICS Pro gate; top-10 per-kit ranking for the selected window read through ScanPlateStatsBatchQuery::sharedRangeCacheKey() so it reuses DEV-2467's scan; an EXPLICIT chartSeries() override so the sparkline is never a sum of per-kit values. Remove the dead getStatColor() key. Add the card key to the DashboardCardVisibilityTest gated allowlist. The 13-month surface is deliberately NOT scoped pending Q1.",
+    "proposed_changes": [
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueScansLeaderboard.php",
+        "change": "Full in-place rewrite per S2/S3/S5/S6/S7/S8.",
+        "reason": "the stub's own docblock mandates the base-class swap",
+        "ref": "UniqueScansLeaderboard.php:7-14"
+      },
+      {
+        "file": "app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php",
+        "change": "Carry kit_name on the per-kit read (anyLast(kit_name)) and/or add a class-neutral shared MONTHLY cache key mirroring sharedRangeCacheKey(). BOTH are conditional on Q1; the payload-shape change also has a second consumer (UniqueScanCounts::fetchRangeRollup() reads [0] as an int) that must be updated in lockstep.",
+        "reason": "S7 + S10",
+        "ref": "ScanPlateStatsBatchQuery.php:232,317"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+        "change": "Remove only the 'unique-scans-leaderboard' key from the combined arm at line 311.",
+        "reason": "S3",
+        "ref": "DashboardWidget.php:311"
+      },
+      {
+        "file": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php",
+        "change": "Add 'unique-scans-leaderboard' to $expectedGated.",
+        "reason": "S5 -- without this, gating the card fails an existing test",
+        "ref": "DashboardCardVisibilityTest.php:59-64"
+      },
+      {
+        "file": "tests/Filament/Widgets/Dashboard/UniqueScansLeaderboardTest.php",
+        "change": "NEW. Pins: kit_id=0 rollup never appears in the ranking and is the ONLY source of a displayed total (AC-2); the chartSeries() override is NOT the array_sum default (S6 -- mutation-verify against the default); round-trip count is ZERO new handleRange() calls when the shared key is warm (AC-4/AC-5) via a countable protected seam, since DB::listen never fires for the ClickHouse driver; Pro gate entitled/locked/impersonator; top-10 cap with the kit_id tiebreak.",
+        "reason": "AC-2, AC-4, AC-5, AC-6",
+        "ref": "tests/Filament/Widgets/Dashboard/StagingLiveHitLeaderTest.php"
+      },
+      {
+        "file": "tests/e2e/helpers/company-metrics.ts",
+        "change": "OPTIONAL, additive: add the card key+heading to COMPANY_METRICS_CARD_HEADINGS.",
+        "reason": "backstop finding -- its single consumer (staging-live-hit-leader.spec.ts:310) `continue`s on an absent key, so omission silently skips coverage rather than failing",
+        "ref": "tests/e2e/helpers/company-metrics.ts:29"
+      }
+    ],
+    "target_files": [
+      "app/Filament/Widgets/Dashboard/UniqueScansLeaderboard.php",
+      "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+      "app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php",
+      "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php",
+      "tests/Filament/Widgets/Dashboard/UniqueScansLeaderboardTest.php",
+      "tests/e2e/helpers/company-metrics.ts"
+    ],
+    "out_of_scope": [
+      "Registering the card / updating card-order / card-count tests -- already shipped (S1).",
+      "Adding a kit dimension to ScanPlateStatsBatchQuery::handle() -- forbidden by its docblock without a fresh measurement; gated on Q1 and on the perf gate.",
+      "affiliate_stats_hourly and AffiliateStatsResource -- rejected (S4).",
+      "The cold-start cache-stampede residual DEV-2467 shipped without a lock -- explicitly deferred to its own ticket. Do NOT re-attempt a Cache::lock here: two attempts were reviewed and withdrawn on DEV-2467 across four review rounds.",
+      "The latent kit_id=0 sentinel collision in handleRange() -- documented as latent-not-live (kits.id is a Postgres serial starting at 1); this card inherits it. Build Record note only.",
+      "The 5 pre-existing hardcoded 'clarity.' prefixes in other query classes."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "AC-1 Card in its mockup slot, ranked by distinct ocr per kit, org_id-scoped, _peerdb_is_deleted=0, FINAL omitted.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "slot already shipped (S1); handleRange() is already exactly this shape; FINAL correctly omitted and now ALSO justified on the per-kit axis by S9."
+    },
+    {
+      "item": "AC-2 Any org total comes from the WITH ROLLUP kit_id=0 row, never a sum of per-kit values.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "handleRange() already returns key 0 via GROUPING(kit_id). CRITICAL: the inherited chartSeries() default would violate this silently -- see S6."
+    },
+    {
+      "item": "AC-3 Respects Today / Last 7d / This Month / Last Month.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "BuildsDateFilterChartSeries::resolveCardRange(), same as every sibling."
+    },
+    {
+      "item": "AC-4 The 13-month series is served by ONE batched call sharing DEV-2467's cache key.",
+      "source": "ticket",
+      "decision": "BLOCKED -- needs Q1",
+      "reason": "Not satisfiable as literally written: DEV-2467's shared key covers a SINGLE window; the 13-month buckets are class-prefixed and unreadable from here (S10)."
+    },
+    {
+      "item": "AC-5 Measured cost recorded and within the DEV-2466 envelope; per-render round-trip count does not regress.",
+      "source": "ticket",
+      "decision": "at risk -- needs Q2",
+      "reason": "The current-window path is genuinely near-zero marginal cost. But the driver could not reproduce DEV-2466's envelope today: the SHIPPED 13-month query exceeded a 20s server-side cap (see D4)."
+    },
+    {
+      "item": "AC-6 Non-Pro orgs do not see the value; existing metrics unaffected.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "COMPANY_METRICS gate + the $expectedGated allowlist update (S5)."
+    }
+  ],
+  "questions": [
+    {
+      "id": "Q1",
+      "q": "What does this card show over 13 months? AC-4 asks for a batched 13-month series sharing DEV-2467's cache key, but that key covers ONE window and the 13-month buckets are namespaced to UniqueScanCounts and unreadable from here (S10). Three options: (A) sparkline = the org-total monthly trend, sharing a NEW class-neutral monthly key added to ScanPlateStatsBatchQuery and read by both cards -- zero extra scans, small lockstep change to DEV-2467's card; (B) no 13-month surface at all -- the card shows only the selected window's ranking; (C) a full 13-month x per-kit stacked chart matching the RecoveryLeader visual -- requires the combined GROUP BY month, kit_id shape that DEV-2466 never measured and ScanPlateStatsBatchQuery::handle()'s docblock forbids adding without a fresh measurement.",
+      "answered": true,
+      "answer": "OPTION A. The 13 bars are the ORG-TOTAL monthly distinct-plate trend, served from a NEW class-neutral monthly cache key added to ScanPlateStatsBatchQuery (mirroring sharedRangeCacheKey()), read by BOTH this card and UniqueScanCounts. The ranked kit list covers the SELECTED WINDOW only. Zero new ClickHouse scans. Option C (13-month x per-kit stacked chart) was REJECTED on two grounds, both put to the operator: (1) it needs the combined GROUP BY month, kit_id shape that has never been measured, and Q2 established that measurement is not currently obtainable; (2) a stacked bar visually implies its segments sum to the bar total, but per-kit distinct plates do NOT sum to the org distinct total (a plate seen by two kits counts in both) -- so C would ship a chart that overstates the real total. RecoveryLeader may stack safely only because its per-kit values are fractional attribution SHARES that genuinely do sum. This makes the shipped shape identical in spirit to StagingLiveHitLeader: sparkline = the shared org series, ranked list = this card's own leaderboard, and the two are never conflated.",
+      "source": "human:Dalton McCleery 2026-09-10"
+    },
+    {
+      "id": "Q2",
+      "q": "The DEV-2466 envelope did not reproduce today. Running DEV-2467's ALREADY-SHIPPED 13-month org-total query for org 469 against production ClickHouse Cloud as readonly_user hit a 20,000 ms SERVER-SIDE execution cap and was killed, against DEV-2466's recorded 1,102 ms. A single-month org-total on the same org returned in ~2,290 ms wall. This is not attributable to this ticket's code -- it is the shipped sibling's query -- and it may be cluster contention or a replica/settings difference rather than a real regression (DEV-2464's lesson: sequential ClickHouse benchmarks mis-blame contention on query shape). But AC-5 asks this card to stay 'within the DEV-2466 envelope', and that envelope is currently unreproducible. Proceed on DEV-2466's recorded numbers, or re-baseline the envelope first?",
+      "answered": true,
+      "answer": "RE-BASELINE THE ENVELOPE FIRST. Do not proceed to plan/implement on DEV-2466's recorded numbers. Run a proper INTERLEAVED measurement (never sequential batches -- DEV-2464's lesson is that sequential runs mis-attribute contention spikes to query shape) of the already-shipped shapes against production ClickHouse Cloud, and record the result as this ticket's authoritative envelope. Operator explicitly declined the variant that would also file a defect against DEV-2467; do not create any Jira ticket without asking. || RE-BASELINE COMPLETE (D6/D7/D8): DEV-2466's envelope REPRODUCES -- 13-month org-total 1,056-1,152 ms (recorded 1,102) and single-window rollup 584-676 ms (recorded 606). D4's 20 s kill was NOT query shape and NOT a DEV-2467 regression: it was a COLD-PARTITION first touch (measured 5.7x penalty, 853 ms warm -> 4,861 ms cold) colliding with a standing max_execution_time=20 s on the readonly_user profile. No defect exists against DEV-2467; no Jira ticket filed, per the operator's choice. AC-5 may be judged against the DEV-2466 envelope as originally written.",
+      "source": "human:Dalton McCleery 2026-09-10"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "Do NOT re-attempt a Cache::lock. DEV-2467 tried twice across four review rounds and withdrew both; the residual stampede is deferred to its own ticket. This card adds read pressure to it but does not own the fix.",
+    "Call ScanPlateStatsBatchQuery::handleRange()/handle() DIRECTLY, never through ClickhouseQuery::query() -- that swallows Throwable to [] in production|testing and would cache a genuine outage as a confident zero. Follow UniqueScanCounts::resolvePastMonthsFromCold()'s report()-then-short-marker shape.",
+    "Timezone: DEV-2467 split raw vs allowlisted zones deliberately after three review rounds. The RAW viewer zone converts bounds; only the safeTimezone() ALLOWLISTED zone is interpolated into SQL. Any month-key/label pairing must use the SAME zone the query groups by, or the 13 bars silently mislabel (DashboardWidget::getData() zips labels to data POSITIONALLY).",
+    "sharedRangeCacheKey() requires BYTE-IDENTICAL start/end/timezone strings. If this card's arguments differ from UniqueScanCounts' by so much as whitespace or a zone spelling, both cards miss the cache and each issue their own scan -- silently defeating the entire reason this ticket exists. Pin this with a test.",
+    "Use static::clarityDb(), never a hardcoded 'clarity.' prefix. Copy HitStatsBatchQuery / HitPlateStatsBatchQuery, not RecoveryLeaderQuery or ScanStatsBatchQuery.",
+    "Local test conventions: literal clarity/zod CH database names (RequiresClickhouse TRUNCATEs hardcoded names), CLICKHOUSE_DRIVER=clickhouse (pgsql silently SKIPS every CH test), and `php -d memory_limit=2G vendor/bin/phpunit` for a full-suite run (php artisan test OOMs in DISCOVERY at 128M and still exits 0).",
+    "NOTE for provisioning: .env currently has CLICKHOUSE_DATABASE_CLARITY=zod_claude_dev_2468_e4ca86 (a stale per-worktree name from the branch's prior bootstrap) while CLICKHOUSE_HOST points at ClickHouse CLOUD. That combination is wrong in both directions and must be fixed at Phase 3.5 before any test runs.",
+    "Keep comments/docblocks sparse per operator preference -- except where a genuine trap exists (S6's chartSeries override and S10's shared-key contract each warrant a short note).",
+    "Read okf/concepts/laravel-boost-guidelines.md before writing PHP: declare(strict_types=1), explicit types, constructor promotion. Match ScanPlateStatsBatchQuery/HitPlateStatsBatchQuery, not the older classes."
+  ],
+  "tests": [
+    {
+      "file": "tests/Filament/Widgets/Dashboard/UniqueScansLeaderboardTest.php",
+      "what_it_pins": "AC-2 rollup-not-sum (mutation-verified against the array_sum default); AC-4/AC-5 zero-new-round-trips on a warm shared key; AC-6 Pro gate; top-10 cap + kit_id tiebreak; hardcoded success colour."
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php",
+      "what_it_pins": "the gated allowlist -- MUST be updated or gating this card fails the suite (S5)."
+    },
+    {
+      "file": "tests/Filament/Pages/DashboardCardExpansionTest.php",
+      "what_it_pins": "card order + count + hit-card contiguity -- must keep passing UNMODIFIED; a failure means the swap changed getCardKey()."
+    },
+    {
+      "file": "tests/Unit/Clickhouse/ScanPlateStatsBatchQueryContractTest.php",
+      "what_it_pins": "sharedRangeCacheKey() byte-identity across two independent callers; any new shape's no-FINAL / no-hardcoded-prefix guards."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Filament/Widgets/Dashboard/UniqueScansLeaderboard.php:7-14 (stub docblock mandating the swap)",
+      "app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php:199-231 (handleRange docblock, names DEV-2468), :232-289 (impl), :317 (sharedRangeCacheKey)",
+      "app/Filament/Widgets/Dashboard/UniqueScanCounts.php:437-458 (fetchRangeRollup -- the shared-key consumer)",
+      "app/Filament/Widgets/Dashboard/Concerns/BuildsDateFilterChartSeries.php (chartSeries array_sum default -- the S6 trap)",
+      "app/Filament/Widgets/Dashboard/StagingLiveHitLeader.php:742 (the chartSeries override precedent)",
+      "app/Clickhouse/Queries/StagingLiveHitLeaderQuery.php:24-27,66-70,110-115 (denormalised kit_name, top-10, kit_id tiebreak)",
+      "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php:311 (the combined getStatColor arm), buildWidgetCacheKey (class-prefixed)",
+      "app/Filament/Widgets/Dashboard/RecoveryLeader.php:232-278 (toStat leader headline; getData 13-month x kit stacked; getMonthlyData does 13 UNBATCHED calls)",
+      "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php:59-64,198",
+      "okf/models/clickhouse/affiliate_stats_hourly.md:14",
+      "okf/models/clickhouse/scans_cold.md"
+    ],
+    "code_flow": "CompanyMetricsOverview::getStats() -> makeMetricWidget(UniqueScansLeaderboard) as a mount()-less adapter -> canViewCardData() COMPANY_METRICS gate -> toStat() or lockedStat() -> leaderboard read via cache()->remember(ScanPlateStatsBatchQuery::sharedRangeCacheKey(...)) -> on miss only, ScanPlateStatsBatchQuery::handleRange() -> one CH round trip against clarity.scans_cold, GROUP BY kit_id WITH ROLLUP. UniqueScanCounts is cards() index 4 and renders FIRST, so for an entitled org the key is normally already warm by the time this card's toStat() runs.",
+    "tables": [
+      "clarity.scans_cold (2,189,600,112 rows measured live 2026-09-10; sort key org_id, scanned_at, kit_id, id; carries denormalised kit_name)"
+    ],
+    "related_components": [
+      "ScanPlateStatsBatchQuery",
+      "UniqueScanCounts",
+      "StagingLiveHitLeader (chartSeries + leaderboard precedent)",
+      "RecoveryLeader (UI pattern only -- its 13-call query pattern is explicitly NOT to be copied)",
+      "FeatureEnum::COMPANY_METRICS via Pennant"
+    ]
+  },
+  "exhaustiveness": {
+    "idiom": "Company Metrics cards that extend ChartWidget directly (never reaching DashboardWidget::getStatColor()) and model a per-kit array per bucket (and so must override chartSeries() rather than inherit its array_sum default).",
+    "grep_patterns": [
+      "grep -ln 'implements DashboardMetricCard' app/Filament/Widgets/Dashboard/*.php",
+      "grep -ln 'extends DashboardWidget' app/Filament/Widgets/Dashboard/*.php",
+      "grep -n 'function chartSeries' app/Filament/Widgets/Dashboard/*.php",
+      "grep -n 'unique-scans-leaderboard' -r app tests"
+    ],
+    "sites": [
+      {
+        "site": "DashboardWidget.php:311 'unique-scans-leaderboard' key",
+        "status": "buggy",
+        "reason": "becomes unreachable on the swap; remove the key from the combined arm"
+      },
+      {
+        "site": "DashboardWidget.php: the other 13 arms",
+        "status": "safe",
+        "reason": "each maps to a class that genuinely extends DashboardWidget"
+      },
+      {
+        "site": "KitUsers / RecoveryLeader / StagingLiveHitLeader",
+        "status": "safe",
+        "reason": "the three existing ChartWidget-direct cards; all hardcode ->color(), none has an arm -- the precedent"
+      },
+      {
+        "site": "RecoveryLeader (inherits the chartSeries array_sum default)",
+        "status": "safe",
+        "reason": "its per-kit values are fractional attribution SHARES that sum meaningfully; distinct-plate counts do not"
+      },
+      {
+        "site": "StagingLiveHitLeader.php:742",
+        "status": "safe",
+        "reason": "already overrides chartSeries() for exactly the reason this card must"
+      },
+      {
+        "site": "UniqueScansLeaderboard (the card being built)",
+        "status": "buggy-if-unaddressed",
+        "reason": "S6 -- inheriting the default sparkline silently violates AC-2"
+      },
+      {
+        "site": "tests/Filament/.../DashboardCardVisibilityTest.php:59-64",
+        "status": "buggy-if-unaddressed",
+        "reason": "S5 -- gating without an allowlist entry fails the suite"
+      },
+      {
+        "site": "tests/e2e/helpers/company-metrics.ts:29",
+        "status": "safe-but-incomplete",
+        "reason": "absent key is skipped by its consumer, not failed; additive coverage only"
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [],
+    "ch_tables": [
+      "clarity.scans_cold (read-only)"
+    ],
+    "mv_or_cdc_implications": "No DDL, no new MV. _peerdb_is_deleted=0 is the only CDC awareness required. FINAL is correctly omitted on BOTH axes: ocr immutability was measured by DEV-2466 sec 5, and kit_id immutability is now measured too (S9/D2/D3), which is what the handleRange() docblock required of this ticket.",
+    "indexes_relied_on": "clarity.scans_cold ORDER BY (org_id, scanned_at, kit_id, id) -- confirmed live from system.tables.sorting_key. Filter org_id DIRECTLY; never route via kit_id (measured 6.7x rows / 3.8x time for an identical answer). PARTITION BY toYYYYMM(scanned_at) prunes the window."
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "A ClickHouse query class read against clarity.scans_cold (2.19B rows) on the dashboard render path.",
+    "driving_tables": [
+      {
+        "table": "clarity.scans_cold",
+        "source": "measured live by the driver 2026-09-10 (system.tables) + DEV-2466 prior measurement 2026-09-08",
+        "prod_rows": 2189600112,
+        "group_by": "org_id (WHERE, leading sort key); kit_id WITH ROLLUP",
+        "largest_group_rows": 65427573
+      }
+    ],
+    "growth": "Per-org cost tracks that org's own scan volume, not fleet-wide rows, because org_id leads the sort key. Table grew ~9.0M rows in the two days since DEV-2466 measured it (2,180,621,658 -> 2,189,600,112).",
+    "schedule": {
+      "expression": "n/a -- request-time widget render",
+      "interval_seconds": null,
+      "without_overlapping_minutes": null
+    },
+    "allocation_sketch": "Adopted shape (Option A): ZERO new ClickHouse scans. Both reads this card performs are shapes already shipped and now re-measured by the driver (D7): the 13-month org-total series (1,056-1,152 ms warm, 13 rows) and the single-window per-kit WITH ROLLUP (584-676 ms warm, 36 rows for a 35-kit org). The card's marginal cost over DEV-2467 alone is the cache reads only, because the monthly series moves behind a class-neutral key BOTH cards read and the window rollup is already shared via sharedRangeCacheKey().",
+    "oracle_status": "measured",
+    "unresolved": [
+      "RESIDUAL (recorded, not blocking): a COLD 13-month read costs ~5.7x its warm cost and, on a fully cold path, can exceed the standing max_execution_time=20 s carried by the readonly_user profile. This ticket's adopted Option A adds ZERO new scans, so it adds zero new exposure -- but the shared monthly key it introduces is read on the same cold path. DEV-2467's existing handler absorbs this correctly (report() + a 60 s failure marker + render zeros, never a fabricated value cached for a year). Verify that path still holds for the shared key during QA."
+    ]
+  },
+  "derivation_log": [
+    {
+      "id": "D1",
+      "query_shape": "SELECT sorting_key, total_rows FROM system.tables WHERE database='clarity' AND name='scans_cold'",
+      "param_classes": "none",
+      "aggregate_result": "sorting_key = 'org_id, scanned_at, kit_id, id'; total_rows = 2,189,600,112",
+      "why": "confirm the sort key from the authoritative source rather than the committed dump (DEV-2448 defect class), and re-baseline row count"
+    },
+    {
+      "id": "D2",
+      "query_shape": "SELECT count() AS dup_id_groups, countIf(distinct_kits>1), countIf(distinct_ocr>1) FROM (SELECT id, uniqExact(kit_id) AS distinct_kits, uniqExact(ocr) AS distinct_ocr, count() AS versions FROM clarity.scans_cold WHERE org_id = :org AND scanned_at >= :start AND scanned_at < :end AND _peerdb_is_deleted = 0 GROUP BY id HAVING versions > 1)",
+      "param_classes": "single org id (large-org class), one calendar month",
+      "aggregate_result": "1,639 duplicate-id groups; 0 divergent kit_id; 0 divergent ocr; ~2.2 s wall",
+      "why": "S9 -- discharge the kit_id-immutability obligation handleRange()'s docblock assigns to DEV-2468, on the same population DEV-2466 sec 5 used (it found 1,635 groups)"
+    },
+    {
+      "id": "D3",
+      "query_shape": "same as D2 with no org filter",
+      "param_classes": "fleet-wide, 7-day window",
+      "aggregate_result": "4,951 duplicate-id groups across 101 orgs; 0 divergent kit_id; 0 divergent ocr; ~1.0 s wall",
+      "why": "S9 -- widen the immutability check beyond one org so the conclusion is not a single-org anecdote"
+    },
+    {
+      "id": "D4",
+      "query_shape": "SELECT toStartOfMonth(scanned_at) AS month, uniqExact(ocr) FROM clarity.scans_cold WHERE org_id = :org AND scanned_at >= :start_13mo AND scanned_at < :end AND _peerdb_is_deleted = 0 GROUP BY month ORDER BY month -- i.e. DEV-2467's ALREADY-SHIPPED handle() shape, not new code",
+      "param_classes": "single org id (worst-case class, org 469), 13-month window",
+      "aggregate_result": "KILLED by a server-side cap: 'Timeout exceeded: elapsed 20001.9 ms, maximum: 20000 ms (TIMEOUT_EXCEEDED)'. Against DEV-2466's recorded 1,102 ms server time for the same shape.",
+      "why": "attempt to reproduce the DEV-2466 envelope AC-5 is judged against; the failure is Q2"
+    },
+    {
+      "id": "D5",
+      "query_shape": "SELECT uniqExact(ocr) FROM clarity.scans_cold WHERE org_id = :org AND scanned_at >= :start AND scanned_at < :end AND _peerdb_is_deleted = 0",
+      "param_classes": "single org id (org 469), one calendar month",
+      "aggregate_result": "~2,290 ms wall, 1 row",
+      "why": "isolate whether D4's timeout is shape-driven or window-driven; a single month completes comfortably, so the 13-month span is what exceeds the cap under today's conditions"
+    },
+    {
+      "id": "D6",
+      "query_shape": "system.settings WHERE name IN ('max_execution_time','max_memory_usage','readonly','max_threads')",
+      "param_classes": "none",
+      "aggregate_result": "max_execution_time=20 (SECONDS), max_memory_usage=0 (unlimited), readonly=0, max_threads=16",
+      "why": "establish whether D4's 20s kill was transient contention or a standing cap. It is a STANDING PROFILE SETTING on readonly_user, not a transient condition."
+    },
+    {
+      "id": "D7",
+      "query_shape": "INTERLEAVED A/B re-baseline, 3 rounds, alternating (never sequential batches -- DEV-2464). A = the shipped 13-month org-total handle() shape (org 469, 2025-08..2026-09). B = the shipped single-window WITH ROLLUP handleRange() shape (org 469, 2026-08).",
+      "param_classes": "single org id (worst-case class), 13-month and 1-month windows",
+      "aggregate_result": "A wall ms = 1152 / 1103 / 1056 (13 month rows). B wall ms = 676 / 656 / 584 (36 rows incl. rollup). DEV-2466 recorded A=1,102 ms and B=606 ms server-side. BOTH REPRODUCE within noise.",
+      "why": "Q2 -- the operator required a re-baseline before the plan is finalised. Result: DEV-2466's envelope is CORRECT and this ticket may be judged against it."
+    },
+    {
+      "id": "D8",
+      "query_shape": "same shape A against a COLD 13-month range (org 469, 2024-06..2025-07), default 20s cap, run twice back to back",
+      "param_classes": "single org id, 13-month window over older partitions",
+      "aggregate_result": "first touch 4,861 ms; immediate repeat 853 ms -- a 5.7x cold-partition penalty",
+      "why": "isolate D4's cause. CONFIRMS cold-storage first-touch, not query shape: the same shape is ~1.1 s warm and 4.9 s cold, and D4's very first query of the session (cold client TLS path + fully cold partitions) exceeded the 20 s cap."
+    },
+    {
+      "id": "D9",
+      "query_shape": "INTERLEAVED A/B of the PRE-diff vs POST-diff handleRange() SQL, 3 rounds alternating. OLD = SELECT kit_id, GROUPING(kit_id), uniqExact(ocr) ... GROUP BY kit_id WITH ROLLUP. NEW = the same plus anyLast(kit_name) AS name.",
+      "param_classes": "single org id (worst-case class, org 469), one calendar month; production ClickHouse Cloud, read-only",
+      "aggregate_result": "OLD wall ms = 636 / 591 / 594. NEW wall ms = 633 / 645 / 609. Both return 36 rows. The ranges OVERLAP -- adding anyLast(kit_name) is free within measurement noise.",
+      "why": "Review lane 3 (M1) correctly observed that the Phase-3.5 perf gate was waived on the premise that the SQL was unchanged, when the diff DOES add anyLast(kit_name) -- so D7 measured the pre-diff shape. The concern was legitimate and the driver's gate reasoning ('adds no rows' conflates rows with bytes) was sloppy. This closes the gap by measuring the SHIPPED shape directly: the added column costs nothing. Finding acknowledged and resolved by measurement, not by argument."
+    },
+    {
+      "id": "D10",
+      "query_shape": "INTERLEAVED A/B of the two blank-name-guard placements, 3 rounds alternating. PER_ROW = anyLast(if(kit_name='', concat('Kit ', toString(kit_id)), kit_name)) -- the shape the RN2 fix round shipped. HOISTED = if(anyLast(kit_name)='', concat('Kit ', toString(anyLast(kit_id))), anyLast(kit_name)) -- the shape RN3 lanes 1 and 3 both independently prescribed.",
+      "param_classes": "single org id (worst-case class, org 469), one calendar month (~5.5M rows); production ClickHouse Cloud, read-only",
+      "aggregate_result": "PER_ROW wall ms = 755 / 614 / 607. HOISTED wall ms = 603 / 646 / 623. Both return 36 rows -- IDENTICAL answer. Same envelope; the hoist has a slightly tighter spread and lower max.",
+      "why": "Closes, at the third time of asking, the recurring measured-shape-vs-shipped-shape gap (RN2 M1 -> D9 -> RN3 L1). HONEST READING: at the measured one-month scale the theoretical per-row cost does NOT show up as a material wall-clock difference, so the lanes' Low severity was right and the RN2 shape was not actually harmful. The 13-month window is ~11x these rows (60.7M vs 5.5M), where the gap would widen, and it was NOT measured at that scale. The hoist is adopted anyway because it is free, is the form both lanes prescribed, and removes the question rather than arguing it."
+    },
+    {
+      "id": "D11",
+      "query_shape": "Worst-case cardinality probe + INTERLEAVED A/B of the SHIPPED handleRange() SQL (verbatim, incl. the hoisted blank-name guard and anyLast(kit_name)), 3 rounds alternating, warm-up discarded. A = org 469 -- the org EVERY prior production measurement (D7/D9/D10) used. B = org 1271 -- the actual worst-case org, identified here. Window = the full prior calendar month (2026-08), which is the largest window the ranked list ever queries under the Option A settlement (the 13-month series is the org-total shape, unchanged from DEV-2467, and carries no kit grouping or kit_name column).",
+      "param_classes": "single org id; one full calendar month; production ClickHouse Cloud, read-only, readonly_user",
+      "aggregate_result": "CARDINALITY (2026-08, all 390 orgs): org 1271 is the worst case on BOTH axes -- 13,795,620 rows and 81 kits. Org 469, the prior baseline, is only 2nd by rows (5,462,693) and 4th by kits (35). No org has higher kit cardinality. TIMING wall ms: A(469) = 793 / 651 / 634; B(1271) = 1168 / 1179 / 1134. SERVER-SIDE (X-ClickHouse-Summary): A = 5,578,453 rows, 236 MB, 36 groups, 0.55 GiB peak memory, 525 ms. B = 13,911,711 rows, 510 MB, 82 groups, 0.96 GiB peak memory, 996-1,361 ms. SCALING: 2.5x rows and 2.3x groups produce only 1.8x wall and 1.75x memory -- SUB-LINEAR.",
+      "why": "Closes the last open scale question. D7/D9/D10 all measured org 469 and labelled it 'worst-case class', which meant worst-case PARAMETER class (a single org id), NOT the largest org -- so the true worst case had never been measured. VERDICT: the envelope HOLDS. The worst case in production is ~1.15 s wall / 0.96 GiB, which is the same order as the 13-month org-total query that DEV-2467 already ships (1,056-1,152 ms, D7), and roughly 17x under the standing 20 s max_execution_time cap on the readonly_user profile. Sub-linear scaling means kit cardinality is not a latent cliff. RESIDUAL, recorded not fixed: on a COLD partition D8 measured a 5.7x first-touch penalty, which would put this worst case near 6.6 s -- still inside the 20 s cap, but it is the same cold-start effect as the unfixed deploy-time residual the operator declined to file."
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC-1",
+        "kind": "agent",
+        "intent": "Entitled admin renders Company Metrics; leaderboard sits at row 3 col 1 and ranks kits by distinct ocr for the seeded window."
+      },
+      {
+        "ac": "AC-2",
+        "kind": "agent",
+        "intent": "Seed one plate scanned by TWO kits in one window; assert any displayed org total equals the kit_id=0 rollup and is strictly LESS than the sum of the per-kit rows."
+      },
+      {
+        "ac": "AC-3",
+        "kind": "agent",
+        "intent": "Cycle all four date filters; ranking and headline track each. last_7d and this_month coincide on the 8th -- expected."
+      },
+      {
+        "ac": "AC-4/AC-5",
+        "kind": "agent",
+        "intent": "Cold cache, render both UniqueScanCounts and the leaderboard for the same org+window; assert exactly ONE handleRange() call across both via the countable seam."
+      },
+      {
+        "ac": "AC-6",
+        "kind": "agent",
+        "intent": "Non-entitled org renders the locked placeholder with zero ClickHouse calls; other cards' values unchanged."
+      },
+      {
+        "ac": "Q1 outcome",
+        "kind": "human",
+        "intent": "Confirm the shipped 13-month surface matches whatever Q1 settles."
+      }
+    ],
+    "seed_scenario": "One COMPANY_METRICS-entitled org with 3+ kits: a plate scanned by two kits in the same window (AC-2), a duplicate-id CDC pair, one _peerdb_is_deleted=1 tombstone, and enough spread for a clear leader/runner-up. A second org proves org scoping; a third, non-entitled org proves the locked path. Anchor Carbon::setTestNow near the fixture (CH hot tables carry a 90-day TTL).",
+    "personas": [
+      "ADMIN on an entitled org",
+      "ADMIN on a non-entitled org",
+      "admin_impersonator session"
+    ],
+    "pg_tables": [],
+    "ch_tables": [
+      "clarity.scans_cold"
+    ]
+  },
+  "missed_caller_candidates_summary": "7 recorded in state.json. Material ones folded into scope: DashboardCardVisibilityTest (S5) and tests/e2e/helpers/company-metrics.ts (additive).",
+  "confidence": 82,
+  "escalated": true,
+  "best_of_n": true,
+  "_gate_note": "Recomputed CLEAN after the operator answered both material questions. NOTE: Q2 imposes a PRECONDITION -- the envelope re-baseline must complete before Phase 3 (plan) is finalised, and its result feeds the Phase 3.5 perf gate.",
+  "perf_validation_note": "Phase 3.5 perf gate: NOT required. Option A adopts no new or deferred-perf query shape -- both shapes are already shipped and were re-measured warm by the driver at D7. Option C, which WOULD have required the gate, was rejected."
+}

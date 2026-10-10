@@ -1,0 +1,101 @@
+{
+  "key": "DEV-2236",
+  "generated_at": "2026-09-14T21:40:00Z",
+  "sizing_verdict": "NO SPLIT \u2014 2 source files + 2 test files, one concern (suppress impersonator-attributed Scout side effects). Under the >6-file / multi-concern threshold.",
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Guard ClarityScoutShiftController::end() against force-login impersonators (early return)",
+      "approach": "Copy-and-adapt the shipped DEV-2232 guard from status() (same file, lines 62-70) into end(). Insert `if ($user->isScoutForceImpersonator()) { return response()->json([...]); }` AFTER the `if (! $kit)` 403 block (ends ~line 111) and BEFORE the unconditional `Analytics::track(ScoutAnalyticsEvent::ShiftEnd->value, ...)` at line 115. Returning before the Analytics call and before the DB::connection('platform')->transaction() suppresses, by construction: the ShiftEnd analytics event, the EnsureOpenShift::forKit() lazy zero-activity kit_shifts create, the close write, the SendEndOfShiftSummary dispatch, and the 'Scout shift ended' activity_log row. The payload is end()'s OWN key set with nulled values plus newly_closed:false (NOT status()'s 5-key payload) \u2014 per the Phase 2 answer, because end() responses are structurally expected to carry newly_closed. DO NOT extract a shared private helper for the duplicated predicate block: prep notes[] records that the shipped status() precedent did not extract one, and CLAUDE.md says follow the existing pattern; the literal duplication is intentional and must be called out in the PR body. Also refresh the class docblock (lines 23-34): the 'Both endpoints lazily materialize an open kit_shifts row via {@see EnsureOpenShift}' sentence is now wrong for end() too, and status()'s own docblock already documents its impersonator exception \u2014 add the matching one-line exception to the class-level block. Keep it terse (CLAUDE.md: 'Keep comments and docblocks minimal'; boost guidelines: PHPDoc over inline comments, no inline comments unless genuinely complex). Style: explicit `: JsonResponse` return type is already present; do not add new inline comments inside end().\n\nTEST CLASS FACTS (read verbatim from tests/Feature/Http/Controllers/Api/ClarityScoutShiftControllerTest.php): `class ClarityScoutShiftControllerTest extends Tests\\TestCase` \u2014 NO class-level attributes, NO traits declared in the class body, and NO `RequiresClickhouse` token anywhere in the file. It is therefore NOT CH-gated and will run in normal CI; the new test goes in this file. Test-method convention in THIS file is the `#[Test]` attribute (PHPUnit\\Framework\\Attributes\\Test) over a descriptive snake_case method name with `: void` \u2014 NOT a `test_` prefix, and this file uses NO `#[Group]` attributes. setUp() builds $this->user/$this->kit/$this->token and installs a PERMISSIVE `Analytics::shouldReceive('track')->zeroOrMoreTimes()->andReturnNull()`; you CANNOT assert 'never tracked' against that. Use the file's own precedent instead: `$spy = \\Mockery::spy(AnalyticsService::class); Analytics::swap($spy); ... $spy->shouldNotHaveReceived('track');` (see status_does_not_open_a_shift_or_track_shift_start_for_a_force_login_impersonator, lines 227-258 \u2014 the direct sibling to write against). Mint the force token exactly as that test does: `$this->user->createToken('clarity-scout-force-token', ['*', 'clarity-scout-force'])->plainTextToken`.\n\nNEW TEST (one #[Test] method, sibling-named, e.g. end_does_not_close_a_shift_or_track_shift_end_for_a_force_login_impersonator): Queue::fake(); swap the Analytics spy; POST /api/scout/shift/end with the force-token Bearer header; assert 200; assert the full impersonator key set is present via assertJsonStructure(['data' => ['shift_id','open','started_at','ended_at','end_type','newly_closed']]) plus assertJsonPath('data.shift_id', null) / ('data.open', false) / ('data.newly_closed', false); assertDatabaseCount('kit_shifts', 0); $spy->shouldNotHaveReceived('track'); assert 0 Activity rows with log_name 'scout-shift' and description 'Scout shift ended'; Queue::assertNotPushed(SendEndOfShiftSummary::class). Queue and SendEndOfShiftSummary are already imported in this file. NOTE the existing status_and_end_response_shapes_are_locked test uses a NORMAL scout token, so it does NOT pin the impersonator payload \u2014 the new test must assert that key set itself. Leave every existing end() test untouched (they prove the normal-driver path is unchanged).\n\nBLAST RADIUS: none. ClarityScoutShiftController matches no sensitive glob (not a migration, not billing, not Shield/Policy/auth config, not a ClickHouse purge/cleanup, not PruneScans).",
+      "target_files": [
+        "app/Http/Controllers/Api/ClarityScoutShiftController.php",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutShiftControllerTest.php"
+      ],
+      "intended_diffs": "app/Http/Controllers/Api/ClarityScoutShiftController.php \u2014 (a) class docblock (~lines 23-34): amend the 'Both endpoints lazily materialize an open `kit_shifts` row via {@see EnsureOpenShift}' paragraph with a one-line exception, e.g. '...with one exception: a force-login impersonator ({@see User::isScoutForceImpersonator()}) short-circuits both endpoints before any shift is materialized or closed.' (b) end() (~line 111, after the `if (! $kit)` return, before the `Analytics::track(ScoutAnalyticsEvent::ShiftEnd->value, ...)` line): insert\n\n    if ($user->isScoutForceImpersonator()) {\n        return response()->json([\n            'data' => [\n                'shift_id' => null,\n                'open' => false,\n                'started_at' => null,\n                'ended_at' => null,\n                'end_type' => null,\n                'newly_closed' => false,\n            ],\n        ]);\n    }\n\nNo other line in the file changes; no new imports (User is already imported, isScoutForceImpersonator is on the resolved $user).\n\ntests/Feature/Http/Controllers/Api/ClarityScoutShiftControllerTest.php \u2014 append ONE #[Test] method modelled line-for-line on status_does_not_open_a_shift_or_track_shift_start_for_a_force_login_impersonator (lines 227-258), swapping GET status for POST /api/scout/shift/end, adding Queue::fake() + Queue::assertNotPushed(SendEndOfShiftSummary::class), asserting the 6-key data structure incl. newly_closed=false, and checking the 'Scout shift ended' (not 'started') activity description. No new imports required (AnalyticsService, Queue, SendEndOfShiftSummary, Activity, Test are all already imported). No existing test modified.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "ClarityScoutShiftControllerTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t2",
+      "title": "Gate ONLY the Logout analytics call in ClarityScoutAuthController::logout() \u2014 token revocation must still run",
+      "approach": "THIS GUARD IS A DIFFERENT SHAPE FROM t1 ON PURPOSE. logout() must NOT early-return. `$request->user()->currentAccessToken()->delete()` is how an impersonating admin exits impersonation; an early return would strand them holding a live clarity-scout-force token. Only the `Analytics::track(ScoutAnalyticsEvent::Logout->value, ...)` call is gated. Ordering is load-bearing: isScoutForceImpersonator() reads `currentAccessToken()?->abilities` (app/Models/User.php:252), so the predicate MUST be evaluated BEFORE the token delete \u2014 after the delete, currentAccessToken() no longer reflects a live row and the guard would misbehave. Resolve `$user = $request->user()` once at the top (the method currently calls $request->user() twice), then:\n\n    if (! $user->isScoutForceImpersonator()) { Analytics::track(...); }\n    $user->currentAccessToken()->delete();\n\nDo not restructure anything else in the method; the success JSON body is unchanged. Boost guidelines: explicit `: JsonResponse` return type already present; no inline comment needed \u2014 if a reader needs the 'why', it belongs in the PR body and (post-approval) the wiki, per CLAUDE.md's comment-minimalism rule.\n\nBLAST-RADIUS JUDGEMENT CALL (explicit, as required): I AM TAGGING this node `auth`. Justification: although the sensitive glob 'Shield/Policies/auth config' literally means config and policy files rather than a controller, this node's ONLY realistic failure mode is an authentication-session outcome, not an analytics one \u2014 implementing it as an early return (the shape t1 uses, and the shape a reviewer pattern-matching on t1 would reach for) leaves an admin's `clarity-scout-force` token alive and the admin stuck inside a driver's session. That is a privilege-exit failure, which is exactly the class of risk the approval gate exists for; tagging is not casual here and under-tagging to dodge the gate would be the wrong call. The tag forces one human approval line before t2 is implemented.\n\nTEST CLASS FACTS (read verbatim from tests/Feature/Http/Controllers/Api/ClarityScoutAuthControllerTest.php): `class ClarityScoutAuthControllerTest extends Tests\\TestCase` \u2014 NO class-level attributes, NO traits declared in the class body, and NO `RequiresClickhouse` token anywhere in the file. NOT CH-gated; it runs in normal CI, so the new tests go in this file. Test-method convention in THIS file differs from t1's file: methods are `test_`-PREFIXED snake_case with `: void`, each carrying `#[Group('controllers')]` and `#[Group('clarity-scout')]` \u2014 there is NO `#[Test]` attribute anywhere in this file. Match the host file, not t1. setUp() installs the same permissive `Analytics::shouldReceive('track')->zeroOrMoreTimes()->andReturnNull()`, so a 'never tracked' assertion needs the Mockery spy swap \u2014 and this file does NOT yet import App\\Services\\Analytics\\AnalyticsService, so that import must be ADDED. Setup helper is the file-private `createScannerUser(array $userAttrs = []): User` (line 430). Force tokens are minted in this file as `$user->createToken('clarity-scout-token', ['*', 'clarity-scout-force'])->plainTextToken` (lines 211, 322, 361) and requests use `$this->withToken($token)`.\n\nNEW TESTS (two methods, both `test_`-prefixed with both #[Group] attributes):\n1. test_logout_does_not_track_logout_for_a_force_login_impersonator_but_still_revokes_the_token \u2014 swap in `$spy = \\Mockery::spy(AnalyticsService::class); Analytics::swap($spy);`, createScannerUser(), mint a ['*','clarity-scout-force'] token, POST /api/scout/logout via withToken(), assertSuccessful(), `$spy->shouldNotHaveReceived('track')`, AND \u2014 the load-bearing half \u2014 assertDatabaseMissing('personal_access_tokens', ['tokenable_id' => $user->id, 'tokenable_type' => $user->getMorphClass()]) exactly as the existing test_can_logout does. Without that revocation assertion an early-return implementation would pass.\n2. test_logout_still_tracks_logout_for_a_normal_driver \u2014 same spy swap, a plain 'clarity-scout-token' (no force ability), POST logout, assertSuccessful(), and `$spy->shouldHaveReceived('track')->withArgs(fn (...$args): bool => ($args[0] ?? null) === ScoutAnalyticsEvent::Logout->value)->once();` \u2014 this requires ADDING the `App\\Enums\\ScoutAnalyticsEvent` import too (not currently imported in this file). Leave the existing test_can_logout untouched.",
+      "target_files": [
+        "app/Http/Controllers/Api/ClarityScoutAuthController.php",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutAuthControllerTest.php"
+      ],
+      "intended_diffs": "app/Http/Controllers/Api/ClarityScoutAuthController.php \u2014 logout() (lines 86-95) becomes:\n\n    public function logout(Request $request): JsonResponse\n    {\n        $user = $request->user();\n\n        if (! $user->isScoutForceImpersonator()) {\n            Analytics::track(ScoutAnalyticsEvent::Logout->value, $user, ['action' => 'logout'], page: ScoutAnalyticsPage::App->value);\n        }\n\n        $user->currentAccessToken()->delete();\n\n        return response()->json([\n            'message' => 'Logged out successfully',\n        ]);\n    }\n\nNo early return. No import changes (Analytics, ScoutAnalyticsEvent, ScoutAnalyticsPage, JsonResponse, Request all already imported). No other method in the file changes.\n\ntests/Feature/Http/Controllers/Api/ClarityScoutAuthControllerTest.php \u2014 add two `use` imports (App\\Enums\\ScoutAnalyticsEvent, App\\Services\\Analytics\\AnalyticsService) in alphabetical position, and append the two `test_`-prefixed #[Group('controllers')]/#[Group('clarity-scout')] methods described in approach, placed next to the existing test_can_logout. No existing test modified.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "ClarityScoutAuthControllerTest",
+      "ui_impact": false,
+      "blast_radius": [
+        "auth"
+      ],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {
+      "site": "app/Http/Controllers/Api/ClarityScoutShiftController.php:62 status()",
+      "reason": "Already guarded by the shipped DEV-2232 fix; it is the copy-and-adapt precedent for t1, not a target."
+    },
+    {
+      "site": "app/Http/Controllers/Api/ClarityScoutAuthController.php:68 login()",
+      "reason": "Not reachable via force-login \u2014 force tokens are minted directly by ClarityScoutForceLoginController, never through the password login path."
+    },
+    {
+      "site": "app/Http/Controllers/Api/ClarityScoutAuthController.php:105 me()",
+      "reason": "Read-only; it uses isScoutForceImpersonator() only to set the is_impersonating response flag. No analytics, no write."
+    },
+    {
+      "site": "app/Models/ScoutOrgSettings.php:92 flag resolution",
+      "reason": "Read-only flag surfacing; no side effect to suppress."
+    },
+    {
+      "site": "app/Http/Controllers/Api/ClarityScoutNotificationsController.php:46 markRead()",
+      "reason": "Graded `safe` by the sweep: an explicit user-initiated write. The impersonator is deliberately acting as the driver, not tripping an implicit lazy side effect of merely being logged in."
+    },
+    {
+      "site": "app/Http/Controllers/Api/ClarityScoutNotificationsController.php:62 markAllRead()",
+      "reason": "Same rationale as markRead() \u2014 explicit user-initiated write."
+    },
+    {
+      "site": "app/Http/Controllers/Api/ClarityScoutScanDispositionController.php:39 __invoke()",
+      "reason": "Explicit driver disposition action, deliberately taken by the impersonator; not an implicit side effect."
+    },
+    {
+      "site": "app/Http/Controllers/Api/ClarityScoutTripsController.php:269 view analytics",
+      "reason": "Read-only view events, no mutation; graded `safe`."
+    },
+    {
+      "site": "app/Console/Commands/CloseInactiveShiftsCommand.php handle()",
+      "reason": "Scheduled, not request-scoped \u2014 there is no impersonator context to key on."
+    },
+    {
+      "site": "app/Http/Controllers/Api/ClarityScoutShiftController.php logShiftActivity() \u2014 session('impersonator') vs session('admin_impersonator') key mismatch",
+      "reason": "Pre-existing unrelated drift (the _impersonator audit property is likely never populated today). Flagged in prep notes[], NOT fixed here \u2014 CLAUDE.md forbids silently fixing unrelated drift."
+    },
+    {
+      "site": "okf/concepts/scout-shifts-and-trips.md Observability section (documents 'ShiftEnd fires unconditionally' and 'the audit row IS written during impersonation')",
+      "reason": "Both lines go stale with this fix, but CLAUDE.md's OKF WRITE rule forbids wiki edits while work is in flight. QUEUED for the post-approval pass and carried to the Build Record."
+    },
+    {
+      "site": "resources/js/clarity-scout/composables/useShift.js endShift() (lines 64-94)",
+      "reason": "Consumer verified safe, no change needed: it optional-chains every field with a fallback (data?.shift_id ?? shiftId.value, data?.ended_at ?? new Date().toISOString(), data?.end_type ?? 'confirmed') and never reads newly_closed. No frontend edit, so no asset rebuild."
+    }
+  ],
+  "blast_radius_approvals": [
+    {
+      "node": "t2",
+      "tag": "auth",
+      "approved_by": "Dalton McCleery",
+      "at": "2026-09-14",
+      "decision": "Approved \u2014 build t2; tag RETAINED (deliberately not dropped), so Phase 5 escalates to 3 review lanes.",
+      "condition": "The impersonator logout test MUST assert the clarity-scout-force token IS revoked, not merely that the Logout analytics event is absent. An early-return implementation would strand the impersonator in the driver session; that assertion is the load-bearing half of the node."
+    }
+  ]
+}

@@ -1,0 +1,275 @@
+{
+  "key": "DEV-2528",
+  "generated_at": "2026-09-14T20:45:00Z",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "best_of_n": true,
+  "escalation_triggers": [
+    "confidence<80 on fast pass (32)",
+    "escalate.recommend=true",
+    "answered:false questions",
+    "ticket's own stated hypothesis falsified",
+    "material uncited prior finding (DEV-2467)"
+  ],
+  "synthesis": "DEV-2528 reports three Scout-shift tests failing by exactly 18,000s (5h) in a full-suite run. The ticket's leading hypothesis (App\\Models\\User::timezone defaulting to America/Chicago) is FALSIFIED: that accessor is never referenced by CloseInactiveShiftsCommand, EnsureOpenShift, or either test file, and all three prep passes independently confirmed it. The real mechanism was confirmed empirically by the driver: this machine's local Postgres server has TimeZone = America/Chicago set in postgresql.conf (source='configuration file'), config/database.php sets no 'timezone' key on ANY connection, so Laravel's PostgresConnector never issues SET TIME ZONE and every PDO session inherits the server default. Eloquent writes datetimes as naive 'Y-m-d H:i:s' strings with no offset; Postgres interprets such a literal in the SESSION timezone when storing it into a timestamptz column. platform.kit_shifts.started_at/ended_at are timestamptz. Therefore every shift timestamp written locally is stored 5 hours off, and reads it back faithfully as the wrong instant. zod public.scans.scanned_at is a naive `timestamp` and is NOT affected, which is exactly why only the shift-path tests break. CI passes because its Postgres is the stock postgis/postgis:16-3.5 container with no TZ override, i.e. UTC, so the same naive literal is interpreted correctly there.",
+  "root_cause_proof": {
+    "method": "Driver-run probe through the real app on the platform connection, using a session-local TEMP table so nothing else was disturbed.",
+    "observed": {
+      "php_default_timezone": "UTC",
+      "config_app_timezone": "UTC",
+      "postgres_session_TimeZone": "America/Chicago",
+      "postgres_TimeZone_source": "configuration file",
+      "carbon_written": "2026-09-14T12:00:00+00:00",
+      "literal_sent_by_eloquent": "2026-09-14 12:00:00",
+      "timestamptz_column_read_back": "2026-09-14 12:00:00-05",
+      "naive_timestamp_column_read_back": "2026-09-14 12:00:00",
+      "delta_seconds": 18000
+    },
+    "conclusion": "Exact reproduction of the ticket's 18,000s signature, on the write path, for timestamptz columns only."
+  },
+  "scope": {
+    "summary": "TEST-ONLY. Force the Postgres session timezone to UTC for the test suite via PGTZ in phpunit.xml (verified: PGTZ=UTC flips the PDO session to UTC; without it the session is America/Chicago), plus a regression test that pins it. Nothing that reaches production is touched.",
+    "proposed_changes": [
+      {
+        "file": "phpunit.xml",
+        "change": "Add <env name=\"PGTZ\" value=\"UTC\" force=\"true\"/> to the <php> block.",
+        "reason": "libpq reads PGTZ and sends it as the connection's startup timezone parameter, so every PDO session in the test run is UTC regardless of the host server's postgresql.conf. Verified empirically on this box. phpunit.xml is not read in production.",
+        "ref": "phpunit.xml <php> env block"
+      },
+      {
+        "file": "tests/Feature/Database/PostgresConnectionTimezoneTest.php (new)",
+        "change": "Assert each pgsql connection's session TimeZone is UTC, and that a naive Carbon round-trips through a timestamptz column with zero delta.",
+        "reason": "Pins the fix at its true source and fails loudly on any machine whose Postgres is not UTC, instead of surfacing three hops downstream as an inexplicable 5-hour shift in shift math.",
+        "ref": "new file"
+      }
+    ],
+    "target_files": [
+      "phpunit.xml",
+      "tests/Feature/Database/PostgresConnectionTimezoneTest.php"
+    ],
+    "out_of_scope": [
+      "config/database.php 'timezone' => 'UTC' on the pgsql connections - REJECTED by the operator: config/database.php ships to production and this ticket is not to change production behaviour.",
+      "Verifying production's Postgres TimeZone GUC - not done; recorded as an open risk in the Build Record. If production is not UTC, the 10 application timestamptz columns are being stored shifted there too, and that would need its own ticket with its own migration plan.",
+      "app/Console/Commands/CloseInactiveShiftsCommand.php - every ->utc() is correctly ->copy()->utc() and every Carbon::parse passes an explicit 'UTC'; no defect found by any of three independent passes.",
+      "app/Services/Scout/EnsureOpenShift.php - same; its diffInMinutes calls are already abs()-guarded (commit 37d48434a7, RC v3.7.0).",
+      "app/Models/User.php::timezone - the ticket's stated hypothesis. Falsified: never referenced from either code path. The America/Chicago coincidence is the Postgres server GUC, not this accessor.",
+      "tests/Unit/Clickhouse/Queries/OrgLivePositionsQueryTest.php - the only America/Chicago process-tz mutation in the repo, but its cleanup is correct and Laravel independently re-forces UTC on every test's fresh Application, so it cannot leak.",
+      "ClickHouse - ruled out by all three passes and by the driver: local container timezone()=UTC, TZ=UTC, no <timezone> override, and neither schema file declares a DateTime64 with an explicit timezone argument.",
+      "Aligning CloseInactiveShiftsCommandTest's private 3-table requireClickhouse() truncate with the 21-table RequiresClickhouse trait - a real convention drift found by pass A, but not the cause here. Worth a follow-up ticket."
+    ]
+  },
+  "exposure_surface": {
+    "note": "Every application timestamptz column is exposed to this bug on any non-UTC Postgres server. Enumerated from information_schema on the platform connection.",
+    "columns": [
+      "platform.kit_shifts.started_at",
+      "platform.kit_shifts.ended_at",
+      "platform.kit_shifts.summary_sent_at",
+      "platform.org_run_areas.created_at",
+      "platform.org_run_areas.updated_at",
+      "platform.org_run_areas.materialized_at",
+      "platform.scout_check_ins.hour_bucket",
+      "platform.scout_check_ins.matched_at",
+      "platform.scout_org_settings.created_at",
+      "platform.scout_org_settings.updated_at"
+    ],
+    "unaffected": "zod public.scans.scanned_at/created_at are naive `timestamp` - explains why scan-only assertions pass while shift assertions fail."
+  },
+  "blast_radius_analysis": {
+    "claim": "Forcing the session to UTC changes no existing query behaviour.",
+    "evidence": [
+      "No connection currently sets a 'timezone' key (grep config/database.php).",
+      "No raw SQL in app/ uses now(), current_date, current_timestamp or localtime (git grep).",
+      "All four AT TIME ZONE uses are explicit (they name tzid::text or 'UTC') and operate on scans.scanned_at, a naive timestamp column - unaffected by the session GUC.",
+      "date_trunc uses operate on scanned_at (naive) - unaffected.",
+      "Reading timestamptz is already offset-aware and parses correctly either way; only the naive-literal WRITE interpretation changes."
+    ],
+    "residual_risk": "If production Postgres is NOT already UTC, this fix corrects future writes but leaves historical rows written under the old offset. That is the one material unknown - see questions[0]."
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Root cause identified and stated (not just made green).",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Identified and proven empirically; see root_cause_proof. Will be stated in full in the Build Record."
+    },
+    {
+      "item": "The three tests pass both in isolation and in a full-suite run.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "The fix makes the session timezone deterministic regardless of the host server, which should make these pass in both modes on any machine. Must be verified by an actual run in Phase 4/6 - not yet verified (see questions[1])."
+    },
+    {
+      "item": "If the bug is in the command rather than the test, that fix ships too - a 5-hour window error in shift closing would be a real production bug.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "The bug is in neither the command nor the test - it is that the app never pins the Postgres session timezone. The operator scoped this ticket to test-only, so no production fix ships. Whether production is affected is unverified and recorded as an open risk rather than silently treated as 'no'."
+    }
+  ],
+  "questions": [
+    {
+      "q": "Is production's Postgres server TimeZone GUC already UTC? If it is, this fix is a pure no-op hardening. If it is NOT, then production has been silently storing every kit_shifts / scout_check_ins / org_run_areas / scout_org_settings timestamptz value shifted by the server's offset - a live production data bug, and exactly the 'real production bug' AC-3 anticipates.",
+      "answered": true,
+      "answer": "Out of scope by operator decision: do not change anything that reaches production. config/database.php ships to prod, so the connection-timezone fix is rejected. Scope is test-only. Production's Postgres timezone is NOT verified and is recorded as an open risk in the Build Record, not acted on. If prod is UTC (as CI is) this is purely a local-vs-CI divergence and the test-only fix is complete.",
+      "source": "human:Dalton 2026-09-14",
+      "materiality": "MATERIAL - data semantics + production reach. Must not be assumed."
+    },
+    {
+      "q": "Does the ticket's 'passes in isolation, fails only in full suite' premise actually hold? The confirmed mechanism is a deterministic per-connection Postgres GUC, which predicts the tests fail in BOTH modes. Pass B found PR #309 (DEV-2309) recorded these same 3 tests as failing 'on main too' (i.e. unconditionally), which contradicts the ticket's framing. The driver could not settle this: two attempted local runs deadlocked (two PDO sessions on the same physical DB contending during app:seed-permissions) and the local testing DB has been dropped and recreated, so it now needs re-provisioning before any run.",
+      "answered": true,
+      "answer": "Driver will settle this empirically in verification rather than asking: run the two files alone and then in a full suite, after the env is re-provisioned. The proven mechanism predicts failure in BOTH modes, which would mean the ticket's 'passes in isolation' framing is wrong and PR #309's 'fail on main too' is right. Either way the fix is the same; only what AC-2 demonstrates changes.",
+      "source": "code",
+      "materiality": "Non-blocking for the fix, but it changes what AC-2 must demonstrate."
+    },
+    {
+      "q": "Should the 'timezone' => 'UTC' key go on all five pgsql connections or only platform/platform_read?",
+      "answered": true,
+      "answer": "All five. They all point at the same physical server and are equally exposed; a partial fix leaves an identical latent bug live on the others. Blast-radius analysis shows no existing query depends on the session timezone.",
+      "source": "code"
+    },
+    {
+      "q": "Is App\\Models\\User::timezone (America/Chicago default) the cause?",
+      "answered": true,
+      "answer": "No. Never referenced by CloseInactiveShiftsCommand, EnsureOpenShift, or either test file; confirmed independently by all three prep passes. The only place that default reaches a query is App\\Clickhouse\\Models\\Scan::scopeBetween(), which is not on this path. The matching 5-hour figure is a coincidence of both being America/Chicago.",
+      "source": "code"
+    },
+    {
+      "q": "Is ClickHouse the source, as DEV-2467 concluded ('local ClickHouse container artifacts')?",
+      "answered": true,
+      "answer": "No. Local container clarity-qa-clickhouse reports timezone()=UTC, TZ=UTC, no <timezone> override in config.xml; neither clickhouse-schema.sql nor local-clickhouse-schema.sql declares a DateTime64 with an explicit timezone argument. DEV-2467's guess was in the right direction (a local-environment artifact) but named the wrong component - it is Postgres, not ClickHouse.",
+      "source": "code"
+    },
+    {
+      "q": "Do the tests run in CI, or are they skipped there (which would make 'CI is green' meaningless)?",
+      "answered": true,
+      "answer": "They run. .github/workflows/deploy.yml starts a real clickhouse/clickhouse-server:26.2 service and loads database/schema/clickhouse-schema.sql. Pass C computed the workflow's round-robin shard formula and located both files in shard 1 of run 34364924334, whose log shows 73 files, zero 'F' markers, '1 risky, 4 skipped, 646 passed'.",
+      "source": "code"
+    },
+    {
+      "q": "The review (RN1, M1) surfaced a variant never put to the operator: 'timezone' => env('DB_TIMEZONE') on the pgsql connections. Verified no-op in production - PostgresConnector::configureTimezone() guards on isset($config['timezone']) and env() returning null is not isset, so with DB_TIMEZONE unset no SET TIME ZONE is issued. It would close the bug for every LOCAL process (bootstrap seeds, Herd web requests, manual artisan runs, QaSeeder), not just PHPUnit. Take it?",
+      "answered": true,
+      "answer": "No - stay test-only. Operator chose the smallest diff that touches nothing outside the test suite, after being shown that the variant is a provable production no-op. Accepted consequence, recorded as a known limitation: on a non-UTC host, data written outside PHPUnit (bootstrap seeding, browser-driven QA, hand-run artisan commands) is still shifted.",
+      "source": "human:Dalton 2026-09-14"
+    }
+  ],
+  "blockers": [],
+  "missed_caller_candidates": [],
+  "grounding": {
+    "key_files": [
+      "config/database.php:58-159 (five pgsql connections, none set 'timezone')",
+      "vendor/laravel/framework/src/Illuminate/Database/Connectors/PostgresConnector.php:136-143 (configureTimezone - issues SET TIME ZONE only if the key is present)",
+      "database/migrations/2026_05_26_000000_create_kit_shifts_table.php:18-23 (timestampTz columns)",
+      "app/Console/Commands/CloseInactiveShiftsCommand.php:43 (Carbon::now()), :161-247 (latestActivityFor/latestScanFor/latestGpsFor)",
+      "app/Services/Scout/EnsureOpenShift.php:52-186 (forKit/currentOpenForKit/inferStartedAt)",
+      "tests/TestCase.php:29-40 (forces date_default_timezone_set('UTC') before parent::setUp())",
+      "tests/Feature/Console/Commands/CloseInactiveShiftsCommandTest.php:92-99 (a sibling test already works around this class of bug by writing with format('Y-m-d H:i:sP') - the offset-aware 'P')",
+      ".github/workflows/deploy.yml:50-64 (CI postgis/postgis:16-3.5, no TZ override => UTC), :65-74 (CI clickhouse 26.2)"
+    ],
+    "corroborating_signal": "CloseInactiveShiftsCommandTest::command_closes_zero_activity_shift_opened_long_ago deliberately bypasses the factory and writes started_at with ->format('Y-m-d H:i:sP') - the 'P' appends the UTC offset, which defeats exactly this bug. Someone already worked around it for that one test; the other two use the plain factory path and remain exposed.",
+    "tables": [
+      "platform.kit_shifts",
+      "platform.scout_check_ins",
+      "platform.org_run_areas",
+      "platform.scout_org_settings",
+      "zod public.scans (naive, unaffected)"
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [
+      "platform.kit_shifts",
+      "platform.scout_check_ins",
+      "platform.org_run_areas",
+      "platform.scout_org_settings"
+    ],
+    "ch_tables": [],
+    "mv_or_cdc_implications": "None. No schema change, no migration, no data rewrite proposed. If production proves to be non-UTC, a historical-data correction would be a SEPARATE ticket with its own migration plan - explicitly not this one.",
+    "indexes_relied_on": []
+  },
+  "resource_envelope": {
+    "scale_relevant": false,
+    "trigger": "The change is a connection-bootstrap config key. It adds one SET TIME ZONE statement per new PDO connection and changes no query shape, no iteration, and no cardinality. CloseInactiveShiftsCommand is a scheduled command but is not modified.",
+    "driving_tables": [],
+    "growth": null,
+    "schedule": null,
+    "allocation_sketch": "One extra round-trip per new connection; negligible.",
+    "oracle_status": "not-configured",
+    "unresolved": []
+  },
+  "derivation_log": [
+    {
+      "query_shape": "SHOW TimeZone / SELECT setting, source FROM pg_settings WHERE name='TimeZone'",
+      "param_classes": [
+        "none"
+      ],
+      "aggregate_result": "America/Chicago, source='configuration file'",
+      "why": "Establish that the local server default is non-UTC and comes from postgresql.conf, not a role or database override."
+    },
+    {
+      "query_shape": "CREATE TEMP TABLE (tz timestamptz, naive timestamp); INSERT naive literal; SELECT back",
+      "param_classes": [
+        "a single synthetic UTC datetime literal"
+      ],
+      "aggregate_result": "delta = 18000 seconds on the timestamptz column, 0 on the naive column",
+      "why": "Exact reproduction of the ticket's signature; isolates the mechanism to the naive-literal-into-timestamptz write path."
+    },
+    {
+      "query_shape": "SELECT table_schema, table_name, column_name FROM information_schema.columns WHERE data_type='timestamp with time zone' AND table_schema IN ('platform','public')",
+      "param_classes": [
+        "schema names"
+      ],
+      "aggregate_result": "12 columns, of which 10 are application tables across 4 Scout tables",
+      "why": "Bound the exposure surface of the bug and of the fix."
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC-1",
+        "kind": "human",
+        "intent": "Confirm the stated root cause is accepted before close - the operator's standing rule is that a root-cause statement is reviewed before the ticket closes."
+      },
+      {
+        "ac": "AC-2",
+        "kind": "agent",
+        "intent": "Run the two named test files alone, then a full php artisan test, and confirm all three previously-failing assertions pass in both modes. Requires the local testing DB to be re-provisioned first (it was dropped while clearing a deadlock)."
+      },
+      {
+        "ac": "AC-3",
+        "kind": "human",
+        "intent": "Confirm production's Postgres TimeZone GUC before merging, to determine whether this is no-op hardening or the discovery of a live production data bug."
+      }
+    ],
+    "seed_scenario": "No new seed data. The existing KitShift/Kit/Org factories in the two named test files already exercise the exact scenario. A direct connection-level assertion (SHOW TimeZone) needs no data at all.",
+    "personas": [],
+    "pg_tables": [
+      "platform.kit_shifts"
+    ],
+    "ch_tables": []
+  },
+  "notes": [
+    "DEV-2467 commit 52c9bfc76 (2026-09-09) recorded these same three failures as 'local ClickHouse container artifacts, not real defects'. That conclusion was directionally right (a local-environment artifact) but named the wrong subsystem. DEV-2528 was filed 2026-09-11 without citing it. Both should be reconciled in the Build Record so the next investigator does not re-run this loop a fifth time.",
+    "This trio has now been observed and set aside across at least DEV-2309, DEV-2426, DEV-2448, DEV-2467 and DEV-2468 without a root cause being pinned. That history is itself an argument for shipping the regression test that pins the session timezone directly.",
+    "Prep pass A's negative result is load-bearing: it ruled out ClickHouse state leakage by showing the file truncates its 3 read tables before every CH test, and that the live container's shift tables are currently empty.",
+    "Prep pass B's negative result closed out the PHP-clock-leak class: Laravel nulls $this->app after every test, so LoadConfiguration re-applies date_default_timezone_set(config('app.timezone')) on every single test, independent of any test's own tearDown hygiene.",
+    "Pass B asserted that Postgres's offset-aware text output makes timestamptz round-trip correctly regardless of session TZ. That is true of the READ and false of the WRITE, and the driver's probe settled it: the offset shown on read is faithful to an instant that was already stored wrong.",
+    "Two local full/filtered test runs deadlocked during app:seed-permissions (one backend idle-in-transaction on role_has_permissions blocking an ALTER SEQUENCE on platform.permissions from a second connection). The testing database has been dropped and recreated and needs re-provisioning before Phase 4 runs anything."
+  ],
+  "tests": [
+    {
+      "file": "tests/Feature/Database/PostgresConnectionTimezoneTest.php",
+      "what_it_pins": "That every pgsql connection's session TimeZone is UTC, and that a naive Carbon round-trips through a timestamptz column with zero delta - the fix at its true source."
+    },
+    {
+      "file": "tests/Feature/Console/Commands/CloseInactiveShiftsCommandTest.php",
+      "what_it_pins": "Existing, unmodified. Re-run to confirm the 2 previously-failing assertions pass."
+    },
+    {
+      "file": "tests/Feature/Services/Scout/EnsureOpenShiftTest.php",
+      "what_it_pins": "Existing, unmodified. Re-run to confirm the 1 previously-failing assertion passes."
+    }
+  ],
+  "confidence": 88,
+  "escalate": {
+    "recommend": false,
+    "reason": "Root cause is proven empirically by the driver. The remaining unknown is a production fact that only the operator can authorise checking, which is a gate question, not an escalation."
+  }
+}

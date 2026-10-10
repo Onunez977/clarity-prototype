@@ -1,0 +1,70 @@
+Plan DEV-2928. Repo root for this run: <mac-run-dir>/platform-wt (isolated worktree on branch cursor/dev-2928-rdn-backfill-branches, based on origin/claude/DEV-2442 tip 42a4310f; write specs ONLY under this worktree's .ai/specs/). POST_TO_JIRA: no — draft the Jira comment to .ai/specs/DEV-2928.jira-comment.md only; do not post.
+
+## Ticket (live)
+Key: DEV-2928
+Summary: Backfill hotlist branch_id for client analytics branch filter (follow-up to DEV-2442)
+Assignee: Dalton McCleery · Status: To Do · Task · App: Clarity · Repo: insight-lpr/platform · Sprint 42 · Epic DEV-1580 · relates to DEV-2442 (QA Ready)
+URL: https://insightlpr-team.atlassian.net/browse/DEV-2928
+Jira cloudId: 150e0ba0-1d8e-4ac4-82da-ee78a512c3cc
+Read the ticket yourself (getJiraIssue with comments) — the live description and AC are authoritative.
+
+## First Glance (comment id 43357 — authoritative Branch path)
+| Field | Value |
+| --- | --- |
+| **Branch path** | **Stacked on PR #374's head branch `claude/DEV-2442`** (PR base = `claude/DEV-2442`). After #374 merges, base is retargeted to main (main→main). Never push to or edit #374 / `claude/DEV-2442`. |
+| Verdict | Ready · Hardness Medium |
+| Surface | (1) `app:rdn-backfill-branches {org}` command; (2) normalized branch-name fallback after exact match; (3) query-time branch filter for LPR Assists + Missed Opportunities: `hotlist_id IN (SELECT id FROM clarity.hotlist FINAL WHERE org_id=? AND ifNull(branch_id,0)=?)`, following the `HotlistStatusSource` / `HotlistStatusTransition::scopeForBranch` pattern from #374; (4) runbook in the PR. ClickHouse: read path only (`ch_touch: yes`); no CH writes, no MV changes. |
+| Hard stop | No production backfill or Cloud ClickHouse writes; smallest change; no new infra beyond the dedicated queue + Horizon supervisor entry. Out of scope: alias table; any production backfill run (Dalton runs by hand post-deploy, Action Towing dry run first); fleet-wide run; `HotlistStatusAggregate` / All Branches; RDN ingestion outage since 2026-09-02. |
+| Forecast gates | (1) #25 old-vs-new parity: All Branches numbers byte-identical before/after; branch-filtered LPR Assists / Missed Opportunities match the transition cards' current-branch semantics; read-only production-cardinality measure filed in PR + Build Record. (2) Human QA check with Dalton before undraft (query + UI change). (3) Retarget after #374 merges. |
+| Next | Prep → Plan → Provision. |
+
+## Acceptance criteria (live Jira)
+1. Backfill command `app:rdn-backfill-branches {org} --since= [--until=] [--chunk=500] [--max=] [--dry-run=N]`. Dry-run calls RDN for N sample hotlists spread across age buckets (<30d, 30–180d, >180d), writes NOTHING, reports resolved / no_branch_name / no_branch_match / transport_failed per bucket plus unmatched `vendor_branch_name` values next to the org's branch names.
+2. Running it enqueues `GetOrgHotlistCaseInfo` only for the org's RDN hotlists with activity in the window (status transition or repo date in the window, or currently Open/Hold), not already resolved/sealed, newest→oldest; selection by activity, not created_at. Throttled chunks pushed only while the queue is short (job retryUntil ~48h). Dedicated queue (e.g. `rdn-backfill`, not `{low}`) + Horizon supervisor entry. Resumable per-org cursor; safe to re-run.
+3. Branch match: exact first; normalized fallback (trim, case-insensitive, collapse whitespace/punctuation). Exact still wins when present.
+4. With a branch selected, LPR Assists and Missed Opportunities count rows whose hotlist CURRENTLY has that branch, including hotlists enriched after the recovery / missed-hit row was written. Unfiltered (All Branches) numbers unchanged.
+5. Tests cover: selection window, chunking + resume, dry-run no-write, normalized matching, query-time branch filter for both cards.
+
+## Prep scout (verify; cite; do not gold-plate)
+- `app/Jobs/Rdn/GetOrgHotlistCaseInfo.php` — enrichment job: ShouldBeUniqueUntilProcessing; outcome consts L43–56 (resolved / miss_no_branch_name / miss_no_branch_match / transport_failed / sealed); exact match L351–366 (`Branch::where('org_id')->where('branch_name', $caseInfo->vendor_branch_name)->orderBy…`); writeBranchId L442+; ENRICHED_PREDICATE / attempts ceiling ~L34–100 (that is what "resolved/sealed" means for selection).
+- `app/Jobs/Rdn/GetOrgHotlistCases.php` L175 `new GetOrgHotlistCaseInfo(` — existing forward-only selection + dispatch: copy its eligibility predicates / dispatch shape rather than inventing new ones.
+- `app/Services/RDN.php` — RDN client; dry run calls RDN directly and must not write hotlist_json or counters that persist.
+- `app/Clickhouse/Models/HotlistStatusSource.php`, `app/Clickhouse/Models/HotlistStatusTransition.php` `scopeForBranch` (~L58) — the read-time `hotlist FINAL` subquery with `_peerdb_is_deleted = 0` and `ifNull(branch_id, 0) = ?`, org stashed from forOrg (no correlated IN on CH). This is the template for item (3).
+- `app/Clickhouse/Models/LprAssist.php` `buildWhereClause` (~L30): `AND r.branch_id = {$branchId}` on `clarity.recoveries r` (copied at write). NOTE `clarity.recoveries` has NO hotlist_id column; recoveries.id is the recovery id. Prove from code/KB whether recoveries.id == hotlist id (hint: `app/Models/RecoveriesKitUserScansReport.php` maps `recovery_id`→`hotlist_id`); if unproven, open question — do not guess.
+- `app/Clickhouse/Models/MissedOpportunity.php` `scopeForBranch` → `where('branch_id', …)` (column `UInt32 DEFAULT 0`, copied at write) → becomes `hotlist_id IN (…)`.
+- All consumers of those two branch filters are Client Analytics: `app/Filament/Widgets/Client/{LprAssistsWidget,MissedOpportunitiesWidget}.php`, `Client/Lifetime/Lifetime{LprAssists,MissedOpportunities}Widget.php`, `app/Filament/Pages/Concerns/HasStatDrillDown.php` (~L330, ~L381), `app/Clickhouse/Queries/Client/ClientRankedMetricsBatch.php` (~L114, ~L132), `app/Clickhouse/Queries/Client/BatchMonthlySparklineData.php` (~L95, ~L114). Changing the filter at the model level keeps them consistent — confirm and list.
+- `config/horizon.php` supervisors (~L197–290, per-env blocks) — one dedicated supervisor entry for the new queue.
+- `routes/console.php` / `app/Console/Commands/*` — follow the neighboring command style.
+- `database/schema/clickhouse-schema.sql` — `clarity.hotlist` L24 (`branch_id Nullable(Int64)`, ReplacingMergeTree, ORDER BY (toYYYYMM(created_at), org_id, created_at, id)), `missed_opportunities` L33, `recoveries` L34, `lpr_assists` view L89, `hotlist_incremental_mv` L104 (REFRESH EVERY 1 MINUTE). NO schema edits.
+- Tests: `tests/Feature/Jobs/Rdn/GetOrgHotlistCaseInfoTest.php`, `GetOrgHotlistCasesTest.php`, `tests/Feature/Clickhouse/HotlistStatusTransitionBranchFilterTest.php` (pattern for CH branch-filter tests), existing LprAssist / MissedOpportunity / Client widget tests (find them).
+- OKF to read: okf/index.md, okf/concepts/{data-architecture,clickhouse-integration,clickhouse-query-patterns,client-analytics,lpr-assist,missed-opportunity,rdn,rdn-provider-integration,jobs-and-queues,testing-conventions}.md, okf/models/{branches,hotlist_json}.md, okf/models/clickhouse/{hotlist,recoveries,lpr_assists,missed_opportunities}.md.
+
+## Known tension (resolve in spec; non-blocking)
+Jira says reuse `GetOrgHotlistCaseInfo` "unchanged" AND add normalized matching, which lives in the job's branch lookup. Plan the smallest reading: dispatch contract / rate limit / uniqueness / miss ceiling / outcome counters unchanged; only the branch-name lookup gains a fallback after exact. Dry run needs the same match logic without writes — choose the smallest pattern-faithful way to share it (no new service/class unless clearly necessary); justify.
+
+## Hard stops (must appear in spec)
+- Never push/commit/edit PR #374 or branch `claude/DEV-2442`.
+- Cloud CH READ-ONLY always; no CH writes; no MV / schema changes.
+- No production or fleet-wide backfill run from this work.
+- Smallest change meeting AC (#24): no new services/layers/traits beyond the command + queue/supervisor entry; reuse the existing job; reuse the `HotlistStatusSource` / `HotlistStatusTransition::scopeForBranch` subquery pattern. All Branches / `HotlistStatusAggregate` path untouched.
+- Out of scope: alias table; RDN ingestion outage; HotlistStatusAggregate.
+- Path A / Provision is FUTURE — the fleet twin (site + keyed PG + Docker CH) is stood before Provision; do not invent ports, DSNs or ledgers.
+- No internal bot names in the drafted Jira comment; neutral phase nouns only (Plan, Provision, Implement, Review, Agent QA, Verify).
+
+## Required spec sections (in addition to your template)
+- Status READY (or PARKED with reason). Branch line = stacked on claude/DEV-2442.
+- KB / okf citations for every claim.
+- Blast radius table with PG vs CH per file.
+- Test map with an explicit line `ch_touch: yes` (read path only — no CH writes, no MV changes) and the AC→test mapping for all five AC test areas. CH tests run on real fleet Docker ClickHouse (never CLICKHOUSE_DRIVER=pgsql as a done-signal).
+- #25 parity measure PLAN (do not run): Cloud CH READ-ONLY queries for PR + Build Record — (a) All Branches byte-identical: unfiltered SQL path unchanged + Cloud counts equal old vs new for a few orgs/windows; (b) branch-filtered LPR Assists / MO: old (copied branch_id) vs new (current hotlist branch) per branch, sanity vs transition-card semantics (same `ifNull(branch_id,0)` predicate on `clarity.hotlist FINAL`), with read_rows/read_bytes/elapsed for the new subquery at production cardinality. Name orgs as placeholders (e.g. Action Towing) — do not invent ids.
+- Runbook outline for the PR: dry run on one org, then backfill one org over the dashboard's longest range; watch queue depth, `hotlist_incremental_mv` refresh duration, RDN outcome counters.
+- "Seed needs for Path A" section: exact CH tables/views the two cards and the branch filter read (incl. clarity.hotlist with branch_id), PG tables the command reads/writes (branches, hotlist, hotlist_json, orgs/integration, status log/meta — confirm from code), suggested row shapes (multiple branches incl. NULL/0 branch; hotlists across <30d / 30–180d / >180d; Open/Hold/repossessed/closed; enriched vs un-enriched vs sealed; recoveries/lpr_assists/missed rows whose copied branch_id differs from the hotlist's current branch), and that Docker CH loads `database/schema/clickhouse-schema.sql` from this branch.
+- Open gates: HITL with Dalton before undraft (query + UI change); retarget base after #374 merges.
+
+## Out of scope
+- Provision / qa-prep / inventing Path A
+- Running any backfill; Cloud CH writes
+- Alias table; HotlistStatusAggregate; RDN outage
+- Posting to Jira (harness posts after self-check)
+
+Write the spec now.

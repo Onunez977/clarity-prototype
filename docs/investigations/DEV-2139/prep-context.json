@@ -1,0 +1,86 @@
+{
+  "gate": "CLEAN",
+  "mode": "normal",
+  "synthesis": "The Scout onboarding (set-password) email's sign-off uses ->salutation('Thanks,<br>Insight LPR Team') inside a Notification MailMessage builder. Laravel's default markdown notification template (email.blade.php) echoes {{ $salutation }} through Blade's EncodedHtmlString, which runs htmlspecialchars() on the string BEFORE CommonMark parses it, so the literal <br> is escaped and displayed as visible text. Fix: use CommonMark's hard-line-break syntax (two trailing spaces + \\n), which survives the escape step and is converted to a real line break by the markdown renderer in BOTH the HTML and plain-text mail parts.",
+  "scope": {
+    "summary": "One-line change in ScoutOnboardingNotification::toMail() replacing the raw <br> in ->salutation() with a markdown hard break, plus a focused regression test.",
+    "proposed_changes": [
+      {
+        "file": "app/Notifications/ScoutOnboardingNotification.php",
+        "change": "Replace ->salutation('Thanks,<br>Insight LPR Team') with ->salutation(\"Thanks,  \\nInsight LPR Team\") (two trailing spaces + newline = markdown hard break).",
+        "reason": "email.blade.php echoes $salutation via {{ }} (EncodedHtmlString -> htmlspecialchars) before CommonMark parses it, so embedded raw HTML is escaped to literal text. A markdown hard break is native markdown processed after the escape step, so it renders a real line break in HTML and preserves two lines in the plain-text fallback.",
+        "ref": "app/Notifications/ScoutOnboardingNotification.php:39"
+      }
+    ],
+    "target_files": [
+      "app/Notifications/ScoutOnboardingNotification.php",
+      "tests/Feature/Mail/Scout/ScoutOnboardingNotificationTest.php"
+    ],
+    "out_of_scope": [
+      "Other notifications/mailables — sweep found no other MailMessage-builder call sites; all other <br> usages live in static Blade markdown views (Mailable::markdown, html_input=ALLOW) and are safe.",
+      "Changing EncodedHtmlString escaping or CommonMark config (intentional XSS protection).",
+      "Subject, button text/URL, or link TTL (AC-2 requires unchanged)."
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "The onboarding email sign-off renders a clean line break with no literal <br> text.", "source": "ticket", "decision": "implement", "reason": "Markdown hard break renders a real <br> (line break), never literal text; verified via tinker."},
+    {"item": "Email otherwise unchanged (subject 'Welcome to Clarity Scout', set-password button, 7-day link expiry).", "source": "ticket", "decision": "implement", "reason": "Only the salutation string changes; subject/action/ttl untouched."}
+  ],
+  "questions": [
+    {"q": "Is a markdown hard break the correct fix vs HtmlString/PHP_EOL?", "answered": true, "answer": "Markdown hard break (two spaces + \\n) is the only option correct in BOTH parts. tinker showed plain \\n = unreliable soft break; HtmlString = correct HTML but glues plain-text lines together ('Thanks,Insight LPR Team').", "source": "code"},
+    {"q": "Will Pint/editorconfig strip the two trailing spaces?", "answered": true, "answer": "No — the spaces are inside a PHP string literal on one physical line, not trailing whitespace of a source line, so trim_trailing_whitespace/Pint leave them.", "source": "code"}
+  ],
+  "blockers": [],
+  "missed_caller_candidates": [],
+  "notes": [
+    "Notification is dispatched from 3 call sites (ScoutUsersResource.php:405, EditScoutUser.php:76 and :115); all share the single salutation source, so the centralized fix covers all.",
+    "Existing sibling notification test convention: tests/Feature/Mail/Scout/OneTimePasswordNotificationTest.php — mirror it (render the notification's MailMessage, assert on rendered content). Place the new test in tests/Feature/Mail/Scout/.",
+    "Root cause is upstream, intentional: EncodedHtmlString::toHtml() htmlspecialchars-escapes {{ }} echoes in the default notification template — do not modify.",
+    "Static blade markdown views (SendOneTimePassword, invites, pro/*) embed <br> in source and render correctly (html_input=ALLOW) — safe, unaffected."
+  ],
+  "tests": [
+    {"file": "tests/Feature/Mail/Scout/ScoutOnboardingNotificationTest.php", "what_it_pins": "Renders ScoutOnboardingNotification::toMail(User)->render() and asserts: (1) no escaped literal '&lt;br&gt;' / no raw 'Thanks,<br>' visible text; (2) a real <br> between 'Thanks,' and 'Insight LPR Team'; (3) subject 'Welcome to Clarity Scout', the set-password action, and '7 days' expiry text are present (AC-2 regression)."}
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Notifications/ScoutOnboardingNotification.php:39",
+      "app/Filament/Resources/ScoutUsersResource/Pages/EditScoutUser.php:76",
+      "app/Filament/Resources/ScoutUsersResource.php:405",
+      "tests/Feature/Mail/Scout/OneTimePasswordNotificationTest.php",
+      "vendor/laravel/framework/src/Illuminate/Notifications/resources/views/email.blade.php",
+      "vendor/laravel/framework/src/Illuminate/Support/EncodedHtmlString.php"
+    ],
+    "code_flow": "Admin creates/edits Scout user w/ web access -> $user->notify(new ScoutOnboardingNotification) -> MailChannel -> Markdown::render(email.blade.php) -> {{ $salutation }} htmlspecialchars-escaped -> CommonMark parse -> HTML/text mail parts.",
+    "tables": [],
+    "related_components": ["Illuminate\\Notifications\\Channels\\MailChannel", "Illuminate\\Mail\\Markdown"]
+  },
+  "exhaustiveness": {
+    "patterns_used": [
+      "grep -rnE '\\->(salutation|line|greeting|subject)\\([^)]*<(br|b|strong|a)[ />]' --include=*.php app/",
+      "grep -rnE '<br\\s*/?>|<b>|<strong>|<a[ >]' resources/views/vendor/mail resources/views/mail",
+      "grep -rn '->markdown(' app/ --include=*.php"
+    ],
+    "sites": [
+      {"site": "app/Notifications/ScoutOnboardingNotification.php:39", "classification": "buggy", "reason": "Interpolated via {{ $salutation }} (EncodedHtmlString) -> escaped before CommonMark. THE bug."},
+      {"site": "resources/views/mail/** static blade <br>/<strong>/<a> (send-one-time-password, pro/*, invites/*, missed-opportunities/*, hits/*, scout/end-of-shift-summary)", "classification": "safe", "reason": "Static markdown source rendered by Mailable::markdown() with html_input=ALLOW — passes through as real HTML. Not the escaped-echo pattern."},
+      {"site": "app/Mail/Hits/NewNotification.php:50, app/Mail/MissedOpportunities/NewNotification.php:36 ->subject(sprintf(...))", "classification": "safe", "reason": "Plain-text subjects, no HTML tags."}
+    ]
+  },
+  "data_impact": {"pg_tables": [], "ch_tables": [], "mv_or_cdc_implications": "None — pure notification-rendering string fix.", "indexes_relied_on": []},
+  "derivation_log": [
+    {"query_shape": "tinker: (new ScoutOnboardingNotification)->toMail($stubUser)->render()", "param_classes": ["stub User (name/email)"], "aggregate_result": "current HTML contains escaped literal 'Thanks,&lt;br&gt;Insight LPR Team' — confirms escape-before-parse root cause", "why": "prove root cause"},
+    {"query_shape": "tinker: render 4 candidate salutation values (\\n, PHP_EOL, '  \\n', HtmlString) in both HTML and renderText()", "param_classes": ["candidate strings"], "aggregate_result": "only '  \\n' hard break correct in BOTH HTML (<br>) and plain-text (two lines); HtmlString breaks plain-text", "why": "select the fix"}
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "AC-1", "kind": "agent", "intent": "Render ScoutOnboardingNotification email HTML; assert clean line break, no literal/escaped <br>."},
+      {"ac": "AC-2", "kind": "agent", "intent": "Assert subject 'Welcome to Clarity Scout', set-password action, and 7-day expiry unchanged."}
+    ],
+    "seed_scenario": "Org admin edits a Scout user with web access enabled; on save a User is created and notified via ScoutOnboardingNotification. Standard org + admin; no special seed.",
+    "personas": ["Org admin (only actor that triggers Scout onboarding email)"],
+    "pg_tables": ["users", "kit_settings"],
+    "ch_tables": []
+  },
+  "confidence": 95,
+  "escalate": {"recommend": false, "reason": "Root cause + fix empirically verified via tinker (HTML and plain-text); sweep found exactly one buggy site; single-line low-blast-radius fix, no schema/billing/auth/migration, no open questions."}
+}

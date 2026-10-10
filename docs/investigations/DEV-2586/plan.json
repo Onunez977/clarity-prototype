@@ -1,0 +1,40 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Show the leading kit's name on both leaderboard collapsed cards",
+      "approach": "Mirror the UniqueScansLeaderboard::toStat() pattern (app/Filament/Widgets/Dashboard/UniqueScansLeaderboard.php:228-239) on the two leaderboard cards that lack it. RecoveryLeader: capture leaderboardForSelectedRange() once into a local, add ->description('Top Kit: '.($leader['leader']['name'] ?? 'N/A')) and keep the existing headline number unchanged. StagingLiveHitLeader: replace collect(...)->max('total') with collect(...)->sortByDesc('total')->first() so the headline total and the name come from the SAME row, then add the same ->description(). Correct the RecoveryLeader::toStat() docblock, which currently documents the opposite. TDD: invert the RecoveryLeader assertions that pin name ABSENCE (leader now present, runner-up still absent) and ADD a name assertion for StagingLiveHitLeader plus a headline-parity assertion proving the value did not shift.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/RecoveryLeader.php",
+        "app/Filament/Widgets/Dashboard/StagingLiveHitLeader.php",
+        "tests/Filament/Widgets/Dashboard/RecoveryLeaderTest.php",
+        "tests/Filament/Widgets/Dashboard/StagingLiveHitLeaderTest.php"
+      ],
+      "intended_diffs": {
+        "app/Filament/Widgets/Dashboard/RecoveryLeader.php": "toStat() (~:234-244): hoist $leaderboard = $this->leaderboardForSelectedRange(); reuse it for BOTH the headline number and a new ->description('Top Kit: '.($leaderboard['leader']['name'] ?? 'N/A')). The existing docblock at :234-238 claims 'no names ... were dropped so this card is the same height as its siblings' -- rewrite it in one or two sparse lines: the height cost is gone (theme.css:171 reserves description space on every card), leader name restored per DEV-2586, runner-up deliberately still omitted.",
+        "app/Filament/Widgets/Dashboard/StagingLiveHitLeader.php": "toStat() (~:234-244): $leader = collect($this->leaderboardForSelectedRange())->sortByDesc('total')->first(); headline becomes number_format($leader['total'] ?? 0) -- numerically identical to today's max('total') -- plus ->description('Top Kit: '.($leader['name'] ?? 'N/A')).",
+        "tests/Filament/Widgets/Dashboard/RecoveryLeaderTest.php": "Rework the assertNoLeaderboardCardNames() helper (:479) and its 6 call sites (:219,287,292,297,302,335) into an assertion that the LEADER name is in the Stat description and the runner-up is not. Rename test_collapsed_card_headlines_the_leader_count_without_the_names (:171). Re-evaluate test_collapsed_card_never_carries_long_kit_names (:308): a long name now renders, so assert the truncation behaviour rather than absence.",
+        "tests/Filament/Widgets/Dashboard/StagingLiveHitLeaderTest.php": "ADD: the collapsed Stat description names the leading kit; and the headline value is byte-identical to the previous max('total') result for the same fixture (guards the max -> sortByDesc swap)."
+      },
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "RecoveryLeaderTest|StagingLiveHitLeaderTest|UniqueScansLeaderboardTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "app/Filament/Widgets/Dashboard/UniqueScansLeaderboard.php", "reason": "Already renders ->description('Top Kit: ...'); it is the reference pattern, not a defect."},
+    {"site": "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php", "reason": "Ratio card -- no leader entity to name."},
+    {"site": "app/Filament/Widgets/Dashboard/UniqueScansToLprRepossession.php", "reason": "Ratio card -- no leader entity to name."},
+    {"site": "app/Filament/Widgets/Dashboard/UniqueScansToRepo.php", "reason": "Ratio card -- no leader entity to name."},
+    {"site": "app/Filament/Widgets/Dashboard/KitUsers.php", "reason": "Already has a ->description(); its content is an inactive-kit count, unrelated to leader naming."},
+    {"site": "Runner-up name on either collapsed card", "reason": "Out of scope by operator decision -- Oscar released both names in DEV-2324 comment 38501; only the leader is restored."},
+    {"site": "app/Clickhouse/Queries/RecoveryLeaderQuery.php", "reason": "No query change -- k.name is already selected and normalised by summarizeMonth()."},
+    {"site": "resources/css/filament/app/theme.css", "reason": "No CSS change -- min-h-47 (188px) already reserves description space on every card, so the new line costs 0px."}
+  ],
+  "sizing": {"files": 4, "gate": "pass", "reason": "4 files, under the 6-file threshold; one coherent concern (name the leader on a collapsed leaderboard stat) applied to two sibling cards."},
+  "blast_radius_tags": [],
+  "perf_gate": {"required": false, "reason": "Presentation-only. No new query, no >1B-row CH surface touched, no deferred-perf design."}
+}

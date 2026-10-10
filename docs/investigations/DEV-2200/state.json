@@ -1,0 +1,187 @@
+{
+  "key": "DEV-2200",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2200",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 172
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 286
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "clarity/scout"
+  ],
+  "escalated": false,
+  "escalation_triggers": [],
+  "best_of_n": false,
+  "needs_human_interview": false,
+  "missed_caller_candidates": [],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "dbf66c7cfad20a553029c12770401c38a3110dec",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "claude/DEV-2200",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 1,
+  "pr": {
+    "number": 276,
+    "url": "https://github.com/insight-lpr/platform/pull/276",
+    "draft": false
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": "daltonmccleery @ 2026-07-17T18:01:59Z",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "pipeline MCP transition To Do->In Progress (Phase 4) then In Code Review (handoff); no GH draft-automation on clarity. @ 2026-07-20",
+  "assumed": [],
+  "comment_ids": {
+    "status": "36251",
+    "build_record": "36437"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "provisioned_early": true,
+    "provisioning": {
+      "bootstrap": "ran",
+      "deps": "via-bootstrap",
+      "migrations": "ran",
+      "docker_daemon": "already-running",
+      "ch_container": "reused (clarity-qa-clickhouse)",
+      "frontend_build": "n/a",
+      "postgres_db": "zod_claude_dev_2200 (+ testing zod_testing_claude_dev_2200)",
+      "ch_strategy": "docker",
+      "herd_site": "clarity-claude_dev_2200.test"
+    },
+    "human_guide": ".context/qa-human-guide.html",
+    "screenshots": ".context/qa-screenshots/manifest.json"
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact --filter=recent_hits",
+        "passed": 21,
+        "failed": 0,
+        "note": "change-relevant tests (both controllers recent-hits + 2 new); TDD red->green proven; stable across 2 runs"
+      },
+      {
+        "cmd": "php artisan test --compact ClarityScoutDashboardControllerTest ClarityScoutBirdsEyeControllerTest",
+        "passed": 65,
+        "failed": 0,
+        "note": "full regression of the two touched controller classes; green after bumping local Docker CH container mem 2g->6g (earlier 1-test MEMORY_LIMIT_EXCEEDED OOMs were a different random test each run = infra cap, not the change)"
+      }
+    ],
+    "deviations": [
+      {
+        "source": "implement",
+        "edit": "Ran the two touched Scout controller test classes in full (65 tests) as the regression scope rather than the entire platform suite",
+        "ac_ref": null,
+        "ac_delta": null,
+        "reason": "CLAUDE.md mandates minimum tests + CI runs the full suite after commit; local Docker CH is memory-limited. Change is confined to two controller methods."
+      }
+    ],
+    "review": {
+      "lanes": [
+        "claude1:fresh-lane"
+      ],
+      "scores": [
+        100
+      ],
+      "findings_fixed": [],
+      "findings_residual": [
+        "Dashboard test does not freeze clock (non-deducting, matches sibling test_recent_hits_includes_lat_lng)",
+        "Frozen-read of hotlist_us_state/vehicle fields is by-design safe (static order attributes, uniform across 6 projections)",
+        "RequiresClickhouse CI-skip is pre-existing infra gap (validated locally on Docker CH)"
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "harness-claude-p"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "fd20e00af56db506dfad7bc7378f55a42750fe07",
+      "rework_pivot": false,
+      "reviewed_sha_note": "Re-anchored after reverting boost-doc drift (CLAUDE/AGENTS/.junie php-version line auto-regenerated by bootstrap). The reviewed code (2 controllers + 2 tests) is byte-identical to RN1 coverage; only build-generated doc noise was removed, shrinking the PR to exactly the reviewed files."
+    },
+    "ac": [
+      {
+        "item": "Clicking a Live Hits Pending Repo card/pin shows the same hotlist vehicle description as the normal hit pin.",
+        "status": "SATISFIED",
+        "evidence": "agent-qa browser lane A1: pending-repo card for QAVEH01 renders '2019 Honda Accord \u00b7 CA' (screenshot); + live API curl + Dashboard feature test."
+      },
+      {
+        "item": "Behavior consistent whether reached via the standard map pin or the Pending Repo list/card.",
+        "status": "SATISFIED",
+        "evidence": "agent-qa browser lane A2: QAVEH01 map-pin popup shows identical '2019 Honda Accord \u00b7 CA' as the card; card+pin API feeds agree; admin via BirdsEye end-to-end test (admin browser -> human QA)."
+      },
+      {
+        "item": "No regression to the normal hit-pin display.",
+        "status": "SATISFIED",
+        "evidence": "agent-qa browser lane A3: normal QAVEH01 pin popup renders cleanly, no layout break/console errors; hits() untouched; 65-test regression green."
+      }
+    ]
+  }
+}

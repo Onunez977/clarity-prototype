@@ -1,0 +1,42 @@
+[
+  {
+    "key": "DEV-2309-r1",
+    "status": "Done (PR #309 merged)",
+    "age_days": 8,
+    "relevance": "Round 1 stripped ScanTimezoneScope from latestActivityFor + EnsureOpenShift siblings. Prod confirms the join is gone; the bare max(scanned_at) still times out.",
+    "applicable": "applicable",
+    "why": "Shipped mitigation is in main; this run must preserve it and not re-diagnose the join. Residual timeout is the new work."
+  },
+  {
+    "key": "DEV-2309-r2",
+    "status": "abandoned (PR #326 closed, never implemented)",
+    "age_days": 1,
+    "relevance": "Parked plan: bound both activity lookups by shift.started_at (partition pruning onto existing (kit_id, scanned_at DESC) indexes) + whole-body per-shift try/catch. Gate CLEAN 7/7; Dalton ruled zod DDL out of scope. Implement was waiting on a prod EXPLAIN that never arrived.",
+    "applicable": "applicable",
+    "why": "Human answers from 2026-08-12 still stand (zod OOS, started_at bound, whole-body catch, parent DEV-177). Fresh run adds Log:: AC and 'state how many shifts are affected' from today's rewrite; do not re-litigate the index."
+  },
+  {
+    "key": "DEV-2325",
+    "status": "Done",
+    "age_days": 2,
+    "relevance": "SendEndOfShiftSummary statement timeout on the platform write connection, dispatched by this command after a close.",
+    "applicable": "not-applicable",
+    "why": "Different connection (platform vs zod pg-read) and already shipped. Out of scope; the dispatch stays inside the new try/catch so a summary failure cannot abort remaining shifts."
+  },
+  {
+    "key": "DEV-2220",
+    "status": "Done",
+    "age_days": 20,
+    "relevance": "SQLSTATE[57014] on the zod read replica from an unbounded scheduled query; fixed by rewriting the query shape, not raising statement_timeout.",
+    "applicable": "applicable",
+    "why": "Same timeout family + replica. Pattern: bound the query; do not touch timeout settings or zod DDL."
+  },
+  {
+    "key": "DEV-2342",
+    "status": "In Code Review / related",
+    "age_days": 1,
+    "relevance": "Scout recorder outage; ticket cites the 02:30 UTC reboot gap and a W1 sc_positions projection that would help this command's GPS half.",
+    "applicable": "not-applicable",
+    "why": "Different command. CH GPS path already try/catches. Evaluating CH for the scan half is a ticket AC to assess, not a fold-in of DEV-2342."
+  }
+]

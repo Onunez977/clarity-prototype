@@ -1,0 +1,76 @@
+{
+  "synthesis": "DEV-2385: two deterministic failures on long-open shifts — HY000 at BuildShiftSummary.php:262 whereIn('scan_id', $orderedScanIds), and 57014 on the zone ST_Contains query over a multi-week window despite the DEV-2325 MATERIALIZED CTE. Job retries 5× then records build_failed.",
+  "scope": {
+    "summary": "Chunk/replace whereIn, add scan-count guard, fail-fast on deterministic errors, pathological-cardinality test.",
+    "proposed_changes": [
+      {
+        "file": "app/Services/Scout/BuildShiftSummary.php",
+        "change": "Scan-count guard returning empty zones above a threshold; replace whereIn with chunked ANY(?::int[]) / whereIntegerInRaw.",
+        "reason": "HY000 at line 262; guard avoids retry waste.",
+        "ref": "BuildShiftSummary.php:260-265"
+      },
+      {
+        "file": "app/Jobs/Scout/SendEndOfShiftSummary.php",
+        "change": "Probe scan count before forShift(); if over threshold, skip with summary_skipped_reason='too_large' and do not retry.",
+        "reason": "Deterministic failures should not enter the 5-try loop.",
+        "ref": "SendEndOfShiftSummary.php:67-94"
+      },
+      {
+        "file": "app/Services/Scout/BuildShiftSummary.php",
+        "change": "Optional LIMIT 100 on the zone query.",
+        "reason": "Secondary timeout defense; trades completeness.",
+        "ref": "BuildShiftSummary.php:186-200"
+      }
+    ],
+    "target_files": [
+      "app/Services/Scout/BuildShiftSummary.php",
+      "app/Jobs/Scout/SendEndOfShiftSummary.php",
+      "tests/Feature/Jobs/Scout/SendEndOfShiftSummaryTest.php"
+    ],
+    "out_of_scope": [
+      "Zone query redesign beyond LIMIT",
+      "EnsureOpenShift",
+      "CloseInactiveShiftsCommand / ClarityScoutShiftController callers",
+      "Email template / Mapbox"
+    ]
+  },
+  "questions": [
+    {
+      "q": "What is the scan-count threshold for skipping summary build? 10k? 50k? 65k?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    },
+    {
+      "q": "Should skipped-summary shifts send a 'summary unavailable' email, or just record summary_skipped_reason silently?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    },
+    {
+      "q": "Is a zone-query LIMIT acceptable (truncates zones)?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    },
+    {
+      "q": "Should the scan-count probe use ClickHouse scans_hot or PostgreSQL public.scans?",
+      "answered": true,
+      "answer": "ClickHouse scans_hot with scans_cold fallback if shift start > 90d.",
+      "source": "code"
+    }
+  ],
+  "confidence": 85,
+  "escalate": {
+    "recommend": false,
+    "reason": "Candidate treated remaining questions as implementation detail; still left skip-threshold and skip-email as unanswered."
+  },
+  "notes": [
+    "Incorrectly claimed no tests exist — BuildShiftSummaryTest and SendEndOfShiftSummaryTest already cover CTE fence, timestamps, and failed() skip reasons.",
+    "Incorrectly treated kit 175 lifetime 15.6M scans as the 17-day shift's scan count.",
+    "10k skip threshold is likely too low for a busy workday (fast-pass estimated 8h at 1–2 scans/s ≈ 29k–58k).",
+    "Scan::factory() for a 70k fixture writes on the zod connection; existing tests use insertPgScan on platform because the zone query cannot see zod-transaction rows.",
+    "LIMIT 100 on zone rows would truncate a normal multi-zone shift and does not bound scan-window duration — reject unless grounded otherwise.",
+    "whereIntegerInRaw / ANY(?::int[]) is the repo convention (agrees with fast-pass); chunking whereIn is a fallback."
+  ]
+}

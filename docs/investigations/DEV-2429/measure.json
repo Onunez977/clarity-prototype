@@ -1,0 +1,72 @@
+{
+  "ticket": "DEV-2429",
+  "phase": "measured",
+  "cloud_touched": true,
+  "cloud_writes": false,
+  "timezone": "America/Chicago",
+  "measured_at": "2026-09-24 11:30:11 CDT",
+  "queries": {
+    "A_view_definition": {
+      "sql": "SHOW CREATE TABLE clarity.lpr_assists",
+      "query_ts": "2026-09-24 11:30:11 CDT",
+      "create": "CREATE VIEW clarity.lpr_assists\n(\n    `recovery_id` Int64\n)\nAS SELECT DISTINCT recovery_id\nFROM clarity.recovery_scans\nWHERE _peerdb_is_deleted = 0",
+      "has_FINAL": false,
+      "engine_or_type": "VIEW"
+    },
+    "B_recovery_scans_engine": {
+      "sql": "SHOW CREATE TABLE clarity.recovery_scans",
+      "query_ts": "2026-09-24 11:30:11 CDT",
+      "engine": "ENGINE = SharedReplacingMergeTree(\\'/clickhouse/tables/{uuid}/{shard}\\', \\'{replica}\\', _peerdb_version)",
+      "order_by": "(recovery_id, scan_id)",
+      "version_col": "_peerdb_version"
+    },
+    "C_global_divergence": {
+      "sql": "view uniqExact vs recovery_scans FINAL filtered",
+      "query_ts": "2026-09-24 11:30:11 CDT",
+      "view_uniq": 269429,
+      "final_uniq": 269429,
+      "delta": 0,
+      "non_zero_delta": false
+    },
+    "D_view_vs_nofinal_vs_final": {
+      "sql": "view vs noFINAL filtered vs FINAL filtered",
+      "query_ts": "2026-09-24 11:30:13 CDT",
+      "view_uniq": 269429,
+      "nofinal_filtered_uniq": 269429,
+      "final_uniq": 269429
+    },
+    "E_tombstone_pressure": {
+      "without_final": {
+        "query_ts": "2026-09-24 11:30:13 CDT",
+        "rows_total": 928797,
+        "rows_alive": 928797,
+        "rows_tombstoned": 0
+      },
+      "with_final": {
+        "query_ts": "2026-09-24 11:30:13 CDT",
+        "rows_total_final": 923933,
+        "rows_alive_final": 923933,
+        "rows_tombstoned_final": 0
+      },
+      "duplicate_version_rows_estimate": 4864,
+      "duplicate_estimate_query_ts": "2026-09-24 11:30:25 CDT"
+    },
+    "F_prev_calendar_month": {
+      "ran": true,
+      "window": "toStartOfMonth(today()-1 month) .. toStartOfMonth(today()) on recoveries.repo_date",
+      "query_ts": "2026-09-24 11:30:23 CDT",
+      "view_uniq_prev_month": 7573,
+      "final_uniq_prev_month": 7573,
+      "delta_prev_month": 0
+    }
+  },
+  "summary": {
+    "view_uniq": 269429,
+    "final_uniq": 269429,
+    "delta": 0,
+    "divergence_non_zero": false,
+    "tombstones_present": false,
+    "merge_lag_rows_approx": 4864,
+    "note": "Global uniqExact(recovery_id) view == FINAL (delta 0). No tombstoned rows. ~4864 unmerged duplicate version rows exist but do not change distinct recovery_id set under deleted=0 filter."
+  }
+}

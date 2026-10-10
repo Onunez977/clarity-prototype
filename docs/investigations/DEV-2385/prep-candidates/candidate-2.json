@@ -1,0 +1,36 @@
+{
+  "synthesis": "Candidate 2: HY000 at whereIn line 262 plus residual 57014 on multi-week zone window; prefer chunked whereIn or server-side CTE join; pre-flight skip above ~100k scans; incorrectly claimed no existing tests and treated kit 175 lifetime 15.6M as the 17-day shift count.",
+  "questions": [
+    {
+      "q": "Chunked whereIn (tactical) vs full server-side CTE join (strategic)?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    },
+    {
+      "q": "Does the DEV-2325 MATERIALIZED CTE already prevent 17-day timeout, or does it need additional LIMIT?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    },
+    {
+      "q": "Should the skip threshold be configurable or hard-coded?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    },
+    {
+      "q": "Should SendEndOfShiftSummary distinguish 'too_large' from other 'build_failed' reasons?",
+      "answered": true,
+      "answer": "Yes — 'too_large' for cardinality skip, 'build_failed' for other QueryExceptions, 'mail_failed' for TransportException.",
+      "source": "ticket"
+    }
+  ],
+  "confidence": 85,
+  "escalate": {"recommend": false, "reason": "Bounded scope; still left join-vs-chunk and CTE-sufficiency as open."},
+  "notes": [
+    "Incorrectly claimed rg whereIn found no matches and that no tests exist.",
+    "15.6M is kit 175 lifetime scans, not the 17-day shift window.",
+    "Server-side hits-by-zone join is a valid alternative to whereIntegerInRaw; do not silently pick."
+  ]
+}

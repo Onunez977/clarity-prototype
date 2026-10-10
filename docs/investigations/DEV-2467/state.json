@@ -1,0 +1,524 @@
+{
+  "key": "DEV-2467",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "base-resolve returned 6 candidates, all unrelated Otto/zone work (cursor/95646b69, otto, stack-otto-*). The DEV-2409 epic branch 'company-metrics' no longer exists on origin; DEV-2460 (foundation, PR #383), DEV-2461 and DEV-2462 are all already merged into main. DEV-2466 (the gating spike) is main HEAD ad29de3b. base=main, confidence high.",
+  "branch": "claude/DEV-2467",
+  "repo_path": "/Users/daltonmccleery/Herd/platform/.claude/worktrees/dev-2414-b4229e",
+  "phase": "verified",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "prep-candidate:3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 407
+    },
+    {
+      "slot": "prep-candidate:1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 497
+    },
+    {
+      "slot": "reconcile",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 0
+    },
+    {
+      "slot": "plan-arbiter",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "plan",
+      "dur_s": 144
+    },
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 1595
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 1173
+    },
+    {
+      "slot": "arbitrate",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 0
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": "review",
+    "only": null,
+    "skip": [],
+    "force": false,
+    "eli5": true
+  },
+  "knowledge_cards_loaded": [
+    "clarity/filament-tables.md",
+    "clarity/testing.md",
+    "clickhouse/core.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "confidence 68 < 80",
+    "escalate.recommend=true from fast pass",
+    "4 unanswered questions incl. 2 explicit product/UX divergence decisions",
+    "scale_relevant: new query class over clarity.scans_cold (2.18B rows) on a page-load path"
+  ],
+  "best_of_n": true,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [
+    {
+      "file": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php",
+      "symbol": "CompanyMetricsOverview::cards()",
+      "referenced_at": "191",
+      "finding": "assertCount(9, CompanyMetricsOverview::cards()) \u2014 hardcoded card count. cards() has exactly 9 entries today (verified by the driver); adding the 10th card breaks this test.",
+      "verified_by_driver": true,
+      "in_fast_pass_inventory": false
+    }
+  ],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [
+      "clarity.scans_cold"
+    ],
+    "approach": "Two separately-measured shapes: 13-month series GROUP BY month (DEV-2466 sec 4) + single-window GROUP BY kit_id WITH ROLLUP (DEV-2466 sec 7). A combined 13-month x per-kit rollup is explicitly NOT adopted because it was never measured.",
+    "measurement": "prior-measurement (DEV-2466, 2026-09-08): series 60,738,996 rows / 1.31 GB / 2.44 GB peak / 1,102 ms; window rollup 5,573,739 rows / 142.7 MB / 249 MB peak / 606 ms",
+    "verdict": "go",
+    "measured_at": "2026-09-08 (DEV-2466 spike, production ClickHouse Cloud)"
+  },
+  "diff_base": "b245dcbc51d4c4fd1a6c46b97218af44be971590",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": null,
+      "branch": "claude/DEV-2467",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 7,
+  "pr": {
+    "number": 393,
+    "url": "https://github.com/insight-lpr/platform/pull/393",
+    "draft": true
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": "pipeline-mcp @ 2026-09-08T14:40:00Z",
+  "jira_transitioned_by": null,
+  "jira_transitioned_detail": null,
+  "assumed": [],
+  "comment_ids": {
+    "status": "39210",
+    "build_record": "39281"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": false,
+    "resource_envelope": {
+      "path": ".context/qa-resource-envelope.json",
+      "verdict": "PASS",
+      "basis": "measured-at-seeded-scale",
+      "note": "Round-trip count only. Seeded 624 rows vs 2,180,621,658 production (factor ~3.5M); the DEV-2466 envelope was NOT reproducible or re-measured."
+    },
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "already-running",
+      "ch_container": "reused (restarted; was Exited 137)",
+      "frontend_build": "n/a",
+      "postgres_db": "zod_claude_dev_2467_c37aaa",
+      "test_db": "zod_testing_claude_dev_2467_c37aaa",
+      "ch_strategy": "docker (literal clarity/zod on 127.0.0.1:18123)",
+      "herd_site": "clarity-claude_dev_2467_c37aaa"
+    },
+    "provisioned_early": true
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test <3 AC-relevant files>",
+        "passed": 39,
+        "failed": 0,
+        "note": "BASELINE pre-change. CH tests executed, not skipped."
+      },
+      {
+        "cmd": "php artisan test <5 AC-relevant files, post-change>",
+        "passed": 59,
+        "failed": 0,
+        "note": "+20 net new. Includes 11 ScanPlateStatsBatchQueryTest and 9 UniqueScanCountsTest."
+      },
+      {
+        "cmd": "php -d memory_limit=2G vendor/bin/phpunit",
+        "passed": 1789,
+        "failed": 10,
+        "errors": 2,
+        "skipped": 4,
+        "note": "FULL SUITE, 1802 tests. NONE of the 12 problems touches this ticket's files. Re-run in isolation after a CH container restart dropped it to 3 stable failures; the other 9 are shared-literal-CH contention/ordering artifacts (the failing set differs run to run). The 3 stable ones -- CloseInactiveShiftsCommandTest x2 and EnsureOpenShiftTest x1, all Scout shift tests -- were PROVEN pre-existing by checking out base b245dcbc's app+tests and reproducing all 3 there."
+      },
+      {
+        "cmd": "php -d memory_limit=2G vendor/bin/phpunit (post-regression-fix)",
+        "passed": 1799,
+        "failed": 5,
+        "errors": 5,
+        "note": "1814 tests total (1799 passed + 5 failed + 5 errors + 4 skipped + 1 incomplete). 11 numbered problems including the 1 risky. NONE in this ticket's files; 3 are the known pre-existing Scout-shift failures proven at base b245dcbc, the rest the non-deterministic shared-CH flake. CORRECTED: an earlier revision of this entry recorded passed=1803, which did not reconcile (1803+5+5=1813). Caught by RN4 lane 3.",
+        "skipped": 4,
+        "incomplete": 1,
+        "risky": 1
+      },
+      {
+        "cmd": "php -d memory_limit=2G vendor/bin/phpunit (after removing the lock + splitting the timezones)",
+        "total": 1813,
+        "failed": 15,
+        "errors": 3,
+        "skipped": 4,
+        "incomplete": 1,
+        "risky": 1,
+        "note": "Two consecutive runs on IDENTICAL code: 30 problems then 19, with a completely different class distribution (HotlistsResource 7->0, KitUsers 3->0, MissedOpportunity 3->0; ScoutRecordCheckIns/BuildShiftSummary/ClarityScoutMap newly appearing). 3 ClickHouse MEMORY_LIMIT_EXCEEDED in the first run with the container at 2.9 GiB of 5.79 GiB. NONE in this ticket's files in any run. The 3 stable Scout-shift failures (proven at base b245dcbc) persist across both."
+      },
+      {
+        "cmd": "php artisan test --compact <5 AC-relevant files, post-RN5-fix-round>",
+        "passed": 65,
+        "failed": 0,
+        "assertions": 280,
+        "note": "Post-fix. Full suite NOT run, deliberately: RequiresClickhouse TRUNCATEs the literal clarity/zod tables, so a suite run destroys the QA seed the still-standing environment needs for human QA (the AC automation cannot reach). Blast radius argues it is unnecessary here -- 2 app files changed, all 5 files referencing ScanPlateStatsBatchQuery were run, phpstan clean on both. The CH feature run DID wipe the seed; .context/qa-ch-seed.sql was re-applied and verified (624 rows; org 2 = 534 rows/533 plates, org 3 = 90/90)."
+      },
+      {
+        "cmd": "GitHub Actions \u2014 Pint & Tests (PHP 8.4, 3 shards), PR #393, run 34364924334",
+        "result": "ALL GREEN",
+        "shards": "1: pass 7m0s \u00b7 2: pass 5m7s \u00b7 3: pass 4m32s",
+        "note": "FIRST CI run on this branch -- every prior commit carried [skip ci]. Also green: OKF wiki health check, Deploy PR-393 preview. MATERIAL FINDING: the 3 'stable pre-existing Scout-shift failures' (CloseInactiveShiftsCommandTest x2, EnsureOpenShiftTest) that I reproduced locally at base b245dcbc and recorded across several rounds as pre-existing did NOT fail in CI. They were artifacts of the local ClickHouse container, not real defects. Every local full-suite figure recorded on this ticket should be read with that in mind."
+      }
+    ],
+    "deviations": [
+      {
+        "source": "worker",
+        "edit": "DashboardCardVisibilityTest needed a THIRD edit beyond the planned assertCount bump: test_only_the_known_gated_cards_are_withheld_from_a_non_entitled_viewer() keeps an exhaustive $expectedGated allowlist, so a newly gated card must be added there or the test fails by design.",
+        "ac_ref": "AC-7",
+        "ac_delta": null
+      },
+      {
+        "source": "worker",
+        "edit": "Replaced the planned 'same id, DIFFERENT ocr across CDC versions' test scenario with two more representative ones (a dup-id pair sharing the SAME ocr, mirroring DEV-2466's production probe of 1,635 dup groups with 0 divergent ocr; plus a separate soft-delete exclusion test). The planned scenario would have pinned behaviour CDC does not actually produce.",
+        "ac_ref": "AC-2",
+        "ac_delta": null
+      },
+      {
+        "source": "driver",
+        "edit": "Added GROUPING(kit_id) to handleRange() so the WITH ROLLUP total row is identified explicitly instead of by row position. With a real kit_id=0 the rollup emits TWO rows keyed 0 (verified on the container), and ClickHouse guarantees no row order without an ORDER BY, so key 0's meaning was order-dependent. NOTE, corrected after a mutation check: GROUPING does NOT preserve a real kit 0's own row -- both still key to 0 and the total deliberately wins. That limitation is now documented on handleRange() for DEV-2468. Latent only: kits.id is a serial from 1.",
+        "ac_ref": "AC-4",
+        "ac_delta": null
+      },
+      {
+        "source": "driver",
+        "edit": "First version of the kit-0 test was a tautology -- it passed against the very mutation it was meant to catch. Rewritten as an SQL-level assertion (which can fail) plus an explicitly-labelled characterisation test. DB::listen never fires for the ClickHouse driver, so the heredocs are read directly, matching the sibling no-FINAL test.",
+        "ac_ref": "AC-4",
+        "ac_delta": null
+      }
+    ],
+    "review": {
+      "lanes": [
+        "claude1",
+        "claude2",
+        "claude3"
+      ],
+      "rounds": [
+        {
+          "rn": 2,
+          "scores": [
+            76,
+            72,
+            62
+          ],
+          "gate": "fail"
+        },
+        {
+          "rn": 3,
+          "scores": [
+            92,
+            82,
+            90
+          ],
+          "gate": "fail (MIN 82 < 90)"
+        },
+        {
+          "rn": 4,
+          "scores": [
+            87,
+            84,
+            83
+          ],
+          "gate": "fail (MIN 83 < 90)"
+        },
+        {
+          "rn": 5,
+          "scores": [
+            90,
+            92,
+            87
+          ],
+          "gate": "fail (MIN 87 < 90)"
+        }
+      ],
+      "scores": [
+        90,
+        92,
+        87
+      ],
+      "gate": "fail",
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "claude2",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "claude3",
+          "source": "in-session-agent"
+        }
+      ],
+      "findings_fixed": [
+        "S1 CH-failure no longer persists zeros \u2014 verified holding by all 3 lanes",
+        "S2 timezone: UTC conversion mirroring Scan::scopeBetween(), month grouping via toTimeZone, sort-key pruning verified intact (PG-024 clean) \u2014 verified holding by all 3 lanes; lane 3 upgraded AC-3 from NOT SATISFIED to SATISFIED",
+        "S3 rollup mapping order-independent in CODE (all 3 lanes) \u2014 but no behavioural test pins it (all 3 lanes)",
+        "S4 all six e2e adjacency assertions + helper registry \u2014 verified complete by all 3 lanes",
+        "S5 tz-scoped cache keys (one exception: the failure marker)",
+        "S6 clock genuinely frozen in both test files",
+        "S7 three CH-free guards moved to a trait-free class; lane 3 checked phpunit.xml for a group exclusion that would re-hide them \u2014 none",
+        "S8 locked-card test now drives the real getStats(); the tautology is gone",
+        "S9 shared-seam test drives the REAL fetchRangeRollup() with a sentinel",
+        "S12 round-trip count pinned on the real toStat() path",
+        "S13 kit_id immutability limitation documented and scoped to DEV-2468"
+      ],
+      "findings_residual": [
+        "R-A (LANES 2+3, both PROVED IT BY RUNNING THE MUTATION) \u2014 the replacement contract test CANNOT FAIL against the defect it names. Restoring the RN4 defect in the ASSIGNMENT ($timezone = self::safeTimezone(...); $sqlTimezone = $timezone) leaves all four assertions green, because they grep VARIABLE NAMES and that line is byte-identical in the RN4 source. Lane 3 supplied a needle verified to discriminate: assertStringNotContainsString(\"$timezone = self::safeTimezone(\", $source). Lane 1 attacked the same test and concluded it was genuine \u2014 it did not try this mutation, so its clean bill does not stand. This is the FIFTH test on this ticket that could not fail, and the SECOND the driver did not self-catch.",
+        "R-B (LANES 2+3) \u2014 handle()'s half of the timezone split has NO behavioural coverage. The driver's mutation check exercised handleRange() only; the unlisted-zone test uses a window too wide for a 6h shift to change the answer, and the months test uses a LISTED zone where raw == allowlisted. The uncovered half is the YEAR-TTL path. The 'mutation_verified' claim recorded in this file is true for handleRange and FALSE for handle.",
+        "R-C (LANES 1+3) \u2014 the split DISCARDS data for unlisted zones. handle() bounds in the raw zone but groups in the allowlisted one, so the grouping emits a month key OUTSIDE the write set and the write loop drops it: for CST, the last ~6h of the viewer's August appear in no bar and no headline, and the bucket is persisted for a year with no self-heal. NEW in the subtractive round; pre-split both were UTC and aligned.",
+        "R-D (LANE 3) \u2014 FACTUAL ERROR THE DRIVER PROPAGATED. DEV-2466 sec 4's 243M rows / 10.03 GB / 3.818s is a FOUR-DIFFERENT-CARDS measurement; prep-context's own allocation_sketch says 'only 1 of those 4 cards ships here'. It is cited in UniqueScanCounts.php:184 and in this file as if it measured 4 concurrent renders of THIS card. That figure does not exist. The concurrency multiplier for the shipped shape is UNMEASURED.",
+        "R-E (LANE 3) \u2014 the deferral of the stampede names only 'a correctly-sized lock or Cache::flexible' and misses a third, cheaper, ALREADY-SHIPPED repo primitive: the Cache::add N-slot semaphore (okf/concepts/scout-check-in-recorder.md:33,83,107). It has no block() wait to mis-size, which is the failure mode of BOTH withdrawn lock attempts.",
+        "R-F (ALL 3 LANES) \u2014 docblock inaccuracies persist: :42-44 documents a safeTimezone fallback no longer on the bound path (an omitted timezone now THROWS); :123 names $timezone where the code uses $sqlTimezone; :109-111 'the same trade the precedent already makes' is false (the precedent labels rows, it does not discard them); ':198 restores the shape RN3 cleared' is wrong provenance \u2014 RN3 reviewed the LOCKED code.",
+        "R-G (LANES 2+3) \u2014 the DEV-2468 seam is zone-ambiguous and safeTimezone() is public where the precedent is private. A sibling passing the sanitised value gets a key that cannot match, silently defeating the seam.",
+        "CARRIED 3 ROUNDS, STILL OPEN \u2014 the failure marker is the one key on this card not tz-scoped, and the marker path produces the identical twelve-zeros render that was used to justify removing the first lock.",
+        "PRE-EXISTING, out of scope, recorded nowhere else: ScanCount.php:111-133 and SharedHitStatsData::resolvePastMonths carry the same year-long-zero defect, live in production. KitScanPathsQuery/KitRangePathsQuery carry a related timezone split."
+      ],
+      "rerun_required": true,
+      "reviewed_sha": null,
+      "rework_pivot": false,
+      "post_rn3_fixes": {
+        "applied_by": "driver (in-session)",
+        "mutation_verified": true,
+        "tests": "64 targeted pass; full suite 1814 tests, 11 problems, NONE in this ticket's files, the 3 known pre-existing present",
+        "discovered_while_fixing": "Carbon::setTestNow() (the S6 fix) makes Lock::block() spin FOREVER \u2014 both its start and deadline come from now(). A frozen clock hangs the suite rather than failing it. Also: a lock acquired under a frozen clock expires instantly once the clock is released. Both recorded in the test."
+      },
+      "convergence_note": "RN2 76/72/62 -> RN3 92/82/90 -> RN4 87/84/83 -> RN5 90/92/87. The MINIMUM has oscillated in the 82-87 band across four rounds and has never reached 90. Five tests that could not fail have shipped (three self-caught, two not). Six docblock inaccuracies. The driver stopped here.",
+      "post_rn4_fixes": {
+        "applied_by": "driver (in-session), at operator direction",
+        "approach": "SUBTRACTIVE \u2014 both changes remove code rather than add it.",
+        "changes": [
+          "REMOVED the Cache::lock entirely. Two successive attempts were reviewed and withdrawn; the second's block(3) waited 2,750ms against a measured 3.818s p99, so it stopped de-duplicating exactly under contention while adding 2.75s to every contended render, and its pre-lock-window/post-lock-write-set split persisted a fabricated 0 at a one-year TTL on month rollover. Removing it restores the single-probe shape RN3 cleared, where the window and the write set are the same array by construction, so M2 cannot recur. The cold-start stampede is now an explicit, documented, UNMITIGATED residual.",
+          "SPLIT the two timezones, matching KitScanPathsQuery exactly: the RAW zone converts the caller's local wall-clock bounds (as Scan::scopeBetween does, at its lines 195-199), and the ALLOWLISTED zone is the ONLY value interpolated into SQL (as at its line 135). handleRange() interpolates no timezone at all, so it needs no allowlisted value.",
+          "REPLACED the tautological contract test with a structural assertion that the SQL heredoc interpolates $sqlTimezone while toUtcDatetime receives $timezone.",
+          "ADDED two BEHAVIOURAL tests against real ClickHouse, both mutation-verified: an unlisted zone must still reach CH as a valid zone (CH rejects 'CST' with Code 36 BAD_ARGUMENTS, so removing the guard fails loudly), and the CST-local day containing a 03:00-UTC scan must include it (fails if the bounds are converted with the allowlisted value).",
+          "REMOVED the three lock tests and their two doubles along with the mechanism."
+        ],
+        "mutation_verified": [
+          "drop safeTimezone from the SQL interpolation -> unlisted-zone test FAILS",
+          "convert bounds with the allowlisted zone (the RN4 defect restored) -> bounds test FAILS"
+        ],
+        "not_reviewed": "No lane has graded these changes. RN5 has not run."
+      },
+      "what_the_subtractive_round_did_fix": [
+        "Lock removal verified CLEAN by all three lanes: zero code residue, both imports gone, both orphaned doubles deleted, ThrowingUniqueScanCounts correctly retained, all 8 plan invariants still hold, nothing RN2/RN3 fixed was reintroduced.",
+        "The single-probe invariant is genuinely restored \u2014 RN4's M2 (pre-lock window vs post-lock write set) CANNOT recur, and the 13x partial-refill over-scan is gone.",
+        "AC-3 upgraded to SATISFIED by lanes 1 and 3: the RN4 5-6h window shift is genuinely repaired on the handleRange path, verified against both precedents and pinned behaviourally.",
+        "Lane 1: the split also REPAIRS a latent sharing bug \u2014 pre-delta the shared key carried the raw zone while bounds used the sanitised one, so a CST and an America/Chicago viewer got different keys for identical UTC windows.",
+        "The two behavioural ClickHouse tests are genuine barriers (all three lanes traced the mutations independently).",
+        "Deleting the lock tests also removed the RN4 frozen-clock hazard where Carbon::setTestNow() made Lock::block() spin forever.",
+        "state.json arithmetic reconciles this round; the RN4 lane-3 finding on that line is resolved."
+      ],
+      "RN6": {
+        "scores": [
+          87,
+          86,
+          84
+        ],
+        "min": 84,
+        "gate": "FAIL",
+        "head": "ef739642",
+        "verdict": "The fix round LOWERED the score (RN5 was 90/92/87, MIN 87). Two residuals genuinely closed, one not closed, one half-closed and half-made-worse, plus one new regression.",
+        "closed": [
+          "R3 core -- lane 2 reimplemented uncachedPastMonths/monthKeyStart/window/bucket across 9 zones x 6 instants = 54 cases: zero orphans, zero missing, bar 12 abuts bar 13 in every zone. Lane 3 concurred. The chosen horn is also verified correct against 4 sibling classes.",
+          "R4 -- both new behavioural tests discriminate; lane 2 ran 5 mutations, all RED, and independently confirmed the self-caught boundary-row fix was necessary."
+        ],
+        "not_closed": [
+          "R1 -- ALL THREE lanes defeated the replacement contract test with three DIFFERENT mutations (rename $sqlTimezone; inline the raw arg at the call site; add a $boundZone local). Root cause all three identified: the delta DELETED the only assertion constraining what toUtcDatetime() receives, so on the call-site axis the replacement is STRICTLY WEAKER than the dead test it replaced. 7th dead test on this ticket."
+        ],
+        "new_defects_introduced_by_the_fix_round": [
+          "FALSE PROVENANCE (3/3 lanes, HIGH/HIGH/MED). My R5 'correction' asserted the 243M/10.03GB/3.818s figure measures four DIFFERENT cards and that 'No such number exists'. findings.md:154-165 says 'Four concurrent 13-month plate-distinct queries, org 469', per-query 60,762,142 rows (solo no-FINAL is 60,738,996), 4x = 243,048,568 exactly. It IS four concurrent copies of THIS query; the multiplier is MEASURED at 2.6x. I replaced a true statement with a false one, in emphatic terms, on the very axis the operator deferred -- and it retroactively excuses a CORRECT RN5 finding (block(3)'s 2,750ms was below this card's own 3.818s p99). Propagated to state.json, journal.md and the ef739642 commit message. The accurate correction is narrower: the 4-way run used FINAL, so the shipped shape reads ~half the bytes and peaks ~9.8 GB at 4-way.",
+          "REGRESSION, lane 2 MED-3, AC-3 NOT SATISFIED. Normalising handleRange() was over-application: the forced choice is real only for handle(), where the grouping expression IS the bucket key. handleRange() interpolates no zone, and its other caller is getRangeTotal() -> currentPeriodTotal() -> resolveCardRange(), the today/last_7d/last_month filters. For CST 'Today' now spans 18:00 yesterday to 17:59 today. Correct before this delta."
+        ],
+        "newly_surfaced_pre_existing": [
+          "Positive-offset zones (lane 1 L1, lane 3 MED-2): the WIDGET still mints month keys and the batch window in the RAW zone while the query reads them in the sanitised one. For +05:00 at UTC 2026-08-31 23:00 the local month has rolled over, so the newest past-month bucket is queried with an end bound IN THE FUTURE and cached at a one-year TTL on a partial count. Verified independently with Carbon. This is the real remaining half of R3.",
+          "Sub-second hole (lane 1 L2): scanned_at is DateTime64(6) but bounds are toDateTime('...23:59:59'), so a row at 23:59:59.5 falls in NEITHER adjacent window. Verified against live ClickHouse. Small, but it is data loss against the now-authoritative reporting window."
+        ],
+        "structural": "Six review rounds, MIN 62 -> 82 -> 83 -> 87 -> 84, never 90. Each fix round closes defects at roughly the rate it introduces them. Lane 2's sharpest observation is diagnostic rather than local: the docblocks have become a round-by-round review transcript (~48 lines for a 4-line method, against laravel-boost-guidelines) and THAT VERBOSITY IS WHERE THE FALSE CLAIM HID. Seven dead tests all share one root cause -- asserting source-text SPELLINGS instead of behaviour."
+      },
+      "RN7": {
+        "scores": [
+          88,
+          91,
+          88
+        ],
+        "min": 88,
+        "gate": "FAIL",
+        "threshold": 90,
+        "head_reviewed": "fc2cbad1",
+        "scope": "delta d450705f..fc2cbad1 only; residual #1 EXCLUDED by operator ruling",
+        "verdict": "Did NOT pass. But it earned its keep -- it found a real, user-visible regression that RN6 could not have seen because it did not exist yet.",
+        "new_defects_found_and_FIXED": [
+          "MED (3/3 lanes) LABEL/DATA DESYNC -- newly introduced by the #4 fix. getMonthlyData() began minting the month axis with the SANITISED zone while the inherited getGraphLabels() and getHighlightedMonthsFromFilter() still used the RAW one, and DashboardWidget::getData() zips them POSITIONALLY while generateColors() matches the highlight by label STRING. For any zone ClickHouse cannot parse, all 13 bars carried the previous month's value under the next month's label, in both rollover directions. Confirmed independently with frozen Carbon before fixing. FIXED: a single bucketZone() source plus overrides of both label methods.",
+          "MED (3/3 lanes) the bar-13 zone invariant had NO barrier -- the delta deleted the query-level test and added RecordingUniqueScanCounts::$rangeRollupCalls that no assertion ever read. FIXED: two barriers added, both mutation-verified RED.",
+          "MED (lane 1) residual #2 was only HALF corrected -- a sentence two paragraphs below the corrected text still asserted the 3.818s figure 'bounds contention in general, not this card against itself', directly negating the correction. FIXED.",
+          "LOW (lane 3) the zone-offset blast radius was understated as 'up to 6h'; PST is UTC-8. FIXED to name the offset.",
+          "LOW (lane 3) 'the number needed is already measured: 3.818 s' over-claimed -- it is the slowest of four client walls in one FINAL-variant run, not a p99, and four is the spike's concurrency not production's. FIXED to say it bounds the withdrawn budget but cannot size a replacement.",
+          "LOW (lanes 2+3) assertSame(f(x), f(x)) -- a self-comparison that can only fail on non-determinism, added in the same commit whose docblock demands every test be mutation-verified. FIXED: asserted against a literal."
+        ],
+        "also_done": "Added UniqueScanCounts to the SHIPPED month-label barrier (DashboardMonthLabelsTest), which records the label/data pairing verbatim as an AC and previously covered only ScanCount and RecoveryLeader. Worth noting it passes under the label mutation -- it uses a listed-timezone user, so it cannot see this bug class; the zone-specific test is what actually catches it. Also cut the measurement docblock from 23 lines to 5 and pointed at findings.md, after three separate rounds flagged docblock volume as where false claims hide.",
+        "process_hazard": "Two lanes reported a third lane live-mutating the shared worktree mid-review; both correctly fell back to analysing git objects at fc2cbad1 and ran no suite against the dirty tree. Lane 1 also truncated the local literal clarity/zod ClickHouse tables while verifying a behavioural barrier -- harmless now that QA is torn down, but it would have destroyed a live QA seed. Parallel lanes doing mutation testing need per-lane scratch copies, not the shared tree.",
+        "not_rerun": "Per operator instruction, stopping here to report rather than starting another round."
+      }
+    },
+    "ac": [
+      {
+        "item": "AC-1",
+        "status": "SATISFIED",
+        "evidence": "Card renders at cards() index 2, DOM order confirmed one after recovery-counts and one before staging-live-hit-leader. Headline 67, non-flat sparkline. Colour resolves to the identical oklch(0.792 0.209 151.711) as Scan Count (success green), not locked gray. cards() returns 10 with the hit block still contiguous at 6-9."
+      },
+      {
+        "item": "AC-2",
+        "status": "SATISFIED",
+        "evidence": "Dedup proven at the data layer: per-kit 91+92=183 against an org total of 182 for the August window, i.e. the cross-kit plate is counted once. Emitted SQL carries no FINAL, no literal clarity. prefix, and _peerdb_is_deleted = 0; the tombstoned row is excluded (0 visible of 1). NOTE: the planned card-to-card comparison (A4) could NOT demonstrate this and was mis-specified by the driver - September holds 70 rows and 70 distinct plates, zero duplicates, so distinct MUST equal raw count there. The seeded duplicate is in August."
+      },
+      {
+        "item": "AC-3",
+        "status": "SATISFIED",
+        "evidence": "All four filters match measurement exactly: today=0 (seed covers Sep 1-7 only), last_7d=67, this_month=67, last_month=183. last_7d==this_month is the coincidence the ticket documents for the 8th. The timezone conversion is demonstrably live: the card shows 67 where a naive-UTC month boundary would show 70, and the 3-plate gap is exactly the Chicago offset."
+      },
+      {
+        "item": "AC-4",
+        "status": "SATISFIED",
+        "evidence": "One fetchMonthlySeries() call on a cold render (not 12), and 0 round trips on a warm render across all four filters - the shared range cache key is genuinely effective."
+      },
+      {
+        "item": "AC-5",
+        "status": "SATISFIED",
+        "evidence": "Cold round trips: 2 for this_month/last_month, 3 for today/last_7d. Warm: 0 for all four. No regression in count. CAVEAT: seeded scale is ~624 rows against 2,180,621,658 in production (factor ~3.5M), so this lane validates round-trip COUNT and correctness only - the DEV-2466 production envelope (2.44 GB peak, 1,102 ms) is not reproducible here and was not re-measured."
+      },
+      {
+        "item": "AC-6",
+        "status": "N/A",
+        "evidence": "Build Record obligation with no UI surface (settled: Build Record only, no card copy). Verified the card ships no explanatory copy about Scan Count or the affiliate report. The Build Record itself has not been written - the run never reached Phase 7."
+      },
+      {
+        "item": "AC-7",
+        "status": "N/A",
+        "evidence": "SPLIT VERDICT. 'Existing metrics unaffected' is SATISFIED: all ten cards render for the Pro persona with no console errors, no 5xx, and no layout regression at 1280px (the prior epic's mid-word label break did not reproduce). 'Non-Pro orgs do not see the value' is NOT BROWSER-OBSERVABLE: /__qa/login/{id} unconditionally sets session('admin_impersonator') (routes/web.php:174-192), which is the second OR-arm of canViewCardData(), so every dev-login unlocks the card regardless of entitlement. Verified in-process instead: for org 3, Feature::active(COMPANY_METRICS)=false and UniqueScanCounts::canViewCardData()=false. The server-side gate is correct; the locked UI needs human QA outside the dev-login path."
+      }
+    ],
+    "fix_rounds": [
+      {
+        "round": "post-RN5",
+        "trigger": "operator direction after Oscar Nunez confirmed the metric definition (Q4)",
+        "scope": "residuals 1, 3, 4, 5. Residual 2 (unbounded envelope) DEFERRED by operator decision.",
+        "fixes": [
+          {
+            "residual": "R3 -- timezone split discarded ~6h of data for unlisted zones",
+            "change": "ONE zone everywhere. handle(), handleRange() and sharedRangeCacheKey() all resolve the caller zone through safeTimezone() once and use that single value for bounds, SQL grouping and the cache key.",
+            "why": "RN4 and RN5 flagged OPPOSITE horns of one forced choice: for a zone ClickHouse cannot accept, bounds and grouping cannot both be exact. Raw-bounds/allowlisted-grouping (RN5's finding) keeps the window exact but emits month keys outside the caller's write set, so the rows in the gap are silently DISCARDED and the short bucket caches for a year. One-zone (RN4's finding) shifts the window up to ~6h for those zones but loses nothing and tiles the window exactly. Silent data loss is the worse failure. Oscar's ruling that the reporting window is authoritative makes this a correctness question, not a style one. Blast radius is small: all 598 ALL_WITH_BC zones resolve to themselves, so real viewers are unaffected either way."
+          },
+          {
+            "residual": "R1 -- contract test could not fail (proven by mutation in 2 lanes)",
+            "change": "Replaced with test_one_zone_resolves_both_the_bounds_and_the_sql_grouping(), asserting the ASSIGNMENT rather than the call sites, plus a behavioural cache-key normalisation test.",
+            "mutation_verified": "YES, run explicitly. Mutation A (handle() binds the raw zone -- the exact subtle mutation lanes 2 and 3 used to defeat the predecessor): RED. Mutation B (full RN4/RN5 split restored): RED. Baseline and restored: GREEN."
+          },
+          {
+            "residual": "R4 -- handle() had no behavioural coverage",
+            "change": "Added test_handle_emits_no_month_bucket_outside_the_requested_window() and test_handle_and_handle_range_cut_the_same_window_for_an_unlisted_zone().",
+            "mutation_verified": "YES. Mutation C (restore the RN5 split): orphan-bucket test RED. Mutation D (normalise handle() only, leave handleRange() raw): agreement test RED. SELF-CAUGHT: the first version of the agreement test could NOT fail -- mid-month rows make an 8h window shift undetectable. A row within 8h of the start edge was added to make it discriminate. That is the 6th dead test on this ticket and the 4th self-caught."
+          },
+          {
+            "residual": "R5 -- stale/false docblock claims",
+            "change": "Corrected the 10.03 GB attribution (it measures FOUR DIFFERENT CARDS, not 4 concurrent renders of this one -- no such number exists, and the shipped shape's concurrency multiplier is unmeasured); removed the false 'restores the shape RN3 cleared' provenance (RN3 reviewed the LOCKED code; the no-lock shape is what RN2 flagged); documented why the failure marker key is deliberately org-only and not tz-scoped (lane 3's L4, carried 3 rounds); named the Cache::add N-slot semaphore as the leading deferral candidate since it has no block() wait to mis-size, which was the failure mode of both withdrawn locks."
+          }
+        ],
+        "deferred": {
+          "residual": "R2 -- unbounded resource envelope on the synchronous page-load path",
+          "decision": "operator, 2026-09-09",
+          "note": "Cannot be closed by editing: it needs either a design decision on which primitive, or a real measurement of the shipped shape at production concurrency. Oscar's ruling REMOVED the cheap escape -- had the definition been hourly-sum, the card could have read affiliate_stats_hourly (3.69M rows / 29.74 MiB) instead of scans_cold (2.18B rows). Period-distinct locks in the expensive shape permanently. Note lane 1 (90) declined to score this at all; only lanes 2 and 3 scored it MED."
+        }
+      },
+      {
+        "round": "post-RN6",
+        "trigger": "operator direction, worked one residual at a time",
+        "scope": "#2 (false provenance) and #3+#4 (zone ownership) FIXED. #1 (dead contract test) ruled OUT OF SCOPE by the operator. #5 (sub-second boundary hole) not attempted.",
+        "closed": [
+          "#2 -- the 243M/10.03GB/3.818s figure is four concurrent copies of THIS query (60,762,142 x 4 = 243,048,568 exactly); degradation MEASURED at 2.6x. My prior 'four different cards / no such number exists' claim was false and is corrected, with the two genuine caveats recorded (the 4-way run used FINAL so the shipped shape peaks ~9.8GB; the spike separately applies the figure to a hypothetical 4-card dashboard, the source of the misreading).",
+          "#3+#4 -- one mistake, not two. The zone belongs to the CALLER's intent, not the query. handle() sanitises (its grouping IS the bucket key); handleRange() takes the zone verbatim (no SQL zone, and the Today/Last-7d path needs the viewer's real local day); resolveCurrentMonthFromCold passes sanitised so bar 13 aligns with bars 1-12; the widget mints month keys and the batch window with the sanitised zone, closing the +05:00 future-end-bound path. sharedRangeCacheKey stops normalising."
+        ],
+        "not_fixed": {
+          "residual": "#1 -- the contract test cannot fail (MED from 3/3 RN6 lanes)",
+          "decision": "operator: out of scope for DEV-2467, 2026-09-09",
+          "consequence": "The review gate CANNOT clear on this ticket. R1 is a scoring MED for every lane, so any RN7 fails on it by construction. Merging therefore becomes an explicit decision to ship with a known-dead test, not something a passing gate will authorise. The affected invariant still has mutation-verified BEHAVIOURAL coverage, but only under CLICKHOUSE_DRIVER=clickhouse -- on a default local run it is uncovered. The test's docblock now states all of this plainly instead of promising a replacement that is not coming."
+        },
+        "process": "Two harness/test failures caught before shipping. (1) The first mutation harness used double-quoted perl strings, so the shell expanded $timezone to empty and no mutation ever applied -- it reported two working tests as dead. Rebuilt in python asserting the anchor matched exactly once before running. (2) With that fixed, the new widget regression test genuinely could not fail: it read the end bound in the zone the widget passed rather than the zone handle() re-sanitises it to, which is the exact mismatch it exists to catch. Both fixed; every barrier is now verified RED against its own defect. 8th dead test on this ticket, 5th self-caught."
+      }
+    ]
+  }
+}

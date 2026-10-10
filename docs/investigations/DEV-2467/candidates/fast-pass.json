@@ -1,0 +1,54 @@
+{
+  "candidate": "fast-pass",
+  "model": "sonnet",
+  "confidence": 68,
+  "escalate": {"recommend": true, "reasons": [
+    "Two AC items are explicit 'decide deliberately' product/UX divergences (Scan Count card; affiliate report) needing a human call.",
+    "getStatColor() color choice has no clean default — all 5 non-gray named colors are claimed, and gray is lockedStat()'s color.",
+    "Whether the card needs the COMPANY_METRICS Pennant feature gate (like its two most recent siblings) or just the default role check is unresolved.",
+    "The cross-class cache-key/query design for sharing with the not-yet-built DEV-2468 is the highest-risk part of the build."
+  ]},
+  "scope": {
+    "target_files": [
+      "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php",
+      "app/Filament/Widgets/Dashboard/UniqueScanCounts.php",
+      "app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php",
+      "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+      "tests/Filament/Pages/DashboardCardExpansionTest.php",
+      "tests/Filament/Widgets/Dashboard/UniqueScanCountsTest.php",
+      "tests/Clickhouse/Queries/ScanPlateStatsBatchQueryTest.php",
+      "tests/e2e/helpers/company-metrics.ts"
+    ],
+    "insertion_point_claim": "cards() index 2 — between 'recovery-counts' and 'staging-live-hit-leader' (row-major traversal of already-built cards puts row2c1 there)",
+    "query_class_claim": "NEW app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php; do NOT extend ScanStatsBatchQuery (reads scan_report_hourly, no ocr, hardcodes clarity.)",
+    "cache_key_claim": "Follow the StagingLiveHitLeader precedent — no new trait; hand-written byte-identical cache-key FORMAT (e.g. scan-plate-stats:unique-range:{org}:{start}:{end}) that DEV-2468 can reproduce. SharedHitStatsData is NOT reusable (its 4-widget hitWidgetMap + dual total/unique series do not fit)."
+  },
+  "key_code_findings": [
+    "DashboardWidget::getMonthlyData() (Concerns/DashboardWidget.php:208-239) is UNBATCHED by default — a for(i=12..0) loop of cache()->remember(fn => getModelQueryForDates()). Every batched card OVERRIDES it. The new card must override too.",
+    "getStatColor() match arm site: Concerns/DashboardWidget.php:299-309. Only card-key->color map in the repo. RecoveryLeader hardcodes ->color('info') and extends ChartWidget, so it does not go through this method.",
+    "Filter seam: CompanyMetricsOverview::makeMetricWidget() sets ->date + ->filters['date_toggles'] from resolveDashboardDate(); BuildsDateFilterChartSeries::resolveCardRange() (15-37) converts to [start,end] using auth()->user()->timezone ?? 'UTC' and sends naive user-tz literals against UTC scanned_at. Existing accepted convention across all sibling cards.",
+    "ClickhouseQuery::query() swallows Throwable to [] in production|testing (ClickhouseQuery.php:8-35). Batched resolvers must call handle()/handleRange() DIRECTLY inside their own try/catch with a negative-cache marker, per SharedHitStatsData::resolvePastUniqueMonths().",
+    "HitPlateStatsBatchQuery declares strict_types=1; HitStatsBatchQuery does not. Match the newer convention.",
+    "CompanyMetricsOverview.php:46-89 mockup-slot docblock carries load-bearing prose about gap count/alignment that must be updated."
+  ],
+  "exhaustiveness_summary": {
+    "second_card_registry": "tests/e2e/helpers/company-metrics.ts:5-33 COMPANY_METRICS_CARD_HEADINGS — a SECOND registry; specs iterate defensively so absence is a coverage gap, not a failure.",
+    "hardcoded_clarity_prefix_preexisting": ["LprVisitCountQuery.php:19", "RecoveryLeaderQuery.php:25,28", "ScanStatsBatchQuery.php:19", "RdnHitHourCountQuery.php:38", "RdnScanHourCountQuery.php:27"],
+    "fixed_pair_to_copy": ["HitStatsBatchQuery.php", "HitPlateStatsBatchQuery.php"],
+    "thirteen_month_loops": ["DashboardWidget (unbatched default)", "ScanCount", "SharedHitStatsData", "StagingLiveHitLeader", "RecoveryLeader", "Client/Concerns/ClientChartWidget (out of scope)"]
+  },
+  "open_questions_needs_human": [
+    "COMPANY_METRICS Pennant feature gate on this card, or default role check only?",
+    "Which Filament named color for 'unique-scan-counts'? All 5 non-gray are claimed; gray collides with lockedStat().",
+    "Divergence 1: reconcile vs explain the un-deduped Scan Count card sitting two slots away (measured 2.1x gap).",
+    "Divergence 2: reconcile vs explain the affiliate report's hourly-summed 'unique scans' (1.18x-1.63x overcount)."
+  ],
+  "resource_envelope": {
+    "scale_relevant": true,
+    "oracle_status": "prior-measurement (DEV-2466, 2026-09-08)",
+    "prod_rows": 2180621658,
+    "worst_org_13mo": {"org": 469, "read_rows": 60738996, "read_bytes": "1.31 GB", "peak_mem": "2.44 GB", "server_ms": 1102},
+    "single_window": {"read_rows": 7218864, "read_bytes": "300 MB", "peak_mem": "447 MB", "server_ms": 190},
+    "unresolved": []
+  }
+}

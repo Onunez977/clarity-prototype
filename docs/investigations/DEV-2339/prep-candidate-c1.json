@@ -1,0 +1,263 @@
+{
+  "synthesis": "DEV-2339 is a production ClickHouse query-plan bug in ScoutOpenOrderAddressesQuery. The same address_links CTE is consumed by both an INNER JOIN and an equivalent IN predicate, potentially repeating the expensive ~311M-row public_hotlist_address scan and exceeding the server's 30-second ceiling. In production ClickhouseQuery reports the timeout and returns [], rather than propagating it, so the recorder continues with no addresses and records zero check-ins. The best first fix is removing the redundant IN predicate only from ScoutOpenOrderAddressesQuery, retaining the JOIN needed for hotlist_id/is_staged metadata, and validating the resulting plan at production scale. Do not increase max_execution_time or include DEV-2342 lock-expiry work.",
+  "scope": {
+    "summary": "Make the smallest query-shape change that eliminates the duplicate address_links consumption while preserving address enumeration semantics.",
+    "proposed_changes": [
+      {
+        "file": "app/Clickhouse/Queries/ScoutOpenOrderAddressesQuery.php",
+        "change": "Remove `AND a.id IN (SELECT address_id FROM address_links)` while retaining `INNER JOIN address_links al ON al.address_id = a.id`. Update the class documentation to explain that this recorder query deliberately references address_links once because ClickHouse CTEs are not a guaranteed materialization boundary.",
+        "reason": "The JOIN already restricts rows and is required to carry hotlist_id/is_staged. Removing the second CTE consumer avoids repeating the dominant public_hotlist_address work.",
+        "ref": "app/Clickhouse/Queries/ScoutOpenOrderAddressesQuery.php:63-97"
+      },
+      {
+        "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+        "change": "Use the existing real-ClickHouse recorder coverage to pin Direct/Staging enumeration, shared-address direct preference, coordinates, caching, and persisted check-ins after the SQL change; add a focused semantic case only if current coverage proves insufficient.",
+        "reason": "Performance cannot be proven by fixtures, but result parity must remain programmatically covered.",
+        "ref": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php:130-294"
+      }
+    ],
+    "target_files": [
+      "app/Clickhouse/Queries/ScoutOpenOrderAddressesQuery.php",
+      "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php"
+    ],
+    "out_of_scope": [
+      "DEV-2342 and changes to withoutOverlapping(10)",
+      "ScoutCheckInRollupQuery, whose separate dashboard path explicitly documents JOIN+IN as load-bearing",
+      "HotlistAddressGeohashQuery",
+      "Changing cache duration",
+      "Raising CLICKHOUSE_TIMEOUT_QUERY or server max_execution_time",
+      "Schema, index, migration, retention, or backfill changes",
+      "Changing check-in matching or persistence semantics"
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "A cold-cache ScoutOpenOrderAddressesQuery completes below the production 30-second max_execution_time for the affected production-scale org workload.",
+      "source": "ticket",
+      "decision": "implement-and-measure",
+      "reason": "This is the direct failure condition; fixture tests cannot establish it."
+    },
+    {
+      "item": "No ClickHouse error 159 from ScoutOpenOrderAddressesQuery appears during post-deploy recorder cycles.",
+      "source": "ticket",
+      "decision": "verify",
+      "reason": "The server-side timeout is the observed production symptom."
+    },
+    {
+      "item": "scout:record-check-ins receives non-empty open-order address sets and can persist qualifying check-ins again.",
+      "source": "ticket/code",
+      "decision": "verify",
+      "reason": "Production currently degrades the timeout to an empty address list and therefore records zero."
+    },
+    {
+      "item": "Direct and approved Staging addresses, deterministic Direct preference for shared addresses, latest-version coordinates, and geo validity filters remain unchanged.",
+      "source": "code/OKF",
+      "decision": "preserve",
+      "reason": "These are canonical recorder semantics."
+    },
+    {
+      "item": "The fix does not increase ClickHouse timeout settings.",
+      "source": "user constraint/precedent",
+      "decision": "preserve",
+      "reason": "A query-shape fix is preferred and increasing the ceiling would mask the duplicate work."
+    },
+    {
+      "item": "DEV-2342 lock-expiry behavior remains unchanged.",
+      "source": "user constraint",
+      "decision": "exclude",
+      "reason": "It is a separate compounding issue."
+    }
+  ],
+  "questions": [
+    {
+      "q": "Will JOIN-only execution remain below 30 seconds for every affected production org after losing the explicit public_address primary-key IN prune?",
+      "answered": false,
+      "answer": null,
+      "source": "requires production-scale EXPLAIN/benchmark"
+    },
+    {
+      "q": "Is the observed 30-second ceiling an environment/server override of the repository's 60-second client timeout default?",
+      "answered": true,
+      "answer": "Yes, or otherwise external to the committed clarity_clickhouse settings: config defaults timeout_query to 60 and does not set max_execution_time on this connection, while the server reports a 30-second maximum.",
+      "source": "code plus production error"
+    },
+    {
+      "q": "Is the ticket's stated 30-minute address cache current?",
+      "answered": true,
+      "answer": "No. Current code and OKF use 15 minutes.",
+      "source": "app/Console/Commands/ScoutRecordCheckIns.php:42-47,184-188; okf/concepts/scout-check-in-recorder.md:33,74"
+    },
+    {
+      "q": "Should ScoutCheckInRollupQuery receive the same edit?",
+      "answered": true,
+      "answer": "No for DEV-2339. It is a separate on-read dashboard query and explicitly documents both predicates as load-bearing; changing it requires separate evidence and performance validation.",
+      "source": "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php:19-42"
+    },
+    {
+      "q": "Does the timeout propagate into ScoutRecordCheckIns' per-org catch in production?",
+      "answered": true,
+      "answer": "No. ClickhouseQuery catches Throwable in production/testing, reports it, and returns []; the command then short-circuits matching because the address list is empty.",
+      "source": "app/Clickhouse/Queries/ClickhouseQuery.php:11-37; app/Console/Commands/ScoutRecordCheckIns.php:194-198"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "The ticket lead is relationally correct: the IN predicate does not change the result set after the equality INNER JOIN. Its physical effect is not automatically redundant, however, because public_address is ordered by id and IN can prune it. The recommendation therefore requires a real ClickHouse performance gate.",
+    "The dominant documented cost is public_hotlist_address: approximately 311M rows ordered by id, while this query joins on hotlist_id. Referencing address_links twice can repeat that unprunable work.",
+    "HotlistAddressGeohashQuery's `IN, never JOIN` guidance applies because that query only needs address membership. ScoutOpenOrderAddressesQuery also needs hotlist_id and is_staged, so an INNER JOIN remains necessary.",
+    "The production impact is worse than an ordinary empty result: the command reports kits as processed while recording zero because the base query class silently degrades errors to [].",
+    "Existing recorder coverage already pins Direct/Staging rows, radius behavior, hourly idempotency, shared-address Direct preference, cache behavior, multi-driver processing, failure degradation, and chunk merging.",
+    "If JOIN-only still exceeds the ceiling, the fallback is another single-consumption CTE/query restructuring proven by EXPLAIN and timing. Raising max_execution_time is not the fallback."
+  ],
+  "tests": [
+    {
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+      "what_it_pins": "End-to-end recorder semantics through ScoutOpenOrderAddressesQuery, including Direct/Staging enumeration, shared-address Direct preference, matching, caching, idempotency, and persistence.",
+      "run": "php artisan test --compact tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php"
+    },
+    {
+      "file": "production/local representative ClickHouse benchmark",
+      "what_it_pins": "Cold-cache elapsed time, rows read, and absence of error 159 for baseline versus JOIN-only query using an affected org-sized open-order set.",
+      "run": "Capture EXPLAIN/elapsed/read_rows for both shapes without changing timeout settings."
+    }
+  ],
+  "grounding": {
+    "jira": "DEV-2339 description and 2026-08-12 comment: ten observed error-159 timeouts, six within 15 minutes, and a 78.3-minute recorder cycle",
+    "offending_query": "app/Clickhouse/Queries/ScoutOpenOrderAddressesQuery.php:54-100",
+    "duplicate_consumers": [
+      "app/Clickhouse/Queries/ScoutOpenOrderAddressesQuery.php:87",
+      "app/Clickhouse/Queries/ScoutOpenOrderAddressesQuery.php:91"
+    ],
+    "error_degradation": "app/Clickhouse/Queries/ClickhouseQuery.php:29-36",
+    "command_flow": "app/Console/Commands/ScoutRecordCheckIns.php:68-115,180-205",
+    "schedule": "routes/console.php:59-67",
+    "schema": [
+      "database/schema/clickhouse-schema.sql:25 \u2014 public_address PRIMARY KEY/ORDER BY id",
+      "database/schema/clickhouse-schema.sql:43 \u2014 public_hotlist_address PRIMARY KEY/ORDER BY id"
+    ],
+    "comparison_queries": [
+      "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php:19-42,110-137",
+      "app/Clickhouse/Queries/HotlistAddressGeohashQuery.php:126-163"
+    ],
+    "okf": [
+      "okf/index.md:14-20",
+      "okf/concepts/data-architecture.md:18-25,75-84",
+      "okf/concepts/scout-check-in-recorder.md:27-74",
+      "okf/concepts/scout-clickhouse-queries.md:223-292",
+      "okf/concepts/clickhouse-query-patterns.md:16-44"
+    ],
+    "precedents": "docs/investigations/DEV-2339/precedents.json \u2014 DEV-2163 and DEV-1710 support query-shape optimization; DEV-2342 explicitly excluded"
+  },
+  "exhaustiveness": {
+    "query_class_callers": [
+      "app/Console/Commands/ScoutRecordCheckIns.php:184"
+    ],
+    "exact_join_plus_in_sites": [
+      "app/Clickhouse/Queries/ScoutOpenOrderAddressesQuery.php:87-91",
+      "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php:125-129"
+    ],
+    "all_address_query_variants_reviewed": [
+      "ScoutOpenOrderAddressesQuery",
+      "ScoutCheckInRollupQuery",
+      "HotlistAddressGeohashQuery"
+    ],
+    "tests_reviewed": [
+      "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php"
+    ],
+    "included_sites": [
+      "ScoutOpenOrderAddressesQuery only"
+    ],
+    "excluded_sites": [
+      {
+        "site": "ScoutCheckInRollupQuery",
+        "reason": "Separate dashboard path with explicit keep-both guidance; no DEV-2339 failure evidence."
+      },
+      {
+        "site": "HotlistAddressGeohashQuery",
+        "reason": "IN-only membership query with no metadata-carrying JOIN; already follows its intended shape."
+      },
+      {
+        "site": "routes/console.php withoutOverlapping(10)",
+        "reason": "DEV-2342."
+      }
+    ],
+    "closure": "Repository-wide searches found exactly two JOIN+IN address_links variants and one IN-only address-density variant; every occurrence is classified."
+  },
+  "data_impact": {
+    "pg_tables": [
+      "platform.scout_check_ins \u2014 downstream writes resume; schema and write semantics unchanged"
+    ],
+    "ch_tables": [
+      "clarity.hotlist FINAL \u2014 read only",
+      "zod.public_hotlist_address \u2014 read only; dominant scan",
+      "zod.public_address \u2014 read only",
+      "clarity.sc_positions \u2014 unchanged downstream matcher read"
+    ],
+    "mv_or_cdc_implications": "None. No schema, materialized-view, CDC, migration, or backfill change. Existing CDC-version and delete filtering remain intact.",
+    "indexes_relied_on": [
+      "zod.public_address PRIMARY KEY/ORDER BY id",
+      "zod.public_hotlist_address PRIMARY KEY/ORDER BY id; does not support pruning by hotlist_id"
+    ],
+    "blast_radius": "One cached per-org ClickHouse read query used only by the recorder; downstream PostgreSQL inserts retain their existing unique key and firstOrCreate behavior."
+  },
+  "derivation_log": [
+    {
+      "query_shape": "Repository-wide search for ScoutOpenOrderAddressesQuery callers and exact `INNER JOIN address_links` plus `a.id IN (SELECT address_id FROM address_links)` forms.",
+      "param_classes": "Static PHP/SQL symbol search.",
+      "aggregate_result": "One caller; exactly two JOIN+IN query variants; one IN-only address variant.",
+      "why": "Closed the caller and sibling-idiom sweep."
+    },
+    {
+      "query_shape": "Read ClickHouse DDL for public_address and public_hotlist_address.",
+      "param_classes": "Table ordering and primary-key metadata.",
+      "aggregate_result": "public_address is ordered by id; public_hotlist_address is ordered by id rather than hotlist_id.",
+      "why": "Verified both the value of the IN prune and the cost of repeated address_links evaluation."
+    },
+    {
+      "query_shape": "Traced scheduled command through cached enumeration, matcher, and persistence.",
+      "param_classes": "Cold/warm cache and production/testing error modes.",
+      "aggregate_result": "Timeout becomes reported [] in production; empty addresses skip matching and yield zero persisted rows.",
+      "why": "Corrected the ticket's exception-propagation description and established impact."
+    },
+    {
+      "query_shape": "Compared code against OKF recorder/query documentation and precedents.json.",
+      "param_classes": "Domain semantics, query conventions, and related-ticket boundaries.",
+      "aggregate_result": "Direct/Staging semantics and query-shape-first policy confirmed; DEV-2342 excluded; cache is 15 minutes, not 30.",
+      "why": "Resolved documentation and scope conflicts conservatively."
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "Semantic parity",
+        "kind": "agent",
+        "intent": "Run ScoutRecordCheckInsCommandTest against the real local ClickHouse fixture path; verify Direct, Staging, shared-address Direct preference, radius, idempotency, and cache tests remain green."
+      },
+      {
+        "ac": "Performance under ceiling",
+        "kind": "manual/perf",
+        "intent": "On a representative production-scale dataset, compare cold-cache baseline and JOIN-only elapsed time/read_rows. Require comfortable headroom below 30 seconds, not a marginal 29.x-second pass."
+      },
+      {
+        "ac": "Production recovery",
+        "kind": "post-deploy",
+        "intent": "Monitor reported ClickHouse error 159 events and recorder completion logs across multiple cold-cache windows; confirm check-ins become nonzero when qualifying GPS data exists."
+      }
+    ],
+    "seed_shape": "One Scout-enabled org with Direct and approved Staging open orders, one address shared across both, geocoded public_address rows including multiple CDC versions, and nearby sc_positions.",
+    "personas": [
+      "Scout-enabled driver with mapped kit",
+      "org with large open-order address set"
+    ],
+    "avoid": "Do not validate by increasing max_execution_time, warming the cache, or testing only an org with a tiny address set."
+  },
+  "confidence": 84,
+  "escalate": {
+    "recommend": true,
+    "reasons": [
+      "The JOIN-only change is semantically sound but its physical performance conflicts with established public_address IN-pruning guidance.",
+      "No local fixture can prove the affected production-scale query remains comfortably below 30 seconds.",
+      "A before/after EXPLAIN and elapsed/read_rows measurement should arbitrate removal-only versus a deeper single-consumption restructuring before merge."
+    ]
+  }
+}

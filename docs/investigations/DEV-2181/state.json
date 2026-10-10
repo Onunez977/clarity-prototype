@@ -1,0 +1,43 @@
+{
+  "key": "DEV-2181",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2181",
+  "phase": "done",
+  "models": {"base": "haiku", "recall": "haiku", "prep": "sonnet", "plan": "opus", "plan_arbiter": "opus", "implement": "sonnet", "implement_simple": "sonnet", "arbitrate": "opus", "offload": "sonnet", "review": "opus"},
+  "efforts": {"prep": "inherit", "plan": "inherit", "plan_arbiter": "inherit", "implement": "inherit", "implement_simple": "inherit", "arbitrate": "inherit", "offload": "inherit", "review": "inherit"},
+  "timings": [
+    {"slot": "recall", "model": "haiku", "effort": "inherit", "phase": "intake", "dur_s": 60},
+    {"slot": "prep-fastpass", "model": "sonnet", "effort": "inherit", "phase": "prep", "dur_s": 356},
+    {"slot": "grep-backstop", "model": "haiku", "effort": "inherit", "phase": "prep", "dur_s": 15}
+  ],
+  "flags": {"companion": false, "review_policy": "functional", "jira_mirror": true, "start_at": null, "stop_at": null, "only": null, "skip": [], "force": false},
+  "knowledge_cards_loaded": ["knowledge/clarity/scout.md", "knowledge/clickhouse/core.md"],
+  "escalated": false,
+  "escalation_triggers": ["answered:false question fired the letter-of-rule trigger; deep path deliberately skipped — sole open item is a needs-human product-scope decision resolved at the gate, not a technical uncertainty; confidence 87, no blockers/blast-radius, single forced approach; crux verified by driver"],
+  "missed_caller_candidates": ["DriverSelector.vue -> setSelectedKits (expected)", "ScannerMap.vue -> setFollowedDriver/clearFollowedDriver (expected)", "useKitPositionPolling.js:53 fetchRecentHits (driver poll, unaffected)", "auth/notifications/trips/useShift buildUrl (non-recent-hits paths, unaffected)"],
+  "diff_base": "43de3f749346dde32f7655e054e4ece677f6bf93",
+  "subtasks": [{"id": "t1", "status": "merged", "worktree_path": null, "branch": "claude/DEV-2181", "complexity": "complex", "model": "sonnet"}],
+  "review_number": 1,
+  "pr": {"number": 269, "url": "https://github.com/insight-lpr/platform/pull/269", "draft": true},
+  "pr_urls": {},
+  "jira_in_progress_by": "already In Progress at intake — transition is a no-op (skipped, not failed)",
+  "jira_transitioned_by": "manual-daltonmccleery (undraft did not auto-transition; In Code Review via id 4)",
+  "assumed": [],
+  "comment_ids": {"status": "35576", "build_record": "35609"},
+  "qa": {"ledger": ".context/qa-prep-ledger.json", "provisioned_early": true, "agent_report": ".context/qa-agent-report.md", "ac_results": ".context/qa-ac-results.json", "torn_down": true,
+         "provisioning": {"bootstrap": "skipped-already-provisioned", "deps": "not-run", "migrations": "already-migrated", "docker_daemon": "already-running", "ch_container": "reused (worktree CH DBs clarity_claude_dev_2181/zod_claude_dev_2181 created via up.sh --also-testing)", "frontend_build": "ran (Phase 4 npm build)", "postgres_db": "zod_claude_dev_2181_cc3b2b (+ testing zod_testing_claude_dev_2181_cc3b2b)", "ch_strategy": "docker", "herd_site": "clarity-claude_dev_2181_cc3b2b.test"}},
+  "record": {
+    "tests": [{"cmd": "npm run build", "passed": 1, "failed": 0, "note": "Vite build succeeded; rehashed birdseye/clarity-scout/main/ScoutHome chunks + manifest + SW; no boost-doc regen"}, {"cmd": "vendor/bin/pint --dirty", "passed": 1, "failed": 0, "note": "no PHP diff — no-op pass"}],
+    "deviations": ["CH-gated regression test ClarityScoutBirdsEyeControllerTest deferred from Phase 4 to Phase 6: the diff is 100% frontend JS (zero backend diff), so the test is guaranteed-green and its RequiresClickhouse gate would force a redundant Docker-CH spin-up in Phase 4; it runs in Phase 6's provisioned CH env instead. Phase 4 verification = npm build (compile) + blast-radius re-check (clean).", "Full PHP test suite not run in Phase 4 — no PHP files changed; blast-radius clean; per-surface regression test runs in Phase 6."],
+    "review": {"lanes": ["adversarial (insightlpr:adversarial-reviewer, opus, in-session — review.sh substituted due to embedded-harness 'Not logged in')"], "scores": [100], "gate": "pass min=100 threshold=90 lanes=1 rn=1", "findings_fixed": [], "findings_residual": ["non-scoring: pre-existing poll-range divergence (useBirdsEyePolling hardcodes 'today' vs event dashboard.range) — follow-up candidate, not introduced here", "non-scoring: follow overrides active combobox multi-select (mirrors pre-existing stats precedence; deliberate)"]},
+    "ac": [
+      {"item": "AC-1: selecting a driver/kit scopes the pending repo list to it", "status": "SATISFIED", "evidence": "browser lane: selection fired GET /dashboard/recent-hits?range=today&kit_ids[]=16"},
+      {"item": "AC-2: clearing the selection returns to the org-wide list", "status": "SATISFIED", "evidence": "browser lane: Clear fired GET /dashboard/recent-hits?range=today with no kit_ids"},
+      {"item": "AC-follow (derived): click-to-follow scopes the pending list", "status": "N/A", "evidence": "no seeded live driver-positions to click; wiring proven by 100/100 review; visual confirmation deferred to human QA"}
+    ]
+  }
+}

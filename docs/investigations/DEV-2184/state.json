@@ -1,0 +1,54 @@
+{
+  "key": "DEV-2184",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2184",
+  "phase": "done",
+  "models": {"base": "haiku", "recall": "haiku", "prep": "sonnet", "plan": "opus", "plan_arbiter": "opus", "implement": "sonnet", "implement_simple": "sonnet", "arbitrate": "opus", "offload": "sonnet", "review": "opus"},
+  "efforts": {"prep": "inherit", "plan": "inherit", "plan_arbiter": "inherit", "implement": "inherit", "implement_simple": "inherit", "arbitrate": "inherit", "offload": "inherit", "review": "inherit"},
+  "timings": [
+    {"slot": "prep-fastpass", "model": "sonnet", "effort": "inherit", "phase": "prep", "dur_s": 556},
+    {"slot": "prep-candidate-1", "model": "sonnet", "effort": "inherit", "phase": "prep", "dur_s": 500},
+    {"slot": "prep-candidate-2", "model": "sonnet", "effort": "inherit", "phase": "prep", "dur_s": 716},
+    {"slot": "prep-candidate-3", "model": "sonnet", "effort": "inherit", "phase": "prep", "dur_s": 449},
+    {"slot": "grep-backstop", "model": "haiku", "effort": "inherit", "phase": "prep", "dur_s": 127},
+    {"slot": "recall", "model": "haiku", "effort": "inherit", "phase": "intake", "dur_s": 56},
+    {"slot": "reconcile", "model": "opus", "effort": "inherit", "phase": "prep", "dur_s": 0}
+  ],
+  "flags": {"companion": false, "review_policy": "functional", "jira_mirror": true,
+            "start_at": null, "stop_at": null, "only": null, "skip": [], "force": false},
+  "knowledge_cards_loaded": ["clarity/scout", "clickhouse/core"],
+  "escalated": true,
+  "escalation_triggers": ["confidence<80 (62)", "escalate.recommend=true", "open answered:false questions", "ticket 'server-side error' claim diverges from prep 'routing-leak, no exception' finding", "shared routing change (routes/web.php) in auth-gated surface"],
+  "missed_caller_candidates": [
+    {"file": "resources/js/clarity-scout/App.vue", "line": 306, "symbol": "shift.fetchStatus()", "referenced_at": "watch(auth.isAuthenticated) — auto-fires, ungated"},
+    {"file": "resources/js/clarity-scout/App.vue", "line": 307, "symbol": "notifications.fetch()", "referenced_at": "watch(auth.isAuthenticated) — auto-fires, ungated"},
+    {"file": "resources/js/clarity-scout/stores/auth.js", "line": 109, "symbol": "fetchUser() /me", "referenced_at": "auto-fires; /me not in missing-mirror list — verify admin mirror exists"},
+    {"file": "resources/js/clarity-scout/components/NotificationsPanel.vue", "line": 69, "symbol": "notifications.fetch()", "referenced_at": "watch(props.open) — fires if panel opens in admin mode; verify panel mountable in Bird's Eye"},
+    {"file": "resources/js/clarity-scout/components/ProfilePanel.vue", "line": 223, "symbol": "auth.fetchUser()/shift.fetchStatus()/trips.fetchAll()", "referenced_at": "watch(props.open) — fires if profile panel opens in admin mode; verify panel mountable in Bird's Eye"}
+  ],
+  "diff_base": "37d8b0fbf13cc9a71b44e51f0ed4d996e48c9008",
+  "subtasks": [{"id": "t1", "status": "done", "worktree_path": "(single-node fast path — REPO_PATH)", "branch": "claude/DEV-2184", "complexity": "complex", "model": "sonnet"}],
+  "review_number": 1,
+  "pr": {"number": 268, "url": "https://github.com/insight-lpr/platform/pull/268", "draft": true},
+  "pr_urls": {},
+  "jira_in_progress_by": "already-in-progress @ intake (no transition needed)",
+  "jira_transitioned_by": "manual-dalton.mccleery (undraft did not auto-transition; no GH Action)",
+  "assumed": [],
+  "comment_ids": {"status": "35575", "build_record": "35642"},
+  "qa": {"ledger": ".context/qa-prep-ledger.json", "agent_report": ".context/qa-agent-report.md", "ac_results": ".context/qa-ac-results.json", "plans": [".context/qa-plan-agent.md", ".context/qa-plan-human.md"], "human_guide": ".context/qa-human-guide.html", "torn_down": true, "teardown_note": "Scoped teardown: dropped this worktree's local Docker CH DBs (container kept for DEV-2182) + restored .env (CH->Cloud, mail->smtp). Postgres branch DB, Herd site, and the worktree were REUSED warm (pre-existing, harness-owned) — deliberately NOT destroyed. Seeded Postgres QA data left in the reused branch DB; shared literal clarity/zod local-CH DBs left (harmless local scratch, potentially shared).", "provisioned_early": true,
+         "provisioning": {"bootstrap": "skipped-already-provisioned", "deps": "not-run", "migrations": "already-migrated", "docker_daemon": "n/a", "ch_container": "clarity-qa-clickhouse (docker; stood up during human-QA to seed sc_positions for AC-3)", "frontend_build": "ran (implement)", "postgres_db": "zod_claude_dev_2184_248b54", "ch_strategy": "docker (literal clarity/zod; seeded 3 kits + 8 sc_positions rows for org 2)", "herd_site": "clarity-claude_dev_2184_248b54.test"}},
+  "record": {
+    "tests": [{"cmd": "php artisan test --compact tests/Feature/Http/ClarityScoutOrgMapRoutingTest.php", "passed": 2, "failed": 0}],
+    "deviations": ["Full suite not auto-run (CLAUDE.md: never run unit tests automatically); defers to CI on this main-targeting PR. Affected routing tests run as the TDD gate (2/2).", "Fix designed CH-free (routing tests in a non-RequiresClickhouse class) so CH stayed deferred — no Docker CH needed."],
+    "review": {"lanes": 1, "mode": "in-session adversarial-reviewer (opus) — substitutes rigor review.sh which can't run nested claude -p under the embedded harness ('not logged in')", "scores": [100], "findings_fixed": [], "findings_residual": ["non-scoring: JSON-404 backstop is GET-only (matches sibling SPA {any?}); a future non-GET ungated admin leak would 302 to an HTML login page. Not reproducible today; out of scope. Posted as non-blocking PR comment; optional Route::any hardening."]},
+    "ac": [
+      {"item": "The endpoint returns JSON (including on error) — no HTML page fallback.", "status": "SATISFIED", "evidence": "Feature test 2/2 (TDD red→green: 200 HTML before routes fix, JSON 404 after) via a real authed Scout admin; route:list confirms api/{any} JSON-404 ordered after explicit routes + before SPA {any?}; App.vue gates shift/notifications on !mapStore.adminMode; adversarial review 100/100."},
+      {"item": "The underlying server-side error causing the HTML fallback is identified and fixed.", "status": "SATISFIED", "evidence": "Root cause = client-side routing leak (ungated admin-mode fetch → SPA catch-all), not a server exception; driverPositions/driverPaths already try/catch to JSON. Fixed by the App.vue gate + JSON-404 backstop."},
+      {"item": "All-driver positions render on the map.", "status": "N/A", "evidence": "Verify-only (Dalton: verify in QA); no code change scoped; path structurally sound + untouched. CH deferred (CH-free fix) so no seeded dots to observe → deferred to human-QA hp-3 (needs live sc_positions). No breakage observed."}
+    ]
+  }
+}

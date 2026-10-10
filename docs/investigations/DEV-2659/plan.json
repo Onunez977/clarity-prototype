@@ -1,0 +1,109 @@
+{
+  "key": "DEV-2659",
+  "track": "product",
+  "phase": "plan",
+  "gate": "CLEAN",
+  "authoritative": true,
+  "dual_plan_note": "Primary plan from this prep. A later draft compare is not this plan.",
+  "input": "docs/investigations/DEV-2659/prep-context.json",
+  "base_sha": "a4b5074630771c1f4121a5ca34f255c71afe0755",
+  "schema_gate_sha": "25870f75661f07a27a69124a414e557d4c11fff0",
+  "ship_surface": "Both funnel queries read clarity.billing_claim_events_v with is_internal = 0. Delete the orgs CTE and the insightlpr needle joins. One PHP dedup triple, forwarder_org_id kept. No type IN (1, 2) docblock.",
+  "read_surface": "clarity.billing_claim_events_v",
+  "non_goals": [
+    "Item 5 / AC-7",
+    "clarity.orgs swap",
+    "type IN (1, 2) docblock",
+    "ClickhouseQuery base",
+    "Hotlist and status-log rewrites",
+    "Cache TTL changes",
+    "okf/ edits",
+    "Cloud ClickHouse writes",
+    "phase=provisioned",
+    "pgsql mirror as the QA done-signal"
+  ],
+  "fleet_clickhouse": {
+    "strategy": "docker",
+    "driver": "clickhouse",
+    "host": "127.0.0.1",
+    "container": "clarity-qa-clickhouse",
+    "http_port": 18123,
+    "schema": "database/schema/clickhouse-schema.sql",
+    "database_clarity_pattern": "clarity_{wt}",
+    "database_zod_pattern": "zod_{wt}",
+    "contract": ".claude/skills/release-prep/SKILL.md",
+    "not_a_done_signal": [
+      "CLICKHOUSE_DRIVER=pgsql",
+      "agent scratch port 8123",
+      "ClickHouse Cloud writes"
+    ],
+    "do_not_reuse": [
+      "DEV-2654 ledger on port 18124",
+      "SCHEMA-DRIFT ledger on port 18125"
+    ],
+    "provisioned_in_this_phase": false
+  },
+  "reconciliation": {
+    "window": "2026-07 UTC",
+    "ls_claim": "excluded",
+    "scope": "platform-wide",
+    "all": 15128,
+    "successful": 14288,
+    "deduped": 11975,
+    "cloud_remeasured_here": false,
+    "cited_measurement": "Jira comment 41325"
+  },
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Shared dedup triple",
+      "approach": "Add BillingClaimDedup with static SQL. tripleSql returns (forwarder_org_id, agent_org_id, vin). dedupedCteSql returns the repos CTE grouped by that triple with min(claim_date). No constructor. The helper does not emit uniq.",
+      "target_files": [
+        "app/Clickhouse/Queries/BillingClaimDedup.php",
+        "tests/Unit/Clickhouse/BillingClaimDedupTest.php"
+      ],
+      "intended_diffs": "Unit test asserts the triple contains forwarder_org_id, agent_org_id, and vin, and that the CTE filters success and vin != ''.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "BillingClaimDedupTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple"
+    },
+    {
+      "id": "t2",
+      "title": "Claims query reads the view",
+      "approach": "UniqueLprCaseClaimsQuery selects from {clarity_db}.billing_claim_events_v. Alias org_id as forwarder_org_id. Filter is_internal = 0, event_type, ts BETWEEN, an event_date bound covering that span, and the either-side org predicate. Delete orgs, the needle joins, kept, JSONExtract, and public_api_keys. Window and monthlySeries use one SELECT: count, countIf(success), uniqExactIf of BillingClaimDedup::tripleSql(). Pre-claim reads hotlist_id and ts from the view and keeps the hits_cold join and h.hotlist_id != 0. Docblock: not a ClickhouseQuery; does not read clarity.orgs; no type IN (1, 2) paragraph. Seed clarity.billing_claim_events in the feature test.",
+      "target_files": [
+        "app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php",
+        "tests/Feature/Clickhouse/UniqueLprCaseClaimsQueryTest.php",
+        "tests/Filament/Widgets/Dashboard/Concerns/CardQuerySqlFidelityTest.php",
+        "tests/Unit/Clickhouse/CompanyMetricsCacheScopeTest.php"
+      ],
+      "intended_diffs": "Source assertions: one billing_claim_events_v reference in window SQL, zero JSONExtract, zero public_api_keys, zero clarity.orgs, zero public_orgs, uniqExact present, class does not extend ClickhouseQuery. Feature seeds the denormalized table. Pre-claim oc is still referenced twice.",
+      "depends_on": ["t1"],
+      "parallelizable": false,
+      "test_filter": "UniqueLprCaseClaimsQueryTest|CardQuerySqlFidelityTest|CompanyMetricsCacheScopeTest",
+      "ui_impact": false,
+      "blast_radius": ["unique-lpr-case-claims", "pre-claim-scans"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "t3",
+      "title": "Repos billing leg reads the view",
+      "approach": "LprRepossessionsQuery uses the same claims filter and BillingClaimDedup::dedupedCteSql(). The outer SELECT reads deduped once. Keep public_hotlist FINAL and public_hotlist_status_log, d.agent_org_id != 0, and h.id != 0. Do not join clarity.orgs. Same docblock rule as t2. Feature test seeds clarity.billing_claim_events plus the existing hotlist rows, including a sentinel agent_org_id of 0 and a sentinel hotlist id of 0.",
+      "target_files": [
+        "app/Clickhouse/Queries/LprRepossessionsQuery.php",
+        "tests/Feature/Clickhouse/LprRepossessionsQueryTest.php"
+      ],
+      "intended_diffs": "SQL contains billing_claim_events_v once, the shared CTE, both sentinel guards, and no orgs CTE. Hotlist joins unchanged.",
+      "depends_on": ["t1"],
+      "parallelizable": true,
+      "test_filter": "LprRepossessionsQueryTest",
+      "ui_impact": false,
+      "blast_radius": ["lpr-repossessions"],
+      "complexity": "moderate"
+    }
+  ],
+  "next_phase": "Provision (waits a fleet ledger for this key). Do not mark phase=provisioned in this run."
+}

@@ -1,0 +1,41 @@
+{
+  "key": "DEV-2234",
+  "approach": "Option B (full removal) of the Scout Debug map control, keeping config('app.scanner_debug_map_enabled') in place solely for scanPaths() debug coloring. Single-node fast path (no worktree fan-out) — the change is one cohesive removal whose files are interdependent (removing store exports requires removing their consumers in the same pass to keep the build green), with no sensitive-glob blast radius.",
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Remove the Scout Debug map control (UI + precision/satellite backend), keep scanner_debug_map_enabled for scanPaths",
+      "approach": "Frontend: delete DebugMapControls.vue; strip its wiring from DashboardOverlay.vue; remove the dead store state/fns + precision params from map.js; drop mapType init + the two debug watchers from ScannerMap.vue (basemap defaults to roadmap); remove the debugMapEnabled config injection from both blade shells. Backend: delete resolveDebugPrecision() + the precision validation rule from ScoutMapHelpers; in both ClarityScoutMapController and ClarityScoutBirdsEyeController hardcode precision=7 at heatmapHits/heatmapOrders (NOT delete the param — the CH query classes fall back to 6 when absent) and drop the inline precision validation rule. Tests: remove the debug-precision honor/ignore/range tests, KEEP the precision-7-default pin, ADD a precision-7 test for Bird's Eye, flip the shell-view debugMapEnabled assertSee->assertDontSee. Update config/app.php's scanner_debug_map_enabled doc-comment (flag stays, now only gates scanPaths) and the okf doc that names resolveDebugPrecision(). TDD the backend (precision-7 pins go red->green); frontend verified via npm run build + browser QA (no JS test runner).",
+      "target_files": [
+        "resources/js/clarity-scout/components/DebugMapControls.vue",
+        "resources/js/clarity-scout/components/DashboardOverlay.vue",
+        "resources/js/clarity-scout/stores/map.js",
+        "resources/js/clarity-scout/components/ScannerMap.vue",
+        "resources/views/clarity-scout.blade.php",
+        "resources/views/clarity-scout-birds-eye.blade.php",
+        "app/Http/Controllers/Api/Concerns/ScoutMapHelpers.php",
+        "app/Http/Controllers/Api/ClarityScoutMapController.php",
+        "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+        "config/app.php",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php",
+        "tests/Feature/Http/Controllers/ClarityScoutShellViewTest.php",
+        "okf/concepts/scout-dashboard-stats.md"
+      ],
+      "intended_diffs": "DebugMapControls.vue: delete file. DashboardOverlay.vue: remove import (l361), the <DebugMapControls v-if=debugMapEnabled @change=handleDebugChange> block (l244-248), the debugMapEnabled const (l430), handleDebugChange() (l561-564). map.js: remove mapType ref, debugPrecision ref, toggleMapType(), setDebug(), the `if (debugPrecision.value !== 7) params.precision=...` in fetchHitsHeatmap (l405) + fetchOrdersHeatmap (l454), and the four names from the returned object. ScannerMap.vue: drop `mapTypeId: mapStore.mapType` from Map() init (l202) so it defaults to roadmap; remove watch(mapStore.mapType) (l1673) and watch(mapStore.debugPrecision) (l1842-1847) + the now-orphaned comment. clarity-scout.blade.php:25 + clarity-scout-birds-eye.blade.php:17: remove debugMapEnabled injection line. ScoutMapHelpers.php: delete resolveDebugPrecision() (l117-124) and the 'precision'=>['sometimes','integer','between:6,9'] rule from validateHeatmapRequest(). ClarityScoutMapController.php: heatmapHits (l394) + heatmapOrders (l435) set `$precision = 7;`; drop any inline precision rule; scanPaths() UNCHANGED. ClarityScoutBirdsEyeController.php: l372 + l414 same hardcode + drop rule. config/app.php: KEEP the key, reword its doc-comment to 'gates the scan-path per-hour debug coloring (scanPaths)'. Tests as described.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "ClarityScout",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "app/Clickhouse/Queries/HitDirectHotspotQuery.php:39 & HotlistAddressGeohashQuery.php:24 (`?? 6` sanitizePrecision fallback)", "reason": "shared with non-Scout callers (e.g. KitUserPathController); MUST NOT change — precision is hardcoded to 7 at the call sites so this fallback is never reached by Scout"},
+    {"site": "ClarityScoutMapController::scanPaths():74 ($debug), the :debug cache key, app/Support/Scout/HistoricPathBuilder.php, tests/Unit/Support/Scout/HistoricPathBuilderTest.php", "reason": "keep-flag decision (Dalton) — scanner_debug_map_enabled stays and continues to gate the DEV-2018 scan-path debug coloring; untouched"},
+    {"site": "colorMapEnabled/toggleColorMap (DEV-2060), trailArrowsEnabled (DEV-2061) in map.js", "reason": "separate user-facing features, not the debug satellite swap"}
+  ],
+  "sizing_note": "14 files but a SINGLE cohesive concern (retire one debug control). Not a split candidate — the ticket enumerates the surface and the files are interdependent parts of one removal.",
+  "test_strategy": "Backend TDD: keep/adjust the precision-7-default pins in ClarityScoutMapControllerTest, add one to ClarityScoutBirdsEyeControllerTest (red before hardcode if it defaulted to 6 via absent param, green after), flip ClarityScoutShellViewTest. Run filtered `ClarityScout` suite, then full suite post-implementation. Frontend: npm run build must compile clean (no JS test runner); browser QA in Phase 6."
+}

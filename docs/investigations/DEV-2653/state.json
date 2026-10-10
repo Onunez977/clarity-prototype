@@ -1,0 +1,410 @@
+{
+  "key": "DEV-2653",
+  "track": "product",
+  "label": "Product DEV-2653 \u2014 shared param-keyed cache. Supersedes the SCHEMA-GATE control plane that landed on main in #449.",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "sprint": "Sprint 41",
+  "repo": "insight-lpr/platform",
+  "phase": "reviewed",
+  "base_branch": "main",
+  "base_sha": "25870f75661f07a27a69124a414e557d4c11fff0",
+  "base_branch_reason": "SCHEMA-GATE #449 is merged. Product work branches from that main tip. Do not reuse cursor/schema-gate-dev-2653-8def.",
+  "branch": "cursor/dev-2653-shared-cache-plan-af4f",
+  "artifact_dir": "docs/investigations/DEV-2653/",
+  "gate": "CLEAN",
+  "next": "Undraft/CI/QA Ready (PM) \u2014 re-run build-record-gate + rework-gate after this stamp",
+  "next_detail": "Review RN=2 PASS min=88 (93/88/92) on product tip eddf64399101f5f2dd18d65264823f531d0cbcdb. rerun_required=false. conventions #16 PASS. PM re-runs gates then undraft/CI/QA Ready. Review lane does not undraft.",
+  "flags": {
+    "implement": true,
+    "provision": true,
+    "qa": true,
+    "review": true,
+    "stop_at": "provisioned",
+    "cloud_ch_writes": false,
+    "mac_herd_refused": true,
+    "cloud_touched": false,
+    "zod": false,
+    "dev_2659_query_rewrites": false
+  },
+  "cli_provision": {
+    "status": "done",
+    "at": "2026-09-24T12:41:07Z",
+    "provision_mode": "provision-only",
+    "fleet_cite": true,
+    "site": "http://127.0.0.1:18081",
+    "site_container": "clarity-qa-app-schema-gate",
+    "postgres": {
+      "host": "127.0.0.1",
+      "port": 15433,
+      "dev_db": "zod_schema_gate",
+      "testing_db": "zod_testing_schema_gate"
+    },
+    "clickhouse": {
+      "strategy": "docker",
+      "container": "clarity-qa-clickhouse",
+      "host": "127.0.0.1",
+      "http_port": 18123,
+      "database": "clarity_schema_gate",
+      "database_clarity_testing": "clarity_testing_schema_gate",
+      "database_zod": "zod_schema_gate",
+      "database_zod_testing": "zod_testing_schema_gate",
+      "billing_claim_events_present": true,
+      "billing_claim": [
+        "billing_claim_events",
+        "billing_claim_events_v",
+        "billing_claim_events_mv"
+      ]
+    },
+    "cloud_ch_writes": false,
+    "mac_herd_refused": true,
+    "cloud_touched": false,
+    "ledger_path": "docs/investigations/DEV-2653/qa-prep-ledger.json",
+    "ledger_handoff": ".context/qa-prep-ledger.json",
+    "ledger_timestamp": "2026-09-24T07:31:10-05:00",
+    "product_php": false
+  },
+  "jira": {
+    "key": "DEV-2653",
+    "id": "31114",
+    "url": "https://insightlpr-team.atlassian.net/browse/DEV-2653",
+    "type": "Task",
+    "status": "To Do",
+    "priority": "Medium",
+    "assignee": "Dalton McCleery",
+    "assignee_unchanged": true,
+    "parent": "DEV-2409",
+    "relates": [
+      "DEV-2651",
+      "DEV-2654",
+      "DEV-2655"
+    ],
+    "sprint": "Sprint 41",
+    "reget_at": "2026-09-24T12:32:00Z",
+    "comment_ids": {
+      "rescope": "41300",
+      "rescope_lock": "41303",
+      "hold_lifted": "41312",
+      "product_pickup": "41446",
+      "hold_lift_baton": "41447",
+      "provision_cite": "41450",
+      "build_record_product": "41498"
+    }
+  },
+  "schema_on_main": {
+    "proved": true,
+    "sha": "25870f75661f07a27a69124a414e557d4c11fff0",
+    "file": "database/schema/clickhouse-schema.sql",
+    "objects": {
+      "clarity.billing_claim_events": 18,
+      "clarity.billing_claim_events_v": 85,
+      "clarity.billing_claim_events_mv": 102
+    }
+  },
+  "prep": {
+    "gate": "CLEAN",
+    "confidence": 86,
+    "artifact": "docs/investigations/DEV-2653/prep-context.json"
+  },
+  "supersedes": {
+    "track": "SCHEMA-GATE",
+    "pr": "https://github.com/insight-lpr/platform/pull/449",
+    "merge_commit": "25870f75661f07a27a69124a414e557d4c11fff0",
+    "note": "SCHEMA-GATE control-plane files at that commit stay in git history. This directory is now the product track."
+  },
+  "okf_read": [
+    "okf/index.md",
+    "okf/concepts/data-architecture.md",
+    "okf/concepts/company-metrics-dashboard.md",
+    "okf/concepts/billing-events.md",
+    "okf/concepts/platform-gotchas.md",
+    "okf/concepts/impersonation.md"
+  ],
+  "okf_write": "queued until approval. The cache-TTL ladder in okf/concepts/company-metrics-dashboard.md still documents index 0 / non-zero / impersonation only. The settle window is not in the wiki yet.",
+  "record": {
+    "tests": [
+      {
+        "cmd": "vendor/bin/pint --dirty --test",
+        "passed": true,
+        "note": "Pint reported passed on the dirty tree before the test run. Review re-ran vendor/bin/pint --test on the touched PHP at f3a31dbf and it exited 0."
+      },
+      {
+        "cmd": "php artisan test --compact --filter=DashboardWidgetCacheTtlTest|UniqueScanCountsTest|UniqueScansLeaderboardTest|RatioAgainstUniqueScansTest|ScanPlateStatsBatchQueryContractTest|LprRepossessionsTest|CompanyMetricsCacheScopeTest",
+        "passed": 109,
+        "failed": 0,
+        "assertions": 416,
+        "duration_s": 19.47,
+        "env": "Worktree .env.testing: Postgres 127.0.0.1:5432 zod_testing, CLICKHOUSE_DRIVER=pgsql. Fleet Postgres :15433 and site :18081 were not listening on this machine. Docker clarity-qa-clickhouse :18123 was up; inside the container the databases were clarity_cursor_dev_2652_eeaf and zod_cursor_dev_2652_eeaf, not clarity_schema_gate. No Cloud ClickHouse writes."
+      },
+      {
+        "cmd": "vendor/bin/pint --dirty --test",
+        "passed": true,
+        "note": "Review FAIL fix cycle 1. Passed on the dirty tree after the TTL edits."
+      },
+      {
+        "cmd": "php artisan test --compact --filter=StagingLiveHitLeaderTest|DashboardWidgetCacheTtlTest|UniqueScanCountsTest|UniqueScansLeaderboardTest|RatioAgainstUniqueScansTest|ScanPlateStatsBatchQueryContractTest|LprRepossessionsTest|CompanyMetricsCacheScopeTest",
+        "passed": 126,
+        "failed": 0,
+        "skipped": 5,
+        "assertions": 489,
+        "duration_s": 20.92,
+        "env": "Worktree .env.testing: Postgres 127.0.0.1:5432 zod_testing, CLICKHOUSE_DRIVER=pgsql. No Cloud ClickHouse writes. Four skips are the file's existing requireRealClickhouse() guards. The fifth is test_overview_last_month_does_not_reuse_this_month_staging_live_totals, which now uses that same guard: the grid's first card issues ScanPlateStatsBatchQuery SQL the pgsql stand-in rejects (WITH ROLLUP). That failure reproduces with origin/main UniqueScanCounts. CI sets CLICKHOUSE_DRIVER=clickhouse and still runs the test."
+      },
+      {
+        "cmd": "vendor/bin/pint --dirty --test",
+        "passed": true,
+        "note": "Query-owned scan cache. Passed on the dirty tree after moving shared scan remember/put onto ScanPlateStatsBatchQuery."
+      },
+      {
+        "cmd": "php artisan test --compact --filter=StagingLiveHitLeaderTest|DashboardWidgetCacheTtlTest|UniqueScanCountsTest|UniqueScansLeaderboardTest|RatioAgainstUniqueScansTest|ScanPlateStatsBatchQueryContractTest|LprRepossessionsTest|CompanyMetricsCacheScopeTest",
+        "passed": 126,
+        "failed": 0,
+        "skipped": 5,
+        "assertions": 489,
+        "duration_s": 23.4,
+        "env": "Worktree .env.testing: Postgres 127.0.0.1:5432 zod_testing, CLICKHOUSE_DRIVER=pgsql. No Cloud ClickHouse writes. cache TTL ladder extracted to ResolvesDashboardCacheTtl; shared writes use baseDashboardCacheTTL. ScanPlateStatsBatchQuery owns rememberedRange and rememberMonthSeries."
+      },
+      {
+        "cmd": "vendor/bin/pint --dirty --test",
+        "passed": true,
+        "note": "Agent QA. Passed on the dirty tree at eddf64399."
+      },
+      {
+        "cmd": "php artisan test --compact --filter=StagingLiveHitLeaderTest|DashboardWidgetCacheTtlTest|UniqueScanCountsTest|UniqueScansLeaderboardTest|RatioAgainstUniqueScansTest|ScanPlateStatsBatchQueryContractTest|LprRepossessionsTest|CompanyMetricsCacheScopeTest",
+        "passed": 126,
+        "failed": 0,
+        "skipped": 5,
+        "assertions": 489,
+        "duration_s": 24.82,
+        "env": "Agent QA on Mac Herd. Worktree .env.testing: Postgres 127.0.0.1:5432 zod_testing, CLICKHOUSE_DRIVER=pgsql. No Cloud ClickHouse writes. Live browser N/A.",
+        "verdict": "PASS",
+        "acs": "AC-1..AC-5 + settle SATISFIED"
+      }
+    ],
+    "review": {
+      "rn": 2,
+      "lanes": [
+        "correctness",
+        "conventions",
+        "blast-radius"
+      ],
+      "scores": [
+        93,
+        88,
+        92
+      ],
+      "min_score": 88,
+      "threshold": 85,
+      "lane_sources": [
+        {
+          "lane": "correctness",
+          "source": "in-session-review"
+        },
+        {
+          "lane": "conventions",
+          "source": "in-session-review"
+        },
+        {
+          "lane": "blast-radius",
+          "source": "in-session-review"
+        }
+      ],
+      "reviewed_sha": "eddf64399101f5f2dd18d65264823f531d0cbcdb",
+      "rerun_required": false,
+      "act_on": [],
+      "gate": "REVIEW_GATE: pass min=88 threshold=85 lanes=3 rn=2 scores=93/88/92 conventions=88 reviewed_sha=eddf64399101f5f2dd18d65264823f531d0cbcdb",
+      "gate_binary": "harness-local",
+      "gate_note": "review-gate.sh not in repo; harness /workspace/DEV-2653/rn2/review-gate.sh. .ai/ gitignored. Product tip unchanged.",
+      "pint": {
+        "cmd": "vendor/bin/pint --test",
+        "exit": null,
+        "note": "vendor missing on image; prior tip pint exit 0"
+      },
+      "schema_gate": "soft OK. Product tip does not touch clickhouse schema."
+    },
+    "agent_qa": {
+      "verdict": "PASS",
+      "at": "2026-09-24T09:05:00-05:00",
+      "head_sha": "eddf64399101f5f2dd18d65264823f531d0cbcdb",
+      "live_browser": "N/A",
+      "coverage": "agent_suites_plus_real_docker_clickhouse_hit_miss",
+      "pint": "passed",
+      "phpunit": {
+        "passed": 126,
+        "skipped": 5,
+        "assertions": 489
+      },
+      "acs_satisfied": [
+        "AC-1",
+        "AC-2",
+        "AC-3",
+        "AC-4",
+        "AC-5",
+        "SETTLE"
+      ],
+      "real_ch": {
+        "verdict": "PASS",
+        "at": "2026-09-24T09:22:31-05:00",
+        "product_tip": "eddf64399101f5f2dd18d65264823f531d0cbcdb",
+        "passed": 223,
+        "failed": 0,
+        "skipped": 0,
+        "assertions": 793,
+        "duration_s": 79.455,
+        "dsn": {
+          "CLICKHOUSE_DRIVER": "clickhouse",
+          "CLICKHOUSE_HOST": "127.0.0.1",
+          "CLICKHOUSE_PORT": 18123,
+          "CLICKHOUSE_DATABASE": "clarity",
+          "CLICKHOUSE_DATABASE_CLARITY": "clarity",
+          "CLICKHOUSE_DATABASE_ZOD": "zod",
+          "DB_HOST": "127.0.0.1",
+          "DB_PORT": 15433,
+          "DB_DATABASE": "zod_testing_schema_gate"
+        },
+        "cloud_touched": false,
+        "preflight_18": "SATISFIED \u2014 real Docker CH DSN (not pgsql stand-in); RequiresClickhouse Feature suites previously skipped under pgsql all green (0 skips)",
+        "evidence_disk_only": [
+          "/workspace/first-glance/docs/investigations/DEV-2653/agent-qa-real-ch-hit-miss.md",
+          "/workspace/first-glance/docs/investigations/DEV-2653/phpunit-real-ch-hit-miss.log",
+          ".context/qa-agent-report-real-ch.md",
+          ".context/qa-ac-results.json"
+        ]
+      },
+      "phpunit_real_ch": {
+        "passed": 223,
+        "failed": 0,
+        "skipped": 0,
+        "assertions": 793
+      }
+    },
+    "ac": [
+      {
+        "item": "AC-1: A single dashboard render executes each shared query at most once across every card that needs it (count executions, not wall clock).",
+        "status": "SATISFIED",
+        "evidence": "Hard-bar STRONG @ product tip eddf64399. Suites: Mac Agent QA 126p/5sk/489a (CLICKHOUSE_DRIVER=pgsql) + real Docker CH 223p/0sk/793a (CLICKHOUSE_DRIVER=clickhouse 127.0.0.1:18123). (1) cold miss\u2192once: UniqueScanCountsTest::test_a_fully_cold_render_calls_each_fetch_seam_exactly_once (monthlySeriesCalls=1, rangeRollupCalls=1); StagingLiveHitLeaderTest::test_a_fully_cold_render_issues_exactly_one_round_trip_per_series; RatioAgainstUniqueScansTest::test_uncached_months_are_fetched_once_and_closed_months_are_not_requeried (scansCalls=1 cold). (2) warm hit\u21920 second query: LprRepossessionsTest::test_a_warm_cache_is_served_without_taking_the_cold_lock (fresh.calls=0); RatioAgainstUniqueScansTest warm path (scansCalls stays 1); UniqueScansLeaderboardTest::test_fetch_range_rollup_reads_the_shared_range_cache_key_unique_scan_counts_writes (sentinel hit; remember closure not run). (3) cross-card Counts\u2192Ratio: RatioAgainstUniqueScansTest::test_ratio_reuses_the_open_month_y_m_int_without_a_second_scan (scansCalls=0) + test_month_series_cache_keys_carry_no_class_name_and_are_shared_across_cards (sibling scansCalls=0). (3) Counts\u2192Leaderboard: UniqueScansLeaderboardTest::test_fetch_range_rollup_reads_the_shared_range_cache_key_unique_scan_counts_writes (sentinel under sharedRangeCacheKey UniqueScanCounts writes; cache()->remember miss-only \u21d2 no handleRange) + ScanPlateStatsBatchQueryContractTest::test_unique_scan_counts_and_the_leaderboard_share_the_this_month_key_on_an_unlisted_viewer_zone (same key). Not TTL-shaped. Soft note: Ratio has explicit scansCalls==0 E2E; Leaderboard proves no second handle via sentinel+key-equality."
+      },
+      {
+        "item": "AC-2: Shared key is class-neutral and includes every parameter that changes the answer (org, window, timezone where applicable).",
+        "status": "SATISFIED",
+        "evidence": "ScanPlateStatsBatchQueryContractTest::test_shared_range_cache_key_is_class_neutral + test_shared_month_cache_key_is_class_neutral_and_versioned; UniqueScanCountsTest::test_shared_range_cache_key_is_class_neutral; RatioAgainstUniqueScansTest::test_month_series_cache_keys_carry_no_class_name_and_are_shared_across_cards. LprRepossessions series key unchanged (no :tz= on UTC series)."
+      },
+      {
+        "item": "AC-3: TTL ladder still applies, including 10-second impersonation collapse, for every card that reads through the shared cache.",
+        "status": "SATISFIED",
+        "evidence": "DashboardWidgetCacheTtlTest via ResolvesDashboardCacheTtl::baseDashboardCacheTTL; StagingLiveHitLeaderTest past-month settle + impersonation 10s; LprRepossessionsTest flexible pair from getCacheTTL(0); RatioAgainstUniqueScansTest::test_open_month_shared_key_uses_the_base_ladder_not_the_card_ttl_floor + test_closed_month_writes_honour_the_owning_cards_ten_minute_impersonation_floor."
+      },
+      {
+        "item": "AC-4: Monthly maps carry their window in the key; month rollover cannot serve a map missing its newest month (open month Y-m).",
+        "status": "SATISFIED",
+        "evidence": "UniqueScansLeaderboardTest::test_chart_series_open_month_reads_the_y_m_key; RatioAgainstUniqueScansTest::test_ratio_reuses_the_open_month_y_m_int_without_a_second_scan (key has Y-m, not this_month); UniqueScanCounts open-month sharedMonthCacheKey path."
+      },
+      {
+        "item": "AC-5: N-way cold-start ceiling recorded per class; UniqueLprCaseClaimsQuery \u2192 DEV-2659 / billing_claim_events_v; no shared*CacheKey on claims; ScanPlateStatsBatchQuery does not point at DEV-2655.",
+        "status": "SATISFIED",
+        "evidence": "CompanyMetricsCacheScopeTest::test_claims_query_has_no_shared_cache_key_and_ac5_is_per_class; UniqueLprCaseClaimsQuery docblock \u2192 DEV-2659; ScanPlateStatsBatchQuery AC-5 docblock records N-way scans_cold ceiling without DEV-2655 pointer; LprRepossessionsQuery AC-5 \u2192 DEV-2659 for billing leg. Note: live Jira AC-5 text still says 'pointing at DEV-2655'; product rescope (plan/ship) is per-class + claims\u2192DEV-2659 \u2014 scored to rescope."
+      },
+      {
+        "item": "SETTLE: Closed-month settle window \u2014 not year-cached until 8 days after month end; ~2h minimum covered by 10-minute arm; impersonation 10s first.",
+        "status": "SATISFIED",
+        "evidence": "DashboardWidgetCacheTtlTest + UniqueScanCountsTest::test_past_month_puts_follow_the_settle_window_per_month; StagingLiveHitLeaderTest month-ended-one-day-ago = 10 minutes on both write paths."
+      },
+      {
+        "item": "Preflight #18: real Docker ClickHouse DSN (not pgsql stand-in)",
+        "status": "SATISFIED",
+        "evidence": "CLICKHOUSE_DRIVER=clickhouse \u00b7 CLICKHOUSE_HOST=127.0.0.1 \u00b7 CLICKHOUSE_PORT=18123 \u00b7 CLICKHOUSE_DATABASE_CLARITY=clarity \u00b7 CLICKHOUSE_DATABASE_ZOD=zod \u00b7 DB 127.0.0.1:15433 zod_testing_schema_gate \u00b7 cloud_touched=false \u00b7 PHPUnit OK (223 tests, 793 assertions), 0 failed / 0 skipped. RequiresClickhouse Feature suites previously skipped under pgsql all green. Evidence disk-only (never commit): agent-qa-real-ch-hit-miss.md + phpunit-real-ch-hit-miss.log."
+      },
+      {
+        "item": "Live browser / fleet :18081 smoke",
+        "status": "SATISFIED/N/A",
+        "evidence": "Dalton GO suite-only / ui_impact false. Live browser N/A this round (real-CH hit/miss, not live UI). Prior suite-only Agent QA still stands. Cite .context/qa-agent-report.md + qa-agent-report-real-ch.md (disk; .context not committed)."
+      }
+    ],
+    "schema_gate": "soft OK \u2014 product diff does not touch database/schema/clickhouse-schema.sql; SCHEMA-GATE #449 on main 25870f75",
+    "conventions_thin": {
+      "pint": "PASS vendor/bin/pint --dirty --test @ HEAD c68bbb69d / tip eddf64399",
+      "conventions_review_score": 88,
+      "okf_15": "N/A \u2014 no okf/ edits in product revision (queued wiki settle edit post-approval)",
+      "verdict": "green",
+      "preflight_16": "PASS"
+    },
+    "hard_bar": {
+      "cold_miss_once": {
+        "verdict": "STRONG",
+        "tests": [
+          "UniqueScanCountsTest::test_a_fully_cold_render_calls_each_fetch_seam_exactly_once",
+          "RatioAgainstUniqueScansTest::test_uncached_months_are_fetched_once_and_closed_months_are_not_requeried"
+        ]
+      },
+      "warm_hit_zero_query": {
+        "verdict": "STRONG",
+        "tests": [
+          "RatioAgainstUniqueScansTest::test_uncached_months_are_fetched_once_and_closed_months_are_not_requeried",
+          "UniqueScanCountsTest::test_fetch_range_rollup_reads_and_writes_the_shared_range_cache_key"
+        ]
+      },
+      "cross_card_reuse": {
+        "ratio": {
+          "verdict": "STRONG",
+          "tests": [
+            "RatioAgainstUniqueScansTest::test_ratio_reuses_the_open_month_y_m_int_without_a_second_scan",
+            "RatioAgainstUniqueScansTest::test_month_series_cache_keys_carry_no_class_name_and_are_shared_across_cards"
+          ]
+        },
+        "leaderboard": {
+          "verdict": "STRONG",
+          "tests": [
+            "UniqueScansLeaderboardTest::test_fetch_range_rollup_reads_the_shared_range_cache_key_unique_scan_counts_writes",
+            "ScanPlateStatsBatchQueryContractTest::test_unique_scan_counts_and_the_leaderboard_share_the_this_month_key_on_an_unlisted_viewer_zone"
+          ],
+          "note": "Sentinel under sharedRangeCacheKey (the key UniqueScanCounts writes) + cache()->remember miss-only \u21d2 no handleRange; Contract proves Counts and Leaderboard resolve the same this_month key. Soft residual vs Ratio: no literal handleCalls==0 stub on Leaderboard after Counts write \u2014 not TTL-shaped, not HARD FAIL."
+        }
+      },
+      "verdict": "PASS",
+      "dalton_bar": {
+        "cold_miss_once": "STRONG",
+        "warm_hit_zero_query": "STRONG",
+        "cross_card_counts_to_ratio_and_leaderboard_no_second_handle": "STRONG"
+      },
+      "soft_flags": [
+        "Leaderboard Counts\u2192Leaderboard is compositional (sentinel + key equality), not literal handleCalls==0 after UniqueScanCounts write \u2014 STRONG not TTL-shaped; soft residual vs Ratio E2E",
+        "Seam counters (monthlySeriesCalls/scansCalls) are in-process stubs; CH driver does not fire DB::listen \u2014 by design for AC-1; re-proven under real-CH driver",
+        "Mac pgsql Agent QA (126p/5sk) must not be cited as Preflight #18 or sole hit/miss proof \u2014 real Docker :18123 required"
+      ]
+    },
+    "preflight_18": {
+      "verdict": "SATISFIED",
+      "dsn_cite": "CLICKHOUSE_DRIVER=clickhouse 127.0.0.1:18123 clarity/zod; PG 127.0.0.1:15433 zod_testing_schema_gate; cloud_touched=false",
+      "result": "223 passed / 0 failed / 0 skipped / 793 assertions"
+    },
+    "verify": {
+      "at": "2026-09-24T09:25:00-05:00",
+      "product_tip": "eddf64399101f5f2dd18d65264823f531d0cbcdb",
+      "head": "c68bbb69d3769fe914cc785f1c0b5e5fd187027f",
+      "hard_bar": "PASS",
+      "acs": "SATISFIED (AC-1..AC-5 + SETTLE + Live N/A + Preflight #18)",
+      "conventions_thin_16": "PASS",
+      "schema_gate": "soft OK",
+      "gates_note": "build-record-gate + rework-gate blocked until RN=2 clears record.review.rerun_required and reviews tip eddf64399; do not hand-clear",
+      "build_record_id": "41498",
+      "build_record_at": "2026-09-24T09:27:12-05:00"
+    },
+    "soft_claims_flagged": [
+      "Leaderboard Counts\u2192Leaderboard is compositional (sentinel + key equality), not literal handleCalls==0 after UniqueScanCounts write \u2014 STRONG not TTL-shaped; soft residual vs Ratio E2E",
+      "Seam counters (monthlySeriesCalls/scansCalls) are in-process stubs; CH driver does not fire DB::listen \u2014 by design for AC-1; re-proven under real-CH driver",
+      "Mac pgsql Agent QA (126p/5sk) must not be cited as Preflight #18 or sole hit/miss proof \u2014 real Docker :18123 required"
+    ],
+    "gates": {
+      "build_record_gate": "PENDING PM re-run (rerun_required cleared by Review RN=2)",
+      "rework_gate": "PENDING PM re-run (reviewed_sha=eddf64399)",
+      "at": "2026-09-24T09:35:19-05:00",
+      "reviewed_sha": "eddf64399101f5f2dd18d65264823f531d0cbcdb",
+      "product_tip": "eddf64399101f5f2dd18d65264823f531d0cbcdb",
+      "head": "ee29654c57c33d6bd3741d1dcddee960a710dbbd"
+    }
+  },
+  "comment_ids": {
+    "build_record": "41498"
+  }
+}
