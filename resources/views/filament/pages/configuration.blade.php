@@ -39,5 +39,7 @@
                 @endif
             </x-filament::section>
         @endforeach
+
+        @include('filament.pages.partials.locations-coverage')
     </div>
 </x-filament-panels::page>

@@ -58,6 +58,8 @@ class LocalDataSeeder extends Seeder
                 ]);
         }
 
+        $this->call(OrgLocationSeeder::class);
+
         dump('Done! Log in using the email: "test@tester.com" and the password: "password"');
     }
 

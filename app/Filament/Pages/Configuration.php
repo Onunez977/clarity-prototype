@@ -3,6 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Facades\Analytics;
+use App\Filament\Concerns\ManagesOrgLocations;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Illuminate\Contracts\Support\Htmlable;
@@ -10,6 +11,8 @@ use InsightLPR\BlackAdam\Enum\RoleEnum;
 
 class Configuration extends Page
 {
+    use ManagesOrgLocations;
+
     protected static ?int $navigationSort = 4;
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-cog-6-tooth';
@@ -110,6 +113,8 @@ class Configuration extends Page
             }
         }
 
+        $this->loadLocationEditor();
+
         Analytics::track('page-view', auth()->user(), ['action' => 'view'], page: 'configuration');
     }
 
@@ -120,7 +125,7 @@ class Configuration extends Page
 
     public function getSubheading(): string|Htmlable|null
     {
-        return 'Organization settings for this account. Each change saves immediately.';
+        return 'Organization settings for this account. Toggles save immediately. Locations and coverage use Save.';
     }
 
     public static function canAccess(): bool
