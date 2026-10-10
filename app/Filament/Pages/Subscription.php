@@ -47,6 +47,9 @@ class Subscription extends Page
 
     public ?string $sourceFeatureTier = null;
 
+    /**
+     * Same org_meta key as Account → Configuration (`platform_repo_pro_rdn_metrics_push`).
+     */
     public bool $rdnMetricsPushEnabled = false;
 
     public ?string $orgRdnId = null;

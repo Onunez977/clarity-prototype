@@ -438,6 +438,10 @@
                         <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
                             Push hourly scan and hit counts to RDN for your dashboards. Disabled by default.
                         </p>
+                        <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                            Moved to
+                            <a href="{{ \App\Filament\Pages\Configuration::getUrl() }}" class="font-medium underline" style="color: #FF6666;">Account → Configuration</a>.
+                        </p>
                         @if (blank($orgRdnId))
                             <p class="mt-2 text-xs text-amber-600 dark:text-amber-400">
                                 Your org doesn't have an RDN ID configured — toggling this on will have no effect until one is set.

@@ -118,3 +118,5 @@ Logged in as `test@tester.com` on `http://127.0.0.1:8080`:
 ## Keeping visual edits easy to port
 
 Application structure, Filament resources, Vue Scout app, and CSS are the upstream tree plus the seams listed above. Prefer UI edits in `resources/` and `app/Filament/`. Do not copy `packages/` changes or `ClickhouseSqlCompat` back to `insight-lpr/platform` unless you mean to.
+
+Account → Configuration (`/app/configuration`, `App\Filament\Pages\Configuration`) is a prototype-only admin page. Toggles are stored on `org_meta.properties` and do not call Clear Plan, RDN, or a lender. RDN Statistics Push uses the existing key `platform_repo_pro_rdn_metrics_push`, shared with Manage Subscription. Add another toggle by appending one option to `Configuration::sections()`.
