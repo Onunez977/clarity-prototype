@@ -1,0 +1,241 @@
+{
+  "key": "DEV-2310",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2310",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "prep-candidate:1",
+      "model": null,
+      "effort": null,
+      "phase": null,
+      "dur_s": 0
+    },
+    {
+      "slot": "prep-candidate:2",
+      "model": null,
+      "effort": null,
+      "phase": null,
+      "dur_s": 0
+    },
+    {
+      "slot": "prep-candidate:3",
+      "model": null,
+      "effort": null,
+      "phase": null,
+      "dur_s": 0
+    },
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 243
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 933
+    },
+    {
+      "slot": "agent-qa",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "verify",
+      "dur_s": 795
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "clarity/scout.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "2 answered:false scope questions",
+    "escalate.recommend",
+    "shared driver+admin component",
+    "zero JS test coverage"
+  ],
+  "best_of_n": true,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [
+    {
+      "file": "resources/js/clarity-scout/composables/useKitPositionPolling.js",
+      "symbol": "liveMode",
+      "referenced_at": "useKitPositionPolling.js:60,102"
+    }
+  ],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "0453ad2e55543332fd72eb121a99ac9543a22c12",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 1,
+  "pr": {
+    "number": 311,
+    "url": "https://github.com/insight-lpr/platform/pull/311",
+    "draft": false
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": "already-in-progress @ intake (no transition needed)",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "undraft did not auto-transition (no gh-action fired; ticket still In Progress) \u2192 pipeline transitions via MCP",
+  "assumed": [],
+  "comment_ids": {
+    "status": "38093",
+    "build_record": "38099"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "n/a",
+      "ch_container": "created",
+      "frontend_build": "ran",
+      "postgres_db": "zod_claude_dev_2310_0f7cb9",
+      "ch_strategy": "docker",
+      "herd_site": "clarity-claude_dev_2310_0f7cb9.test"
+    },
+    "provisioned_early": true
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "vendor/bin/pint --dirty (format, clean); full PHP suite SKIPPED \u2014 project policy 'never run unit tests automatically' + zero PHP surface (frontend-only); CI runs post-commit",
+        "passed": 0,
+        "failed": 0
+      }
+    ],
+    "deviations": [],
+    "review": {
+      "lanes": [
+        "claude1",
+        "claude2",
+        "claude3"
+      ],
+      "scores": [
+        98,
+        100,
+        100
+      ],
+      "findings_fixed": [
+        "stale trail-arrow 'Live-only' comments (ScannerMap.vue ~801/1582/1606/1696) corrected to match persist-across-ranges behavior"
+      ],
+      "findings_residual": [
+        "clearKitPosition now exported-but-uncalled (harmless, docblock updated)",
+        "ScannerMap.vue:1747 kitPosition-watcher repaint still liveMode-gated -> cosmetic <=1-poll trail-tail connector lag in historical (self-healing; does not affect AC6/AC7)"
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "claude2",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "claude3",
+          "source": "in-session-agent"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "3d421d75e80af1fca70a077d1f0db53554bb722a",
+      "rework_pivot": false
+    },
+    "ac": [
+      {
+        "item": "AC-1",
+        "status": "SATISFIED",
+        "evidence": "Today view: admin Bird's Eye shows 3 kit icons (A1); driver PWA shows own dot (D1)"
+      },
+      {
+        "item": "AC-2",
+        "status": "SATISFIED",
+        "evidence": "Yesterday: admin 3 icons persist (A2); driver dot persists (D2)"
+      },
+      {
+        "item": "AC-3",
+        "status": "SATISFIED",
+        "evidence": "Last 7 Days: admin 3 icons persist (A3); driver dot persists (D2)"
+      },
+      {
+        "item": "AC-4",
+        "status": "SATISFIED",
+        "evidence": "Last 15 Days: admin 3 icons persist (A4); driver dot persists (D2)"
+      },
+      {
+        "item": "AC-5",
+        "status": "SATISFIED",
+        "evidence": "Last 30 Days: admin 3 icons persist (A5); driver dot persists (D2)"
+      },
+      {
+        "item": "AC-6",
+        "status": "SATISFIED",
+        "evidence": "Layer independent + live: driver-positions polls every ~10s on non-Today (A6); kit-position polls on non-Today (D3) \u2014 not frozen"
+      },
+      {
+        "item": "AC-7",
+        "status": "N/A",
+        "evidence": "No flash/reload on switch is a sub-second visual judgment deferred to human QA; both lanes observed markers persist in place across every switch (no disappearance) as supporting evidence"
+      }
+    ]
+  }
+}

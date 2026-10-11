@@ -1,0 +1,51 @@
+{
+  "supersedes": "prior nightly scan-count rollup plan (scrapped)",
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "GPS-position automated check-in recorder (DEV-1756 spec, Oscar-clarified)",
+      "approach": "A scheduled backend command that, per Scout-enabled kit, pulls the kit's recent sc_positions GPS fixes and matches each against that kit's OPEN direct + OPEN staging order addresses (reusing ScoutCheckInRollupQuery's existing open/direct/staging address enumeration + bbox-prefilter + geoDistance<=160.934m), recording one check-in per (kit, address, hour) idempotently. Running count per address = derived aggregate over the events table. No watermark table needed: each run scans a sliding 15-min lookback window (3x the 5-min cadence) and the (kit_id,address_id,hour_bucket) unique index + ON CONFLICT DO NOTHING makes overlapping re-processing a no-op. UI stays hidden; live-map indicator is a future follow-up.",
+      "target_files": [
+        "database/migrations/2026_08_10_000001_create_scout_check_ins_table.php",
+        "app/Models/ScoutCheckIn.php",
+        "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php",
+        "app/Console/Commands/ScoutRecordCheckIns.php",
+        "routes/console.php",
+        "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php"
+      ],
+      "intended_diffs": "migration: Schema::connection('platform')->create('scout_check_ins', ...): id, kit_id (uBigInt), org_id (uInt), hotlist_id (uBigInt), address_id (uBigInt), is_staged (bool), matched_at (timestampTz), hour_bucket (timestampTz), lat (double), lng (double), timestamps; unique(['kit_id','address_id','hour_bucket']); index(['org_id','address_id']); explicit down(). model ScoutCheckIn: $connection='platform', fillable, casts() (matched_at/hour_bucket datetime). query ScoutCheckInMatchQuery: given kit_mapping + org_id + staging_org_ids + start/end window, returns distinct (address_id, hotlist_id, is_staged, hour_bucket, lat, lng) matches = sc_positions (lower(kit_mapping)=?, timestamp_utc in window) within geoDistance<=160.934m of open direct/staging addresses (bbox prefilter + id-prune, reuse ScoutCheckInRollupQuery's CTE shape but source=sc_positions not scans, and GROUP/dedup by (address, hour)). command scout:record-check-ins {--since= optional}: gated config('app.experimental.clarity_scout'); enumerate Scout kits (whereNotNull kit_mapping + KitSettings + clarity-scout perm + CLARITY_SCOUT flag); per kit resolve org_id + Org::stagingOrgIds() + kit_mapping; window = now-15min..now (or --since); run ScoutCheckInMatchQuery (cache:false); upsert rows into scout_check_ins via updateOrCreate/ON CONFLICT DO NOTHING on (kit_id,address_id,hour_bucket); per-kit try/catch skip-and-log. schedule: Schedule::command('scout:record-check-ins')->when(clarity_scout flag)->everyFiveMinutes()->withoutOverlapping()->runInBackground()->onOneServer(). test: RequiresClickhouse \u2014 seed a Scout kit + open direct/staging address + sc_positions fixes near/far the address within a window; run command; assert scout_check_ins rows (one per kit/address/hour, correct is_staged), idempotent re-run (no dupes), far-position excluded, non-Scout kit skipped, flag-off no-op.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "ScoutRecordCheckInsCommandTest",
+      "ui_impact": false,
+      "blast_radius": [
+        "database/migrations/**"
+      ],
+      "complexity": "complex"
+    }
+  ],
+  "scrap_files": [
+    "app/Console/Commands/ScoutAggregateCheckIns.php",
+    "app/Models/ScoutCheckInRollup.php",
+    "database/migrations/2026_08_07_174115_create_scout_check_in_rollups_table.php",
+    "tests/Feature/Console/Commands/ScoutAggregateCheckInsCommandTest.php"
+  ],
+  "decisions": {
+    "scope": "OPEN direct + OPEN staging orders only (Oscar: group by assignment type, historical/HH/AA out of scope) \u2014 reuse ScoutCheckInRollupQuery's existing open/direct/staging address scope, no change to it",
+    "dedup": "one check-in per (kit, address, hour) \u2014 Oscar confirmed (matches today's on-read logic); enforced by unique index + ON CONFLICT",
+    "cadence": "every 5 min (everyFiveMinutes) with a 15-min idempotent sliding lookback \u2014 PERF-VALIDATED (per-kit read ~120ms index-bounded; fleet ~150 kits; well within the 5-min budget). Near-real-time per Oscar's preference.",
+    "watermark": "none \u2014 sliding lookback + idempotent unique index (simpler than a per-kit watermark store)",
+    "read_endpoint": "left live/unchanged; UI hidden (live-map indicator = future follow-up)"
+  },
+  "perf_validation": {
+    "required": true,
+    "verdict": "go",
+    "measured_at": "2026-08-10",
+    "reason": "Measured on prod CH Cloud: per-kit windowed read ~120ms regardless of the 255M-row total (PK-range access); fleet ~150 kits; per-cycle sweep well within a 5-min budget."
+  },
+  "sizing": {
+    "files": 6,
+    "concerns": 1,
+    "note": "at the 6-file line; single cohesive concern (the recorder). Surfacing cadence/perf judgment to Dalton before build."
+  }
+}

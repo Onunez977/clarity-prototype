@@ -1,0 +1,143 @@
+{
+  "authored_by": "driver in-session at Opus (TICKET_PLAN_ARBITER_MODEL tier) \u2014 the dedicated arbiter sub-agent could NOT be dispatched: 3 consecutive HTTP 529 Overloaded from the API (req_011CeghyKhQfCY5kqBHTSsjJ, req_011CegiFVEb5yvHDoDxPgfs5, req_011CegiYnsTSYquDeZwbzw2R). Recorded as a deviation rather than silently downgrading to Sonnet. The arbiter's input contract (prep-context.json + knowledge cards) is fully satisfied, and the driver additionally verified the CH schema, the mockup slot, getStatColor reachability, the FeatureEnum/ProTier resolution chain, the DashboardCardVisibilityTest assertions and the reference-branch commit history first-hand.",
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "StagingLiveHitLeaderQuery \u2014 batched kit leaderboard on hits_cold",
+      "approach": "New ClickhouseQuery subclass modelled structurally on the FIXED HitPlateStatsBatchQuery (NOT RecoveryLeaderQuery, which hardcodes the clarity. prefix, joins clarity.kits, and uses addslashes()). Shared private fromAndWhere(string $clarityDb, int $orgId, string $start, string $end) emitting: FROM {clarityDb}.hits_cold FINAL WHERE kit_org_id = {orgId} AND hit_type = 'S' AND hit_created_at >= toDateTime('{start}') AND hit_created_at <= toDateTime('{end}') AND _peerdb_is_deleted = 0. Measure is uniqExactIf(ocr, hit_type = 'S') AS total \u2014 a bare count() is FORBIDDEN (hits_cold's mutable hit_created_at is in the sort key, so duplicates survive FINAL and counts run ~30% high). Label via anyLast(kit_name) \u2014 hits_cold carries kit_name, so NO join. handle(): GROUP BY kit_id ORDER BY total DESC, kit_id ASC LIMIT 10, returned keyed by kit_id (never by name \u2014 DEV-2430's non-unique-name hazard). handleMonthly(): adds toStartOfMonth(hit_created_at) AS month, GROUP BY month, kit_id ORDER BY month ASC, total DESC, kit_id ASC LIMIT 10 BY month, returned as ['Y-m' => [kit_id => {id,name,total}]] \u2014 ONE round trip for the whole window. Use static::clarityDb() and the strict assertDatetime() allowlist copied from HitPlateStatsBatchQuery. TDD: write the test first and confirm red->green.",
+      "target_files": [
+        "app/Clickhouse/Queries/StagingLiveHitLeaderQuery.php",
+        "tests/Feature/Clickhouse/StagingLiveHitLeaderQueryTest.php"
+      ],
+      "intended_diffs": "NEW query class ~130 lines mirroring HitPlateStatsBatchQuery's structure (const DATETIME_PATTERN, private static fromAndWhere(), public static handle(), public static handleMonthly(), private static assertDatetime()) + NEW RequiresClickhouse test class pinning: uniqExactIf dedup vs bare count() on a duplicate-id/differing-hit_created_at fixture; ranking with kit_id ASC tiebreak; hit_type='S' isolation (an 'L'/'H'/'Z' row must not count); kit_org_id vs hotlist_org_id axis isolation; _peerdb_is_deleted=0 filtering; handleMonthly() month bucketing with LIMIT 10 BY month across >10 kits; handleMonthly() assertSame()-agreeing with handle() over an identical single-month window; malformed datetime rejected. Freeze the clock (setTestNow) near the fixture dates \u2014 hits_cold fixtures must be recent.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "StagingLiveHitLeaderQueryTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t2",
+      "title": "Pro entitlement \u2014 FeatureEnum::COMPANY_METRICS, Pennant definition, tier membership",
+      "approach": "Per Q1. (a) app/Enums/FeatureEnum.php: add case COMPANY_METRICS = 'platform_repo_pro_company_metrics' with #[Title('Company Metrics')] and a #[Description(...)] matching the existing attribute style. (b) app/Providers/PennantServiceProvider.php: Feature::define(FeatureEnum::COMPANY_METRICS->slug(), fn (User $user) => $user->isInsightLpr() || $user->isProEnabled(FeatureEnum::COMPANY_METRICS)) \u2014 copy the SHARED_KITS / MISSED_OPPORTUNITY shape and deliberately do NOT wrap it in a config('app.experimental.*') flag (that wrapper is what would have made CLICKHOUSE_HITS lock the card for everyone). (c) app/Enums/ProTierEnum.php: add FeatureEnum::COMPANY_METRICS to BOTH the CLARITY_PRO and CLARITY_PRO_PLUS features() lists, and NOT to BASIC or PRO_LITE. Tier membership is what actually grants the flag with no Backyard write, because Org::isProEnabled() checks an individual org_meta flag first and then falls back to $this->proTier()->features(). PLAN AMENDMENT (driver, during implementation): adding a FeatureEnum case mechanically breaks tests/Unit/Enums/FeatureEnumTest.php, which holds TWO closed lists (a keyed case-existence list and a bare values list) plus assertCount(17). The t2 worker correctly STOPPED rather than edit a file outside its node. The grep backstop could not have caught this: FeatureEnum only entered scope with the operator's Q1 answer, AFTER the backstop ran. Driver applied the minimal fix (both lists extended, count 17->18) and additionally pinned the Title AND slug, because FeatureEnum::slug() is Str::slug(title()) and PennantServiceProvider defines the feature by ->slug() \u2014 so renaming the Title silently changes the feature key and would un-gate or hard-lock the card with no test failure.",
+      "target_files": [
+        "app/Enums/FeatureEnum.php",
+        "app/Enums/ProTierEnum.php",
+        "app/Providers/PennantServiceProvider.php",
+        "tests/Unit/Enums/FeatureEnumTest.php"
+      ],
+      "intended_diffs": "3 small additive edits: one enum case + 2 attributes; one Feature::define() line; two array entries. No existing entitlement is modified, reordered, or removed \u2014 additive only, so no currently-entitled org loses anything.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": null,
+      "ui_impact": false,
+      "blast_radius": [
+        "pro-entitlement (Pennant/tier gating \u2014 governs what PAYING orgs can see; adjacent to the billing/auth-config sensitive class even though no Shield policy or migration is touched)"
+      ],
+      "complexity": "complex",
+      "human_approval": "GRANTED by Dalton at the Phase 2 gate, 2026-09-03: Q1 answered 'New epic-wide COMPANY_METRICS flag', which names these exact three files and the tier placement. Recorded here to satisfy the Phase 3 rule that a blast-radius node needs an explicit approval line before Phase 4 may start it."
+    },
+    {
+      "id": "t3",
+      "title": "StagingLiveHitLeader widget \u2014 RecoveryLeader-shaped card, gated, sparkline agreeing with the sibling",
+      "approach": "New widget: class StagingLiveHitLeader extends ChartWidget implements DashboardMetricCard, use BuildsDateFilterChartSeries, RendersDashboardStat, StatHelper. Deliberately NOT DashboardWidget and NOT the SharedHitStatsData trait \u2014 both model a SCALAR per month and cannot represent a ranked list; and using the trait in a 5th class would give that class its OWN copy of static::$sharedUniqueMonthlyStats (the DEV-2406 trait-static-per-class hazard) and cause a 5th ClickHouse scan. getCardKey() = 'staging-live-hit-leader'. LEADERBOARD BUCKETS: per-month cache keys in this card's OWN namespace, filled by ONE handleMonthly() call spanning only min..max of the missing months, invoked DIRECTLY (never through ClickhouseQuery::query(), which swallows Throwable and would persist a real outage as an empty leaderboard), wrapped in try/catch that in production|testing report()s and sets a short-TTL negative-cache failure marker then returns, and rethrows elsewhere \u2014 mirroring SharedHitStatsData::resolvePastUniqueMonths() exactly. SPARKLINE (Q3): must read the cross-card key 'staging-live-hits:unique:{Y-m}:org={orgId}' \u2014 the literal shape SharedHitStatsData writes ($prefix.':'.UNIQUE_NAMESPACE.$monthKey.':org='.$orgId, where UNIQUE_NAMESPACE = 'unique:') from HitPlateStatsBatchQuery::handle(). CRITICAL ORDERING HAZARD found by the driver: this card is mockup slot 10 and staging-live-hits is slot 15, so CompanyMetricsOverview::getStats() renders THIS card FIRST, and on a cold cache those keys are still empty \u2014 reading them naively would draw a flat-zero sparkline. So the card must be able to FILL them too, using the SAME HitPlateStatsBatchQuery::handle() batch call, the SAME key shape and the SAME getCacheTTL(1) past-month TTL, so whichever card renders first populates them and the other reads them. That keeps the deduped monthly series at exactly ONE ClickHouse call shared across both cards, which is the whole point of the ticket's cross-class cache-KEY rule. Anchor month keys with the same monthKeyStart() day-of-month-overflow guard the trait uses, and key by timezone as the trait does. leaderboardForSelectedRange(): this_month reads the last cached bucket; today/last_7d/last_month issue ONE single-window handle() call via ::query(cache:true). toStat(): headline = the leader's count, hardcoded ->color('warning') (Q2: no getStatColor arm), plus ->chart(the agreeing sparkline series). canViewCardData(): static, MUST be total with no authenticated user (guard the auth dereference \u2014 Dashboard::cardWidgets() reaches it unauthenticated), returning Feature::active(FeatureEnum::COMPANY_METRICS->slug()) || session()->has('admin_impersonator'). getData(): stacked bar, one dataset per kit_id, label resolved from the LATEST month that kit appears in. AC-4 TEST-DESIGN CORRECTION (supersedes the prep): the cache-seed + pgsql-bridge 'a stray query throws' technique is INVALID in this env, because the CH correctness tests require real clarity.* tables to exist, so a stray query now succeeds silently and such a test cannot fail. DB::listen is still unusable for CH. Use, in order of preference: (1) system.query_log with an explicit SYSTEM FLUSH LOGS to make it deterministic, counting queries matching the shape before/after a render \u2014 the only option that truly measures round trips; (2) a spy/partial mock counting handleMonthly()/handle() invocations, deterministic but counts PHP calls not round trips; (3) a value-based gap proof \u2014 seed only some months and assert the uncached months come back correct while seeded ones are untouched. If (1) cannot be made deterministic, use (2) and say so in the test docblock. Never leave a test that cannot fail.",
+      "intended_diffs": "NEW widget ~300 lines following RecoveryLeader's method layout + NEW widget test pinning: getCardKey(); toStat() single-headline shape and colour; the sparkline AGREEING with the sibling card's cached monthly values (the Q3 acceptance); date-filter round trip across all four options; lockedStat() computing no value and emitting no chart for a non-entitled org; the admin_impersonator bypass; canViewCardData() not erroring with no authenticated user; ClickHouse-failure containment (no fabricated empty leaderboard cached, marker set and respected, already-cached months still rendering); and AC-4's round-trip proof \u2014 warm cache issues ZERO ClickHouse calls and a cold cache issues exactly ONE batched call for the 13-month series, proven with the cache-seed technique (DB::listen CANNOT count ClickHouse queries \u2014 DashboardCardMetricsTest.php:838), precedent HotlistCountTest.php:196-224.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/StagingLiveHitLeader.php",
+        "tests/Filament/Widgets/Dashboard/StagingLiveHitLeaderTest.php"
+      ],
+      "depends_on": [
+        "t1",
+        "t2"
+      ],
+      "parallelizable": false,
+      "test_filter": "StagingLiveHitLeaderTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t4",
+      "title": "Register the card at mockup slot 10 and update both card-contract tests",
+      "approach": "(a) CompanyMetricsOverview::cards(): insert 'staging-live-hit-leader' => StagingLiveHitLeader::class BETWEEN 'recovery-counts' and 'recovery-leader'. The mockup is 4x4; this card is row 3 col 2 = slot 10, which sorts after recovery-counts (slot 2) and before recovery-leader (slot 12). The array is mockup-relative and explicitly NOT append-only \u2014 do not tidy it. Also un-bracket '[Staging Live Hit Leaderboard]' at row 3 col 2 in that method's docblock mockup table. (b) DashboardCardExpansionTest: assertCount(7, $cardWidgets) -> 8 at line ~93, and insert the new key at its slot in test_company_metrics_cards_are_in_layout_order()'s expected array. Leave test_all_four_hit_cards_are_contiguous() UNTOUCHED \u2014 the new card is slot 10 and the four hit cards are slots 13-16, so inserting before them preserves their array adjacency; verify, do not edit. (c) DashboardCardVisibilityTest \u2014 the file all three prep candidates missed: assertCount(7, CompanyMetricsOverview::cards()) -> 8 at line 144, AND update the every-card-is-ungated loop at lines ~45-64, whose failure message is 'is gated, but no card should be gated yet' and whose comment states 'If this ever fails, a card was gated without the ticket that did it updating this expectation' \u2014 this IS that ticket, so change it to expect exactly staging-live-hit-leader gated for a non-entitled viewer while every other card stays ungated. Also re-check its assertSame(cards(), expandableCards()) expectation, which no longer holds unconditionally once one card can be gated.",
+      "intended_diffs": "One array insertion + one docblock line in CompanyMetricsOverview; two assertion updates in DashboardCardExpansionTest; one count bump plus a reworked gated-expectation in DashboardCardVisibilityTest.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php",
+        "tests/Filament/Pages/DashboardCardExpansionTest.php",
+        "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php"
+      ],
+      "depends_on": [
+        "t3"
+      ],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {
+      "site": "app/Clickhouse/Queries/RecoveryLeaderQuery.php (hardcoded clarity. prefix, lines 25/28/36)",
+      "reason": "Pre-existing; the ticket names it as an offender NOT to copy, not one to fix. Out of scope."
+    },
+    {
+      "site": "app/Clickhouse/Queries/LprVisitCountQuery.php",
+      "reason": "Pre-existing hardcoded clarity. prefix; named in the ticket as a known offender. Out of scope."
+    },
+    {
+      "site": "app/Clickhouse/Queries/RdnHitHourCountQuery.php",
+      "reason": "Pre-existing hardcoded clarity. prefix; named in the ticket. Out of scope."
+    },
+    {
+      "site": "app/Clickhouse/Queries/RdnScanHourCountQuery.php",
+      "reason": "Pre-existing hardcoded clarity. prefix; named in the ticket. Out of scope."
+    },
+    {
+      "site": "app/Clickhouse/Queries/ScanStatsBatchQuery.php",
+      "reason": "Pre-existing hardcoded clarity. prefix; named in the ticket. Out of scope."
+    },
+    {
+      "site": "app/Clickhouse/Queries/Client/CohortClosedQuery.php, Client/CohortDeclinedQuery.php",
+      "reason": "Additional hardcoded-prefix offenders found by the prep sweep beyond the ticket's own list; pre-existing, out of scope. Recorded so the sweep is complete."
+    },
+    {
+      "site": "app/Clickhouse/Models/AffiliateStatsHourly.php, app/Clickhouse/Models/LprAssist.php",
+      "reason": "Additional hardcoded-prefix offenders found by the sweep; pre-existing, out of scope."
+    },
+    {
+      "site": "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php getStatColor()",
+      "reason": "Q2 answered: colour is hardcoded in the card's own toStat() per the RecoveryLeader/KitUsers precedent, so no arm is added and this file is NOT touched. The default => 'gray' arm stays unreachable for this card because it never extends DashboardWidget."
+    },
+    {
+      "site": "app/Filament/Widgets/Dashboard/KitUsers.php (hardcoded ->color('gray'))",
+      "reason": "No longer a registered card (moved into HotlistCount's header row by DEV-2460); not on any active card path."
+    },
+    {
+      "site": "app/Filament/Pages/Dashboard.php",
+      "reason": "Grep-backstop candidate; resolves card keys generically through CompanyMetricsOverview::expandableCards(), so it needs no change for a new key."
+    },
+    {
+      "site": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardMetricsTest.php, DashboardMonthLabelsTest.php, DashboardWidgetTest.php",
+      "reason": "Grep-backstop candidates; their assertCount()s are on 13-month series lengths and colour tuples, not the cards() array. No change expected \u2014 confirmed by the post-merge full suite, not assumed."
+    },
+    {
+      "site": "DEV-2430 full-page-500 containment at the CompanyMetricsOverview level",
+      "reason": "Explicitly a separate ticket's concern; this card contains only its own failure path via the negative-cache marker."
+    }
+  ],
+  "sizing_gate": {
+    "verdict": "proceed, with the count disclosed",
+    "files_total": 10,
+    "files_production": 6,
+    "files_test": 4,
+    "reasoning": "The flow's gate trips above 6 files or on multiple distinct concerns. Production files are exactly 6 \u2014 at the limit, not over; the other 4 are the mandatory tests for those changes, and counting mandatory tests would trip this gate on nearly every ticket. The work is ONE concern \u2014 ship one gated card \u2014 not two tickets wearing a trenchcoat: the query exists only to feed this card, and the entitlement flag exists only to gate it. The one defensible split would be lifting FeatureEnum::COMPANY_METRICS into its own epic-infrastructure ticket (as DEV-2460 did for the seam) so all 9 sibling cards could depend on it; Dalton was offered exactly that trade at the Phase 2 gate and chose to define the flag here, so re-proposing it would be re-litigating an answered question. Surfaced to the operator rather than decided silently."
+  },
+  "dag_order": "t1 and t2 run in PARALLEL (disjoint files, no shared symbols). t3 depends on both (it constructs the query from t1 and references FeatureEnum::COMPANY_METRICS from t2). t4 depends on t3 (it registers a class that must exist and updates the assertions that break the moment it is registered). Max concurrency 2.",
+  "env_corrections": {
+    "clickhouse": "Provisioned on 127.0.0.1:18123 with the LITERAL clarity/zod databases and CLICKHOUSE_DRIVER=clickhouse in both .env and .env.testing. Corrected three further faults the audit missed: the port was 8123 vs the container's 18123; CLICKHOUSE_DATABASE_CLARITY/ZOD pointed at a non-existent per-worktree database; and a leftover Cloud readonly_user credential was still in the worktree env (replaced with the container's default user, empty password, both verified gone). Container restarted: 3.44 GiB -> 1.62 GiB.",
+    "verified": "php artisan test --filter=HitPlateStatsBatchQueryTest -> 7 passed, all executing. CH tests run rather than silently skipping."
+  },
+  "backstop_gap_note": "The Phase 1 grep backstop swept the symbols known at prep time (CompanyMetricsOverview, cards(), getStatColor, makeMetricWidget, lockedStat, canViewCardData, DashboardMetricCard, getCardKey, sharedUniqueRangeMemoKey, SharedHitStatsData, clarityDb, hits_cold, RecoveryLeader, StagingLiveHits, test_all_four_hit_cards_are_contiguous). It could NOT sweep FeatureEnum/ProTierEnum, because those files only entered scope when the operator answered Q1 at the Phase 2 gate \u2014 after the backstop had run. Lesson for the flow: when a gate ANSWER expands the target-file set, the grep backstop should be re-run over the newly added symbols before planning."
+}

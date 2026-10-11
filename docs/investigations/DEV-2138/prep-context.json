@@ -1,0 +1,84 @@
+{
+  "key": "DEV-2138",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "escalated": true,
+  "escalation_triggers": ["answered:false questions (2)", "confidence 68 < 80", "escalate.recommend=true (open scope questions)"],
+  "deep_path_skipped_reason": "Single-pass grounding is unambiguous (one code site + one confirmed out-of-scope sibling, verified by orchestrator grep backstop). Escalation is driven entirely by human-decision scope questions, not competing interpretations, so a 3-candidate reconcile has nothing to reconcile — the BLOCKED gate surfaces the same questions to the human directly.",
+  "confidence": 68,
+  "synthesis": "The Repos stat tile in the Scout Org Map stat bar (MapStatsBar.vue) is hidden only on compact (mobile) screens while in live/Today view. Dalton says desktop should match; separately the metric is being pulled because repos_affected only makes sense for Direct Live hits (staging excluded). Tension: literal 'match mobile' = hide in live/Today on ALL breakpoints (still shows in historical ranges); ticket's stated recommendation = hide ENTIRELY (all breakpoints + ranges). The ticket flags this as an open question that changes the diff.",
+  "scope": {
+    "summary": "Change the conditional array-spread guard around the Repos tile in MapStatsBar.vue so desktop also hides it, per the chosen rule. Tile is one item in a v-for'd flex array, so array membership is the only lever — no separate layout/gap change needed.",
+    "proposed_changes": [
+      {
+        "file": "resources/js/clarity-scout/components/MapStatsBar.vue",
+        "change": "Modify the guard at line 193 per the resolved question: (a) MIRROR mobile → drop the `isCompact.value &&` clause → `...(!mapStore.liveMode ? [{...}] : [])` (hidden in live/Today on all breakpoints, still shown in historical ranges on both); or (b) HIDE ENTIRELY → remove the Repos push (or gate permanently false) so it never renders on any breakpoint/range.",
+        "reason": "Single render site of the Org Map Repos tile; array-based v-for means dropping the object removes tile + its flex cell + its border-l divider together, no gap.",
+        "ref": "resources/js/clarity-scout/components/MapStatsBar.vue:191-197"
+      }
+    ],
+    "target_files": ["resources/js/clarity-scout/components/MapStatsBar.vue", "resources/js/clarity-scout/components/ProfilePanel.vue"],
+    "resolved_scope": "Q1=Hide ENTIRELY; Q2=include ProfilePanel. Remove the Repos tile from MapStatsBar.vue's stats array outright (and its now-unused `repos` count-up ref at :130), and remove the Repos cell from ProfilePanel.vue's 'This Week' grid — both without leaving a layout gap. Leave a breadcrumb comment referencing DEV-2138 (pulled pending direct/staging split).",
+    "out_of_scope": [
+      "ClarityScoutDashboardController.php repos_affected computation — pure display fix, direct/staging metric split explicitly deferred by ticket.",
+      "HelpPanel.vue 'Repossessions' glossary copy — static text, not a live tile."
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "The Repos stat tile is hidden on desktop, consistent with mobile.", "source": "ticket", "decision": "implement", "reason": "Resolved (Q1=Hide entirely): Repos removed on all breakpoints + all ranges, which satisfies 'hidden on desktop' and exceeds mobile parity by design."},
+    {"item": "No empty gap is left in the stat row where the tile was.", "source": "ticket", "decision": "satisfied-by-existing-pattern", "reason": "Stat row is v-for over flex-1 cells; tile is conditionally spread into the `stats` array (not v-show), so array shrink redistributes width and re-keys the border-left dividers automatically — same idiom as the Trips tile."}
+  ],
+  "questions": [
+    {"q": "Hide Repos ENTIRELY (all breakpoints + all date ranges) until the direct/staging split is sorted — Dalton's stated recommendation — OR only MIRROR the current mobile rule (hide in live/Today view, still show in historical ranges) on desktop?", "answered": true, "answer": "Hide ENTIRELY — remove the Repos tile on all breakpoints and all date ranges until the direct/staging split is sorted.", "source": "human:Dalton 2026-07-01"},
+    {"q": "Is the unguarded Repos tile in ProfilePanel.vue:68 ('This Week' summary) in scope, given it shows the same repos_affected on all breakpoints with no gating at all?", "answered": true, "answer": "Yes — also hide the ProfilePanel.vue Repos tile so the metric is pulled consistently everywhere.", "source": "human:Dalton 2026-07-01"}
+  ],
+  "blockers": [],
+  "notes": [
+    "DEV-2106 commit that added the guard explicitly said 'hide Repos tile on compact+Today only (MapStatsBar, desktop unchanged)' — desktop-unchanged was a deliberate original decision, not necessarily an oversight. Worth confirming intent.",
+    "Reuse the existing conditional-array-spread idiom (like Trips' `auth.tripsEnabled`), NOT v-show/CSS hiding, so no orphaned flex cell / border-l divider is left.",
+    "No JS test runner in this repo (only Vite dev/build scripts); MapStatsBar has zero test coverage → verification is manual/visual.",
+    "public/build assets are committed — fix requires `npm run build` + committing the bundle diff, else the change won't appear deployed. (npm build also regenerates boost docs/CLAUDE.md — revert those before committing.)"
+  ],
+  "tests": [],
+  "grounding": {
+    "key_files": [
+      "MapStatsBar.vue:191-197 (Repos tile conditional spread)",
+      "MapStatsBar.vue:99 (const { isCompact } = useViewport())",
+      "useViewport.js (isCompact = viewport below Tailwind lg/1024px, reactive matchMedia)",
+      "stores/map.js:151 (liveMode ref default true)",
+      "MapStatsBar.vue:7-11 (row container: flex items-stretch, v-for flex-1 cells with conditional border-l)",
+      "ClarityScoutDashboardController.php:58-80 (repos_affected = distinct repossessed hotlists, hit_type=Live/Direct only, staging excluded)",
+      "ProfilePanel.vue:68 (unguarded second render of repos_affected)"
+    ],
+    "code_flow": "Controller computes repos_affected (CH, Direct Live only) → dashboard Pinia store (stats / statsByRange.today) → MapStatsBar `source` picks today (liveMode) or stats (historical) → repos count-up → conditional spread into `stats` array on `!(isCompact && liveMode)` → template v-for renders each as flex-1 cell. Array membership alone controls DOM presence.",
+    "related_components": ["useViewport.js (isCompact)", "map.js store (liveMode)", "dashboard store (stats)", "ProfilePanel.vue (sibling consumer)"]
+  },
+  "exhaustiveness": {
+    "grep_patterns": ["repos_affected", "label:\\s*'Repos'", "'Repos'"],
+    "sites": [
+      {"site": "MapStatsBar.vue:194", "status": "buggy", "reason": "named target; guard hides only compact+live, desktop always shows"},
+      {"site": "ProfilePanel.vue:68", "status": "buggy (out of named scope)", "reason": "same metric, zero guard, all breakpoints — Q2"},
+      {"site": "HelpPanel.vue (Repossessions glossary)", "status": "safe", "reason": "static help text, no metric binding"},
+      {"site": "ClarityScoutBirdsEyeController.php:469-476", "status": "safe", "reason": "server-side admin metric, no client Repos tile renders it"}
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [],
+    "ch_tables": ["clarity.hits (read-only, unaffected)"],
+    "mv_or_cdc_implications": "None — frontend visibility change only; server computation untouched.",
+    "indexes_relied_on": []
+  },
+  "derivation_log": [],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "AC-1 hidden on desktop", "kind": "human", "intent": "Load Scout Org Map at >=1024px, confirm Repos tile absent per chosen rule"},
+      {"ac": "AC-2 no gap", "kind": "agent", "intent": "Diff stat row before/after: remaining tiles redistribute evenly, no blank cell/double divider"}
+    ],
+    "seed_scenario": "Scout driver with assigned kit + org hit data incl. >=1 Direct Live hit on a Repossessed hotlist (non-zero repos_affected), viewed at desktop + mobile, Today + historical range.",
+    "personas": ["Scout driver (kit-assigned)"],
+    "pg_tables": [],
+    "ch_tables": ["clarity.hits", "clarity.hotlist"]
+  },
+  "missed_caller_candidates": [],
+  "data_impact_note": "Frontend-only; no migration/billing/auth/CH-purge surface. Blast radius minimal."
+}

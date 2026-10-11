@@ -1,0 +1,183 @@
+{
+  "ticket": "DEV-2599",
+  "mode": "normal",
+  "route": "feature",
+  "gate": "CLEAN",
+  "gate_reason": "The thumbnail the ticket describes is the Hit Details image pair already rendered from the live hit. It is shared by admin org map and the driver view. The capture URL is already on the payload, so AC-2's OR is met by showing that URL uncropped. Close semantics are fixed by existing store boundaries (selectedHit, dashboard.range, focus marker). No product choice left open.",
+  "confidence": 88,
+  "synthesis": {
+    "problem": "On a live hit, the vehicle image is a 192px-tall crop (h-48 object-cover). Dispatchers cannot open it larger, so they cannot tell whether the vehicle matches the description (Premier Adjusters demo, 2026-09-16: description read as an F-350; the image did not obviously agree).",
+    "outcome": "Clicking the plate or vehicle image on Hit Details opens a larger view of the same capture URL, uncropped. Closing it returns to that Hit Details sheet. Map camera, focus marker, and the selected date-range pill stay as they were. Admin org map and the Scout driver view both get it because they share MapShell."
+  },
+  "scope": {
+    "summary": "Add a client-only enlarge overlay on the shared Hit Details images in MapShell. Do not change recent-hits queries, scan_img(), date range, or map camera.",
+    "proposed_changes": [
+      {
+        "file": "resources/js/clarity-scout/components/ScanImageLightbox.vue",
+        "change": "New overlay: teleport to body, z-[60], role=dialog, object-contain image of the given src, close on button, backdrop, and Escape.",
+        "reason": "No lightbox, modal image viewer, or zoom component exists under resources/js. App.vue's end-shift dialog (z-50, click.self) is the closest overlay pattern and is the wrong place to hang scan images.",
+        "ref": "grep lightbox|ImageViewer|photoswipe across resources/ returned no component"
+      },
+      {
+        "file": "resources/js/clarity-scout/components/MapShell.vue",
+        "change": "Wrap the existing plate and vehicle imgs in buttons. Click sets a local src and opens the lightbox. Close clears only that local src. Watch selectedHit identity and close the overlay when the hit changes or the sheet closes.",
+        "reason": "These are the only scan thumbnails on the live-hit path. Vehicle is object-cover h-48 (the crop). Plate is object-contain h-48 (too small). Sheet close already calls clearSelectedHit; the overlay must not.",
+        "ref": "MapShell.vue:60-74 images; :28 @update:open clearSelectedHit; :22 z-[45] wrapper"
+      }
+    ],
+    "target_files": [
+      "resources/js/clarity-scout/components/ScanImageLightbox.vue",
+      "resources/js/clarity-scout/components/MapShell.vue",
+      "tests/e2e/dev-2599-enlarge-scan-image.spec.ts",
+      "tests/e2e/helpers/dev-2599.ts"
+    ],
+    "out_of_scope": [
+      "Adding thumbnails to Live Hits list rows. Those rows have no image. DEV-2231 owns extra text fields.",
+      "TripOverlay and DayOverlay hit sheets. Different local selectedHit, not the live hit card. HelpPanel claims a tap-for-full-size there; the code only opens the sheet.",
+      "Pinch or wheel zoom. AC-2 allows zoom OR full capture resolution. The payload URL is already the capture JPEG.",
+      "New image derivatives, scan_img() changes, or recent-hits payload changes.",
+      "Date-range store, focusHit, clearSelectedHit, or Live Hits collapse-on-select (DEV-2594)."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Clicking the scan thumbnail on a hit card opens a larger view",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Buttons on MapShell plate and vehicle images open ScanImageLightbox. The live-hit path is list row → focusHit → this sheet, which is where year/make/model and the images already render."
+    },
+    {
+      "item": "The enlarged view supports zoom, or is served at full capture resolution",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Serve the existing scan_img URL (https://images.insightlpr.io/{guid}-{c|p}.jpg) at object-contain viewport size. VehicleImageTypeEnum has only Plate=p and Car=c. No thumbnail derivative exists in this repo."
+    },
+    {
+      "item": "Works on both the admin org map and the Scout driver view",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Both boot the same App.vue / MapShell. adminMode does not fork the image markup. Live Hits list renders on both (no v-if=!adminMode)."
+    },
+    {
+      "item": "Closing the enlarged view returns to the card without losing map state or the selected date range",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Overlay close clears local src only. selectedHit stays set, so Hit Details stays open, the DEV-2594 focus marker stays, and the list stays collapsed. dashboard.range is a different store and is not written."
+    }
+  ],
+  "questions": [],
+  "blockers": [],
+  "notes": [
+    "Live Hits list rows (DashboardOverlay.vue ~118-133) are plate, time, and hit-type only. The Premier mismatch (description vs image) can only happen on Hit Details, which renders vehicleLabel beside the images.",
+    "DEV-2594 watch collapses liveHitsExpanded when selectedHit is set. Returning to the card means the still-open sheet, not re-opening the list. Re-expanding the list on compact covers the sheet.",
+    "Map-marker taps use the same MapShell images (setSelectedHit / setSelectedHitCluster). They will gain enlarge. Flagged as shared-map-shell blast, not a separate surface.",
+    "okf/concepts/scout-birds-eye.md still says recent-hits returns 20 rows. Code removed that cap (DEV-2595). Wiki update is queued, not done in this run.",
+    "Committed Vite output (public/build, public/clarity-scout-sw.js) changed in the DEV-2594 commit. Implementation must rebuild; do not hand-edit hashes."
+  ],
+  "tests": [
+    {
+      "file": "tests/e2e/dev-2599-enlarge-scan-image.spec.ts",
+      "what_it_pins": "Admin org map: open a mocked live hit, click the vehicle image, see the same src in a dialog, close, Hit Details still shows the plate, 7 Days stays pressed."
+    },
+    {
+      "file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php",
+      "what_it_pins": "No new assertion. recent-hits already emits plate_image and vehicle_image. Do not change the controller."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "resources/js/clarity-scout/components/MapShell.vue:19-74",
+      "resources/js/clarity-scout/components/DashboardOverlay.vue:118-133",
+      "resources/js/clarity-scout/components/DashboardOverlay.vue:628-639",
+      "resources/js/clarity-scout/stores/map.js:1142-1190",
+      "resources/js/clarity-scout/stores/dashboard.js:13-64",
+      "resources/js/clarity-scout/components/DateRangeControl.vue:6-23",
+      "app/helpers.php:6-18",
+      "vendor/insight-lpr/black-adam/src/Enum/VehicleImageTypeEnum.php:5-8",
+      "app/Http/Controllers/Api/ClarityScoutDashboardController.php:175-176",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:1019-1020"
+    ],
+    "code_flow": "DateRangeControl → dashboard.setRange → Live Hits row @click selectHitFromCard → mapStore.focusHit (sets selectedHit, optional camera recenter) → DashboardOverlay collapses the list → MapShell BottomSheet shows h-48 images. Today those imgs have no click handler. scan_img(guid, p|c) is already on the recent-hits JSON for both controllers.",
+    "tables": [],
+    "related_components": [
+      "MapShell",
+      "BottomSheet",
+      "DashboardOverlay",
+      "DateRangeControl",
+      "useDashboardStore",
+      "useMapStore",
+      "scan_img"
+    ]
+  },
+  "exhaustiveness": {
+    "patterns": [
+      "plate_image",
+      "vehicle_image",
+      "scan_img",
+      "lightbox",
+      "object-cover"
+    ],
+    "sites": [
+      {
+        "file": "resources/js/clarity-scout/components/MapShell.vue",
+        "verdict": "target",
+        "reason": "Live-hit and map-marker Hit Details. Images are not buttons. Vehicle uses object-cover."
+      },
+      {
+        "file": "resources/js/clarity-scout/components/DashboardOverlay.vue",
+        "verdict": "safe",
+        "reason": "Live Hits rows have no img. Click already opens Hit Details. DEV-2594 collapse watch must stay."
+      },
+      {
+        "file": "resources/js/clarity-scout/components/TripOverlay.vue",
+        "verdict": "out-of-scope",
+        "reason": "Trip hit sheet, local selectedHit, images already full width of the sheet. Not the live hit card."
+      },
+      {
+        "file": "resources/js/clarity-scout/components/DayOverlay.vue",
+        "verdict": "out-of-scope",
+        "reason": "Same as TripOverlay."
+      },
+      {
+        "file": "resources/js/clarity-scout/components/HelpPanel.vue",
+        "verdict": "out-of-scope",
+        "reason": "Copy says trip images tap for a full-size view. No viewer is implemented. Not this story."
+      },
+      {
+        "file": "app/helpers.php::scan_img",
+        "verdict": "safe",
+        "reason": "Single JPEG URL per guid and type. Local env swaps in sample S3 guids. No size query param."
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutDashboardController.php::recentHits",
+        "verdict": "safe",
+        "reason": "Already returns plate_image and vehicle_image."
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php::recentHits",
+        "verdict": "safe",
+        "reason": "Same keys for the admin org map."
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [],
+    "ch_tables": [],
+    "mv_or_cdc_implications": "none — no query or write change. Image bytes are already fetched by the browser from images.insightlpr.io.",
+    "indexes_relied_on": []
+  },
+  "resource_envelope": {
+    "scale_relevant": false,
+    "trigger": "none — click handler over URLs already present on the selected hit",
+    "driving_tables": [],
+    "growth": "none",
+    "schedule": {
+      "expression": "n/a",
+      "interval_seconds": null,
+      "without_overlapping_minutes": null
+    },
+    "allocation_sketch": "One extra <img> of a URL the sheet already loaded. No new request fan-out unless the browser refetches that JPEG.",
+    "oracle_status": "not-applicable",
+    "unresolved": []
+  }
+}

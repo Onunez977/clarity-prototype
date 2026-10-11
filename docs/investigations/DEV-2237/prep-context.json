@@ -1,0 +1,90 @@
+{
+  "key": "DEV-2237",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "synthesis": "Add a gated Scout provisioning section to the Clarity Create/Edit User form so an org admin can make a user a functional Scout user without going to the Kit-centric Scout Users screen. Per Dalton's gate decisions: (1) mechanism = directly toggle the `clarity-scout` Spatie PERMISSION (no new role); (2) scope = permission + Kit assignment + onboarding email (zones/vehicle-type/force-login stay in Scout Users); (3) gating = only visible for Scout-enabled orgs (Feature::active(CLARITY_SCOUT) || admin_impersonator) to admins, matching ScoutUsersResource::canAccess(). The canonical provisioning mechanics live in ScoutUsersResource + EditScoutUser: setPermissionsTeamId($orgId) then givePermissionTo/revokePermissionTo('clarity-scout'); on grant of an unverified user, notify(new ScoutOnboardingNotification); Kit tie via KitSettings::updateOrCreate(['kit_id'=>...],['user_id'=>...]) with 1:1 enforcement (detach the user from any other kit). The Users form is user-centric (inverse of the kit-centric Scout Users), so it needs a Kit picker offering kits not already assigned to another user.",
+  "scope": {
+    "summary": "Add a gated 'Scout' section to UsersResource Create/Edit forms with a Scout Access toggle (grant/revoke clarity-scout) and an available-Kit picker; on save, reconcile the permission, tie/untie the Kit via KitSettings (1:1), and send ScoutOnboardingNotification on first grant to an unverified user. Visible only for Scout-enabled orgs to admins. Reuse the exact grant/kit/onboarding mechanics from EditScoutUser (prefer extracting a shared helper over duplicating).",
+    "proposed_changes": [
+      {"file": "app/Filament/Resources/UsersResource.php", "change": "Add a Scout section (Toggle 'web_access_enabled'/Scout Access + Select kit picker of unassigned kits) gated by a ->visible()/canAccess-style check on Feature::active(CLARITY_SCOUT) || admin_impersonator AND admin. Fields are virtual (not User columns) — dehydrate and handle in page hooks. Also surface Scout state in the table (a Scout Access icon column) for AC3.", "reason": "AC1/AC2/AC3 + gating decision", "ref": "app/Filament/Resources/UsersResource.php:55-95"},
+      {"file": "app/Filament/Resources/UsersResource/Pages/CreateUsers.php", "change": "After create: if Scout section present + toggle on, setPermissionsTeamId(org), givePermissionTo('clarity-scout'), assign RoleEnum::USER if roleless, tie the chosen Kit via KitSettings (detach from other kits), notify(new ScoutOnboardingNotification) when unverified.", "reason": "AC1/AC2/AC3 create path", "ref": "app/Filament/Resources/UsersResource/Pages/CreateUsers.php:24-30"},
+      {"file": "app/Filament/Resources/UsersResource/Pages/EditUsers.php", "change": "On save: reconcile Scout Access (grant if newly on + onboarding when unverified; revoke if newly off), and reconcile the Kit assignment (updateOrCreate/clear KitSettings, 1:1). Mirror EditScoutUser's had/has logic.", "reason": "AC4 add/remove via edit", "ref": "app/Filament/Resources/UsersResource/Pages/EditUsers.php"},
+      {"file": "(optional) a shared Scout-provisioning helper/concern", "change": "Extract grant+kit+onboarding into a shared method (e.g. an action on User or a Concern) so UsersResource pages and EditScoutUser don't drift. Plan-arbiter decides whether to extract now or inline.", "reason": "avoid duplicating the landmine-prone permission/onboarding logic", "ref": "app/Filament/Resources/ScoutUsersResource/Pages/EditScoutUser.php:60-140"},
+      {"file": "tests/Filament/Resources/UsersResourceTest.php", "change": "Pinning tests: Scout section visible only for Scout orgs+admin; create with Scout on grants clarity-scout + ties kit + queues onboarding; edit add/remove flips permission + kit; existing (non-Scout) create/edit flows stay green; non-Scout org hides the section.", "reason": "AC1-AC5", "ref": "tests/Filament/Resources/UsersResourceTest.php:109-136"}
+    ],
+    "target_files": [
+      "app/Filament/Resources/UsersResource.php",
+      "app/Filament/Resources/UsersResource/Pages/CreateUsers.php",
+      "app/Filament/Resources/UsersResource/Pages/EditUsers.php",
+      "tests/Filament/Resources/UsersResourceTest.php"
+    ],
+    "out_of_scope": [
+      "Zones map, vehicle type, and force-login on the Users form (stay in Scout Users).",
+      "Editing vendor/insight-lpr/black-adam RoleEnum (no Scout role is being created).",
+      "Changing ScoutUsersResource's own workflow or CLARITY_SCOUT gating semantics.",
+      "Any new role/permission seeding or migration — clarity-scout permission already exists and is seeded."
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "AC1: Scout option appears alongside role options on Create User (gated to Scout orgs)", "source": "ticket", "decision": "implement", "reason": "Scout Access toggle in a gated section."},
+    {"item": "AC2: Scout selectable independently or combined with other roles", "source": "ticket", "decision": "implement", "reason": "Independent toggle; permission is orthogonal to the roles CheckboxList."},
+    {"item": "AC3: Scout persists on save + reflected in user management views", "source": "ticket", "decision": "implement", "reason": "Permission + kit persisted; add a Scout Access column to the Users table."},
+    {"item": "AC4: Existing users can have Scout added/removed via edit", "source": "ticket", "decision": "implement", "reason": "EditUsers reconciles grant/revoke + kit; direct-permission mechanism makes revoke reliable."},
+    {"item": "AC5: No regression to existing role options or user creation flow", "source": "ticket", "decision": "implement", "reason": "Additive gated section; existing UsersResourceTest stays green; non-Scout orgs see no change."}
+  ],
+  "questions": [
+    {"id": "Q1", "q": "MECHANISM: real Scout Role vs. toggle the clarity-scout permission?", "answered": true, "answer": "Toggle the clarity-scout PERMISSION directly (givePermissionTo/revokePermissionTo). No Spatie role. Avoids the revoke landmine.", "source": "human:Dalton 2026-08-06"},
+    {"id": "Q2", "q": "WORKFLOW: same as Scout Users or different; what does the Users form do?", "answered": true, "answer": "Full provisioning on the Users form BUT bounded to permission + Kit assignment + onboarding email. Zones/vehicle-type/force-login stay in Scout Users.", "source": "human:Dalton 2026-08-06"},
+    {"id": "Q3", "q": "GATING: Scout-enabled orgs only or all orgs?", "answered": true, "answer": "Gate to Scout-enabled orgs (Feature::active(CLARITY_SCOUT) || admin_impersonator), admins only — matching ScoutUsersResource::canAccess().", "source": "human:Dalton 2026-08-06"},
+    {"id": "Q4", "q": "REVOKE LANDMINE (role inheritance)", "answered": true, "answer": "N/A — resolved by choosing the direct-permission mechanism (Q1); no role inheritance, so ScoutUsersResource's revokePermissionTo stays correct.", "source": "human:Dalton 2026-08-06"},
+    {"id": "Q5", "q": "PROD ROLLOUT: new role/permission seeding to existing orgs?", "answered": true, "answer": "N/A — no new role/permission. The clarity-scout permission already exists and is seeded; nothing to migrate.", "source": "human:Dalton 2026-08-06"}
+  ],
+  "blockers": [],
+  "notes": [
+    "Provisioning mechanics to reuse (EditScoutUser.php): setPermissionsTeamId($orgId) is REQUIRED before permission grant/check (teams-based Spatie); assignRole(RoleEnum::USER) if roleless; givePermissionTo('clarity-scout'); notify(new ScoutOnboardingNotification) only when !email_verified_at; KitSettings::updateOrCreate(['kit_id'=>..],['user_id'=>..]) with 1:1 enforcement (detach user from other kits).",
+    "Available-kit picker: mirror ScoutUsersResource assigned_user_id logic inverted — offer kits whose KitSettings.user_id is null (or the user's current kit).",
+    "Scout users get RoleEnum::USER (Default User) + clarity-scout permission — the permission, not a role, is what gates Scout everywhere.",
+    "The ticket's DEV-1772 'checkbox precedent' is false; DEV-1772 built the separate ScoutUsersResource.",
+    "Grep backstop confirmed clarity-scout write sites: ScoutUsersResource(:446/:459) + EditScoutUser(:75/:112/:118); consumers ClarityScoutAuthController/ScoutSetPasswordController/ClarityScoutMiddleware/ClientMiddleware/UserMiddleware. New Users-form write sites must use the same setPermissionsTeamId + direct grant/revoke."
+  ],
+  "tests": [
+    {"file": "tests/Filament/Resources/UsersResourceTest.php", "what_it_pins": "Create/edit role flows stay green (AC5) + new Scout create/edit/remove/gating cases (AC1-AC4)."},
+    {"file": "tests/Filament/Resources/ScoutUsersResourceTest.php", "what_it_pins": "Existing grant/revoke clarity-scout stays correct; a user granted via the Users form is still revocable from Scout Users."}
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Filament/Resources/UsersResource.php:55-95",
+      "app/Filament/Resources/UsersResource/Pages/CreateUsers.php:24-30",
+      "app/Filament/Resources/UsersResource/Pages/EditUsers.php",
+      "app/Filament/Resources/ScoutUsersResource.php:58-201",
+      "app/Filament/Resources/ScoutUsersResource/Pages/EditScoutUser.php:60-140",
+      "app/Notifications/ScoutOnboardingNotification.php",
+      "app/Models/KitSettings.php",
+      "app/Http/Middleware/UserMiddleware.php:27",
+      "app/Enums/FeatureEnum.php:79",
+      "config/app.php:179",
+      "tests/Filament/Resources/UsersResourceTest.php:109-136"
+    ],
+    "code_flow": "UsersResource form gains a gated Scout section (toggle + kit Select). CreateUsers/EditUsers page hooks reconcile: setPermissionsTeamId(org) -> give/revoke clarity-scout -> assignRole(USER) if roleless -> KitSettings::updateOrCreate (1:1 detach) -> ScoutOnboardingNotification when granting to an unverified user. Consumers of clarity-scout unchanged. Gating mirrors ScoutUsersResource::canAccess().",
+    "tables": ["roles", "model_has_roles", "permissions", "model_has_permissions", "kit_settings", "users"],
+    "related_components": ["app/Filament/Resources/ScoutUsersResource.php", "app/Filament/Resources/ScoutUsersResource/Pages/EditScoutUser.php", "app/Notifications/ScoutOnboardingNotification.php", "app/Http/Middleware/ClarityScoutMiddleware.php"]
+  },
+  "data_impact": {"pg_tables": ["permissions", "model_has_permissions", "roles", "model_has_roles", "kit_settings", "users"], "ch_tables": [], "mv_or_cdc_implications": "None — PostgreSQL/Spatie only; no ClickHouse.", "indexes_relied_on": []},
+  "derivation_log": [],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "AC1", "kind": "agent", "intent": "For a Scout-enabled org admin, Create User shows the Scout section (toggle + kit picker); a non-Scout org does not."},
+      {"ac": "AC2", "kind": "agent", "intent": "Enable Scout with a kit + also pick a regular role; both persist independently."},
+      {"ac": "AC3", "kind": "agent", "intent": "Create Scout user; Edit form + Users list Scout column reflect it; KitSettings.user_id set."},
+      {"ac": "AC4", "kind": "human", "intent": "Add then remove Scout on an existing user via Edit; verify hasPermissionTo('clarity-scout') flips and kit ties/unties; onboarding email queued once."},
+      {"ac": "AC5", "kind": "agent", "intent": "Existing UsersResourceTest green; non-Scout create/edit unaffected; Scout Users still works for a user provisioned here."}
+    ],
+    "seed_scenario": "One org with CLARITY_SCOUT enabled (admin + a couple of Kits with no assigned user, one unverified target user) and one org without CLARITY_SCOUT (admin). Exercise create+edit on both.",
+    "personas": ["org admin (Scout org)", "org admin (non-Scout org)", "plain end user (negative auth)"],
+    "pg_tables": ["permissions", "model_has_permissions", "kit_settings", "users", "roles"],
+    "ch_tables": []
+  },
+  "confidence": 85,
+  "escalate": {"recommend": false, "reason": "All material design questions resolved by Dalton at the gate; scope bounded (permission+kit+onboarding), PostgreSQL-only, ~4 files."},
+  "missed_caller_candidates": []
+}

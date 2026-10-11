@@ -1,0 +1,82 @@
+{
+  "preserved_from": ".context/qa-prep-ledger.json (deleted at teardown)",
+  "qa_log": [
+    {
+      "at": "2026-08-24T15:35:00Z",
+      "stage": "qa-prep",
+      "event": "provisioned",
+      "details": "provision-only, CH deferred. bootstrap created zod_claude_dev_2406 + zod_testing_claude_dev_2406 and linked clarity-claude_dev_2406.test. tiger.state PostGIS patch APPLIED (simplified_geom was missing \u2014 it was the cause of bootstrap's db:seed failure). Baseline reseed got through all kits/scans then hit a UniqueConstraintViolation on aggregate_recoveries_kituser_scans_report (LocalDataSeeder is not idempotent and ran on top of bootstrap's partial run) \u2014 dev DB is usable: orgs=146 kits=30 scans=117 users=1. SECURITY: the worktree .env carried ClickHouse CLOUD creds; CLICKHOUSE_HOST neutralized to 127.0.0.1 so no local run can reach production CH."
+    },
+    {
+      "at": "2026-08-24T15:45:00Z",
+      "stage": "qa-prep",
+      "event": "clickhouse-ensured",
+      "details": "Phase 4 lazy CH ensure: applied database/schema/clickhouse-schema.sql to the shared clarity-qa-clickhouse container, creating LITERAL clarity (32 tables) + zod. Repointed .env AND .env.testing at 127.0.0.1:18123 with literal DB names. .env.testing was on the pgsql bridge, which would have made RequiresClickhouse SKIP every CH test; it is now driver=clickhouse so CH tests actually run."
+    },
+    {
+      "at": "2026-08-24T20:02:51Z",
+      "stage": "qa-prep",
+      "event": "prepped",
+      "details": "full mode via PROVISION_REUSE (env from Phase 3.5 reused, nothing re-provisioned). scope=both, ch=docker. Seeded clarity.hits_cold 37 rows + hit_stats_daily 2 rows for org 2 so total != unique on every tile, with plate QA1AAA in TWO months to prove months don't collapse. Wrote qa-plan-agent.md (7 browser + 3 backend + 1 resource item) and qa-plan-human.md (8 happy-path + 2 edge cases), every AC mapped."
+    },
+    {
+      "at": "2026-08-24T20:10:48Z",
+      "stage": "agent-qa",
+      "event": "pass-completed",
+      "details": "scope=both. 1 browser lane (7/7 PASS: A1-A7), backend lane 3/3 PASS (B1 query returns 3/4/2/3; B2 no bare count() in SQL; B3 about+route:list OK), resource lane referenced Phase-1 production measurement. Laravel log: ZERO error-level lines during the pass. 5 screenshots captured."
+    },
+    {
+      "at": "2026-08-24T20:10:48Z",
+      "stage": "agent-qa",
+      "event": "finding",
+      "details": "No \ud83d\udd34 and no \ud83d\udfe1. Every AC satisfied with browser evidence. Notable positive: the blast-radius regression (A5) was confirmed by OBSERVATION \u2014 Scan Count and Repossessions expand with a single series and no legend."
+    },
+    {
+      "at": "2026-08-24T20:10:48Z",
+      "stage": "agent-qa",
+      "event": "fixes-suggested",
+      "details": "none \u2014 no failures to fix."
+    },
+    {
+      "at": "2026-08-24T20:18:16Z",
+      "stage": "human-qa",
+      "event": "guide-generated",
+      "details": "Rendered .context/qa-human-guide.html from qa-plan-human.md. 12 steps (8 happy-path, 2 edge cases, 2 adjacent/optional), 7 env rows (all ok except an informational queue warn), 6 seeded-data references, 4 agent-QA screenshots attached inline, resource-envelope panel = PASS/measured. Folded in agent-qa's patch block (11/11 PASS, 0 red, 0 yellow). NOTE: the prep gate resolved to head_sha drift, but git confirmed ZERO app-code change between the plan's sha and HEAD (artifacts-only commits), so the plans were re-baselined rather than re-prepped \u2014 re-prepping would have discarded agent-qa's run-keyed patch blocks to describe byte-identical code."
+    },
+    {
+      "at": "2026-08-24T20:22:58Z",
+      "stage": "session",
+      "event": "qa-driven-change",
+      "trigger": "human-qa finding",
+      "details": "HUMAN QA CAUGHT A REAL DEFECT the agent pass missed. On the current month BOTH bars rendered red, so the legend (one swatch per dataset) was wrong for that month. Cause: makeDataset() defaults every colour to generateColors(), a PER-MONTH array that applies DEV-2324's current-month highlight; the Total series took that default while Unique passed an explicit accent, so in the highlighted month Total was repainted accent too. Fix: withStaticSeriesColors() in SharedHitStatsData flattens both datasets to one stable colour each (Total = static grey, Unique = accent), dropping the month highlight for these four widgets only \u2014 exactly what prep predicted and what round-1 review flagged as an unimplemented design implication. Added a regression test asserting every colour key is a scalar, not a per-month array, and that the two series differ; verified it FAILS on the pre-fix code. Tests after: 29 + 85 + 217 green. Files: SharedHitStatsData.php, DashboardCardMetricsTest.php."
+    },
+    {
+      "at": "2026-08-24T20:30:55Z",
+      "stage": "session",
+      "event": "qa-driven-change",
+      "trigger": "dev-request",
+      "details": "Operator asked for help text explaining the two counts. Added a dashboardStatAttributes() override in SharedHitStatsData replacing the generic 'Click for more details' tooltip with tile-specific text naming UNIQUE PLATES (headline) vs TOTAL HITS (secondary), interpolating each tile's own label, and noting that the expanded chart deduplicates per month. Uses the repo's existing data-description -> info-icon convention (precedent HotlistCount). Regression test asserts all four hit tiles explain both numbers AND that ScanCount keeps the generic default, proving no leak across the shared trait seam. Tests: 30 + 86 green."
+    },
+    {
+      "at": "2026-08-24T20:33:15Z",
+      "stage": "session",
+      "event": "qa-driven-change",
+      "trigger": "dev-request",
+      "details": "Operator: help text too wordy, max 2 sentences matching the hotlist widgets. Shortened to: 'Count of unique plates for <Tile>, counting each plate once however many times it was hit. The smaller number is total hits, counting every hit.' Dropped the all-caps and the per-month chart note. Test updated to the new wording and given a sentence-count guard (<=2). Tests: 30 + 86 green. CH re-seeded after the run."
+    },
+    {
+      "at": "2026-08-24T20:35:02Z",
+      "stage": "session",
+      "event": "qa-driven-change",
+      "trigger": "dev-request",
+      "details": "Operator: still too wordy, simplify. Final: 'How many different plates were hit. The smaller number counts every hit, including repeats.' (90 chars). Dropped 'unique plates' jargon and the tile name (the tooltip is already on that tile) \u2014 'including repeats' now carries the whole explanation of why the two numbers differ. Test guards: <=2 sentences AND <=120 chars, plus ScanCount keeps the generic default. Tests: 30 + 86 green."
+    },
+    {
+      "at": "2026-08-24T20:37:01Z",
+      "stage": "session",
+      "event": "qa-driven-change",
+      "trigger": "dev-request",
+      "details": "Operator corrected the FRAMING, not just the length: both numbers count the same thing (hits) \u2014 one is deduped by plate, one is not. Earlier copy ('How many different plates were hit') wrongly implied two different metrics, and 'the smaller number' was ambiguous/backwards (the headline IS the numerically smaller value; 'smaller' meant the typeface). Final: 'Hits, counted once per plate. The total below counts every hit.' (62 chars). Test now asserts 'once per plate' + 'every hit' AND fails if 'smaller number' reappears. Tests: 30 + 86 green."
+    }
+  ]
+}

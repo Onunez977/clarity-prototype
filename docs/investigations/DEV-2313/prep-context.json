@@ -1,0 +1,286 @@
+{
+  "mode": "normal",
+  "gate": "CLEAN",
+  "route": "bug",
+  "direction": "GPS-position check-in RECORDER (DEV-1756 spec, Oscar-clarified): for each Scout kit, match sc_positions GPS fixes against its OPEN direct + OPEN staging order addresses (reuse ScoutCheckInRollupQuery's existing open/direct/staging address scope), record one check-in per (kit, address, hour). Cadence per perf check (near-real-time ideal, else 5-15 min). HH/AA + historical OUT of scope. UI hidden (live-map indicator = future).",
+  "synthesis": "DEV-2313 asked whether the backend that 'saves' Scout automated check-ins runs in the background. Investigation (git+grep verified): (1) check-ins are NOT persisted and NO background job exists today \u2014 ScoutCheckInRollupQuery computes them live, on-read, from ClickHouse scans proximity to OPEN hotlist addresses (clarity.hotlist FINAL = current-state), cached 2-15 min; backend is correct + 8 tests. (2) The frontend caller was removed 2026-06-09 (f0152f41d), so the endpoint is orphaned and the UI shows nothing. Owner decision: KEEP the UI hidden, but add a BACKGROUND process that periodically computes + persists check-in rollups so an accurate historical record accrues. The accuracy rationale: the live query joins current-open hotlists, so recomputing a past window later undercounts every since-closed order (scan side is safe via scans_cold; the hotlist-openness side decays). A nightly snapshot captures the point-in-time count before it changes.",
+  "scope": {
+    "summary": "Add a Postgres-backed nightly rollup that snapshots each Scout-enabled driver's daily check-in counts (direct + staging) by calling the EXISTING ScoutCheckInRollupQuery. No frontend change (UI stays hidden); the read endpoint is left live/unchanged. Additive-only; no existing table/behavior modified.",
+    "proposed_changes": [
+      {
+        "file": "database/migrations/<ts>_create_scout_check_in_rollups_table.php",
+        "change": "NEW additive migration on the platform connection: id, kit_id, org_id, bucket_date (date), direct_bucket (uint default 0), staging_bucket (uint default 0), computed_at (timestampTz), timestamps; unique(kit_id, bucket_date) for idempotent upsert; index(org_id, bucket_date). Explicit down().",
+        "reason": "Durable point-in-time store for daily check-in counts.",
+        "ref": "mirror database/migrations/2026_05_26_000000_create_kit_shifts_table.php + hotlist_aggregate_count unique-index pattern"
+      },
+      {
+        "file": "app/Models/ScoutCheckInRollup.php",
+        "change": "NEW Eloquent model, protected $connection='platform'; fillable + casts (bucket_date:date, computed_at:datetime). casts() method per L12 convention.",
+        "reason": "Model for the new table.",
+        "ref": "mirror app/Models/KitShift.php"
+      },
+      {
+        "file": "app/Console/Commands/ScoutAggregateCheckIns.php",
+        "change": "NEW artisan command scout:aggregate-check-ins {--date=} : gated on config('app.experimental.clarity_scout'); resolve target day (default prior day) in the org timezone; fan out over Scout-enabled drivers (clarity-scout permission + assigned kit via KitSettings + active CLARITY_SCOUT Pennant flag); per kit resolve org_id + Org::stagingOrgIds(); call ScoutCheckInRollupQuery::query([...], cache:false) for the day window; upsert into scout_check_in_rollups on (kit_id,bucket_date). Per-kit failures skip-and-log (degrade gracefully, mirror CloseInactiveShiftsCommand).",
+        "reason": "The background compute+persist process.",
+        "ref": "mirror app/Console/Commands/CloseInactiveShiftsCommand.php (Scout scheduled cmd) + AggregateGeoHashScanDaily.php (idempotent upsert)"
+      },
+      {
+        "file": "routes/console.php",
+        "change": "Add one Schedule entry: Schedule::command('scout:aggregate-check-ins')->when(clarity_scout flag)->dailyAt('4:00')->withoutOverlapping()->runInBackground()->onOneServer(); (match the Scout precedent).",
+        "reason": "Register the nightly run.",
+        "ref": "routes/console.php:34-53 (AggregateGeoHashScanDaily + CloseInactiveShiftsCommand schedule lines)"
+      },
+      {
+        "file": "tests/Feature/Console/Commands/ScoutAggregateCheckInsCommandTest.php",
+        "change": "NEW feature test: seed CH check-in fixtures (reuse insertHotlist/insertOpenAssignmentAddress/insertScanHot shape) + a Scout-enabled driver, run the command for the seeded date, assert persisted rows in scout_check_in_rollups match expected direct/staging counts; assert idempotent re-run (no duplicate rows); assert non-Scout users skipped.",
+        "reason": "Pin the command behavior.",
+        "ref": "mirror fixtures in tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php:57-107,875-1234 (RequiresClickhouse)"
+      }
+    ],
+    "target_files": [
+      "database/migrations/<ts>_create_scout_check_in_rollups_table.php",
+      "app/Models/ScoutCheckInRollup.php",
+      "app/Console/Commands/ScoutAggregateCheckIns.php",
+      "routes/console.php",
+      "tests/Feature/Console/Commands/ScoutAggregateCheckInsCommandTest.php"
+    ],
+    "out_of_scope": [
+      "Any frontend/PWA change \u2014 UI stays hidden (nothing calls the endpoint today; do not restore it).",
+      "Repointing the read endpoint checkInCounts() to the persisted table \u2014 left live/unchanged (it must still serve ad hoc ranges incl. partial 'today').",
+      "Backfilling the ~2-month gap \u2014 deliberately NOT done (a backfill would apply today's open-hotlist set to old scans and undercount since-closed orders; inaccurate).",
+      "Any change to ScoutCheckInRollupQuery, the controller, or ClickhouseQuery caching \u2014 reused as-is.",
+      "Point-in-time hotlist-status reconstruction (clarity.hotlist_status_aggregate) \u2014 larger separate effort, not this ticket."
+    ]
+  },
+  "design_decisions": [
+    {
+      "decision": "Persistence target = Postgres platform table (not ClickHouse MV)",
+      "source": "recommended; Dalton delegated ([No preference])",
+      "why": "Trivial data volume; keeps the feature a single self-contained platform PR (a CH MV would need a separate chlocal-repo change and can't easily encode the geoDistance+bbox join)."
+    },
+    {
+      "decision": "Granularity = per-kit per-day; Cadence = nightly ~4:00 for the prior day",
+      "source": "recommended; Dalton delegated ([No preference])",
+      "why": "Fewest rows; the accuracy goal is about capturing state before it changes, not latency. Mirrors AggregateGeoHashScanDaily/GenerateRdnCache cadence."
+    },
+    {
+      "decision": "No backfill",
+      "source": "recommended; Dalton delegated ([No preference])",
+      "why": "Backfill would be inaccurate (current-status hotlist join). Start the record from ship date forward."
+    },
+    {
+      "decision": "Fan-out = Scout-enabled drivers (clarity-scout permission + assigned kit via KitSettings + active CLARITY_SCOUT Pennant flag)",
+      "source": "recommended; matches how Scout enablement is determined today",
+      "why": "The rollup query is per-kit; the driver set is the natural unit and matches ClarityScoutMiddleware + PennantServiceProvider."
+    },
+    {
+      "decision": "Read endpoint left live/unchanged; UI stays hidden",
+      "source": "Dalton explicit (keep UI hidden)",
+      "why": "Nothing calls it today; the new table is an additive capture pipeline, not a read replacement."
+    },
+    {
+      "decision": "Per-kit CH failure = skip-and-log (do not fail whole run)",
+      "source": "recommended; mirrors CloseInactiveShiftsCommand",
+      "why": "One driver's CH hiccup must not abort the nightly capture for everyone."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "item": "A scheduled background command computes each Scout-enabled driver's daily check-in counts and persists them (direct + staging) into a new platform table, idempotently.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Core deliverable per owner decision."
+    },
+    {
+      "item": "The command reuses the existing ScoutCheckInRollupQuery (no change to the live computation) and is gated on the Scout config flag.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Reuse verified-correct logic; don't fork it."
+    },
+    {
+      "item": "No frontend/UI change \u2014 check-ins remain hidden in the Scout PWA.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Owner explicitly wants UI hidden."
+    },
+    {
+      "item": "The nightly job is registered in the schedule with overlap/one-server guards and degrades gracefully on a per-driver ClickHouse failure.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Operational safety, mirrors existing Scout scheduled command."
+    },
+    {
+      "item": "Re-running the command for the same day does not duplicate rows (idempotent upsert on kit_id+bucket_date).",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Safe re-runs / catch-up."
+    }
+  ],
+  "questions": [
+    {
+      "q": "Is 'check-ins' the automated hotlist-proximity feature (DEV-1756/1757/2163) or driver shift check-in?",
+      "answered": true,
+      "answer": "Automated hotlist-proximity feature; only 'check-in' concept in the codebase.",
+      "source": "code"
+    },
+    {
+      "q": "Is there a background job that persists check-ins today?",
+      "answered": true,
+      "answer": "No \u2014 derived-on-read, no writer exists. This ticket adds one.",
+      "source": "code"
+    },
+    {
+      "q": "Is the endpoint called by anything today?",
+      "answered": true,
+      "answer": "No \u2014 orphaned since f0152f41d (2026-06-09). UI stays hidden per owner.",
+      "source": "code"
+    },
+    {
+      "q": "What should DEV-2313 deliver?",
+      "answered": true,
+      "answer": "Add a background nightly process that computes + PERSISTS check-in rollups (Postgres table), UI hidden. \u2014 human:Dalton 2026-08-07",
+      "source": "needs-human"
+    },
+    {
+      "q": "Cadence / granularity / backfill / target?",
+      "answered": true,
+      "answer": "Dalton delegated ([No preference]) -> adopt recommended: Postgres table, per-kit per-day, nightly ~4:00, no backfill, Scout-enabled drivers, endpoint unchanged. \u2014 human:Dalton (delegated) 2026-08-07",
+      "source": "needs-human"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "ACCURACY RATIONALE (the whole point): ScoutCheckInRollupQuery joins clarity.hotlist FINAL (current-state, not point-in-time). Once a hotlist closes/repossesses, recomputing a past window undercounts it. Pinned by test_check_in_counts_exclude_non_open_hotlists. Scan side is safe (scans_cold retains history; only scans_hot has 90d TTL and old windows already route to cold). So the nightly snapshot preserves the hotlist-openness fact before it decays.",
+    "Canonical patterns to mirror: CloseInactiveShiftsCommand (Scout scheduled cmd, gate on config('app.experimental.clarity_scout'), CH read + try/catch degrade, writes platform); AggregateGeoHashScanDaily (idempotent ON CONFLICT upsert + ->dailyAt + ->onOneServer); GenerateOrgCache/GenerateRdnCache (per-entity fan-out).",
+    "Scout enablement is a USER property: clarity-scout permission (ClarityScoutMiddleware.php:33) + KitSettings supplying User::kit_id (User.php:137-154) + Pennant CLARITY_SCOUT flag (PennantServiceProvider.php:42). Fan-out must resolve drivers this way, not by iterating kits/orgs blindly.",
+    "staging_org_ids resolved via Org::find($orgId)?->stagingOrgIds() (ClarityScoutDashboardController.php:252, 2h cached).",
+    "No CDC implications: PeerDB replicates zod.public.* into ClickHouse; the platform schema is not in that set, so scout_check_in_rollups has no downstream CH mirror.",
+    "BLAST RADIUS: new migration under database/migrations/** (sensitive glob) \u2014 but purely ADDITIVE create-table (no alter/drop). Dalton approved building the table as part of 'add the nightly snapshot'.",
+    "CH test fixture helpers (insertHotlist/insertOpenAssignmentAddress/insertScanHot) are duplicated per test class, not a shared trait \u2014 the new test copies them (extracting a trait is optional, out of scope).",
+    "Migration timestamp must be a REAL date not in the future relative to other migrations; use an 2026_08_07 prefix."
+  ],
+  "tests_that_pin_existing_behavior": [
+    {
+      "file": "tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php:875-1260",
+      "what_it_pins": "The ScoutCheckInRollupQuery computation the new command reuses (radius, hour-bucket dedup, kit scoping, non-open exclusion, staging-approval, malformed-geo, short-plate). Must stay green."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php:1-184 (reused as-is; scansTable() hot/cold routing at 162-167; open_hotlists FINAL at 103-109)",
+      "app/Http/Controllers/Api/ClarityScoutDashboardController.php:236-274 (endpoint + range/staging resolution to reuse)",
+      "app/Console/Commands/CloseInactiveShiftsCommand.php (pattern: gate, schedule, CH read + degrade, platform write)",
+      "app/Console/Commands/AggregateGeoHashScanDaily.php (pattern: idempotent upsert + daily schedule)",
+      "routes/console.php:34-53 (where to add the schedule entry)",
+      "app/Http/Middleware/ClarityScoutMiddleware.php:33 (clarity-scout permission)",
+      "app/Providers/PennantServiceProvider.php:42 (CLARITY_SCOUT flag definition)",
+      "app/Models/User.php:137-154 + app/Models/KitSettings.php (User::kit_id via KitSettings)",
+      "app/Models/KitShift.php + database/migrations/2026_05_26_000000_create_kit_shifts_table.php (model+migration convention to mirror)"
+    ],
+    "code_flow": "NEW: schedule (routes/console.php, nightly, flag-gated) -> ScoutAggregateCheckIns::handle() -> enumerate Scout-enabled drivers -> per driver: resolve kit_id, org_id, Org::stagingOrgIds(); ScoutCheckInRollupQuery::query([org_id,kit_id,staging_org_ids,start,end], cache:false) for the prior day -> {direct_bucket, staging_bucket} -> ScoutCheckInRollup upsert on (kit_id, bucket_date). Read path (checkInCounts endpoint) UNCHANGED and still live.",
+    "tables": [
+      "NEW public.scout_check_in_rollups (platform/Postgres)",
+      "clarity.scans_hot/scans_cold, clarity.hotlist, zod.public_hotlist_address, zod.public_address (read via existing query)",
+      "public.approval_list (via Org::stagingOrgIds())"
+    ],
+    "related_components": [
+      "DEV-1756 (built the query+endpoint)",
+      "DEV-2163 (fixed address source)",
+      "CloseInactiveShiftsCommand / AggregateGeoHashScanDaily (mirror patterns)"
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [
+      "NEW scout_check_in_rollups (create)",
+      "approval_list (read via Org::stagingOrgIds())"
+    ],
+    "ch_tables": [
+      "clarity.scans_hot",
+      "clarity.scans_cold",
+      "clarity.hotlist",
+      "zod.public_hotlist_address",
+      "zod.public_address (all READ via existing query)"
+    ],
+    "mv_or_cdc_implications": "None. New platform table is not CDC-replicated. Reuses existing CH read query.",
+    "indexes_relied_on": [
+      "new unique(kit_id,bucket_date) for upsert idempotency",
+      "new index(org_id,bucket_date) for future reads",
+      "existing zod.public_address.id prune inside the query"
+    ]
+  },
+  "derivation_log": [
+    {
+      "query_shape": "git log --all -S + git show --stat f0152f41d + merge-base --is-ancestor 2beaa3698 HEAD",
+      "param_classes": "symbols: fetchCheckInCounts/checkInCounts/check-in-counts",
+      "aggregate_result": "caller added by DEV-1757, removed f0152f41d (2026-06-09), never restored (2beaa3698 = okf doc only). public/build bundles polluted unscoped pickaxe.",
+      "why": "Confirmed orphaned-caller root cause."
+    },
+    {
+      "query_shape": "grep resources/js for check-in callers; grep app/Jobs|Console|Listeners|Observers for check-in writer",
+      "param_classes": "n/a static scan",
+      "aggregate_result": "0 frontend callers; 0 background writers on HEAD.",
+      "why": "Confirmed no save exists and endpoint orphaned."
+    },
+    {
+      "query_shape": "read ScoutCheckInRollupQuery: open_hotlists = clarity.hotlist FINAL WHERE status=Open; scansTable() = hot(<=90d)/cold(>90d)",
+      "param_classes": "org_id,kit_id,staging_org_ids[],start/end UTC",
+      "aggregate_result": "counts join CURRENT-open hotlists (point-in-time lossy on hotlist side); scan side reconstructable via cold.",
+      "why": "Establishes the accuracy rationale for persisting a nightly snapshot."
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "Command persists correct daily counts",
+        "kind": "agent",
+        "intent": "Seed a Scout driver + open hotlist address + nearby scan (direct) and a staged variant; run scout:aggregate-check-ins --date=<day>; assert scout_check_in_rollups rows match expected direct/staging."
+      },
+      {
+        "ac": "Idempotent re-run",
+        "kind": "agent",
+        "intent": "Run the command twice for the same day; assert no duplicate rows and values overwritten."
+      },
+      {
+        "ac": "Non-Scout users skipped; flag gate",
+        "kind": "agent",
+        "intent": "A non-Scout user yields no row; with the flag off the command no-ops."
+      },
+      {
+        "ac": "UI unchanged / hidden",
+        "kind": "human",
+        "intent": "Confirm the Scout PWA still shows no check-in cards (no regression) and no new UI appeared."
+      }
+    ],
+    "seed_scenario": "One Scout-enabled driver (clarity-scout perm + kit via KitSettings + flag) with an open non-staged hotlist + address near a seeded scans_hot row (direct) and an open staged hotlist on an approved staging org + address near another scan (staging), dated to the target day.",
+    "personas": [
+      "Scout driver (clarity_scout kit user)"
+    ],
+    "pg_tables": [
+      "scout_check_in_rollups",
+      "hotlist",
+      "approval_list",
+      "orgs",
+      "kits",
+      "kit_settings",
+      "users"
+    ],
+    "ch_tables": [
+      "scans_hot",
+      "hotlist",
+      "zod.public_hotlist_address",
+      "zod.public_address"
+    ]
+  },
+  "missed_caller_candidates": [],
+  "confidence": 90,
+  "escalate": {
+    "recommend": false,
+    "reason": "Direction + design confirmed with the owner; scope is small, additive, and mirrors two existing scheduled commands. Fact-grounded, no residual material ambiguity."
+  },
+  "oscar_answers": {
+    "scope": "open direct + open staging orders only; historical/HH/AA out of scope; reuse existing address scope",
+    "dedup": "one per (kit,address,hour)",
+    "cadence": "near-real-time ideal else 5-15 min; perf-check decides"
+  }
+}

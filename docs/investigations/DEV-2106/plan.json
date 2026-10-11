@@ -1,0 +1,100 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "useViewport composable",
+      "approach": "New composables/useViewport.js: reactive isCompact via window.matchMedia('(min-width:1024px)'); LG = single tunable constant. Register 'change' listener in onMounted, remove in onUnmounted (mirror useServiceWorkerUpdate.js). isCompact = !mql.matches. Return { isCompact }.",
+      "target_files": ["resources/js/clarity-scout/composables/useViewport.js"],
+      "intended_diffs": "new file ~30 lines",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": null,
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple"
+    },
+    {
+      "id": "t2",
+      "title": "useCollapsible composable",
+      "approach": "New composables/useCollapsible.js: useCollapsible(storageKey, { isCompact }) -> { expanded, toggle }. Read explicit stored '1'/'0'; if present honor it. Else default collapsed when isCompact, expanded otherwise (computed/watch so it tracks isCompact until an explicit choice is made). toggle() flips expanded and persists explicit choice with try/catch (mirror DashboardOverlay layersExpanded).",
+      "target_files": ["resources/js/clarity-scout/composables/useCollapsible.js"],
+      "intended_diffs": "new file ~40 lines",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": null,
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple"
+    },
+    {
+      "id": "t3",
+      "title": "ScoutControlsWidget — collapsible chip + clamped width",
+      "approach": "Use useViewport + useCollapsible('scanner_controls_expanded'). Collapsed (compact) = chip (logo/title + connection dot) with tap affordance; expanded = full card. w-[280px] -> w-[min(280px,calc(100vw-2.5rem))]. Keep existing ResizeObserver publishing --scout-controls-h in both states. Do not alter adminMode hiding.",
+      "target_files": ["resources/js/clarity-scout/components/ScoutControlsWidget.vue"],
+      "intended_diffs": "template chip branch + width class + script composable wiring",
+      "depends_on": ["t1", "t2"],
+      "parallelizable": true,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t4",
+      "title": "DashboardOverlay — Live Hits/Map Layers chips, hide key, toast offset, clamp",
+      "approach": "Live Hits -> useCollapsible('scanner_live_hits_expanded'): collapsed pill (icon + pending-count badge), tap -> full. Hit-markers key -> v-show hidden when isCompact. Map Layers -> full-chip on compact reusing scanner_map_layers_expanded via useCollapsible. Legend -> default-collapsed on compact. Error-toast right offset -> responsive (bind off clamped width, not hardcoded 292px). Clamp 4x w-[280px]. Preserve pointer-events wrappers.",
+      "target_files": ["resources/js/clarity-scout/components/DashboardOverlay.vue"],
+      "intended_diffs": "largest node — multiple template regions + composable wiring + toast offset",
+      "depends_on": ["t1", "t2"],
+      "parallelizable": true,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t5",
+      "title": "App.vue — bottom stat bar collapsible handle (tap-only) + clamp",
+      "approach": "Driver branch bottom bar -> useCollapsible('scanner_bottom_bar_expanded'): collapsed = centered handle/pill (grabber + condensed scans·hits), tap -> full DateRangeControl+MapStatsBar. Remove min-width:380px -> min(380px,calc(100vw-2rem)). Keep My-Location float. Leave adminMode branches (46/50/73/171) untouched.",
+      "target_files": ["resources/js/clarity-scout/App.vue"],
+      "intended_diffs": "bottom-bar region template + width + composable wiring; adminMode branches untouched",
+      "depends_on": ["t1", "t2"],
+      "parallelizable": true,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t6",
+      "title": "BottomSheet — shared width clamp",
+      "approach": "min-width:380px -> min(380px,calc(100vw-2rem)). No behavior change.",
+      "target_files": ["resources/js/clarity-scout/components/BottomSheet.vue"],
+      "intended_diffs": "one style value",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "simple"
+    },
+    {
+      "id": "t7",
+      "title": "MapStatsBar / DateRangeControl — verify shrink-wrap <=375px",
+      "approach": "Verify both reflow without horizontal scroll at 320-375px (they use flex-1 today). Adjust only if QA/inspection shows overflow.",
+      "target_files": ["resources/js/clarity-scout/components/MapStatsBar.vue", "resources/js/clarity-scout/components/DateRangeControl.vue"],
+      "intended_diffs": "verify-only; minimal if any",
+      "depends_on": ["t5"],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "simple"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "DriverSelector.vue w-[280px]", "reason": "admin Org Map — out of scope"},
+    {"site": "DayOverlay/TripOverlay/FloatingStatCard w-[280px] + min-width:380px", "reason": "Day/Trip stat cards — out of scope follow-up"}
+  ],
+  "execution_note": "Single cohesive frontend concern; t3/t4/t5 all import the t1/t2 composables. Implementing sequentially in the run worktree (no per-node worktree fan-out) — disjoint files, shared new modules, single reviewer pass. DAG order: t1+t2 -> t6 -> t3/t4/t5 -> t7."
+}

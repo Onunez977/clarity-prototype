@@ -1,0 +1,14 @@
+{
+  "recalled_at": "2026-07-24",
+  "knowledge_cards": ["clarity/scout.md"],
+  "precedents": [
+    {"key": "DEV-2164", "status": "Done", "age": "~3d", "relevance": "Scout 3-layer audit L9: GET /shift/status lazily creates kit_shifts (side-effecting GET) — the exact behavior DEV-2232 must gate for impersonators", "applicable": true, "why": "Documents the side-effecting status() that materializes shifts; DEV-2232 blocks that side-effect when the caller is a force-login impersonator."},
+    {"key": "DEV-2168", "status": "Done", "age": "~15d", "relevance": "H5: force-login mints Sanctum token — the impersonator identity DEV-2232 detects", "applicable": true, "why": "Establishes the force-login token; DEV-2232 uses the clarity-scout-force ability marker (via isScoutForceImpersonator) to gate shift opening."},
+    {"key": "DEV-2199", "status": "QA Ready", "age": "~1d", "relevance": "adminMode impersonation gating pattern on shared Scout layer", "applicable": false, "why": "Feature-scoped (map layers); pattern context only, orthogonal to shift blocking."},
+    {"key": "DEV-1788", "status": "Done", "age": "~24d", "relevance": "End-of-Shift Summary — shift lifecycle context", "applicable": false, "why": "Lifecycle context only; does not touch impersonation or EnsureOpenShift."}
+  ],
+  "memory_notes": [
+    "scout-shift-gate-reads-postgres-scans: shift auto-opens on recent zod.scans (Postgres), not ClickHouse — QA must seed Postgres scans to trigger auto-start",
+    "scout-adminmode-fetch-leak: adminMode gating patterns for driver fetches in the shared SPA"
+  ]
+}

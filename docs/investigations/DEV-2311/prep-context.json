@@ -1,0 +1,183 @@
+{
+  "key": "DEV-2311",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "synthesis": "Scout's admin \"Bird's Eye\" org-map briefly shows the \"No kits are reporting GPS locations\" notice (a dismissible centered card + a persistent bottom amber pill) immediately on page load, then hides it once drivers' GPS positions arrive. This is a mount-order race, not a real empty state: App.vue's `noKitsReporting` computed keys off drivers.length>0, zero real-GPS driverPositions, and scans_today>0 \u2014 with NO notion of whether the initial driver-positions fetch has resolved yet. During the window where roster+stats have loaded but the (heavier) positions fetch hasn't, `driverPositions=[]` reads as 'genuinely empty' rather than 'not fetched yet'. Fix: add a `positionsLoaded` flag to the map store that flips true after the first fetchDriverPositions attempt, gate the notice on it, and show a spinner in the meantime.",
+  "scope": {
+    "summary": "Add positionsLoaded flag in stores/map.js (flip true after first fetchDriverPositions attempt, success or failure), gate noKitsReporting on it in App.vue so the notice cannot fire before the initial GPS fetch resolves, and render a small spinner (reusing the existing animate-spin inline-SVG convention) during the admin Live-mode initial-load window.",
+    "proposed_changes": [
+      {
+        "file": "resources/js/clarity-scout/stores/map.js",
+        "change": "Add `const positionsLoaded = ref(false)` near drivers/driverPositions (~159-160); in fetchDriverPositions() set `positionsLoaded.value = true` after the try/catch, before `return driverPositions.value` (~959); export positionsLoaded in the store return object (~1072).",
+        "reason": "Provides a definitive 'initial GPS-positions fetch has resolved' signal that App.vue currently lacks \u2014 [] is ambiguous between not-fetched and genuinely-empty.",
+        "ref": "resources/js/clarity-scout/stores/map.js:158-160,950-960,1072"
+      },
+      {
+        "file": "resources/js/clarity-scout/App.vue",
+        "change": "Add `&& mapStore.positionsLoaded` to the noKitsReporting computed (351-357); add a spinner block gated on `mapStore.adminMode && mapStore.liveMode && !mapStore.positionsLoaded` in the same centered overlay position as the notice card, using the existing animate-spin inline-SVG pattern.",
+        "reason": "Closes the race (notice cannot render before the first positions fetch lands) and replaces the flash with a spinner per the ticket ask. Both render sites (card:38, pill:90) share the one computed, so gating the computed fixes both.",
+        "ref": "resources/js/clarity-scout/App.vue:38-57,90-99,351-357"
+      }
+    ],
+    "target_files": [
+      "resources/js/clarity-scout/stores/map.js",
+      "resources/js/clarity-scout/App.vue"
+    ],
+    "out_of_scope": [
+      "Bottom pill + centered card both read the same noKitsReporting computed \u2014 one computed-level gate fixes both.",
+      "DashboardOverlay.vue:91 'No live hits pending repossession.' has the same premature-empty-state class but is a distinct element not named in this ticket.",
+      "Driver (non-admin) surface \u2014 both the notice and new spinner are gated on adminMode (only true when window.__CLARITY_SCOUT_CONFIG__.birdsEye===true), so driver is unaffected by design.",
+      "Backend/API/query/schema \u2014 none; purely client-side load-sequencing.",
+      "Optimizing the driver-positions endpoint latency (DEV-2253 two-tier query) \u2014 not asked; fix is about not flashing a wrong empty state while it's in flight."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "The 'No kits are reporting GPS locations' notice (centered card + bottom pill) must not appear before the initial driver-positions fetch has resolved at least once.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Directly addresses the reported symptom (mount-order race)."
+    },
+    {
+      "item": "During the initial load window (admin, Live mode, positions not yet loaded), show a spinner instead of the empty state.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Explicitly requested: 'Can we have a spinner loader for the initial load.'"
+    },
+    {
+      "item": "Once the initial load completes, the notice still shows when genuinely 0 real-GPS kits + active-today org + admin Live mode (DEV-2197/DEV-2253 behavior preserved).",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Only the timing gate changes, not the notice's logic."
+    },
+    {
+      "item": "Driver (non-admin) Scout view is unaffected \u2014 neither notice nor spinner renders there.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Shared App.vue; both gates key off adminMode which is false for drivers."
+    }
+  ],
+  "questions": [
+    {
+      "q": "Should positionsLoaded flip true even if the fetch throws (network error), or only on success?",
+      "answered": true,
+      "answer": "True even on failure \u2014 set it unconditionally after the try/catch, mirroring how fetchDriverPositions already swallows errors and returns current value. Otherwise a transient error leaves the spinner spinning forever.",
+      "source": "code"
+    },
+    {
+      "q": "Exact spinner copy and placement \u2014 e.g. a 'Loading kits\u2026' label vs. bare spinner, centered card position vs. a corner pill?",
+      "answered": true,
+      "answer": "Bare centered spinner \u2014 the animate-spin inline-SVG centered on the map, no card and no text label.",
+      "source": "human:Dalton 2026-08-10"
+    },
+    {
+      "q": "Should the spinner eventually time out and fall back to showing the map plainly if positions never load (persistent backend outage), or spin indefinitely?",
+      "answered": true,
+      "answer": "No explicit timeout \u2014 rely on the first fetchDriverPositions resolving (positionsLoaded flips on success OR caught error) to clear the spinner. No hard timer.",
+      "source": "human:Dalton 2026-08-10"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "No JS test runner exists for clarity-scout (no *.test.js/*.spec.js, no vitest/jest config) \u2014 verification is `npm run build` + agent/human browser QA, per prior Scout convention.",
+    "public/build is committed (platform convention) \u2014 App.vue/map.js changes need `npm run build` and rebuilt assets committed alongside source.",
+    "Race is reproducible in normal conditions: useBirdsEyePolling awaits fetchDrivers() fully before starting fetchDriverPositions() (sequential), while ScoutHome's parallel dashboard.fetchAll() (lighter stats query) frequently wins.",
+    "Reuse existing inline-SVG animate-spin spinner convention (no shared Spinner.vue in clarity-scout).",
+    "Keep comments sparse/decision-justifying per repo + Dalton convention."
+  ],
+  "tests": [],
+  "grounding": {
+    "key_files": [
+      "resources/js/clarity-scout/App.vue:38-57",
+      "resources/js/clarity-scout/App.vue:90-99",
+      "resources/js/clarity-scout/App.vue:351-357",
+      "resources/js/clarity-scout/stores/map.js:158-160",
+      "resources/js/clarity-scout/stores/map.js:950-960",
+      "resources/js/clarity-scout/stores/map.js:1072",
+      "resources/js/clarity-scout/composables/useBirdsEyePolling.js:68-80",
+      "resources/js/clarity-scout/components/ScannerMap.vue:301"
+    ],
+    "code_flow": "App.vue mounts \u2192 useBirdsEyePolling.onMounted (fetchDrivers awaited, THEN Promise.all(fetchDriverPositions, fetchDriverPaths)) races with ScoutHome.onMounted dashboard.fetchAll() (lighter stats). noKitsReporting recomputes on every reactive change and currently renders during the pre-first-positions window. Adding positionsLoaded (set inside fetchDriverPositions, hit by all 3 callers) gives the missing gate.",
+    "tables": [],
+    "related_components": [
+      "stores/map.js (drivers, driverPositions, adminMode, liveMode)",
+      "stores/dashboard.js (statsByRange)",
+      "composables/useBirdsEyePolling.js (admin 10s poll)",
+      "App.vue (shared root, admin+driver)",
+      "components/ScannerMap.vue (also calls fetchDriverPositions on mount in admin)"
+    ]
+  },
+  "exhaustiveness": {
+    "patterns_used": [
+      "git grep noKitsReporting / 'Reporting GPS' / 'No kits'",
+      "git grep positionsLoaded (confirmed new)",
+      "git grep fetchDriverPositions callers"
+    ],
+    "sites": [
+      {
+        "site": "App.vue:38 (centered dismissible card)",
+        "verdict": "buggy",
+        "reason": "Renders on stale noKitsReporting before first positions fetch resolves."
+      },
+      {
+        "site": "App.vue:90 (bottom amber pill)",
+        "verdict": "buggy",
+        "reason": "Same computed, same race; fixed by the same computed-level gate."
+      },
+      {
+        "site": "DashboardOverlay.vue:91 ('No live hits pending repossession.')",
+        "verdict": "safe",
+        "reason": "Same premature-empty-state class but a distinct element not named in this ticket \u2014 flagged, out of scope."
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [],
+    "ch_tables": [],
+    "mv_or_cdc_implications": "none \u2014 purely client-side",
+    "indexes_relied_on": []
+  },
+  "derivation_log": [],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC-1 no premature notice",
+        "kind": "agent",
+        "intent": "Confirm positionsLoaded starts false and notice/pill v-if include it; throttle /map/driver-positions to confirm notice doesn't render before response completes."
+      },
+      {
+        "ac": "AC-2 spinner during load",
+        "kind": "agent",
+        "intent": "Confirm spinner renders when adminMode && liveMode && !positionsLoaded and disappears once positions resolve."
+      },
+      {
+        "ac": "AC-3 notice still fires when genuinely empty",
+        "kind": "human",
+        "intent": "Real/seeded org with active-today scans but zero real GPS kits \u2192 notice still appears after initial load."
+      },
+      {
+        "ac": "AC-4 driver unaffected",
+        "kind": "agent",
+        "intent": "Load driver (non-admin) Scout view \u2192 neither notice nor spinner renders."
+      }
+    ],
+    "seed_scenario": "Org with >=1 kit that scanned today (scans_today>0, roster non-empty) but whose GPS feed is slow/empty on load. Seed today's zod.scans activity; control /map/driver-positions timing (throttle) to observe the flash.",
+    "personas": [
+      "Org admin viewing Bird's Eye \u2014 the only surface where notice/spinner render"
+    ],
+    "pg_tables": [
+      "zod.scans (scans_today stat)",
+      "zod.kits / kit_settings (roster via /drivers)"
+    ],
+    "ch_tables": [
+      "clarity.sc_positions (real GPS)",
+      "clarity.kit_scan_paths (tier-2 rescue)"
+    ]
+  },
+  "confidence": 88,
+  "escalate": {
+    "recommend": false,
+    "reason": "Single well-grounded frontend load-order race; minimal isolated fix; no backend/schema/blast-radius. Open questions are UI-polish decisions for the human, not scope ambiguity."
+  },
+  "missed_caller_candidates": []
+}

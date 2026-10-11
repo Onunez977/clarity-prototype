@@ -1,0 +1,571 @@
+{
+  "key": "DEV-2448",
+  "gate": "CLEAN",
+  "mode": "normal",
+  "reconcile": {
+    "candidates": 3,
+    "plus_fast_pass": true,
+    "method": "insightlpr:multi-candidate-merge \u2014 union additive content deduped; agreement = settled; disagreement \u2192 explicit open question, never silently picked. Two exceptions, both settled by DRIVER-RUN LIVE MEASUREMENT rather than by vote, because grounded beats confident: the last-scan source (D1 mechanism) and the meaning of 'GL kit' (D7). Every product/ownership decision remains an open question.",
+    "driver_note": "The driver (opus) held decisive evidence no candidate had: read-only measurements against production ClickHouse Cloud. Those measurements REFUTED the last-scan design that all three candidates independently proposed."
+  },
+  "synthesis": "Add a read-only Clarity page listing an organization's GL kits (kits, not the driver-assignment 'Scout Users' view) with Kit, Company owner, and Last scan received, plus a boolean for whether that kit's scanner reported GPS to clarity.sc_positions in the last 14 days. The boolean exists because the sc_positions feed going dark silently breaks Scout's live map with no operator-facing signal (DEV-2197). DEV-2447 is the Backyard/staff cross-company counterpart (no shared spec); DEV-2450 (Kit Path Map) is a downstream consumer already blocked on this, which argues for exposing the two enrichment lookups as reusable query classes rather than burying them in one Resource's closures.",
+  "scope": {
+    "summary": "New read-only Filament Resource in the `app` (admin) panel, model App\\Models\\Kit, scoped to the authenticated org's kit_type=1 kits. Two batched, per-render-memoized ClickHouse lookups supply the data columns: last-scan from zod.kit_last_scan keyed by kit_id, and the 14-day reporting boolean from clarity.sc_positions keyed by lower(kit_mapping). No per-row queries.",
+    "proposed_changes": [
+      {
+        "file": "app/Filament/Resources/GlKitsResource.php",
+        "change": "New read-only Resource (canCreate/canEdit/canDelete = false). getEloquentQuery(): ->where('org_id', auth()->user()->org_id)->where('kit_type', KitType::GENETEC->value)->excludingDeleted(). Columns: name (Kit), org.name (Company owner, eager-loaded), last scan (TextColumn + getStateUsing off a memoized batch map), reporting-14d (IconColumn::boolean off a memoized batch map). navigationGroup 'Reports' (ASSUMED \u2014 cosmetic).",
+        "reason": "Mirrors the established org-scoping + soft-delete-exclusion convention.",
+        "ref": "app/Filament/Resources/ScoutUsersResource.php:518-522"
+      },
+      {
+        "file": "app/Filament/Resources/GlKitsResource/Pages/ListGlKits.php",
+        "change": "Index page only.",
+        "reason": "Standard Resource page split; every sibling list resource has this shape.",
+        "ref": "app/Filament/Resources/ScoutUsersResource/Pages/ListScoutUsers.php"
+      },
+      {
+        "file": "app/Clickhouse/Queries/OrgKitLastScanQuery.php",
+        "change": "New batched ClickhouseQuery over zod.kit_last_scan: WHERE org_id = <org> AND kit_id IN (<org's GL kit ids resolved from PostgreSQL>) GROUP BY kit_id, SELECT max(last_scan). Returns kit_id => last_scan. PENDING Q1 (source approval).",
+        "reason": "MEASURED at 0.23s / 18,557 rows / 0.25 MB for the worst-case org, vs 1.61s / 2.16B rows / 9,586 MB for the clarity.scans_cold alternative. The org_id predicate matches the table's leading sort key so it prunes; the PostgreSQL-derived kit_id IN-list is what makes tenancy authoritative (see notes: the MV retains stale org_id rows).",
+        "ref": "database/schema/clickhouse-schema.sql:23,113 (definition); driver measurement in derivation_log"
+      },
+      {
+        "file": "app/Clickhouse/Queries/OrgKitReportingStatusQuery.php  \u2014 OR reuse OrgLivePositionsQuery as-is",
+        "change": "Batched sc_positions read: SELECT lower(kit_mapping), max(timestamp_utc) WHERE timestamp_utc >= <14d UTC cutoff> AND lower(kit_mapping) IN (<org's GL mappings, lowercased>) GROUP BY lower(kit_mapping). Either a new lean class (measured 0.20s / 167 MB) or OrgLivePositionsQuery unchanged with cutoff=14d (measured 0.31s / 209 MB \u2014 it also computes 5 argMax columns this feature does not need). Both hit DEV-2381's projection (EXPLAIN confirms proj_kit_mapping_lc, 13/42128 granules).",
+        "reason": "A lean dedicated class costs ~110ms/42MB less per load and lets the docblock state the reporting-status intent instead of overloading the Scout live-dots contract that DEV-2450 will also read. Reuse is the smaller diff. Not material \u2014 driver will pick lean-new unless the plan phase says otherwise.",
+        "ref": "app/Clickhouse/Queries/OrgLivePositionsQuery.php:27-63"
+      },
+      {
+        "file": "app/Providers/FilamentServiceProvider.php",
+        "change": "CONDITIONAL: if the list carries any table filters, add ListGlKits to $filterableResources.",
+        "reason": "Every existing app-panel List page is registered there for the sidebar-filter render hooks; omitting it makes filters invisible. Found by the grep backstop, absent from every candidate's inventory.",
+        "ref": "app/Providers/FilamentServiceProvider.php:108-120"
+      },
+      {
+        "file": "tests/Filament/Resources/GlKitsResourceTest.php",
+        "change": "New resource test.",
+        "reason": "Repo convention (Tests\\ResourceTestCase + Livewire::test + assertCanSeeTableRecords).",
+        "ref": "tests/Filament/Resources/ScoutUsersResourceTest.php"
+      },
+      {
+        "file": "tests/Unit/Clickhouse/Queries/OrgKitLastScanQueryTest.php",
+        "change": "New unit test for the batched last-scan query.",
+        "reason": "Every ClickhouseQuery class has a sibling unit test.",
+        "ref": "tests/Unit/Clickhouse/Queries/OrgLivePositionsQueryTest.php"
+      }
+    ],
+    "target_files": [
+      "app/Filament/Resources/GlKitsResource.php",
+      "app/Filament/Resources/GlKitsResource/Pages/ListGlKits.php",
+      "app/Clickhouse/Queries/OrgKitLastScanQuery.php",
+      "app/Clickhouse/Queries/OrgKitReportingStatusQuery.php",
+      "app/Providers/FilamentServiceProvider.php",
+      "tests/Filament/Resources/GlKitsResourceTest.php",
+      "tests/Unit/Clickhouse/Queries/OrgKitLastScanQueryTest.php",
+      "tests/Unit/Clickhouse/Queries/OrgKitReportingStatusQueryTest.php"
+    ],
+    "out_of_scope": [
+      "DEV-2447 (Backyard counterpart) \u2014 separate repo, no shared spec; do not assume column parity.",
+      "DEV-2450 (Kit Path Map enrichment) \u2014 explicitly downstream per the ticket's only comment.",
+      "Create/edit/delete of kits from this page \u2014 no AC asks for mutation.",
+      "Any DDL change to clarity.sc_positions, clarity.scans_*, or zod.kit_last_scan \u2014 platform is SELECT-only on ClickHouse; zod.* is chlocal-owned.",
+      "FIXING the two wiki/schema defects found during prep (see wiki_queue) \u2014 CLAUDE.md forbids okf/ writes before approval, and the schema-dump fix is a separate concern with far wider blast radius than this ticket.",
+      "Client portal (/client) surfacing \u2014 no kit concept there."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Clarity has a GL kits list (kits only \u2014 not kit users)",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "New Resource filtered to kit_type=1, with none of ScoutUsersResource's driver/vehicle/zone columns."
+    },
+    {
+      "item": "Columns include Kit, Company owner, and Last scan received",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "kits.name, kits.org->name, and the batched zod.kit_last_scan lookup. NOTE: 'Company owner' is a constant column under the owned-only reading \u2014 see Q4."
+    },
+    {
+      "item": "Each Clarity company has its own GL kits page scoped to that company",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Satisfied by the app panel's existing per-authenticated-user org scoping; verified no Filament tenancy is configured (App.php has no ->tenant()), scoping is manual per resource."
+    },
+    {
+      "item": "Boolean indicates whether the GL reported to SC_POSITIONS within the last 2 weeks",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Batched lower(kit_mapping) sc_positions read with a 14-day UTC cutoff; presence => reporting."
+    },
+    {
+      "item": "List remains usable when a kit has no scans or no recent SC_POSITIONS data",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Both lookups are keyed maps; an absent key renders a placeholder / false rather than erroring. MEASURED: this is the COMMON case, not an edge case \u2014 only 1,019 of 3,535 GL kits scanned in the last 14 days, and only ~21% of GL kits have EVER appeared in sc_positions."
+    },
+    {
+      "item": "A ClickHouse read failure is visually distinct from a confirmed 'not reporting'",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Q2 answered (Dalton, 2026-08-31): render an explicit 'unknown' state distinct from a confirmed 'not reporting'. Call ::handle() in our own try/catch, not ::query()."
+    }
+  ],
+  "questions": [
+    {
+      "id": "Q1",
+      "q": "Adopt zod.kit_last_scan (a chlocal/CDC-owned ClickHouse table with ZERO current app consumers) as the 'Last scan received' source? Measured: exact and real-time (1,571/1,571 active kits agree with the scan mirror to within 1s, p99 delta 0s), and 38,000x cheaper than the alternative (0.25 MB vs 9,586 MB read per page load). The cost is a NEW cross-repo coupling: if chlocal drops or reshapes that MV, this column silently renders 'no scans' because ClickhouseQuery swallows the error. Alternative is clarity.scans_cold, which MEASURED a full 2.16B-row / 8-9 GB scan even for a single kit_id.",
+      "answered": true,
+      "answer": "ADOPT zod.kit_last_scan. Read it with max(last_scan) GROUP BY kit_id (it is a ReplacingMergeTree and was observed un-merged), keep an org_id predicate for sort-key pruning, and resolve the kit_id IN-list from PostgreSQL so tenancy never depends on the MV's stale org rows. Rejected: scans_cold unbounded (9,586 MB/load) and scans_cold+90d (prunes to 179 MB but blanks 'Last scan received' for 1,667 of 2,993 GL kits that have scans). Follow-up: tell chlocal that platform is now a consumer of zod.kit_last_scan.",
+      "source": "human:Dalton 2026-08-31",
+      "materiality": "material",
+      "recommendation": "Adopt zod.kit_last_scan. The measured cost difference is not close, and the coupling risk is manageable (it is a read; the failure mode is a blank column, not corruption). Recommend pairing it with a note to chlocal that platform now consumes the table."
+    },
+    {
+      "id": "Q2",
+      "q": "When the ClickHouse read FAILS, should the reporting boolean render an explicit third 'unknown' state, or collapse to 'not reporting' like every existing sc_positions consumer? ClickhouseQuery::query() swallows Throwable and returns [] on production, so a CH outage is indistinguishable from a dark kit.",
+      "answered": true,
+      "answer": "Render an explicit 'unknown' third state. Implement by calling ::handle() inside our own try/catch (the ClarityScoutMapController::kitPosition pattern) rather than ::query().",
+      "source": "human:Dalton 2026-08-31",
+      "materiality": "material",
+      "recommendation": "Render an explicit 'unknown'. This column's ONLY purpose is fleet-health alerting, and I measured that ~47% of actively-scanning GL kits legitimately do not report (539 of 1,019). Operators therefore have no baseline against which an all-false page would look wrong \u2014 an outage would read as normal. Implement by calling ::handle() inside our own try/catch (the pattern ClarityScoutMapController::kitPosition already uses) rather than ::query()."
+    },
+    {
+      "id": "Q3",
+      "q": "How should access be gated? No PermissionEnum case fits, and PermissionEnum lives in the external insight-lpr/black-adam package, so the Reports-group `Reports_View_*` convention would need a black-adam release + composer bump (a cross-repo change this repo cannot ship alone). Role-only gating (RoleEnum::ADMIN, as ScoutUsersResource does) avoids that but diverges from the Reports convention.",
+      "answered": true,
+      "answer": "RoleEnum::ADMIN for v1, matching ScoutUsersResource. No black-adam PermissionEnum case; note the granular-permission follow-up in the PR rather than auto-creating a ticket.",
+      "source": "human:Dalton 2026-08-31",
+      "materiality": "material",
+      "recommendation": "Role-only (RoleEnum::ADMIN) for v1, matching ScoutUsersResource, and open a follow-up if the granular permission is wanted. Confirm whether this should be visible to all org admins or restricted further."
+    },
+    {
+      "id": "Q4",
+      "q": "Should the list include kits SHARED into the viewing org (via the Shared pivot), and if so does 'Company owner' show the true owning org? Under the owned-only reading, 'Company owner' is a CONSTANT column \u2014 always the viewer's own org name \u2014 which makes a ticket-mandated column near-useless. That is itself a signal the reporter may have pictured either the cross-company Backyard view (DEV-2447) or a list that includes shared kits.",
+      "answered": true,
+      "answer": "Owned-only: org_id = the viewing org, and 'Company owner' therefore renders that org's own name (a constant column, accepted deliberately). Do NOT include kits shared in via the Shared pivot.",
+      "source": "human:Dalton 2026-08-31",
+      "materiality": "material",
+      "recommendation": "Worth taking back to Jeffrey Cobb rather than guessing: all four prep passes independently flagged it, and it changes both the query and the point of a required column. Safe default if forced: owned-only, matching every existing kit-listing resource."
+    },
+    {
+      "id": "Q5",
+      "q": "Does 'GL kits' mean kits.kit_type = 1?",
+      "answered": true,
+      "answer": "YES, but NOT for the reason the wiki gives. okf/concepts/kit.md claims kit_type=1 kits' names 'usually start with GL' \u2014 MEASURED FALSE: only 2 of 3,535 kit_type=1 kits have a name starting with 'GL', and 13 kit_type=2 kits do. The filter is right on much stronger evidence: kit_type=1 is the ONLY kit type that appears in clarity.sc_positions at all (all 540 kits reporting in the last 14 days are kit_type=1, zero of the other 13 types), and 'GL Number' is already this app's UI label for kits.kit_mapping (ScoutUsersResource.php:75,222) \u2014 the field sc_positions is keyed by. Filter on KitType::GENETEC->value, never a name LIKE 'GL%' pattern.",
+      "source": "code+data"
+    },
+    {
+      "id": "Q6",
+      "q": "Is the 14-day window UTC or the viewer's timezone?",
+      "answered": true,
+      "answer": "UTC. sc_positions.timestamp_utc is UTC and every existing reader builds its cutoff with now()->utc() regardless of APP_TIMEZONE. At a 14-day grain the known legacy-timezone-alias hazard (a 5-6h shift) is under 2% of the window and cannot flip a correct answer to an incorrect one at any realistic boundary.",
+      "source": "code"
+    },
+    {
+      "id": "Q7",
+      "q": "Should 'last scan received' count scans hidden by the ShowVisibleScan scope?",
+      "answered": true,
+      "answer": "YES \u2014 all visibilities. zod.kit_last_scan_mv filters only on _peerdb_is_deleted, with no is_visible predicate, so the measured-exact source already counts every received scan. This also matches the AC's wording: a scan being RECEIVED is a different fact from whether it is DISPLAYED. Flagged in notes so it is visible and challengeable rather than silently assumed.",
+      "source": "code+data"
+    },
+    {
+      "id": "Q8",
+      "q": "Is 'each Clarity company needs its own page' asking for a new per-org mechanism?",
+      "answered": true,
+      "answer": "No. The app panel configures NO Filament tenancy (App.php has ->id('app')/->path('app') and no ->tenant()); org scoping is manual per resource via ->where('org_id', auth()->user()->org_id). Since an admin belongs to exactly one org, a plain Resource gives every company its own scoped page. The cross-company staff view is DEV-2447's job in Backyard.",
+      "source": "code"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "TENANCY TRAP in zod.kit_last_scan: its sort key is (org_id, kit_id), so ReplacingMergeTree dedups only WITHIN an org. MEASURED: 275 of 4,755 kits appear under MORE THAN ONE org_id (worst case 3). A design that filtered only by org_id would show an org a kit it no longer owns, with a frozen timestamp. MUST resolve the org's kit ids from PostgreSQL (source of truth) and use them as the kit_id IN-list; keep the org_id predicate only for sort-key pruning. Known residual: a kit that moved INTO this org and has not scanned since the move has its row only under the old org_id, so it renders 'no scans' until its next scan \u2014 acceptable, and it fails safe (no cross-tenant leak).",
+    "zod.kit_last_scan is a ReplacingMergeTree and is NOT reliably merged: the driver observed 7,405 rows / 4,755 kits at one moment and 5,042 rows / 5,042 distinct keys minutes later. Reads MUST use max(last_scan) GROUP BY (or FINAL) \u2014 never a bare SELECT. This is the same class as the recorded 'CH models do not boot ApplyFinal' trap.",
+    "COMMITTED SCHEMA DUMP IS WRONG, and it misled all three candidates. database/schema/clickhouse-schema.sql:167,169 claims clarity.scans_cold/scans_hot are ORDER BY (kit_id, scanned_at, id). LIVE PRODUCTION (system.tables) is ORDER BY (org_id, scanned_at, kit_id, id), partitioned on scanned_at. kit_id is the THIRD key column, so WHERE kit_id = ? cannot prune \u2014 which is exactly the measured full 2.16B-row scan. Candidate 3 read CloseInactiveShiftsCommand's docblock (which states the correct live key) and concluded the DOCBLOCK was stale; it is the dump that is stale. Queued for the post-approval pass \u2014 the fix is wider than this ticket.",
+    "DEV-2381's projection is confirmed working: EXPLAIN indexes=1 shows ReadFromMergeTree (proj_kit_mapping_lc) reading 13 of 42,128 granules for the 14-day lower(kit_mapping) query. No query rewrite needed to benefit.",
+    "All 9 existing clarity.sc_positions readers already wrap both sides of the kit_mapping comparison in lower() \u2014 the case-mismatch defect exists nowhere in the codebase to replicate. Clean idiom to copy.",
+    "PRODUCT CONTEXT worth surfacing to the reporter: the boolean will read FALSE for roughly half of actively-scanning GL kits. Measured: 1,019 GL kits scanned in the last 14 days, of which 539 (52.9%) reported to sc_positions; over 30 days, 539 of 1,115 (48.3%). Only ~21% of all GL kits (755 distinct mappings vs 3,535 kits) have EVER appeared in sc_positions. If Jeffrey expected a mostly-green page, the definition or the population is not what he pictured.",
+    "Batched lookups must be memoized per render, not computed per row. The exact existing idiom is once() + a static batch method feeding row-level getStateUsing() closures (UsersResource::scoutEnabledUserIds, app/Filament/Resources/UsersResource.php:243-259). Note also that the shared DateTimeColumn reads its value off the Eloquent attribute rather than getStateUsing(), so a cross-connection computed value needs a plain TextColumn or an attribute hydrated onto the record.",
+    "The Phase 3.5 CH-at-scale perf gate does NOT trigger: it applies to >1B-row surfaces, and clarity.sc_positions MEASURED 344,736,296 rows (~345M), retaining roughly 4 months. The chosen approach was nonetheless measured end to end anyway (see resource_envelope).",
+    "Kit (zod connection) and KitSettings (platform connection) are cross-connection \u2014 whereHas('settings') silently returns 0. This feature needs no KitSettings data, so the trap is avoided by scope, not by handling.",
+    "Run vendor/bin/pint --dirty --format agent before finishing; follow okf/concepts/laravel-boost-guidelines.md for the new query classes (constructor promotion, explicit return types, array-shape PHPDoc, minimal comments)."
+  ],
+  "wiki_queue": [
+    "okf/concepts/kit.md + okf/concepts/filament-conventions.md both cite app/Filament/Resources/KitUsersResource.php, which does not exist on main (closest sibling is ScoutUsersResource.php).",
+    "okf/concepts/kit.md's 'kit_type=1 names usually start with GL' is empirically false (2 of 3,535). Replace with the real discriminator: kit_type=1 is the only type present in clarity.sc_positions, and 'GL Number' is the UI label for kits.kit_mapping.",
+    "okf/concepts/kit.md's 'Ownership is fixed: a kit cannot transfer ownership' is contradicted by the CDC-derived data \u2014 275 kits carry rows under multiple org_ids in zod.kit_last_scan.",
+    "database/schema/clickhouse-schema.sql misstates the sort key of clarity.scans_cold and scans_hot (see notes). This one is code, not wiki, and wider than this ticket \u2014 worth its own ticket.",
+    "Document zod.kit_last_scan (+ its MV) if Q1 adopts it \u2014 currently undocumented in okf/ and unreferenced by any app code."
+  ],
+  "tests": [
+    {
+      "file": "tests/Filament/Resources/GlKitsResourceTest.php",
+      "what_it_pins": "index renders; only kit_type=1 kits appear (a kit_type=2 kit in the same org is excluded); another org's GL kit is never visible; soft-deleted kits excluded; a kit with no scans and no sc_positions rows renders placeholders without erroring"
+    },
+    {
+      "file": "tests/Filament/Resources/GlKitsResourceTest.php (CH-failure case)",
+      "what_it_pins": "PENDING Q2 \u2014 with a dead-port ClickHouse connection, the reporting column renders the agreed failure state (unknown vs false). Pattern: driver=clickhouse + 127.0.0.1:1 + DB::purge."
+    },
+    {
+      "file": "tests/Unit/Clickhouse/Queries/OrgKitLastScanQueryTest.php",
+      "what_it_pins": "max(last_scan) GROUP BY kit_id returns one row per kit; duplicate rows for the same kit collapse to the newest (the un-merged ReplacingMergeTree case); a kit with no row is absent rather than zero-valued; a kit_id from another org is never returned"
+    },
+    {
+      "file": "tests/Unit/Clickhouse/Queries/OrgKitReportingStatusQueryTest.php",
+      "what_it_pins": "the 14-day boundary includes 13-days-ago and excludes 15-days-ago; an UPPERCASE kit_mapping still matches (case-mismatch regression guard); an empty mapping list short-circuits without querying"
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Models/Kit.php \u2014 zod-connection Kit model; kit_type/org_id/kit_mapping; scopeForOrg, scopeExcludingDeleted",
+      "vendor/insight-lpr/black-adam/src/Enum/KitType.php:16 \u2014 case GENETEC = 1 ('Genetec Mobile'); 14 types exist, so kit_type=1 is a real discriminator not a convention",
+      "app/Filament/Resources/ScoutUsersResource.php:518-522 \u2014 the org-scope + excludingDeleted pattern; :75,:222 label kit_mapping as 'GL Number'",
+      "app/Providers/Filament/App.php:27-30 \u2014 no ->tenant(); org scoping is manual per resource",
+      "app/Providers/FilamentServiceProvider.php:108-120 \u2014 $filterableResources, the sidebar-filter registration every List page needs",
+      "app/Clickhouse/Queries/OrgLivePositionsQuery.php:27-63 \u2014 the batched lower(kit_mapping) + cutoff shape (reuse candidate)",
+      "app/Clickhouse/Queries/ClickhouseQuery.php:33-36 \u2014 swallows Throwable to [] on production|testing (load-bearing for Q2)",
+      "app/Filament/Resources/UsersResource.php:243-259 \u2014 the once()-memoized batch + getStateUsing idiom to copy",
+      "app/Filament/Resources/ScansResource/Pages/ListScans.php:329 \u2014 withoutGlobalScope(ScanTimezoneScope::class) precedent (not needed: this design never queries PostgreSQL scans)",
+      "database/schema/clickhouse-schema.sql:23,113 \u2014 zod.kit_last_scan + kit_last_scan_mv definitions; :149 sc_positions with proj_kit_mapping_lc; :167,169 the STALE scans_cold/hot sort keys"
+    ],
+    "code_flow": "app-panel request (admin belongs to exactly one org) -> GlKitsResource::getEloquentQuery() reads PostgreSQL zod.kits scoped org_id + kit_type=1 + excludingDeleted (this is the tenancy boundary and the source of truth) -> on render, two once()-memoized batch calls: (1) OrgKitLastScanQuery over zod.kit_last_scan, org_id predicate for pruning + PostgreSQL-derived kit_id IN-list for authority, max(last_scan) GROUP BY kit_id; (2) OrgKitReportingStatusQuery over clarity.sc_positions, lower(kit_mapping) IN-list + 14-day UTC cutoff, GROUP BY lower(kit_mapping) -> row closures do O(1) array lookups into both maps.",
+    "tables": [
+      "zod.public.kits (PostgreSQL \u2014 roster + tenancy, source of truth)",
+      "zod.public.orgs (PostgreSQL \u2014 company name)",
+      "platform.kit_metadata (PostgreSQL \u2014 excludingDeleted join)",
+      "zod.kit_last_scan (ClickHouse \u2014 last-scan source, PENDING Q1)",
+      "clarity.sc_positions (ClickHouse \u2014 14-day reporting boolean)"
+    ],
+    "related_components": [
+      "App\\Clickhouse\\Queries\\OrgLivePositionsQuery",
+      "App\\Clickhouse\\Queries\\ClickhouseQuery (base)",
+      "App\\Filament\\Resources\\ScoutUsersResource (sibling pattern, NOT the same concept)",
+      "App\\Providers\\FilamentServiceProvider",
+      "InsightLPR\\BlackAdam\\Enum\\KitType / RoleEnum / PermissionEnum"
+    ]
+  },
+  "exhaustiveness": {
+    "idioms": [
+      "reader of clarity.sc_positions keyed by lower(kit_mapping)",
+      "per-kit last-scan aggregate",
+      "org-scoped Filament kit listing"
+    ],
+    "grep_patterns": [
+      "rg -n 'sc_positions' app/",
+      "rg -n 'kit_last_scan' app/ tests/ config/",
+      "rg -n 'kit_type' app/ database/",
+      "rg -n \"org_id', auth\\(\\)\" app/Filament/Resources/",
+      "git grep -n 'OrgLivePositionsQuery|defaultCutoff|ScanTimezoneScope|excludingDeleted|ScoutUsersResource'",
+      "git grep -n 'GlKits|gl-kits|glKits'"
+    ],
+    "sites": [
+      {
+        "file": "app/Clickhouse/Queries/OrgLivePositionsQuery.php",
+        "verdict": "safe",
+        "reason": "batched, lower(kit_mapping), caller-supplied cutoff \u2014 the reuse candidate"
+      },
+      {
+        "file": "app/Clickhouse/Queries/OrgLivePathsQuery.php",
+        "verdict": "safe",
+        "reason": "lower(kit_mapping); unrelated concern (route trails)"
+      },
+      {
+        "file": "app/Clickhouse/Queries/KitHistoricPositionsQuery.php",
+        "verdict": "safe",
+        "reason": "single-kit lower(kit_mapping); unrelated concern"
+      },
+      {
+        "file": "app/Clickhouse/Queries/KitRangePathsQuery.php",
+        "verdict": "safe",
+        "reason": "multi-kit lower(kit_mapping); unrelated concern"
+      },
+      {
+        "file": "app/Clickhouse/Queries/KitScanPathsQuery.php",
+        "verdict": "safe",
+        "reason": "lower(kit_mapping); unrelated concern"
+      },
+      {
+        "file": "app/Clickhouse/Queries/OrgScanPathPositionsQuery.php",
+        "verdict": "safe",
+        "reason": "lower(kit_mapping); also a second consumer of the cutoff idiom"
+      },
+      {
+        "file": "app/Clickhouse/Queries/ScoutCheckInMatchQuery.php",
+        "verdict": "safe",
+        "reason": "lower(kit_mapping) join; unrelated concern"
+      },
+      {
+        "file": "app/Console/Commands/ScoutRecordCheckIns.php",
+        "verdict": "safe",
+        "reason": "sc_positions reader; DEV-2342 already hardened it"
+      },
+      {
+        "file": "app/Console/Commands/CloseInactiveShiftsCommand.php",
+        "verdict": "safe",
+        "reason": "per-kit lower(kit_mapping) with try/catch degrade-to-null; its docblock states the CORRECT live scans sort key (the committed dump is the stale one)"
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutMapController.php",
+        "verdict": "safe",
+        "reason": "single-kit read with an explicit try/catch + Log::warning \u2014 the pattern Q2 recommends adopting"
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+        "verdict": "safe",
+        "reason": "production consumer of OrgLivePositionsQuery; regression risk ONLY if that class is modified \u2014 this design does not modify it"
+      },
+      {
+        "file": "app/Http/Controllers/KitUserPathController.php",
+        "verdict": "safe",
+        "reason": "comment references only"
+      },
+      {
+        "file": "app/Services/Scout/BuildShiftSummary.php",
+        "verdict": "safe",
+        "reason": "sc_positions reader; unrelated concern"
+      },
+      {
+        "file": "app/Support/Scout/HistoricPathBuilder.php",
+        "verdict": "safe",
+        "reason": "comment reference only"
+      },
+      {
+        "file": "app/Providers/FilamentServiceProvider.php",
+        "verdict": "buggy-if-omitted",
+        "reason": "not a defect today, but omitting the new List page from $filterableResources hides any filters it carries"
+      }
+    ]
+  },
+  "missed_caller_candidates": [
+    {
+      "file": "app/Providers/FilamentServiceProvider.php",
+      "symbol": "$filterableResources",
+      "referenced_at": "108-120",
+      "status": "FOLDED INTO SCOPE (conditional on the list having filters)"
+    },
+    {
+      "file": "tests/Unit/Clickhouse/Queries/OrgLivePositionsQueryTest.php",
+      "symbol": "OrgLivePositionsQuery",
+      "referenced_at": "7,60",
+      "status": "N/A under the recommended design \u2014 it adds a new query class and does NOT modify OrgLivePositionsQuery. Becomes in-scope only if the plan phase chooses reuse-with-modification."
+    },
+    {
+      "file": "app/Clickhouse/Queries/OrgScanPathPositionsQuery.php",
+      "symbol": "OrgLivePositionsQuery",
+      "referenced_at": "13,31",
+      "status": "N/A \u2014 same reason"
+    },
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+      "symbol": "OrgLivePositionsQuery",
+      "referenced_at": "14",
+      "status": "N/A \u2014 same reason"
+    }
+  ],
+  "data_impact": {
+    "pg_tables": [
+      "zod.public.kits",
+      "zod.public.orgs",
+      "platform.kit_metadata"
+    ],
+    "ch_tables": [
+      "zod.kit_last_scan (read; chlocal-owned; PENDING Q1)",
+      "clarity.sc_positions (read)"
+    ],
+    "mv_or_cdc_implications": "No new MVs and no DDL. The design READS an existing chlocal-owned MV target (zod.kit_last_scan, fed from zod.public_* via PeerDB CDC with INNER JOINs to public_kits/public_orgs and no watermark). That INNER-JOIN-without-watermark shape is the DEV-2189 hits_cold_mv late-arrival failure class, so the driver tested for it: for 1,571 kits that scanned in the last 3 days, ZERO were missing from the MV and all agreed to within 1 second, so the risk has not materialised for active kits. sc_positions has no PostgreSQL mirror at all (direct scanner ingest), so no CDC-lag dimension there.",
+    "indexes_relied_on": [
+      "zod.kit_last_scan sorting key (org_id, kit_id) \u2014 the org_id predicate prunes",
+      "clarity.sc_positions sorting key (kit_mapping, timestamp_utc) PLUS the DEV-2381 proj_kit_mapping_lc projection (EXPLAIN-confirmed, 13/42128 granules)",
+      "zod.public.kits \u2014 org-bounded row counts make an index moot"
+    ]
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "Adds ClickHouse query classes (app/Clickhouse/Queries/**) over a 345M-row table and a CDC-derived aggregate, driven by a data-driven per-org collection. Execution context is a request-scoped Filament page render, NOT a scheduled command \u2014 so the DEV-2342 overlapping-cron pile-up class does not apply; the risk is per-request bytes scanned.",
+    "driving_tables": [
+      {
+        "table": "kits",
+        "source": "zod.public_kits (CDC mirror of prod PostgreSQL)",
+        "prod_rows": 5570,
+        "group_by": "org_id, kit_type=1",
+        "largest_group_rows": 272
+      },
+      {
+        "table": "sc_positions",
+        "source": "clarity.sc_positions (ClickHouse-native scanner ingest)",
+        "prod_rows": 344736296,
+        "group_by": "lower(kit_mapping)",
+        "largest_group_rows": null
+      },
+      {
+        "table": "kit_last_scan",
+        "source": "zod.kit_last_scan (chlocal MV target)",
+        "prod_rows": 5042,
+        "group_by": "org_id, kit_id",
+        "largest_group_rows": 1
+      },
+      {
+        "table": "scans_cold",
+        "source": "clarity.scans_cold (REJECTED alternative)",
+        "prod_rows": 2155131641,
+        "group_by": "kit_id",
+        "largest_group_rows": null
+      }
+    ],
+    "growth": "5,570 kits / 548 orgs today; largest single org holds 272 GL kits (this is the previously-unresolved GL-only figure \u2014 all three candidates could only bound it at 283 across all kit types). Fleet growth is bursty (a recorded 29->43 kits and 11->12 orgs in one day), so the per-request IN-list should be treated as low-hundreds and growing, not fixed.",
+    "schedule": {
+      "expression": null,
+      "interval_seconds": null,
+      "without_overlapping_minutes": null
+    },
+    "allocation_sketch": "Per page render, worst-case org (272 GL kits), ALL FIGURES MEASURED against production ClickHouse Cloud: (1) one PostgreSQL query for <=272 org-scoped kit rows; (2) zod.kit_last_scan lookup \u2014 0.23s, 18,557 rows, 0.25 MB; (3) clarity.sc_positions 14-day probe \u2014 0.20s / 167 MB lean, or 0.31s / 209 MB if OrgLivePositionsQuery is reused as-is. Total added latency ~0.4-0.55s of ClickHouse per load, ~167-209 MB scanned, dominated entirely by sc_positions. No loops, no per-row queries, no accumulator across an outer loop; PHP holds two arrays of <=272 entries. Concurrency is ordinary web-request concurrency. REJECTED ALTERNATIVE for contrast: clarity.scans_cold max(scanned_at) GROUP BY kit_id measured 1.61s and 9,586 MB for the same page \u2014 and 0.99s / 8,221 MB for a SINGLE kit_id \u2014 because kit_id is the third column of the live sort key and cannot prune. That is ~38,000x more bytes than the chosen source, per page load, billed by ClickHouse Cloud.",
+    "oracle_status": "ok",
+    "unresolved": []
+  },
+  "derivation_log": [
+    {
+      "query_shape": "SELECT kit_type, count(), countIf(upper(name) LIKE 'GL%'), countIf(upper(kit_mapping) LIKE 'GL%') FROM zod.public_kits WHERE _peerdb_is_deleted=0 GROUP BY kit_type",
+      "param_classes": "none (full small table)",
+      "aggregate_result": "14 kit types; kit_type=1 n=3535 with name_starts_GL=2 and mapping_starts_GL=2; kit_type=2 n=1203 with name_starts_GL=13",
+      "why": "Tested the wiki's claim that kit_type=1 names start with 'GL'. REFUTED it, which forced a better-grounded basis for the GL filter (Q5)."
+    },
+    {
+      "query_shape": "SELECT k.kit_type, uniqExact(k.id) FROM zod.public_kits k WHERE lower(k.kit_mapping) IN (SELECT DISTINCT lower(kit_mapping) FROM clarity.sc_positions WHERE timestamp_utc >= now() - INTERVAL 14 DAY) GROUP BY k.kit_type",
+      "param_classes": "window=14 days",
+      "aggregate_result": "kit_type=1 only, 540 kits; zero kits of any other type",
+      "why": "Established the real discriminator for 'GL kit' \u2014 kit_type=1 is the only type present in sc_positions (Q5)."
+    },
+    {
+      "query_shape": "SELECT count(), uniqExact(kit_id), uniqExact(org_id), min(last_scan), max(last_scan) FROM zod.kit_last_scan",
+      "param_classes": "none",
+      "aggregate_result": "observation 1: 7405 rows / 4755 kits / 548 orgs / oldest 2021-12-20 / newest equal to max(scanned_at) in the scan mirror. observation 2 (minutes later): 5042 rows / 5042 distinct (org_id,kit_id)",
+      "why": "Confirmed the table is live, backfilled to 2021, and current to the second; the two differing observations proved it is not reliably merged, so reads need max()/FINAL."
+    },
+    {
+      "query_shape": "SELECT countIf(orgs>1), max(orgs), count() FROM (SELECT kit_id, uniqExact(org_id) AS orgs FROM zod.kit_last_scan GROUP BY kit_id)",
+      "param_classes": "none",
+      "aggregate_result": "275 of 4755 kits appear under >1 org_id; worst case 3",
+      "why": "Found the tenancy trap: the (org_id, kit_id) sort key means RMT cannot collapse a kit's stale org row. Drove the 'resolve kit ids from PostgreSQL' rule."
+    },
+    {
+      "query_shape": "src = SELECT kit_id, max(scanned_at) FROM zod.public_scans WHERE scanned_at >= now()-3d GROUP BY kit_id; mv = SELECT kit_id, max(last_scan) FROM zod.kit_last_scan GROUP BY kit_id; LEFT JOIN and compare",
+      "param_classes": "window=3 days",
+      "aggregate_result": "1571 kits compared; 0 missing from MV; 1571 agree within 1s; 0 stale; p99 abs delta 0s",
+      "why": "Tested the MV for the DEV-2189 INNER-JOIN-without-watermark drop class. Did not materialise for active kits \u2014 the evidence behind the Q1 recommendation."
+    },
+    {
+      "query_shape": "SELECT count() FROM clarity.sc_positions GROUP BY org_id (largest-group form: SELECT count() FROM zod.public_kits WHERE kit_type=1 GROUP BY org_id ORDER BY count() DESC LIMIT 3)",
+      "param_classes": "kit_type=1",
+      "aggregate_result": "sc_positions 344,736,296 rows / 755 distinct mappings / retains 2026-05-03 onward. Largest orgs by GL kits: 272, 239, 204",
+      "why": "Sized the driving tables; 345M (<1B) is why the Phase-3.5 perf gate does not trigger, and 272 is the previously-unresolved worst-case IN-list length."
+    },
+    {
+      "query_shape": "TIMED: SELECT lower(kit_mapping), max(timestamp_utc) FROM clarity.sc_positions WHERE timestamp_utc >= now()-14d AND lower(kit_mapping) IN (<272 mappings>) GROUP BY 1",
+      "param_classes": "window=14 days, mappings=272",
+      "aggregate_result": "lean form 0.20s / 9,453,806 rows / 167.2 MB; OrgLivePositionsQuery's 5x-argMax form 0.31s / 9,453,922 rows / 209.4 MB",
+      "why": "Measured the reporting-boolean cost both ways so the reuse-vs-new-class choice is evidence-based rather than stylistic."
+    },
+    {
+      "query_shape": "EXPLAIN indexes=1 on the same sc_positions query",
+      "param_classes": "same",
+      "aggregate_result": "ReadFromMergeTree (proj_kit_mapping_lc); Parts 13/13; Granules 13/42128",
+      "why": "Confirmed DEV-2381's projection is actually serving this query shape (0.03% of granules)."
+    },
+    {
+      "query_shape": "TIMED: SELECT kit_id, max(scanned_at) FROM clarity.scans_cold WHERE kit_id IN (<272 ids>) GROUP BY kit_id  \u2014 and the same for a SINGLE kit_id",
+      "param_classes": "kit_ids=272, then 1",
+      "aggregate_result": "272 ids: 1.61s / 2,155,142,767 rows / 9,585.8 MB. ONE id: 0.99s / 2,155,144,530 rows / 8,221.2 MB. Full table scan in both cases.",
+      "why": "Tested the design all three candidates proposed. REFUTED it \u2014 no kit_id pruning at all, ~9 GB scanned per page load."
+    },
+    {
+      "query_shape": "SELECT database, name, engine, sorting_key, partition_key FROM system.tables WHERE ...",
+      "param_classes": "4 named tables",
+      "aggregate_result": "clarity.scans_cold & scans_hot sorting_key = (org_id, scanned_at, kit_id, id); clarity.sc_positions = (kit_mapping, timestamp_utc); zod.kit_last_scan = (org_id, kit_id)",
+      "why": "Explained the full scan and exposed that database/schema/clickhouse-schema.sql misstates the scans_cold/hot sort key as (kit_id, scanned_at, id)."
+    },
+    {
+      "query_shape": "TIMED: SELECT kit_id, max(last_scan) FROM zod.kit_last_scan WHERE org_id = <org> AND kit_id IN (<272 ids>) GROUP BY kit_id",
+      "param_classes": "org=1, kit_ids=272",
+      "aggregate_result": "0.23s / 18,557 rows / 0.25 MB",
+      "why": "Measured the recommended shape and confirmed the org_id predicate prunes on the leading sort key."
+    },
+    {
+      "query_shape": "reporting-rate cross-join: GL kits with last_scan in 14d/30d vs presence in the 14-day sc_positions mapping set",
+      "param_classes": "kit_type=1, windows 14d/30d",
+      "aggregate_result": "1019 GL kits scanned in 14d, 539 of them reporting (52.9%); 1115 scanned in 30d, 539 reporting (48.3%)",
+      "why": "Quantified what the new column will actually show \u2014 roughly half of active GL kits read false. Product context for the reporter."
+    }
+  ],
+  "perf_validation": {
+    "required": false,
+    "reason": "The Phase 3.5 gate covers deferred perf on >1B-row ClickHouse surfaces. The chosen surfaces are clarity.sc_positions (345M rows, MEASURED) and zod.kit_last_scan (~5K rows). The >1B-row table (clarity.scans_cold, 2.16B) was CONSIDERED and REJECTED on measured cost, so no deferred-perf design remains. Perf was measured up front regardless \u2014 see resource_envelope.allocation_sketch.",
+    "measured_anyway": true,
+    "verdict": "go"
+  },
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC-1",
+        "kind": "agent",
+        "intent": "seed kit_type=1 and kit_type=2 kits in one org; assert only kit_type=1 rows render and no driver/vehicle/zone columns exist"
+      },
+      {
+        "ac": "AC-2",
+        "kind": "agent",
+        "intent": "assert Kit / Company owner / Last scan received / Reporting columns render for a kit with known seeded data"
+      },
+      {
+        "ac": "AC-3",
+        "kind": "agent",
+        "intent": "log in as two orgs' admins; assert each sees only its own GL kits"
+      },
+      {
+        "ac": "AC-4",
+        "kind": "agent",
+        "intent": "seed sc_positions rows at 13 days ago (true) and 15 days ago (false); assert the boundary flips"
+      },
+      {
+        "ac": "AC-5",
+        "kind": "agent",
+        "intent": "a kit with zero scans and zero sc_positions rows renders placeholders without error"
+      },
+      {
+        "ac": "AC-6 (derived, pending Q2)",
+        "kind": "human",
+        "intent": "with ClickHouse unreachable, confirm the reporting column is visually distinguishable from a confirmed 'not reporting'"
+      },
+      {
+        "ac": "tenancy regression",
+        "kind": "agent",
+        "intent": "seed a kit_last_scan row for a kit under a DIFFERENT org_id and assert it never surfaces on this org's page (the 275-kit multi-org trap)"
+      }
+    ],
+    "seed_scenario": "One Repo org with four kit_type=1 kits: (a) recent scans + recent sc_positions, (b) old scans + no recent sc_positions, (c) zero scans and zero sc_positions, (d) a kit whose kit_last_scan row is duplicated under a second org_id (tenancy trap). Plus a kit_type=2 kit in the same org (must not appear) and a second org's kit_type=1 kit (must not appear). Anchor all ClickHouse fixtures to now() \u2014 the hot tables enforce their 90-day TTL at insert.",
+    "personas": [
+      "Repo org admin (RoleEnum::ADMIN, app panel) \u2014 pending Q3"
+    ],
+    "pg_tables": [
+      "zod.public.kits",
+      "zod.public.orgs",
+      "platform.kit_metadata"
+    ],
+    "ch_tables": [
+      "zod.kit_last_scan",
+      "clarity.sc_positions"
+    ]
+  },
+  "confidence": 88,
+  "confidence_note": "High on mechanism (the data source, query shapes, tenancy rule, and costs are all measured against production, and the two riskiest candidate assumptions were refuted empirically). The residual 12% is entirely the four unanswered PRODUCT questions (Q1-Q4), not technical uncertainty.",
+  "escalate": {
+    "recommend": false,
+    "reason": "Best-of-N already ran; reconcile is complete and the technical unknowns are now measured rather than inferred. What remains needs a human, not another pass."
+  },
+  "gate_computed": {
+    "unanswered_questions": [],
+    "blockers": [],
+    "blast_radius_sites_needing_approval": [],
+    "resource_envelope_resolved": true,
+    "note": "No blast-radius glob is in scope: no migrations, no billing, no Shield/Policies/auth config, no Clickhouse purge/cleanup, no PruneScans. All ClickHouse access is SELECT-only."
+  }
+}

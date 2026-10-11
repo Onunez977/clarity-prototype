@@ -1,0 +1,51 @@
+{
+  "recalled_at": "2026-08-04",
+  "method": "TICKET_RECALL_MODEL (haiku) sub-agent: JQL over project DEV (summary terms: scout org map / kit position / sc_positions / live map driver online / breadcrumb, resolved within 180d, Application=Clarity) + git log over app/Clickhouse, app/Filament/Pages, resources/js/scanner-app. All keys independently verified against Jira by the driver.",
+  "precedents": [
+    {
+      "key": "DEV-2182",
+      "status": "Done",
+      "resolved": "2026-07-14",
+      "summary": "Scout Org Bird's Eye — show ALL org kits (use getKits), decouple map visibility from kit_settings/user_id",
+      "relevance": "THE closest precedent. Before it, a kit only appeared on the admin map if it had a kit_settings row (and a user_id). It changed org bird's-eye to list all org kits via the getKits-style query (excluding deactivated/deleted) and to render a kit without requiring user_id. DEV-2253 reports drivers STILL missing, so the live question is whether that fix is incomplete, not deployed to the affected orgs, or whether 'missing' here is a different axis (presence on the map vs. shown-as-online).",
+      "applicable": true,
+      "why": "Same surface, same symptom class, resolved 3 weeks before DEV-2253 was filed — the first thing prep must check is what DEV-2182 actually shipped vs. what this report describes."
+    },
+    {
+      "key": "DEV-2137",
+      "status": "Done",
+      "resolved": "2026-07-02",
+      "summary": "Scout Admin/Org Map — restore Live Hits Pending Repo list (collapsible), Direct/Staging labels, date-filter scoping",
+      "relevance": "Org-map / bird's-eye display and date-filter scoping work. Establishes that ClarityScoutBirdsEyeController is the org-map server surface and that date-range scoping has previously caused 'expected row is missing' confusion.",
+      "applicable": true,
+      "why": "Date-filter scoping is a live candidate explanation for 'scanned that day but not on the map' — the same class of mismatch this ticket describes."
+    },
+    {
+      "key": "DEV-2048",
+      "status": "Done",
+      "resolved": "2026-06-18",
+      "summary": "clarity.sc_positions: 9-minute ingestion delay on specific kits (last-hour offenders)",
+      "relevance": "Quantified per-device ingestion lag in sc_positions (medians 7-56 min on offender kits). Directly supplies the 'sync delay' hypothesis the ticket asks us to confirm or rule out, and gives a reusable read-only lag query shape.",
+      "applicable": true,
+      "why": "If online-ness is derived from a recency window over sc_positions, a multi-minute-to-hour ingestion tail can make an actively-scanning kit read as offline/absent."
+    },
+    {
+      "key": "DEV-2043",
+      "status": "Done",
+      "resolved": "2026-06-18",
+      "summary": "Harden Python GPS egress loader to mitigate clarity.sc_positions gaps (idempotent delivery + drop detection + backfill)",
+      "relevance": "Remediation for the confirmed root cause that the Python egress loader silently DROPPED positions between the external GPS source DB and clarity.sc_positions (274 contiguous rows lost for GL3122/CRTDFW9).",
+      "applicable": true,
+      "why": "Establishes precedent that missing GPS is often an out-of-repo (egress loader) fault. If DEV-2253's root cause lands here, the platform-side deliverable is the diagnosis, not a code fix."
+    },
+    {
+      "key": "DEV-2038",
+      "status": "Done",
+      "resolved": "2026-06-16",
+      "summary": "clarity.sc_positions GPS reporting gaps: pipeline cleared, loss localized to device GPS stream (GL3122 case study)",
+      "relevance": "The parent GPS-gap investigation. Key proof technique: cross-check LPR scans (zod.public_scans) against GPS positions (clarity.sc_positions) for the same kit/window — scans arriving in 1-2s during a GPS hole proves the device had power and connectivity, isolating the fault to the position stream.",
+      "applicable": true,
+      "why": "This is exactly DEV-2253's shape ('confirmed scanning via legacy scan reports, but absent from the map'). The scans-vs-positions cross-check is the method prep should reuse to separate a display bug from a data-absence bug."
+    }
+  ]
+}

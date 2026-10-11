@@ -1,0 +1,329 @@
+{
+  "key": "DEV-2557",
+  "app": "clarity",
+  "route": "hotfix",
+  "base_branch": "deploy",
+  "generated_at": "2026-09-15T18:11:04.347462+00:00",
+  "reconciled_from": {
+    "fast_pass": 1,
+    "deep_candidates": 3,
+    "method": "insightlpr:multi-candidate-merge; driver resolved the one substantive disagreement from vendor source rather than leaving it open"
+  },
+  "synthesis": "Two unrelated defects on the Zone Manager (/app/manage-zones). (1) CONTRAST: the Filament panel's `primary` colour token is a degenerate ramp - shades 100-950 are all the literal hex #FF6666, and shade 50 (#FBE9F5) is a leftover fuchsia from the pre-2025 palette. Any component pairing two primary shades for background and text therefore renders the same colour twice. Introduced by commit 03c473f80 'Updates: colors' (2025-03-31), a partial rebrand from fuchsia to coral that flattened shades 300-950 while the SAME diff correctly used Color::hex() for `info` and `danger` - so this is a mistake, not a deliberate accessibility choice, and nothing in okf/ documents it. (2) INTERACTION: ZIP-derived (premade) GeoZone boundaries render as plain non-editable google.maps.Polygon overlays whose ONLY click listener calls removeZip(), which does overlay.setMap(null). Drawn polygons take a different path (editablePolygonStyle + attachEditablePolygonHandlers, editable:true) and are never wired to delete-on-click. ZIP boundaries are NOT stored geometry - they are re-derived from definition.zip_codes against tiger_data.zcta5_all on every render AND every save - so an edited premade shape has nowhere to persist to today.",
+  "scope": {
+    "summary": "Fix the degenerate `primary` colour token so every chip consumer resolves to real, differentiated shades; and change the ZIP-derived map overlay's plain click from destructive-remove to select. The persistence half of the map fix (AC5/AC6) is blocked on a Product decision the ticket itself defers.",
+    "proposed_changes": [
+      {
+        "file": "resources/css/filament/app/theme.css",
+        "change": "Define chip foreground/background as CSS custom properties (light + dark) and apply them to (a) .fi-badge.fi-color-primary as rendered inside Select multi-value containers, and (b) the hand-rolled ZIP chip. Target >=4.5:1 in both modes with real computed values.",
+        "reason": "Chips-only remedy per the operator decision; reaches all ~20 Filament chip sites across both panels without shifting buttons or links.",
+        "ref": "vendor/filament/support/resources/js/utilities/select.js:751 hardcodes fi-text-color-600, so CSS is the only lever"
+      },
+      {
+        "file": "resources/views/filament/pages/manage-zones.blade.php",
+        "change": "Replace the ZIP chip's bg-primary-100 / text-primary-800 / dark:bg-primary-500/20 / dark:text-primary-100 classes so they resolve through the new chip custom properties instead of the degenerate primary shades.",
+        "reason": "This chip is hand-rolled Tailwind, not a Filament component, so the badge selector does not reach it.",
+        "ref": "resources/views/filament/pages/manage-zones.blade.php:152,157"
+      },
+      {
+        "file": "resources/js/components/zone-manager.js",
+        "change": "Click on a ZIP-derived overlay selects it (mirror editablePolygonStyle + attachEditablePolygonHandlers, editable:true) instead of calling removeZip(). On first vertex edit, convert: push the shape into the polygons set and drop that ZIP from zipCodes, so syncEditingState() serialises it into definition.polygons. Keep removal on the chip 'x' and Clear shapes only.",
+        "reason": "Defects 2 root cause plus the DETACH persistence model.",
+        "ref": "resources/js/components/zone-manager.js:434,640,658-664,550-558,538-567,689-697"
+      },
+      {
+        "file": "public/build/**",
+        "change": "npm run build and commit the rebuilt assets.",
+        "reason": "public/build is git-tracked; a source-only change ships as a no-op.",
+        "ref": ".gitignore has no public/build entry"
+      },
+      {
+        "file": "tests/Filament/Pages/ManageZonesTest.php",
+        "change": "Pin that a definition carrying a converted (formerly ZIP-derived) polygon with that ZIP absent from zip_codes persists and rebuilds geom correctly, and that it survives a reload round-trip.",
+        "reason": "The persistence half of AC6 is testable at the Livewire boundary even though the map interaction is not.",
+        "ref": "tests/Filament/Pages/ManageZonesTest.php"
+      }
+    ],
+    "target_files": [
+      "resources/css/filament/app/theme.css",
+      "resources/views/filament/pages/manage-zones.blade.php",
+      "resources/js/components/zone-manager.js",
+      "public/build/**",
+      "tests/Filament/Pages/ManageZonesTest.php"
+    ],
+    "out_of_scope": [
+      "DEV-2252 (zone creation failure entering ZIP codes) - separate ticket on the same page.",
+      "Changing the brand seed hex itself (#FF6666) - only the ramp generation is in scope without Design sign-off.",
+      "The four 'Pro' upsell badges (pro-upgrade-popover.blade.php:49, scans/cluster-group.blade.php:143, hits/cluster-group.blade.php:149, pro-feature-teaser.blade.php:6) which use bg-primary-500/20 + text-primary-400 - not named by any AC; they shift incidentally with the token fix and must be spot-checked for regression, not fixed here.",
+      "okf/ wiki edits during this pass (WRITE only after approval, per CLAUDE.md).",
+      "app/Support/Filament/PlatformPanelProvider.php - the degenerate `primary` token is the ROOT cause but is deliberately NOT fixed here, by operator decision, to keep buttons and links stable in both panels on a hotfix. It stays a latent trap for any future primary-shade pairing. Raise as a follow-up ticket."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "AC1 ZIP chip legible in Light Mode, >=4.5:1",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Token fix alone satisfies it: bg-primary-100 #FFE7E4 / text-primary-800 #8C3132 = 6.82:1. Today 1.00:1 (identical hex)."
+    },
+    {
+      "item": "AC2 ZIP chip Dark Mode >=4.5:1",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Token fix alone satisfies it; dark pairing (bg-primary-500/20 over gray-900, text-primary-100) clears the bar comfortably. Today it passes only by accident of the flat ramp."
+    },
+    {
+      "item": "AC3 chip styling uses theme tokens",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Satisfied by defining chip colours as CSS custom properties in theme.css with light and dark values, rather than pasting literal hexes inline. NOTE: the underlying `primary` token stays degenerate by decision - record as a follow-up, not a defect of this ticket."
+    },
+    {
+      "item": "AC4 clicking a premade GeoZone selects it and displays edit handles",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Root cause grounded. NOTE the sequencing risk recorded in questions[3]: showing drag handles while AC5/AC6 are blocked means edits are silently discarded on save."
+    },
+    {
+      "item": "AC5 selected premade GeoZone editable like a drawn polygon",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "UNBLOCKED by the DETACH answer. Edited shape is snapshotted into definition.polygons, which already round-trips; mirror editablePolygonStyle + attachEditablePolygonHandlers onto the selected ZIP overlay."
+    },
+    {
+      "item": "AC6 edits persist after Save Changes and survive reload",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "UNBLOCKED by the DETACH answer. Once the ZIP leaves definition.zip_codes, rebuildGeometryFromDefinition() no longer re-derives it, so the stored polygon is authoritative and survives reload."
+    },
+    {
+      "item": "AC7 removal only via an explicit action",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Chip 'x' and clearEditing() already exist; the fix is to stop the plain map click from deleting."
+    },
+    {
+      "item": "AC8 verified in both modes, existing and new zone",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "QA verification item; routed to agent-QA plus human QA (no JS test runner in this repo)."
+    },
+    {
+      "item": "AC9 Assigned Kit Users chip and other consumers also >=4.5:1 both modes",
+      "source": "ticket reporter amendment",
+      "decision": "implement",
+      "reason": "Satisfied by the chips-only override targeting .fi-badge.fi-color-primary, which reaches every Select multi-value chip in BOTH panels without touching buttons."
+    }
+  ],
+  "questions": [
+    {
+      "q": "When a premade (ZIP-derived) GeoZone boundary is hand-edited, what happens to the source ZIP? (a) DETACH - snapshot the shape into definition.polygons and drop the ZIP from definition.zip_codes; zero schema change, reuses the existing save path, but the ZIP chip disappears. (b) KEEP WITH OVERRIDE - leave the ZIP in zip_codes but stop re-deriving it once an override polygon exists; needs a correlation marker that the {polygons, zip_codes} shape does not have today, plus a rebuildGeometryFromDefinition() change to avoid unioning both the original and edited areas. (c) DISALLOW - block the edit behind a confirmation that explains it detaches the ZIP.",
+      "answered": true,
+      "answer": "DETACH. On first vertex edit, snapshot the shape into definition.polygons and remove that ZIP from definition.zip_codes. Zero schema change; reuses the existing save path verbatim. Consequence: the ZIP chip disappears once its shape is edited - surface this in QA and consider a non-blocking toast.",
+      "source": "human:Dalton 2026-09-15"
+    },
+    {
+      "q": "Scope of the contrast fix: (a) fix the shared `primary` token in PlatformPanelProvider.php - one line, fixes ~20 chip sites across BOTH the /app and /client panels, satisfies AC3 and AC9 properly, but the token is a TRAIT used by both panels so primary buttons and links change appearance app-wide and customer-facing; or (b) a CSS override scoped to chip selectors only - no button/link change, but leaves the underlying token broken and is a weaker reading of AC3.",
+      "answered": true,
+      "answer": "CSS OVERRIDE, CHIPS ONLY. Do NOT change the `primary` token in PlatformPanelProvider.php - buttons and links must not shift in either panel. Scope the fix to chip selectors in resources/css/filament/app/theme.css, covering BOTH the Filament Select multi-value badge (.fi-badge.fi-color-primary, which reaches all ~20 sites in both panels) and the hand-rolled ZIP chip in manage-zones.blade.php.",
+      "source": "human:Dalton 2026-09-15"
+    },
+    {
+      "q": "AC4/AC5 sequencing: AC5 and AC6 are blocked, but AC4 as written requires the selected shape to DISPLAY EDIT HANDLES. Handles that can be dragged while persistence is unbuilt means a user drags a vertex, sees it move, saves, and silently loses the change - arguably worse than today's delete-on-click. (a) ship AC4 as select-and-highlight WITHOUT drag handles now, and land handles with the persistence work; or (b) hold all of defect 2 until the storage decision lands, shipping only the contrast fix in this hotfix.",
+      "answered": true,
+      "answer": "FULL HANDLES NOW. Ship AC4 as written. This is safe BECAUSE question[0] was answered DETACH: edits now persist through definition.polygons, so the silent-data-loss risk that made handles dangerous no longer exists. AC5 and AC6 are therefore IN SCOPE for this ticket, not deferred.",
+      "source": "human:Dalton 2026-09-15"
+    },
+    {
+      "q": "Are ZIP-derived boundaries stored as editable geometry or re-derived per render?",
+      "answered": true,
+      "answer": "Re-derived, on both sides. definition.zip_codes holds only ZIP strings. Client: hydrateZips() re-fetches each boundary via ZoneZipSearchController -> Zone::searchZipCodes() every edit session. Server: Zone::rebuildGeometryFromDefinition() re-unions tiger_data.zcta5_all into geom on every save. There is no column or JSON key for an edited ZIP shape. All three deep candidates agreed independently.",
+      "source": "code (app/Models/Zone.php:251-296, :329-353; resources/js/components/zone-manager.js:413-459, :689-697) + okf/concepts/zone.md"
+    },
+    {
+      "q": "Can the Filament Select multi-value badge colour be overridden per field from app code?",
+      "answered": true,
+      "answer": "No. The class string 'fi-badge fi-size-md fi-color fi-color-primary fi-text-color-600 dark:fi-text-color-200' is hardcoded in vendor/filament/support/resources/js/utilities/select.js:751 and in the compiled vendor/filament/forms/dist/components/select.js. It bypasses BadgeComponent::getColorMap() entirely, so no ->color() API reaches it. Driver-verified from vendor source; this resolved a disagreement between deep candidates (one had claimed getColorMap applies and yields a passing 5.67:1 - that path governs the Blade badge/TagsInput, not the JS Select chips).",
+      "source": "code (vendor source, driver-verified)"
+    },
+    {
+      "q": "Was the flat primary palette intentional?",
+      "answered": true,
+      "answer": "No. Commit 03c473f80 'Updates: colors' (2025-03-31) rebranded fuchsia->coral by flattening shades 300-950 to '#ff6666' while leaving 50/100/200 as the old fuchsia values, and the SAME diff added Color::hex() correctly for 'info' and 'danger'. Shades 100/200 were flattened later. Nothing in okf/ documents it as deliberate.",
+      "source": "code (git show 03c473f80)"
+    }
+  ],
+  "blockers": [],
+  "missed_caller_candidates_note": "See state.json missed_caller_candidates. The load-bearing one: PlatformPanelProvider is a TRAIT used by BOTH app/Providers/Filament/App.php (/app) and app/Providers/Filament/Client.php (/client), so the token fix reaches the customer-facing client portal.",
+  "exhaustiveness": "Every consumer of the broken token was enumerated by three independent sweeps that agreed. Filament Select ->multiple() / TagsInput value chips (all BUGGY, none override ->color(), none can): ManageZones.php:162 (Assigned Kit Users), ZoneReassignAction.php:51, AlertSettingsForm.php (4 selects + 3 TagsInput), HitsResource.php (4 filters), HotlistResource.php:135, MissedOpportunityResource.php (3) + EmailMissedOpportunitiesAction.php:35, AffiliateStatsResource.php:87, ScansResource/Pages/ListScans.php:190, KitUserPath.php:89, KitUserRecoveries.php:86, ZoneDriverFilter.php:21, ClientTable.php:299 (CLIENT panel - proves cross-panel reach), KitUsersFilter.php (shared by 6 of the above). Hand-rolled Tailwind chip (BUGGY): manage-zones.blade.php:152 (bg-primary-100/text-primary-800) and :108 (banner). Different shade pairing, out of AC scope but shifts incidentally (BUGGY): pro-upgrade-popover.blade.php:49, scans/cluster-group.blade.php:143, hits/cluster-group.blade.php:149, pro-feature-teaser.blade.php:6. SAFE: resources/views/forms/components/zone-map-display.blade.php:26-46 - renders per-zone hex from Zone::PRESET_COLORS, never touches the primary token.",
+  "data_impact": {
+    "pg_tables": [
+      "platform.zones",
+      "platform.zone_user",
+      "tiger_data.zcta5_all (zod connection, read-only)"
+    ],
+    "ch_tables": [],
+    "mv_or_cdc_implications": "None. No ClickHouse or materialized-view path is touched.",
+    "indexes_relied_on": [
+      "zones_geom_gist (unaffected)"
+    ]
+  },
+  "resource_envelope": {
+    "scale_relevant": false,
+    "trigger": "UI theme token plus client-side map interaction. No command, job, query class, or migration is touched and no data-iterating loop is added or changed.",
+    "driving_tables": [],
+    "growth": null,
+    "schedule": null,
+    "allocation_sketch": null,
+    "oracle_status": "not-configured",
+    "unresolved": []
+  },
+  "blast_radius": [],
+  "notes": [
+    "public/build is git-tracked. Any JS or CSS change must be followed by `npm run build` with the rebuilt assets committed, or the fix ships as a no-op. All four passes flagged this independently.",
+    "No JS test runner exists in this repo. tests/Filament/Pages/ManageZonesTest.php's own docblock says the polygon drawing is JS and covered by Agent QA. Defect 2's map interaction cannot get PHPUnit coverage; only the definition-persistence boundary can.",
+    "The AC9 shortfall is the single most missable thing in this ticket: the obvious one-line token fix looks like it fixes every chip, and it does not fix the one the reporter explicitly amended the ACs for. Two independent derivations put it at 4.02:1.",
+    "Primary buttons and links resolve their shade through Filament's contrast-aware ButtonComponent::getColorMap(), which is currently fed a degenerate ramp. After the fix it gets a real one, so button appearance will shift (most likely darker, toward shade-600 #D14C4D) across both panels. The brand shade-500 itself barely moves: #FF6666 -> #F06765.",
+    "OPERATOR DECISION consequence: because the `primary` token is left degenerate, the four 'Pro' badges and every other primary-shade pairing stay broken, and any NEW chip added later is broken by default. This is an accepted trade for hotfix stability. It should become a follow-up ticket.",
+    "UX consequence of DETACH: the ZIP chip vanishes from the list the moment its shape is edited. Not a defect, but it is unexplained to the user; a non-blocking toast is worth considering in the plan and must be called out in human QA."
+  ],
+  "tests": [
+    {
+      "file": "tests/Filament/Pages/ManageZonesTest.php",
+      "what_it_pins": "definition.zip_codes and definition.polygons still round-trip through save()/loadZone() unchanged by the token fix - a cheap regression guard."
+    },
+    {
+      "file": "tests/Filament/Pages/ManageZonesTest.php",
+      "what_it_pins": "GATED on the Product decision: a zone whose definition carries an edited (formerly ZIP-derived) polygon persists and rebuilds geom as expected."
+    },
+    {
+      "file": "agent-QA / human QA (no PHPUnit equivalent)",
+      "what_it_pins": "AC1/AC2/AC9 chip legibility in both modes; AC4/AC7 click selects rather than deletes and explicit removal still works."
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC1/AC2",
+        "kind": "agent",
+        "intent": "Screenshot the ZIP chips and the drawing banner on a zone in Light and Dark mode; sample rendered pixel colours and compute contrast; assert >=4.5:1. Shipped values are 6.85:1 light and ~10:1 dark (baseline was 1.00:1)."
+      },
+      {
+        "ac": "AC9",
+        "kind": "agent",
+        "intent": "Same measurement on the Assigned Kit Users chip specifically - a Filament Select multi-value badge, the one the reporter amended the ACs for. It is NOT fixed by any ->color() API and needed its own CSS remedy, so it must be measured separately from the ZIP chips."
+      },
+      {
+        "ac": "AC3",
+        "kind": "agent",
+        "intent": "Confirm the fix lives in theme tokens (the 6 chip custom properties), not pasted hexes. Then spot-check that primary BUTTONS and LINKS did not move in either /app and /client - the root-cause primary token was deliberately left alone, so a shift there is a regression."
+      },
+      {
+        "ac": "AC4/AC5",
+        "kind": "human",
+        "intent": "IN SCOPE (operator answered DETACH). Click a rendered ZIP boundary: it must SELECT and show drag handles, not vanish. Then confirm it is editable like a drawn polygon."
+      },
+      {
+        "ac": "AC6",
+        "kind": "human",
+        "intent": "IN SCOPE. Drag a vertex on a selected ZIP, Save Changes, then FULL page reload: the edited shape persists and the ZIP chip is gone (a detach notice explains this). Includes the interior-ring case - edit the donut ZCTA and confirm the hole survives the save (the HIGH review finding)."
+      },
+      {
+        "ac": "AC7",
+        "kind": "human",
+        "intent": "Removal only via the chip x and Clear shapes - never by clicking the shape."
+      },
+      {
+        "ac": "AC8",
+        "kind": "human",
+        "intent": "Repeat on a newly created zone and in both modes."
+      },
+      {
+        "ac": "vertex-cap",
+        "kind": "human",
+        "intent": "A ZIP over 2,000 boundary points must refuse to become editable and say why. Unvalidated against real data at review time because tiger_data.zcta5_all was empty; a dense ZCTA is now seeded to exercise it."
+      }
+    ],
+    "seed_scenario": "One org (org_id=2), one ADMIN user (ZonePolicy requires ADMIN + same-org) who also has a kit_settings row so the Assigned Kit Users chip renders. BLOCKER this seed must solve: tiger_data.zcta5_all is EMPTY (0 rows), and Zone::searchZipCodes() reads it to render every ZIP-derived boundary - with no rows NO ZIP shape can appear on the map at all and AC4/AC5/AC6/AC7 cannot be exercised. Seed at least three ZCTAs into tiger_data.zcta5_all (geometry column is MULTIPOLYGON, SRID 4269; searchZipCodes does ST_Transform(the_geom,4326)): (a) a simple single-ring ZCTA, (b) a MULTI-RING DONUT ZCTA so the interior-ring fix can actually be observed, (c) a DENSE ZCTA of >2000 boundary points to exercise the editable vertex cap. Recipe incl. the spatial_ref_sys SRID 4269 row: tests/Models/ZoneTest.php::seedTigerZip(). platform.zones is also empty - seed a zone in org 2 carrying BOTH a drawn polygon in definition.polygons AND at least one seeded ZIP in definition.zip_codes, with geom rebuilt, plus a platform.zone_user row attaching the kit user.",
+    "personas": [
+      "ADMIN on the /app panel"
+    ],
+    "pg_tables": [
+      "platform.zones",
+      "platform.zone_user",
+      "platform.kit_settings",
+      "platform.users",
+      "tiger_data.zcta5_all",
+      "spatial_ref_sys"
+    ],
+    "ch_tables": []
+  },
+  "derivation_log": [
+    {
+      "query_shape": "php -r \"Color::hex('#FF6666')\" against this repo's installed filament/support",
+      "param_classes": [
+        "static brand hex"
+      ],
+      "aggregate_result": "11 distinct OKLCH shades, hue 23.186; 100 #FFE7E4, 500 #F06765, 600 #D14C4D, 700 #AD3B3C, 800 #8C3132",
+      "why": "Establish what the ramp actually becomes rather than assuming Filament's algorithm."
+    },
+    {
+      "query_shape": "OKLab->linear-sRGB matrix + gamma encode, then WCAG relative luminance on the specific shade pairs referenced in the markup",
+      "param_classes": [
+        "shade pairs from Blade and from vendor JS"
+      ],
+      "aggregate_result": "ZIP chip light 1.00:1 today -> 6.82:1 after; Select badge light 2.46:1 today -> 4.02:1 after (still failing); badge with text-700 5.62:1, text-800 7.49:1",
+      "why": "AC1/AC2/AC9 are numeric thresholds; the AC9 shortfall is only visible if the number is actually computed."
+    },
+    {
+      "query_shape": "git show 03c473f80 -- app/Providers/Filament/App.php",
+      "param_classes": [
+        "commit sha"
+      ],
+      "aggregate_result": "shades 300-950 flattened to #ff6666 in the same diff that added Color::hex() for info and danger",
+      "why": "Settle whether the degenerate palette was intentional."
+    },
+    {
+      "query_shape": "grep for the badge class string in filament support JS source and forms dist bundle",
+      "param_classes": [
+        "class-name literal"
+      ],
+      "aggregate_result": "present in both source and compiled bundle; hardcodes fi-text-color-600",
+      "why": "Resolve the one substantive disagreement between deep candidates about whether AC9 is fixed for free."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Support/Filament/PlatformPanelProvider.php:37-53 - the degenerate primary array (root cause, defect 1)",
+      "app/Providers/Filament/App.php:21 and app/Providers/Filament/Client.php:13 - both panels use the trait",
+      "vendor/filament/support/resources/js/utilities/select.js:751 - hardcoded badge class, bypasses getColorMap",
+      "vendor/filament/support/resources/css/components/badge.css:44-50 - .fi-badge.fi-color = bg-color-50 + text-(--text)",
+      "resources/views/filament/pages/manage-zones.blade.php:152 - hand-rolled ZIP chip, bg-primary-100/text-primary-800",
+      "resources/js/components/zone-manager.js:434,640 - click -> removeZip (root cause, defect 2)",
+      "resources/js/components/zone-manager.js:658-664 - removeZip does overlay.setMap(null)",
+      "resources/js/components/zone-manager.js:550-558 - zipStyle, no editable flag",
+      "resources/js/components/zone-manager.js:538-567 - editablePolygonStyle + attachEditablePolygonHandlers, the pattern to mirror",
+      "resources/js/components/zone-manager.js:689-697 - syncEditingState serialises polygonOverlays only",
+      "app/Models/Zone.php:251-296 - rebuildGeometryFromDefinition re-derives ZIP geometry at save",
+      "app/Models/Zone.php:329-353 - searchZipCodes re-derives at render",
+      "app/Filament/Pages/ManageZones.php:162-223,296-311 - the Livewire definition round-trip"
+    ],
+    "code_flow": "ManageZones::mount()/loadZone() hydrates the Livewire form from Zone::definition and dispatches 'zone-selected' -> zone-manager.js beginEdit() renders definition.polygons as editable google.maps.Polygon objects and re-fetches each ZIP boundary via ZoneZipSearchController -> Zone::searchZipCodes() (tiger_data.zcta5_all), rendering those as non-editable overlays whose only listener deletes. Edits call syncEditingState(), which serialises polygonOverlays back into definition.polygons. ManageZones::save() persists definition and calls Zone::rebuildGeometryFromDefinition(), which re-unions the ZIP geometry fresh and merges it with the stored polygons into the PostGIS geom column, then ZoneAssignmentSyncer and ZoneBroadcaster run.",
+    "tables": [
+      "platform.zones",
+      "platform.zone_user",
+      "tiger_data.zcta5_all"
+    ],
+    "related_components": [
+      "ZoneAssignmentSyncer",
+      "ZoneBroadcaster",
+      "ZonePolicy (ADMIN + same-org)",
+      "ZoneZipSearchController",
+      "ZoneReassignAction",
+      "app/Filament/Forms/Components/ZoneMapDisplay.php (second zone-map surface flagged by the backstop)"
+    ]
+  },
+  "confidence": 86,
+  "gate": "CLEAN",
+  "mode": "normal"
+}

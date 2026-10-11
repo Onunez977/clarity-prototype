@@ -1,0 +1,373 @@
+{
+  "key": "DEV-1834",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "synthesis": "Provider-facing documentation of every RDN Statistics metric Clarity publishes to the RDN SQS queue. The code is small and unambiguous: App\\Enums\\RdnMetricType defines exactly 5 hour-grain, org-level metric types, fanned out hourly by DispatchRdnMetricsHourly and sent one-envelope-per-(org,metric,hour) by RdnMetricsPublisher over SQS. The deliverable is a written spec RDN can build against, matching exactly what the publisher emits today \u2014 NOT the larger day/month/agent-level surface the epic's child tickets describe (none of which exist in code). All facts below were verified directly against source, not just the prep sub-agent report.",
+  "scope": {
+    "summary": "Author a new provider-facing markdown doc enumerating the 5 published RdnMetricType cases, the shared SQS envelope (including the idempotency_key the ticket spec never mentioned but code always sends), and precise semantics for rdn_org_identifier and metric_range_start/end. NO code changes \u2014 pure documentation.",
+    "proposed_changes": [
+      {
+        "file": "okf/concepts/rdn-provider-integration.md",
+        "change": "Write the RDN metrics provider spec: envelope table + per-metric field tables + full example payload per metric + rdn_org_identifier / metric_range semantics + delivery model",
+        "reason": "AC1-AC4",
+        "ref": "app/Enums/RdnMetricType.php, app/Services/Rdn/RdnMetricsPublisher.php"
+      }
+    ],
+    "target_files": [
+      "okf/concepts/rdn-provider-integration.md"
+    ],
+    "out_of_scope": [
+      "Any code change to the enum/publisher/jobs/queries \u2014 documentation-only ticket",
+      "Day/month grain metrics (_by_org_by_day, _by_org_by_month) \u2014 Jira children exist but NO code (no enum case, no query); Phase 2 per the epic",
+      "Type-keyed hits_by_org_by_* breakdown rows (DEV-1836/1838/1840) \u2014 not implemented; the 4 hit types are each their own metric_type, not a keyed breakdown",
+      "Agent-level metrics (scans_by_agent, GL-number/Scan-Car breakdown; DEV-1831/1832/1833) \u2014 explicitly Phase 2, not implemented",
+      "scans_by_kit_user_by_hour / scans_by_physical_kits_by_hour \u2014 named in DEV-1835 AC as examples but ZERO references anywhere in app/tests/okf; do not exist, must NOT appear in the doc"
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Doc covers EVERY metric type published to the SQS queue",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Verified: RdnMetricType has exactly 5 cases; all 5 traced to source query + dispatch"
+    },
+    {
+      "item": "Each field documented: name, type, units, example, nullability",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Envelope + single count data-row field fully traced in RdnMetricsPublisher::publish()"
+    },
+    {
+      "item": "Full example payload per metric type",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Built from verified envelope construction (exact key order), synthetic values only"
+    },
+    {
+      "item": "Defines rdn_org_identifier format and metric_range_start/end semantics",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Verified: rdn_org_identifier = orgs.rdn_id varchar(64) RDN-issued; range = previous completed UTC hour, [start inclusive, end exclusive)"
+    },
+    {
+      "item": "Reviewed and shared with RDN",
+      "source": "ticket",
+      "decision": "defer",
+      "reason": "External/human step, outside automation"
+    }
+  ],
+  "questions": [
+    {
+      "q": "Where should the provider-facing doc live and in what format? Options: (A) okf/concepts/rdn-provider-integration.md \u2014 fits the repo's canonical wiki + sits beside the existing engineering-facing okf/concepts/rdn.md; (B) docs/integrations/rdn-metrics-spec.md \u2014 new subfolder, no precedent; (C) external Confluence page. Recommendation: A (in-repo, versioned with the code, cross-linkable from rdn.md), which also becomes the single source RDN's shared copy is exported from.",
+      "answered": true,
+      "answer": "okf/ wiki: new okf/concepts/rdn-provider-integration.md, beside okf/concepts/rdn.md. In-repo markdown, versioned with code; the single source RDN's shared copy is exported from.",
+      "source": "human:Dalton 2026-07-21"
+    },
+    {
+      "q": "Should the doc mention the day/month/agent-level Phase-2 metrics at all (e.g. a short 'planned / not yet published' note), or document ONLY the 5 currently-published hour-grain metrics? Recommendation: document only the 5 live metrics, with a one-line note that additional grains/dimensions are planned but not yet emitted \u2014 so RDN isn't surprised later but doesn't build against non-existent payloads now.",
+      "answered": true,
+      "answer": "Document strictly the 5 currently-published hour-grain metrics. No forward-looking / Phase-2 mention.",
+      "source": "human:Dalton 2026-07-21"
+    },
+    {
+      "q": "idempotency_key is present on every real message but is absent from the original DEV-1830/DEV-1835 envelope spec RDN saw \u2014 document it?",
+      "answered": true,
+      "answer": "Yes. Code is authoritative for what is actually sent; it belongs in the envelope table with its semantics (SHA1 of rdn_org_identifier|metric_type|metric_range_start|metric_range_end, stable across resends, intended for RDN-side dedup against at-least-once delivery).",
+      "source": "code"
+    },
+    {
+      "q": "Is rdn_org_identifier a fixed 'AZ5209991234'-style format?",
+      "answered": true,
+      "answer": "No fixed format. orgs.rdn_id is varchar(64), RDN-issued at onboarding, stored verbatim; no regex/format enforced in Clarity code or DB. Document as 'opaque RDN-issued string, <=64 chars'; the AZ-style value is illustrative only.",
+      "source": "code"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "okf/concepts/rdn.md already documents this integration for an ENGINEERING audience (schedule internals, idempotency rationale, ClickHouse sources). Strong drafting reference, but internal-facing and mixes detail RDN doesn't need \u2014 not itself the deliverable.",
+    "Grep confirmed 18 of the epic's 21 child tickets show 'Done' despite no matching code (likely bulk-closed/consolidated). Code is ground truth: document only the 5 implemented hour-grain metrics.",
+    "All 5 metric types share ONE payload shape: data = [{count: <int>}]. None uses a type-keyed multi-row data array (that only appears in unimplemented Phase-2 tickets).",
+    "Hit-type meanings grounded in app/Enums/HitTypeEnum.php + okf/models/hits.md: L=Live, H=Historical, S=Staging Live, Z=Staging Historical (staging = hits against another org's staged hotlist).",
+    "Grep backstop (missed-caller sweep) is N/A: no code symbols are being modified (docs-only). Instead the code-truth enumeration was independently verified by the driver reading RdnMetricType, RdnMetricsPublisher, both CH queries, DispatchRdnMetricsHourly, PublishRdnMetric, routes/console.php and config/services.php."
+  ],
+  "tests": [],
+  "grounding": {
+    "key_files": [
+      "app/Enums/RdnMetricType.php:9-13 (5 cases + hitColumn mapping) \u2014 VERIFIED",
+      "app/Services/Rdn/RdnMetricsPublisher.php:50-64 (envelope key order: metric_type, metric_range_start, metric_range_end, rdn_org_identifier, idempotency_key, data) \u2014 VERIFIED",
+      "app/Jobs/Rdn/DispatchRdnMetricsHourly.php:44-45,92-111 (rangeEnd=now(UTC).startOfHour, rangeStart=rangeEnd.subHour; eligibility) \u2014 VERIFIED",
+      "app/Jobs/Rdn/PublishRdnMetric.php:29-31 (tries=1 at-most-once) \u2014 VERIFIED",
+      "app/Clickhouse/Queries/RdnHitHourCountQuery.php:32-42 (hits_hot FINAL, countIf hit_type L/H/S/Z, [start,end)) \u2014 VERIFIED",
+      "app/Clickhouse/Queries/RdnScanHourCountQuery.php:25-30 (scan_report_hourly, uniqExactMerge(scan_count), scan_hour=toStartOfHour) \u2014 VERIFIED",
+      "routes/console.php:44-50 (Schedule::job hourlyAt(5), gate: env=production AND app.name=platform AND queue_url filled) \u2014 VERIFIED",
+      "config/services.php:66-70 (rdn_metrics.queue_url=RDN_METRICS_QUEUE_URL, aws_profile default insight_sqs_production, aws_region default us-east-2) \u2014 VERIFIED",
+      "app/Enums/HitTypeEnum.php:21-30 (L/H/S/Z meanings) \u2014 VERIFIED",
+      "okf/concepts/rdn.md (existing engineering-facing narrative \u2014 reference only)"
+    ],
+    "code_flow": "Schedule (hourlyAt 5; prod+platform+queue_url gate) -> DispatchRdnMetricsHourly::handle() computes window [prevHour, thisHour) UTC, resolves eligibleOrgs() [rdn_id non-blank AND meta.platform_repo_pro=true AND meta.platform_repo_pro_rdn_metrics_push=true AND proTier in {PRO_LITE, CLARITY_PRO}] -> per org, one RdnHitHourCountQuery round-trip precomputes all 4 hit counts, then Bus::batch of 5 PublishRdnMetric jobs (1 per RdnMetricType) -> each job -> RdnMetricsPublisher::publish() resolves scan count itself (RdnScanHourCountQuery) if scan, builds envelope, Sqs::sendRdnMetricsMessage(). tries=1 + SDK retries=0 = at-most-once; idempotency_key for RDN-side dedup.",
+    "tables": [
+      "clarity.hits_hot (FINAL)",
+      "clarity.scan_report_hourly",
+      "zod.public.orgs",
+      "zod.public.org_meta"
+    ],
+    "related_components": [
+      "App\\Filament\\Pages\\Subscription (org opt-in toggle: platform_repo_pro_rdn_metrics_push)",
+      "App\\Models\\Org (rdn_id, proTier, hasRdnAccount)"
+    ]
+  },
+  "exhaustiveness": {
+    "grep_patterns": [
+      "RdnMetricType",
+      "rdn_org_identifier",
+      "metric_range_start",
+      "metric_range_end",
+      "metric_type",
+      "RDN_METRICS_QUEUE",
+      "RdnMetric",
+      "PublishRdnMetric",
+      "by_org_by_day",
+      "by_org_by_month",
+      "hits_by_org",
+      "scans_by_kit_user_by_hour",
+      "scans_by_physical_kits_by_hour"
+    ],
+    "sites": [
+      {
+        "site": "RdnMetricType::SCANS = scans_by_org_by_hour",
+        "verdict": "covered",
+        "reason": "hour-grain, RdnScanHourCountQuery"
+      },
+      {
+        "site": "RdnMetricType::HISTORICAL_HITS = hh_by_org_by_hour",
+        "verdict": "covered",
+        "reason": "hit_type H"
+      },
+      {
+        "site": "RdnMetricType::STAGING_HISTORICAL = aa_by_org_by_hour",
+        "verdict": "covered",
+        "reason": "hit_type Z"
+      },
+      {
+        "site": "RdnMetricType::LIVE_HITS = lives_by_org_by_hour",
+        "verdict": "covered",
+        "reason": "hit_type L"
+      },
+      {
+        "site": "RdnMetricType::STAGING_LIVE = staging_lives_by_org_by_hour",
+        "verdict": "covered",
+        "reason": "hit_type S"
+      },
+      {
+        "site": "day/month/agent/type-keyed variants",
+        "verdict": "excluded",
+        "reason": "zero code hits; unimplemented Phase-2 tickets only"
+      },
+      {
+        "site": "scans_by_kit_user_by_hour / scans_by_physical_kits_by_hour",
+        "verdict": "excluded",
+        "reason": "zero references anywhere; do not exist"
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [
+      "zod.public.orgs (rdn_id varchar(64))",
+      "zod.public.org_meta (properties.platform_repo_pro, platform_repo_pro_rdn_metrics_push)"
+    ],
+    "ch_tables": [
+      "clarity.hits_hot (FINAL; hit_type, hotlist_org_id, hit_created_at)",
+      "clarity.scan_report_hourly (uniqExactMerge scan_count, org_id, scan_hour)"
+    ],
+    "mv_or_cdc_implications": "None \u2014 no schema/MV changes; read-only queries already in production. Docs-only.",
+    "indexes_relied_on": []
+  },
+  "derivation_log": [
+    {
+      "query_shape": "git grep across app/tests/config/okf for the 8 root idioms + 5 day/month/type/agent patterns",
+      "param_classes": "literal string search",
+      "aggregate_result": "5 files implement RdnMetricType consumption; zero hits for any day/month/type-breakdown/agent pattern",
+      "why": "Code-side metric catalog is closed at 5"
+    },
+    {
+      "query_shape": "Jira parent = DEV-1830 (21 children) cross-checked vs 5 enum cases",
+      "param_classes": "ticket metadata",
+      "aggregate_result": "5 hour-grain child tickets map 1:1 to the 5 enum cases; 16 others have no code counterpart",
+      "why": "Code is truth: document exactly the 5 matched types"
+    },
+    {
+      "query_shape": "Direct read of RdnMetricsPublisher::publish() envelope array",
+      "param_classes": "source read",
+      "aggregate_result": "Envelope keys + exact order verified; data=[{count}]",
+      "why": "Example payloads must match emitted key order"
+    }
+  ],
+  "metric_catalog": [
+    {
+      "metric_type": "scans_by_org_by_hour",
+      "human_name": "Scans (per org, per hour)",
+      "granularity": "hour",
+      "counts": "Distinct scan count for the org in the UTC hour (uniqExactMerge(scan_count) from clarity.scan_report_hourly where scan_hour = toStartOfHour(range_start))",
+      "data_row_keys": [
+        {
+          "name": "count",
+          "type": "integer",
+          "units": "scans",
+          "nullable": false,
+          "example": "12871"
+        }
+      ],
+      "example_payload": "{\"metric_type\":\"scans_by_org_by_hour\",\"metric_range_start\":\"2026-05-01T00:00:00Z\",\"metric_range_end\":\"2026-05-01T01:00:00Z\",\"rdn_org_identifier\":\"AZ5209991234\",\"idempotency_key\":\"1f9c2a7e4b8d5f0a3c6e9b2d5f8a1c4e7b0d3f6a\",\"data\":[{\"count\":12871}]}"
+    },
+    {
+      "metric_type": "hh_by_org_by_hour",
+      "human_name": "Historical Hits (per org, per hour)",
+      "granularity": "hour",
+      "counts": "Count of hits with hit_type='H' (Historical) for the org in the UTC hour, from clarity.hits_hot FINAL, hit_created_at in [start,end)",
+      "data_row_keys": [
+        {
+          "name": "count",
+          "type": "integer",
+          "units": "hits",
+          "nullable": false,
+          "example": "8"
+        }
+      ],
+      "example_payload": "{\"metric_type\":\"hh_by_org_by_hour\",\"metric_range_start\":\"2026-05-01T00:00:00Z\",\"metric_range_end\":\"2026-05-01T01:00:00Z\",\"rdn_org_identifier\":\"AZ5209991234\",\"idempotency_key\":\"7ae0d1...\",\"data\":[{\"count\":8}]}"
+    },
+    {
+      "metric_type": "aa_by_org_by_hour",
+      "human_name": "Staging Historical Hits (per org, per hour)",
+      "granularity": "hour",
+      "counts": "Count of hits with hit_type='Z' (Staging Historical) for the org in the UTC hour, same source/window as hh",
+      "data_row_keys": [
+        {
+          "name": "count",
+          "type": "integer",
+          "units": "hits",
+          "nullable": false,
+          "example": "1"
+        }
+      ],
+      "example_payload": "{\"metric_type\":\"aa_by_org_by_hour\",\"metric_range_start\":\"2026-05-01T00:00:00Z\",\"metric_range_end\":\"2026-05-01T01:00:00Z\",\"rdn_org_identifier\":\"AZ5209991234\",\"idempotency_key\":\"3bd214...\",\"data\":[{\"count\":1}]}"
+    },
+    {
+      "metric_type": "lives_by_org_by_hour",
+      "human_name": "Live Hits (per org, per hour)",
+      "granularity": "hour",
+      "counts": "Count of hits with hit_type='L' (Live) for the org in the UTC hour, same source/window as hh",
+      "data_row_keys": [
+        {
+          "name": "count",
+          "type": "integer",
+          "units": "hits",
+          "nullable": false,
+          "example": "47"
+        }
+      ],
+      "example_payload": "{\"metric_type\":\"lives_by_org_by_hour\",\"metric_range_start\":\"2026-05-01T00:00:00Z\",\"metric_range_end\":\"2026-05-01T01:00:00Z\",\"rdn_org_identifier\":\"AZ5209991234\",\"idempotency_key\":\"9c0e77...\",\"data\":[{\"count\":47}]}"
+    },
+    {
+      "metric_type": "staging_lives_by_org_by_hour",
+      "human_name": "Staging Live Hits (per org, per hour)",
+      "granularity": "hour",
+      "counts": "Count of hits with hit_type='S' (Staging Live) for the org in the UTC hour, same source/window as hh",
+      "data_row_keys": [
+        {
+          "name": "count",
+          "type": "integer",
+          "units": "hits",
+          "nullable": false,
+          "example": "3"
+        }
+      ],
+      "example_payload": "{\"metric_type\":\"staging_lives_by_org_by_hour\",\"metric_range_start\":\"2026-05-01T00:00:00Z\",\"metric_range_end\":\"2026-05-01T01:00:00Z\",\"rdn_org_identifier\":\"AZ5209991234\",\"idempotency_key\":\"55f8ab...\",\"data\":[{\"count\":3}]}"
+    }
+  ],
+  "envelope": {
+    "keys": [
+      {
+        "name": "metric_type",
+        "type": "string (enum, one of 5)",
+        "units": "n/a",
+        "nullable": false,
+        "example": "scans_by_org_by_hour",
+        "semantics": "Identifies the metric. Naming: <metric>_by_org_by_hour."
+      },
+      {
+        "name": "metric_range_start",
+        "type": "string, ISO-8601 UTC 'Z'",
+        "units": "timestamp",
+        "nullable": false,
+        "example": "2026-05-01T00:00:00Z",
+        "semantics": "Inclusive start of the counted window; always the start of a COMPLETED UTC hour (never the in-progress hour)."
+      },
+      {
+        "name": "metric_range_end",
+        "type": "string, ISO-8601 UTC 'Z'",
+        "units": "timestamp",
+        "nullable": false,
+        "example": "2026-05-01T01:00:00Z",
+        "semantics": "EXCLUSIVE end of the window (hit query uses strict '<'). Always exactly 1 hour after start in Phase 1."
+      },
+      {
+        "name": "rdn_org_identifier",
+        "type": "string (<=64 chars)",
+        "units": "n/a",
+        "nullable": false,
+        "example": "AZ5209991234",
+        "semantics": "Opaque RDN-issued org identifier; Clarity stores it verbatim as orgs.rdn_id. No format enforced by Clarity. Orgs without a non-blank rdn_id never emit any message."
+      },
+      {
+        "name": "idempotency_key",
+        "type": "string (SHA1 hex, 40 chars)",
+        "units": "n/a",
+        "nullable": false,
+        "example": "1f9c2a7e4b8d5f0a3c6e9b2d5f8a1c4e7b0d3f6a",
+        "semantics": "SHA1 of rdn_org_identifier|metric_type|metric_range_start|metric_range_end. Stable across resends of the same (org,metric,window). For RDN-side dedup; Clarity delivery is at-most-once and never deliberately resends."
+      },
+      {
+        "name": "data",
+        "type": "array of objects (exactly 1 element)",
+        "units": "n/a",
+        "nullable": false,
+        "example": "[{\"count\":12871}]",
+        "semantics": "Per-metric rows. For all 5 metric types today this is a single object with one integer `count`. Multi-row/type-keyed data is not emitted (Phase 2 only)."
+      }
+    ]
+  },
+  "delivery_model": {
+    "cadence": "Hourly at minute 5 (hourlyAt(5)), one tick per completed UTC hour. Runs only when env=production AND app.name=platform AND RDN_METRICS_QUEUE_URL is configured.",
+    "granularity_of_message": "One SQS message per (org, metric_type, hour) => up to 5 messages per eligible org per hour.",
+    "eligibility": "Org has non-blank rdn_id AND org_meta.platform_repo_pro=true AND org_meta.platform_repo_pro_rdn_metrics_push=true AND proTier in {PRO_LITE, CLARITY_PRO}.",
+    "delivery_guarantee": "At-most-once (PublishRdnMetric tries=1, AWS SDK retries=0, non-FIFO queue). A whole org's hour is dropped rather than sent partial. idempotency_key lets RDN dedup if they choose.",
+    "transport": "AWS SQS, region us-east-2 (default), profile insight_sqs_production (default), queue from RDN_METRICS_QUEUE_URL."
+  },
+  "doc_location_options": [
+    {
+      "path": "okf/concepts/rdn-provider-integration.md (new, beside okf/concepts/rdn.md)",
+      "convention": "okf/ is the repo's canonical knowledge wiki (per CLAUDE.md); concepts/ already holds rdn.md",
+      "pro": "Fits an established convention; versioned with code; cross-linkable from rdn.md; single source to export RDN's copy from",
+      "con": "okf is framed as internal/engineering-facing; needs care to keep provider-relevant content clean of internal-only detail"
+    },
+    {
+      "path": "docs/integrations/rdn-metrics-spec.md (new subfolder)",
+      "convention": "docs/ exists with topic subdirs but no provider/integration precedent",
+      "pro": "Clean separation from internal wiki; natural home for an external export",
+      "con": "New base structure without precedent (Boost guidance discourages); still private-repo markdown"
+    },
+    {
+      "path": "External Confluence page",
+      "convention": "no provider-doc space located this pass",
+      "pro": "Directly serves AC5 (share with RDN)",
+      "con": "Source of truth outside the repo can silently drift from code"
+    }
+  ],
+  "qa_hint": null,
+  "confidence": 90,
+  "escalate": {
+    "recommend": false,
+    "reason": "Code scope fully closed and driver-verified (5 metric types, one envelope shape). The only open items are human/product decisions (doc home/format, Phase-2 framing) that best-of-N re-derivation cannot resolve; they go to the human gate."
+  },
+  "missed_caller_candidates": []
+}

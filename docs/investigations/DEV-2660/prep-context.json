@@ -1,0 +1,240 @@
+{
+  "key": "DEV-2660",
+  "track": "product",
+  "generated_at": "2026-09-28T13:41:46Z",
+  "mode": "normal",
+  "phase": "prep",
+  "gate": "CLEAN",
+  "confidence": 86,
+  "provisioned": false,
+  "base_sha": "76d4f5fcfdb37a9cb3b7b667c9e34a0d2f4f3266",
+  "branch_path": "main→main",
+  "first_glance_comment": "42078",
+  "supersedes_comment": "42077",
+  "escalate": {
+    "recommend": false,
+    "reason": "Both blocked-by links (the Cloud first-timestamp apply, and the hotlist status-change timestamp backfill) are Done. Comment 42078 clears the Cloud Phase B Hold. No material product question remains after the code, the tip schema, and that comment."
+  },
+  "questions": [],
+  "reconcile": {
+    "method": "Single prep pass. Live Jira re-GET 2026-09-28 including comment 42078. Code and database/schema/clickhouse-schema.sql read on origin/main 76d4f5fcfdb37a9cb3b7b667c9e34a0d2f4f3266. No ClickHouse query executed. No product PHP edited. Wiki not written.",
+    "candidates": 1,
+    "driver_verified": [
+      "LprRepossessionsQuery::sql still LEFT JOINs zod.public_hotlist FINAL (status = 3) and zod.public_hotlist_status_log (new_status = 3, _peerdb_is_deleted = 0, no FINAL) at lines 200-215.",
+      "db_repos is uniqExactIf on toDate(hsl.created_at, 'UTC') >= d.claim_date - 7 (lines 173-174).",
+      "{floor} is the UTC window start date minus 7 days, applied only inside the status-log subquery (lines 45-50, 147, 214).",
+      "Sentinels: d.agent_org_id != 0 on the hotlist ON clause (line 203); h.id != 0 on the status-log ON clause (line 215). join_use_nulls is not set in the SQL.",
+      "h.vin = d.vin with no normalisation (line 203).",
+      "The class does not extend ClickhouseQuery (lines 15-20).",
+      "The class docblock still rejects clarity.hotlist.repo_date variant B for the 23% disagreement (lines 52-57).",
+      "Tip schema line 24: clarity.hotlist has first_repossessed_at Nullable(DateTime64(6)) and first_declined_at Nullable(DateTime64(6)), engine ReplacingMergeTree.",
+      "Tip schema line 103: hotlist_incremental_mv hsl_deduped sets first_repossessed_at = minIf(toNullable(created_at), new_status = 3) and first_declined_at = minIf(toNullable(created_at), new_status = 4), from zod.public_hotlist_status_log WHERE _peerdb_is_deleted = 0, no FINAL in that CTE."
+    ]
+  },
+  "synthesis": "Replace only the recoveries-leg status-log LEFT JOIN. Read clarity.hotlist.first_repossessed_at, which the tip MV fills with min() of status-3 log rows. Keep zod.public_hotlist FINAL (status = 3), the un-normalised h.vin match, both sentinel guards carried onto the new join key, the class off ClickhouseQuery, and the −7 predicate as a deliberate keep. Adopt min() knowing the forecast 0.187% residue versus the prior any/max predicate. Dump name first_declined_at is status 4 and is not the recoveries column. {floor} is decided in Ultra-Plan by the ticket rule (dead, remove; otherwise keep and say why). Do not touch hotlist_status_aggregate, the billing-leg change, or other status-log readers. No product swap in this run.",
+  "locked_shape": {
+    "in": [
+      "Retire zod.public_hotlist_status_log from LprRepossessionsQuery's recoveries leg.",
+      "Read first_repossessed_at (status 3, minIf) from clarity.hotlist for the db_repos predicate.",
+      "Keep toDate(<timestamp>, 'UTC') >= d.claim_date - 7 as a deliberate predicate, not a side effect of the join change.",
+      "Carry join_use_nulls = 0 sentinel guards onto the new join key (h.id != 0 pattern) and keep d.agent_org_id != 0.",
+      "Keep a fixture whose join key is the sentinel.",
+      "Rewrite the class docblock: variant B is viable because the transition timestamp exists.",
+      "Keep h.vin un-normalised.",
+      "Keep the class from extending ClickhouseQuery.",
+      "Keep zod.public_hotlist FINAL WHERE _peerdb_is_deleted = 0 AND status = 3 where that join is still the (org, vin) match."
+    ],
+    "out": [
+      "Implementing the SQL swap in this run.",
+      "Provisioning a fleet ledger or naming a Mac/localhost DSN.",
+      "ClickHouse Cloud writes.",
+      "chlocal, schema dump, or projection work.",
+      "hotlist_status_aggregate.",
+      "Reopening the billing-leg change.",
+      "Editing CohortClosedQuery or CohortDeclinedQuery.",
+      "Normalising h.vin.",
+      "Using repo_date, order_date, close_date, or first_declined_at as the recoveries timestamp.",
+      "Using a column named first_closed_positive_at.",
+      "okf/ edits while the change is in flight."
+    ]
+  },
+  "recoveries_leg_trace": {
+    "file": "app/Clickhouse/Queries/LprRepossessionsQuery.php",
+    "status_log_join": {
+      "lines": "211-215",
+      "sql": "LEFT JOIN (SELECT hotlist_id, created_at FROM {db}.public_hotlist_status_log WHERE _peerdb_is_deleted = 0 AND new_status = 3 AND toDate(created_at, 'UTC') >= {floor}) AS hsl ON hsl.hotlist_id = h.id AND h.id != 0"
+    },
+    "hotlist_join_kept": {
+      "lines": "200-203",
+      "sql": "LEFT JOIN (SELECT id, org_id, vin FROM {db}.public_hotlist FINAL WHERE _peerdb_is_deleted = 0 AND status = 3) AS h ON h.org_id = d.agent_org_id AND h.vin = d.vin AND d.agent_org_id != 0",
+      "reason": "Scope item 1 replaces the status-log join. The ticket says public_hotlist FINAL stays as-is where still used. Collapsing both joins into one clarity.hotlist read would be an architecture rewrite and is out of this key."
+    },
+    "floor": {
+      "php": "buildSql line 147: UTC window start minus 7 days, emitted as toDate('Y-m-d').",
+      "sql": "Line 214, only on the status-log subquery.",
+      "docblock": "Lines 45-50: looser than min(claim_date) - 7, so it cannot change the answer; it replaces a second billing pass.",
+      "after_swap": "Once the status-log scan is gone, {floor} has no log to pre-filter. Ultra-Plan applies the ticket rule: remove it if the new shape makes it dead; otherwise keep it and record why. The −7 on the db_repos predicate stays either way.",
+      "test_pin": "BillingClaimDedupTest.php line 90 expects toDate('2026-06-24'), which is 2026-07-01 minus 7 days."
+    },
+    "minus_seven": {
+      "lines": "173-174",
+      "predicate": "toDate(hsl.created_at, 'UTC') >= d.claim_date - 7",
+      "decision": "Keep. Deliberate. Not a side effect of dropping the log."
+    },
+    "sentinels": {
+      "agent": "d.agent_org_id != 0 at line 203. Fixture: LprRepossessionsQueryTest.php line 187.",
+      "hotlist_id": "h.id != 0 at line 215. Comment lines 204-210. Fixture: LprRepossessionsQueryTest.php line 225 seeds hotlist_id = 0.",
+      "new_join": "The clarity.hotlist join key needs the same != 0 guard. The stray-zero fixture moves with that key. Do not set join_use_nulls = 1. PG-030."
+    },
+    "docblock_a1_vs_b": {
+      "lines": "52-57",
+      "today": "A1 only. Variant B (repo_date) rejected: 23% disagreement with the status-log transition.",
+      "ac7": "Rewrite so a future reader sees variant B as viable because first_repossessed_at is the transition timestamp. Do not cite repo_date as that timestamp."
+    },
+    "min_vs_max": {
+      "current_equivalence": "Docblock lines 39-44: any joined status-3 row satisfying the predicate counts, which is the max(created_at) >= X reading.",
+      "new_column": "MV minIf on new_status = 3. First Glance 42078: adopt first_repossessed_at knowingly as min(), 0.187% versus the prior max.",
+      "source_of_0_187": "Comment 42078 forecast gate. This prep does not re-measure that percent."
+    }
+  },
+  "schema_proof": {
+    "proved": true,
+    "file": "database/schema/clickhouse-schema.sql",
+    "sha": "76d4f5fcfdb37a9cb3b7b667c9e34a0d2f4f3266",
+    "objects": {
+      "clarity.hotlist": 24,
+      "zod.public_hotlist_status_log": 66,
+      "clarity.hotlist_incremental_mv": 103
+    },
+    "columns": {
+      "first_repossessed_at": "Nullable(DateTime64(6)). MV: minIf(toNullable(created_at), new_status = 3).",
+      "first_declined_at": "Nullable(DateTime64(6)). MV: minIf(toNullable(created_at), new_status = 4). Dump name. Not first_closed_positive_at. Not the recoveries column.",
+      "first_closed_at": "Nullable(DateTime64(6)). MV: minIf(..., new_status = 5). Not used here.",
+      "first_invalid_at": "Nullable(DateTime64(6)). MV: minIf(..., new_status = 99). Not used here.",
+      "repo_date": "Nullable(Date) from hotlist_meta. This is the rejected variant B column."
+    },
+    "mv_status_log_filter": "_peerdb_is_deleted = 0 and no FINAL inside hsl_deduped.",
+    "engine": "ReplacingMergeTree(_version, _peerdb_is_deleted). Wiki model page still says SharedReplacingMergeTree; the dump wins for physical shape.",
+    "enum_cross_check": "app/Enums/HotlistStatusEnum.php: Repossessed = 3, ClosedPositive = 4. The dump column for status 4 is first_declined_at. Recoveries reads status 3."
+  },
+  "other_status_log_readers": [
+    {
+      "file": "app/Clickhouse/Queries/Client/CohortClosedQuery.php",
+      "final": false,
+      "tombstone": "_peerdb_is_deleted = 0",
+      "action": "Leave. Already matches the no-FINAL rule."
+    },
+    {
+      "file": "app/Clickhouse/Queries/Client/CohortDeclinedQuery.php",
+      "final": false,
+      "tombstone": "_peerdb_is_deleted = 0",
+      "action": "Leave. Already matches the no-FINAL rule."
+    }
+  ],
+  "wiki": {
+    "read": [
+      "okf/index.md",
+      "okf/concepts/clickhouse-query-patterns.md",
+      "okf/concepts/billing-events.md",
+      "okf/concepts/company-metrics-dashboard.md",
+      "okf/concepts/platform-gotchas.md",
+      "okf/models/clickhouse/hotlist.md"
+    ],
+    "proved": [
+      "clickhouse-query-patterns.md lines 81-99: FINAL on public_hotlist, no FINAL on public_hotlist_status_log, X-ClickHouse-Summary for read_rows / read_bytes / memory_usage.",
+      "platform-gotchas.md PG-030 lines 286-307: sentinel guards, fixture at the sentinel.",
+      "company-metrics-dashboard.md names the lpr-repossessions card. It does not document this join.",
+      "models/clickhouse/hotlist.md: ApplyFinal and FilterDeletedRecords on the Eloquent model. Raw SQL in LprRepossessionsQuery does not inherit those scopes."
+    ],
+    "unproven": [
+      "okf/models/clickhouse/hotlist.md column table stops at close_date. It does not list first_repossessed_at, first_declined_at, or _peerdb_hsl_synced_at. Column meaning for this prep is the tip CREATE plus the MV minIf, not that page.",
+      "The same page still says SharedReplacingMergeTree. The tip dump says ReplacingMergeTree.",
+      "okf/concepts/billing-events.md has no LprRepossessions / db_repos section. The 3.0x billing single-pass note in the class docblock is not a recoveries-timestamp rule.",
+      "okf/concepts/company-metrics-dashboard.md does not describe the status-log join or first_repossessed_at.",
+      "Whether FINAL on clarity.hotlist changes a first_repossessed_at read is not measured in the wiki. The Eloquent page applies FINAL. The per-table measure table does not include this column. Ultra-Plan measures it; this prep does not invent the delta.",
+      "Wiki edits are queued until after approval. Wake path is out of scope for this run."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "AC-1 Pre-swap: first_repossessed_at agrees with the zod.public_hotlist_status_log transition on ~100% of counted pairs. Record the figure. Close the historical ~23% repo_date disagreement.",
+      "decision": "measure_in_ultra_plan",
+      "reason": "Not measured in this run. Historical 23% is q8 (repo_date vs transition, 1588/6770, April). The new column is minIf of the same log, so agreement is a Cloud READ-ONLY count, not an assumption."
+    },
+    {
+      "item": "AC-2 LprRepossessionsQuery no longer joins zod.public_hotlist_status_log for the recoveries leg.",
+      "decision": "implement_later",
+      "reason": "Today it still joins, lines 211-215. This run does not edit the class."
+    },
+    {
+      "item": "AC-3 db_repos reproduces its pre-change value for Jul 2026 UTC platform-wide within the AC-1 tolerance.",
+      "decision": "measure_in_ultra_plan",
+      "reason": "Prior snapshots are not the live baseline. The recoveries-leg q8 measure recorded 9137 on 2026-09-09. The billing-view snapshot recorded 9149 on 2026-09-25 with the billing view and the status-log leg still in place. Re-measure old and new before the swap. Known residue: min() versus the current any/max predicate, forecast 0.187% (comment 42078)."
+    },
+    {
+      "item": "AC-4 Read rows and bytes drop, via X-ClickHouse-Summary.",
+      "decision": "measure_in_ultra_plan",
+      "reason": "Capture read_rows, read_bytes, and memory_usage on the current SQL and on the candidate SQL. q8 A1 (664,270,998 rows / 15.04 GB / 2.50 GB) is pre-billing-view and is context only."
+    },
+    {
+      "item": "AC-5 {floor} removed as dead or retained with a documented reason.",
+      "decision": "decide_in_ultra_plan",
+      "reason": "Rule is locked. Outcome depends on whether the pre-filter still prunes after the log join is gone. −7 on the predicate stays."
+    },
+    {
+      "item": "AC-6 Sentinel guards on the new join key, fixture at the sentinel.",
+      "decision": "implement_later",
+      "reason": "Carry h.id != 0. Update LprRepossessionsQueryTest.php line 225 so the fixture hits the new key."
+    },
+    {
+      "item": "AC-7 Class docblock: variant B viable because the transition timestamp exists.",
+      "decision": "implement_later",
+      "reason": "Lines 52-57 still reject repo_date. Rewrite against first_repossessed_at. CompanyMetricsCacheScopeTest.php still expects the hotlist-match key and this ship key in this file."
+    }
+  ],
+  "measure_outline": {
+    "executed_this_run": false,
+    "cloud": "READ-ONLY. No INSERT, ALTER, DELETE, or other write. No DSN recorded here.",
+    "fleet_docker_later": "Preflight #18: Agent QA and Verify use the real fleet Docker ClickHouse. This prep does not provision it and does not invent a host, port, or Mac/Herd DSN.",
+    "preflight_25": "This ticket rewrites the recoveries join and the numbers must match the prior leg within the locked tolerance. Ultra-Plan requires an old-vs-new exact-match packet on Cloud ClickHouse READ-ONLY before the swap. Do not skip that callout. Do not treat a local seed as that packet.",
+    "packets": [
+      {
+        "id": "ac1-agreement",
+        "window": "Same counted-pair population the current recoveries predicate counts. Record the window in the packet. q8 used April for the 23% repo_date figure; AC-3's reconciliation window is Jul 2026 UTC platform-wide. Report both if they differ.",
+        "compare": "Status-log transition (new_status = 3, _peerdb_is_deleted = 0, no FINAL) versus clarity.hotlist.first_repossessed_at. Also report the min() versus current any/max predicate residue against the 0.187% forecast.",
+        "record": "Agreement percent, numerator, denominator. The ~23% repo_date figure is the closed historical comparison, not the new-column result."
+      },
+      {
+        "id": "ac3-jul-2026-db-repos",
+        "window": "2026-07-01 00:00:00 UTC through 2026-07-31 23:59:59 UTC, org = 0.",
+        "compare": "Current LprRepossessionsQuery::windowSql versus the candidate SQL. deduped and db_repos. Set-diff of counted triples if the scalar moves.",
+        "tolerance": "AC-1 agreement, with the known min-versus-max residue called out. A delta outside that recorded residue stops the swap.",
+        "not_the_baseline": ["9137 from the recoveries-leg q8 measure on 2026-09-09", "9149 from the billing-view snapshot on 2026-09-25"]
+      },
+      {
+        "id": "ac4-summary-header",
+        "header": "X-ClickHouse-Summary",
+        "fields": ["read_rows", "read_bytes", "memory_usage"],
+        "shape": "Same Jul 2026 UTC platform-wide statement, old SQL then candidate SQL. Wall clock is not the acceptance figure."
+      },
+      {
+        "id": "final-on-clarity-hotlist",
+        "why": "Raw SQL does not inherit Hotlist::ApplyFinal. The wiki measure table does not cover first_repossessed_at. Run the candidate with and without FINAL and record whether db_repos or the summary header moves. That measurement chooses the keyword; it is not a product question."
+      }
+    ]
+  },
+  "forecast_gates": {
+    "source": "Jira comment 42078",
+    "first_repossessed_at": "Adopt as min(). 0.187% versus prior max is known.",
+    "first_declined_at": "Dump name. Status 4. Not first_closed_positive_at. Not the recoveries read.",
+    "floor": "Keep or drop with a reason in Ultra-Plan.",
+    "minus_seven": "Deliberate keep.",
+    "sentinel_fixture": "Required on the new join key.",
+    "preflight_18": "Real fleet Docker ClickHouse later. No DSN in this prep.",
+    "hotlist_status_aggregate": "Do not touch.",
+    "vin": "Keep h.vin un-normalised.",
+    "clickhouse_query_base": "Do not extend.",
+    "remaining_status_log": "If a read remains, _peerdb_is_deleted = 0 without FINAL. Cohort queries already do this and stay out of the diff.",
+    "join_use_nulls": "0. Carry h.id != 0 and d.agent_org_id != 0."
+  }
+}

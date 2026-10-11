@@ -1,0 +1,353 @@
+{
+  "key": "DEV-2659",
+  "track": "product",
+  "label": "Product DEV-2659 \u2014 claims and repos funnels onto billing_claim_events_v.",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "sprint": "Sprint 41",
+  "repo": "insight-lpr/platform",
+  "phase": "done",
+  "base_branch": "main",
+  "base_sha": "a4b5074630771c1f4121a5ca34f255c71afe0755",
+  "base_branch_reason": "DEV-2654 / #436 is the main tip. SCHEMA-GATE #449 (25870f75) is an ancestor and is the billing_claim denorm proof. Do not reuse a schema-gate branch.",
+  "branch": "cursor/dev-2659-billing-funnel-plan-0b83",
+  "artifact_dir": "docs/investigations/DEV-2659/",
+  "gate": "CLEAN",
+  "next": "Undraft / CI / QA Ready",
+  "tip_sha": "3b9bc75aa083137f85a69302483c8c95acb5fbf8",
+  "tip_sha_note": "Product / reviewed_sha for suites + Review rn=2. Docblock fixes in 1d6e2b89. PR head 4584b5a is docs Review stamp only. Refused Verify on ccfbc676 alone.",
+  "ledger_path": "docs/investigations/DEV-2659/qa-prep-ledger.json",
+  "flags": {
+    "implement": true,
+    "provision": true,
+    "qa": true,
+    "review": true,
+    "stop_at": "done",
+    "cloud_ch_writes": false,
+    "mac_herd_refused": true,
+    "cloud_touched": false,
+    "zod": false,
+    "item_5_ac7": "out_of_ship",
+    "orgs_cte": "deleted",
+    "type_in_1_2_docblock": false,
+    "ultra_plan_written": true,
+    "verify": true
+  },
+  "jira": {
+    "key": "DEV-2659",
+    "id": "31120",
+    "url": "https://insightlpr-team.atlassian.net/browse/DEV-2659",
+    "type": "Story",
+    "status": "To Do",
+    "priority": "Medium",
+    "assignee": "Dalton McCleery",
+    "assignee_unchanged": true,
+    "github_assignee": {
+      "requested": "DaltonMcCleery",
+      "set": true,
+      "pr": 465
+    },
+    "parent": "DEV-2409",
+    "blocked_by": [
+      {
+        "key": "DEV-2655",
+        "status": "Done"
+      },
+      {
+        "key": "DEV-2656",
+        "status": "Done"
+      }
+    ],
+    "sprint": "Sprint 41",
+    "reget_at": "2026-09-25T00:00:00Z",
+    "comment_ids": {
+      "first_glance": "41179",
+      "billing_handoff": "41325",
+      "scope_lock": "41330",
+      "question_gate": "41822",
+      "plan": "41823",
+      "provision": "41824",
+      "build_record": "41825"
+    }
+  },
+  "schema_on_main": {
+    "proved": true,
+    "sha": "a4b5074630771c1f4121a5ca34f255c71afe0755",
+    "ancestor_449": "25870f75661f07a27a69124a414e557d4c11fff0",
+    "file": "database/schema/clickhouse-schema.sql",
+    "objects": {
+      "clarity.billing_claim_events": 18,
+      "clarity.billing_claim_events_v": 85,
+      "clarity.orgs": 89,
+      "clarity.billing_claim_events_mv": 102
+    },
+    "read_surface": "clarity.billing_claim_events_v"
+  },
+  "fleet": {
+    "soft_ok_claimed": true,
+    "soft_ok_vs": "SCHEMA-DRIFT-2657",
+    "ledger_present": true,
+    "ledger_path": "docs/investigations/DEV-2659/qa-prep-ledger.json",
+    "ledger_status": "live",
+    "ledger_timestamp": "2026-09-24T19:03:54-05:00",
+    "strategy": "docker",
+    "driver": "clickhouse",
+    "host": "127.0.0.1",
+    "container": "clarity-qa-clickhouse-dev-2659",
+    "http_port": 18126,
+    "site_url": "http://127.0.0.1:18083",
+    "site_container": "clarity-qa-app-dev-2659",
+    "site_probe": "GET /app/login -> 200",
+    "postgres": {
+      "host": "127.0.0.1",
+      "port": 15435,
+      "container": "clarity-qa-postgres-dev-2659",
+      "dev_db": "zod_dev_2659",
+      "testing_db": "zod_testing_dev_2659",
+      "user": "clarity"
+    },
+    "databases": [
+      "clarity_dev_2659",
+      "clarity_testing_dev_2659",
+      "zod_dev_2659",
+      "zod_testing_dev_2659"
+    ],
+    "database_clarity": "clarity_dev_2659",
+    "billing_claim": [
+      "billing_claim_events",
+      "billing_claim_events_v",
+      "billing_claim_events_mv"
+    ],
+    "prove_select": "PASS",
+    "show_create_view": "open_non_blocking",
+    "show_create_view_note": "Agent QA: view present on classic clarity.billing_claim_events_v @ :18126; CREATE VIEW text retrieved; body prove soft/non-blocking.",
+    "cloud_touched": false,
+    "mac_herd_refused": true,
+    "refused": [
+      "mac_herd",
+      ":18124",
+      ":18125",
+      "cloud_ch_writes"
+    ],
+    "schema": "database/schema/clickhouse-schema.sql",
+    "provisioned": true,
+    "provisioned_at": "2026-09-25T00:06:35Z"
+  },
+  "subtasks": {
+    "t0_truncate": "clarity.billing_claim_events in RequiresClickhouse::CLICKHOUSE_TABLES_TO_TRUNCATE",
+    "t1": "BillingClaimDedup triple + deduped CTE",
+    "t2": "UniqueLprCaseClaimsQuery reads billing_claim_events_v",
+    "t3": "LprRepossessionsQuery reads billing_claim_events_v"
+  },
+  "tests": {
+    "driver": "clickhouse",
+    "host": "127.0.0.1:8123",
+    "databases": [
+      "clarity",
+      "zod"
+    ],
+    "host_note": "VM Docker ClickHouse scratch. Not fleet :18126. Not a pgsql done-signal. cloud_touched=false.",
+    "passed": 119,
+    "assertions": 431,
+    "classes": [
+      "BillingClaimDedupTest",
+      "UniqueLprCaseClaimsQueryTest",
+      "LprRepossessionsQueryTest",
+      "UniqueScansToCaseClaimsQueryTest",
+      "CardQuerySqlFidelityTest",
+      "CompanyMetricsCacheScopeTest"
+    ]
+  },
+  "open_questions": [],
+  "out_of_ship": [
+    "Item 5",
+    "AC-7"
+  ],
+  "plan": [
+    "docs/investigations/DEV-2659/plan.json",
+    "docs/investigations/DEV-2659/plan.md"
+  ],
+  "record": {
+    "tests": {
+      "rerun_at": "2026-09-25T00:37:39Z",
+      "driver": "clickhouse",
+      "host": "127.0.0.1:8123",
+      "databases": [
+        "clarity",
+        "zod"
+      ],
+      "cloud_touched": false,
+      "billing_claim_dedup_test": {
+        "command": "CLICKHOUSE_DRIVER=clickhouse php artisan test --compact --filter=BillingClaimDedupTest",
+        "methods": 3,
+        "passed": 3,
+        "assertions": 80,
+        "failed": 0
+      },
+      "passed": 119,
+      "assertions": 431,
+      "failed": 0,
+      "classes": [
+        "BillingClaimDedupTest",
+        "UniqueLprCaseClaimsQueryTest",
+        "LprRepossessionsQueryTest",
+        "UniqueScansToCaseClaimsQueryTest",
+        "CardQuerySqlFidelityTest",
+        "CompanyMetricsCacheScopeTest"
+      ]
+    },
+    "review": {
+      "rn": 2,
+      "reviewed_sha": "3b9bc75aa083137f85a69302483c8c95acb5fbf8",
+      "product_tip": "ccfbc676a19137695b3e992f41942fc19b3a91ae",
+      "docblock_fix_sha": "1d6e2b89a2009700ac7906aee78a14601eed18f9",
+      "docs_tip": "3b9bc75aa083137f85a69302483c8c95acb5fbf8",
+      "branch_tip": "4584b5a81e8cad301055e396517a77840cadf519",
+      "min_score": 92,
+      "scores": [
+        95,
+        92,
+        93
+      ],
+      "lanes": [
+        "correctness",
+        "conventions",
+        "blast-radius"
+      ],
+      "threshold": 85,
+      "rerun_required": false,
+      "rework_pivot": false,
+      "act_on": "NONE",
+      "gate": "REVIEW_GATE: pass min=92 threshold=85 lanes=3 rn=2 scores=95/92/93 conventions=92 sources=in-session-review:3 source=lane-min",
+      "next": "Verify/BR done \u2192 Undraft/CI/QA Ready",
+      "pr": 465,
+      "soft_ok_vs": "Live NOT_COVERED; SHOW CREATE VIEW open; OKF wiki lag; stale kept prose; AC-7 out",
+      "scope": "light tip-fix after Agent QA FAIL on stale tip; docs-only since 1d6e2b89",
+      "ship_claims": {
+        "1_view_is_internal": "YES",
+        "2_billing_claim_dedup": "YES",
+        "3_orgs_needle_gone": "YES",
+        "4_item5_ac7_out": "YES",
+        "5_unique_scans_tests": "YES",
+        "6_truncate_list": "YES"
+      },
+      "blocking_fail": [],
+      "qa_fail_root_cause": "stale checkout ccfbc676 missing docblock fixes from 1d6e2b89",
+      "reviewed_at": "2026-09-24T19:40:28-05:00"
+    },
+    "ac": [
+      {
+        "id": "AC-1",
+        "verdict": "SATISFIED",
+        "evidence": "Both funnels read billing_claim_events_v; no JSONExtract/public_api_keys/orgs needle joins"
+      },
+      {
+        "id": "AC-2",
+        "verdict": "SATISFIED",
+        "evidence": "Fleet Docker seeded + X-ClickHouse-Summary path; Cloud magnitude cite comment 41325; no Cloud re-measure this run"
+      },
+      {
+        "id": "AC-3",
+        "verdict": "SATISFIED",
+        "evidence": "Plan: met by deleting clarity.orgs from these queries"
+      },
+      {
+        "id": "AC-4",
+        "verdict": "SATISFIED",
+        "evidence": "Single-pass one billing_claim_events_v ref; repos reads deduped once"
+      },
+      {
+        "id": "AC-5",
+        "verdict": "SATISFIED",
+        "evidence": "BillingClaimDedup shared triple + repos deduped CTE"
+      },
+      {
+        "id": "AC-6",
+        "verdict": "SATISFIED",
+        "evidence": "Jul 2026 targets 15128/14288/11975 cite 41325; fleet seeded parity"
+      },
+      {
+        "id": "AC-7",
+        "verdict": "OUT_OF_SHIP",
+        "evidence": "Item 5 deferred scope lock 41330"
+      },
+      {
+        "id": "AC-8",
+        "verdict": "SATISFIED",
+        "evidence": "Sentinel guards + fixtures in tip suites"
+      },
+      {
+        "id": "AC-9",
+        "verdict": "SATISFIED",
+        "evidence": "Docblock no clarity.orgs; is_internal=0 (plan supersedes type IN 1,2)"
+      },
+      {
+        "id": "preflight-18",
+        "verdict": "SATISFIED",
+        "evidence": "clickhouse :18126 189/707/0 skip cloud_touched=false"
+      }
+    ],
+    "qa": {
+      "verdict": "PASS",
+      "rn": 2,
+      "when": "2026-09-24T19:44:05-05:00",
+      "when_label": "2026-09-24 19:44:05 CDT",
+      "product_tip": "3b9bc75aa083137f85a69302483c8c95acb5fbf8",
+      "pint": {
+        "result": "PASS",
+        "files": 10
+      },
+      "phpunit": {
+        "result": "PASS",
+        "tests": 189,
+        "assertions": 707,
+        "failures": 0,
+        "skips": 0
+      },
+      "clickhouse": {
+        "driver": "clickhouse",
+        "host": "127.0.0.1",
+        "port": 18126,
+        "keyed_database": "clarity_dev_2659",
+        "keyed_table_count": 31
+      },
+      "cloud_touched": false,
+      "live_coverage": "curl_smoke_only",
+      "report": ".context/qa-agent-report.md"
+    },
+    "verify": {
+      "when": "2026-09-24T19:47:15-05:00",
+      "when_label": "2026-09-24 19:47:15 CDT",
+      "verdict": "PASS",
+      "build_record_comment_id": "41825",
+      "product_tip": "3b9bc75aa083137f85a69302483c8c95acb5fbf8",
+      "pr_head": "2781592b3ef6317628afd341a4ff37c1e10cb75f",
+      "pr_head_at_review_stamp": "4584b5a81e8cad301055e396517a77840cadf519",
+      "gates": [
+        "BUILD_RECORD_GATE: pass id=41825 (route=feature, ac=10, review_rounds=3, rerun_required=false)",
+        "REWORK_GATE: pass (only investigation artifacts changed since review \u2014 no code rework)"
+      ],
+      "build_record_gate": "BUILD_RECORD_GATE: pass id=41825 (route=feature, ac=10, review_rounds=3, rerun_required=false)",
+      "rework_gate": "REWORK_GATE: pass (only investigation artifacts changed since review \u2014 no code rework)"
+    }
+  },
+  "reviewed_sha": "3b9bc75aa083137f85a69302483c8c95acb5fbf8",
+  "updated_at": "2026-09-24T19:47:15-05:00",
+  "comment_ids": {
+    "build_record": "41825",
+    "first_glance": "41179",
+    "billing_handoff": "41325",
+    "scope_lock": "41330",
+    "question_gate": "41822",
+    "plan": "41823",
+    "provision": "41824"
+  },
+  "pr": {
+    "number": 465,
+    "url": "https://github.com/insight-lpr/platform/pull/465",
+    "draft": true,
+    "head": "2781592b3ef6317628afd341a4ff37c1e10cb75f",
+    "product_tip": "3b9bc75aa083137f85a69302483c8c95acb5fbf8"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "precedents": [
+    {
+      "key": "DEV-2309",
+      "status": "In Code Review",
+      "age": "~6d",
+      "relevance": "CloseInactiveShiftsCommand latestActivityFor spatial-join timeout (zod read replica); same shift-closing path & SQLSTATE[57014] family as DEV-2325; fix approach: withoutGlobalScope(ScanTimezoneScope) + sweep max()->exists()/pluck()",
+      "applicable": "yes — same CloseInactiveShiftsCommand dispatch path, same statement_timeout pattern; DEV-2309 fixes the zod read-replica arm, DEV-2325 hits the platform write DB (likely different query, same scans-timezone scope family)"
+    },
+    {
+      "key": "DEV-2220",
+      "status": "Done",
+      "age": "~19d",
+      "relevance": "Statement timeout in CacheOrgHotlistClients/Lienholders jobs; whereIn(subquery) + pluck without DISTINCT pushdown; resolved via query rewrite",
+      "applicable": "partial — same statement-timeout pattern & fix strategy (push filtering/dedup into DB), different surface (cache warming vs shift summary)"
+    },
+    {
+      "key": "DEV-1898",
+      "status": "Done",
+      "age": "~83d",
+      "relevance": "Statement timeout in CacheOrgHotlistLienholders; pluck all rows then dedupe in PHP; resolved via pushing DISTINCT+whereNotNull into subquery",
+      "applicable": "partial — same statement-timeout root cause pattern (large result set without DB-side filtering), different surface"
+    }
+  ]
+}

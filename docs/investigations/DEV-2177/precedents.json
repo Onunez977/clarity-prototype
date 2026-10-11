@@ -1,0 +1,39 @@
+{
+  "precedents": [
+    {
+      "key": "DEV-2018",
+      "status": "merged/Done",
+      "age": "prior to 2026-07",
+      "relevance": "Deliberately moved the real Scout map (ClarityScoutMapController) OFF clarity.kit_trips ONTO clarity.sc_positions + HistoricPathBuilder, because a kit_trips overlay drew overlapping/duplicate lines (trips overlap heavily in time). Establishes sc_positions as the codebase's current continuous-route source.",
+      "applicable": "YES — the ticket's original 'use kit_trips like Scanner Portal' premise is verified-stale; sc_positions is the correct source."
+    },
+    {
+      "key": "DEV-2177 (prior attempt, PR #285)",
+      "status": "CLOSED / discarded",
+      "age": "2026-07-22",
+      "relevance": "First attempt correctly switched Kit User Path to a continuous route from sc_positions (new KitRangePathsQuery.php) and preserved the response shape (no JS change), but did the point-assembly in PHP (Carbon per point) which peaked ~2.2GB / ~7.5s on All-Kits/30d (~2.3M points) => OOM. Review converged with an accepted OOM residual (DEV-2221).",
+      "applicable": "YES — REUSE the controller kit_id->lower(kit_mapping) resolution, the preserved response shape, and the reference query classes; but REBUILD the point-assembly inside ClickHouse (groupArray + server-side cap) so it stays memory-bounded at any selection."
+    },
+    {
+      "key": "DEV-2221",
+      "status": "To Do (relates to)",
+      "age": "open",
+      "relevance": "Bound memory for wide/long selections (All Kits + 30 days).",
+      "applicable": "ABSORBED — per rebuild guidance, bounding is now part of the core DEV-2177 fix, not a separate follow-up."
+    },
+    {
+      "key": "DEV-2222",
+      "status": "To Do (relates to)",
+      "age": "open",
+      "relevance": "Fall back to kit_scan_paths for scan-only kits (no sc_positions) — ~4/43 kits in org 14 render empty otherwise.",
+      "applicable": "OUT OF SCOPE — explicit separate follow-up."
+    },
+    {
+      "key": "DEV-2223",
+      "status": "To Do (relates to)",
+      "age": "open",
+      "relevance": "Optional AC-4 scan-event dot overlay (ScatterplotLayer) on the continuous route.",
+      "applicable": "OUT OF SCOPE — explicit separate follow-up (optional 'MAY' AC)."
+    }
+  ]
+}

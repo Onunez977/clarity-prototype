@@ -1,0 +1,124 @@
+{
+  "key": "DEV-2234",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "confidence": 90,
+  "decisions": {
+    "scope": "B — full removal of the popover UI + backend precision param path + satellite basemap swap (Dalton, 2026-07-24)",
+    "scanner_debug_map_enabled_flag": "KEEP the config flag in place solely for the scanPaths() per-hour debug coloring (DEV-2018). Do NOT delete config/app.php scanner_debug_map_enabled; do NOT touch scanPaths()/HistoricPathBuilder/HistoricPathBuilderTest. After this change the flag is read only at ClarityScoutMapController::scanPaths():74. (Dalton, 2026-07-24)"
+  },
+  "synthesis": "Remove the admin-only Debug map control (DebugMapControls.vue) from the Clarity Scout live-driver map. The popover (gated by config app.scanner_debug_map_enabled / env SCANNER_DEBUG_MAP_ENABLED, default false) lets an admin/impersonator pick a geohash precision (6-9, forwarded as a `precision` query param to the CH heatmap endpoints) and toggle a satellite basemap. Normal drivers never see it. The ticket poses an explicit A/B fork: (A) delete only the UI control + wiring, leave backend plumbing dormant; (B, recommended) full removal incl. backend precision path, config flag, satellite swap. Two findings beyond the ticket text: (1) the config flag is NOT reachable only through the control — ClarityScoutMapController::scanPaths() reads the same flag to enable per-hour scan-path debug coloring via HistoricPathBuilder (DEV-2018), a separately-tested feature with no UI tie to the popover; deleting the flag silently kills it. (2) A correctness trap: the CH query classes default to precision 6 (not 7) when the param is absent, so Option B must hardcode precision=7 at the call sites, not merely delete the param, or the AC 'precision-7 unchanged' regresses.",
+  "scope": {
+    "summary": "Frontend-heavy Vue/Blade removal + (Option B) backend precision-path removal across two Scout controllers and a shared trait. Option A = 2 files; Option B = ~11-15 files incl. tests.",
+    "option_a_files": [
+      "resources/js/clarity-scout/components/DebugMapControls.vue (delete)",
+      "resources/js/clarity-scout/components/DashboardOverlay.vue (remove import + <DebugMapControls v-if=debugMapEnabled @change=handleDebugChange>, the debugMapEnabled const, handleDebugChange())"
+    ],
+    "option_b_additional_files": [
+      "resources/js/clarity-scout/stores/map.js (remove mapType, debugPrecision, toggleMapType(), setDebug(), the two `if (debugPrecision.value !== 7) params.precision=...` lines in fetchHitsHeatmap/fetchOrdersHeatmap, and the four names from the returned object)",
+      "resources/js/clarity-scout/components/ScannerMap.vue (drop mapTypeId: mapStore.mapType init -> default 'roadmap'; remove watch(mapStore.mapType) and watch(mapStore.debugPrecision))",
+      "resources/views/clarity-scout.blade.php:25 (remove debugMapEnabled config injection)",
+      "resources/views/clarity-scout-birds-eye.blade.php:17 (remove debugMapEnabled config injection)",
+      "app/Http/Controllers/Api/Concerns/ScoutMapHelpers.php (delete resolveDebugPrecision(); drop the `precision`=>between:6,9 validation rule)",
+      "app/Http/Controllers/Api/ClarityScoutMapController.php (heatmapHits/heatmapOrders: replace resolveDebugPrecision() with hardcoded 7; drop inline precision rule. DO NOT touch scanPaths()/$debug — keep-flag decision.)",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:372,414 (MISSED BY TICKET — same trait method; hardcode 7 + drop rule)",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php (remove honors/ignores-precision-when-debug + range-validation tests; KEEP the precision-7-default pin)",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php (ADD a precision-defaults-to-7 test — no current coverage)",
+      "tests/Feature/Http/Controllers/ClarityScoutShellViewTest.php (flip debugMapEnabled assertSee -> assertDontSee)",
+      "config/app.php (KEEP scanner_debug_map_enabled key; update its doc-comment to state it now only gates scanPaths debug coloring, not the removed popover)",
+      "okf/concepts/scout-dashboard-stats.md (update the section referencing resolveDebugPrecision() by name — method is deleted)"
+    ],
+    "explicitly_untouched_under_keep_flag": [
+      "config/app.php scanner_debug_map_enabled key itself (stays; only its doc-comment updated)",
+      "app/Http/Controllers/Api/ClarityScoutMapController.php::scanPaths() and its $debug/:debug cache key",
+      "app/Support/Scout/HistoricPathBuilder.php (all debug coloring stays)",
+      "tests/Unit/Support/Scout/HistoricPathBuilderTest.php (debug-mode tests stay green)"
+    ],
+    "out_of_scope": [
+      "colorMapEnabled / toggleColorMap() (DEV-2060) — distinct user-facing localStorage basemap toggle, NOT the debug satellite swap",
+      "trailArrowsEnabled (DEV-2061) — unrelated",
+      "The HitDirectHotspotQuery/HotlistAddressGeohashQuery `?? 6` sanitizePrecision fallback — shared with non-Scout callers (KitUserPathController); MUST NOT change",
+      "Historic scan-path 500ft segmentation algorithm in HistoricPathBuilder — only the debug color/label branch is potentially in scope (per Q2)"
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "The Debug control no longer renders on the Scout map under any flag/config", "source": "ticket", "decision": "implement", "reason": "removing DebugMapControls.vue + DashboardOverlay wiring satisfies this under either A or B"},
+    {"item": "No dead references remain (scope per the A/B decision)", "source": "ticket", "decision": "implement", "reason": "scope of 'dead references' depends on A vs B — gate Q1"},
+    {"item": "Non-debug map behavior (default roadmap basemap, geohash precision 7 heatmaps) is unchanged", "source": "ticket", "decision": "implement", "reason": "must hardcode precision=7 (CH classes default to 6); roadmap is the default basemap once mapType removed"}
+  ],
+  "questions": [
+    {"q": "Scope A vs B: (A) remove only the UI control + wiring and leave backend precision/satellite plumbing dormant, or (B, ticket-recommended) full removal of the backend precision param path, the scanner_debug_map_enabled flag, and the satellite basemap swap?", "answered": true, "answer": "B — full removal of the popover UI + backend precision param path + satellite basemap swap.", "source": "human:Dalton 2026-07-24"},
+    {"q": "If Option B: the scanner_debug_map_enabled flag ALSO gates ClarityScoutMapController::scanPaths() per-hour scan-path debug coloring via HistoricPathBuilder (DEV-2018) — a feature with NO UI connection to the Debug popover, separately unit- and feature-tested. Should we (a) remove that scan-path debug coloring too, or (b) preserve it?", "answered": true, "answer": "Keep the flag for scanPaths only — leave config/app.php scanner_debug_map_enabled in place and do NOT touch scanPaths()/HistoricPathBuilder. Full Option B applies to the popover/precision/satellite path only; the flag survives to gate the scan-path debug coloring.", "source": "human:Dalton 2026-07-24"},
+    {"q": "Bird's Eye controller also uses resolveDebugPrecision() (not in the ticket's reference list) — treat it identically under B?", "answered": true, "answer": "Yes — same shared trait method; will be updated in the same change so no broken reference remains.", "source": "code"},
+    {"q": "Does deleting the `precision` param (vs hardcoding 7) preserve precision-7?", "answered": true, "answer": "No — HitDirectHotspotQuery & HotlistAddressGeohashQuery fall back to 6 (?? 6) when precision is absent. Option B must explicitly pass precision=7 at the call sites.", "source": "code"}
+  ],
+  "blockers": [],
+  "notes": [
+    "No JS test runner in this repo — frontend changes verified via `npm run build` + browser QA; platform commits built /public/build assets so rebuilt assets must be committed.",
+    "Filament v5 / Laravel 12; run `vendor/bin/pint --dirty --format agent` before finalizing PHP.",
+    "DebugMapControls uses mapStore.mapType === 'hybrid' for the satellite state (Google 'hybrid'), not 'satellite'.",
+    "ESCALATION: fast-pass confidence 60 (<80), escalate.recommend=true, A/B fork + shared-flag finding, and blast-radius (config flag + 2 controllers + trait) all fired escalation triggers. Judgment call: did NOT run best-of-N deep prep because the fast pass is well-grounded (specific file:line, verified the precision-6 trap and the shared-flag scanPaths path in code) and the residual uncertainty is human DECISIONS (Q1/Q2), not investigation gaps; the grep backstop confirmed no missed callers outside the enumerated files. best_of_n=false, escalated=false, needs_human_interview=true."
+  ],
+  "tests": [
+    {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php", "what_it_pins": "precision-7-default in production must stay green (the AC pin); remove the debug-precision honor/ignore/range tests under B"},
+    {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php", "what_it_pins": "recommend ADDING a precision-defaults-to-7 test — currently no precision coverage on Bird's Eye"},
+    {"file": "tests/Feature/Http/Controllers/ClarityScoutShellViewTest.php", "what_it_pins": "flip debugMapEnabled assertSee->assertDontSee once blade injection removed (B)"},
+    {"file": "tests/Unit/Support/Scout/HistoricPathBuilderTest.php", "what_it_pins": "default(non-debug) path stays green; debug-mode tests contingent on Q2"}
+  ],
+  "grounding": {
+    "key_files": [
+      "resources/js/clarity-scout/components/DebugMapControls.vue (whole file)",
+      "resources/js/clarity-scout/components/DashboardOverlay.vue:244-248,361,561-564",
+      "resources/js/clarity-scout/stores/map.js:405,454,666-667 (+ mapType/debugPrecision refs + returned-object)",
+      "resources/js/clarity-scout/components/ScannerMap.vue:202,1673,1842-1843",
+      "resources/views/clarity-scout.blade.php:25",
+      "resources/views/clarity-scout-birds-eye.blade.php:17",
+      "config/app.php:61",
+      "app/Http/Controllers/Api/Concerns/ScoutMapHelpers.php:117-124",
+      "app/Http/Controllers/Api/ClarityScoutMapController.php:74,394,435",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:372,414",
+      "app/Support/Scout/HistoricPathBuilder.php",
+      "app/Clickhouse/Queries/HitDirectHotspotQuery.php:39,88-92",
+      "app/Clickhouse/Queries/HotlistAddressGeohashQuery.php:24,184"
+    ],
+    "code_flow": "blade injects window.__CLARITY_SCOUT_CONFIG__.debugMapEnabled <- config('app.scanner_debug_map_enabled') -> DashboardOverlay mounts DebugMapControls when true -> popover sets mapStore.debugPrecision / calls toggleMapType() -> map.js fetchHitsHeatmap/fetchOrdersHeatmap forward `precision` (only when !=7) -> ClarityScoutMapController/BirdsEyeController resolveDebugPrecision() -> HitDirectHotspotQuery/HotlistAddressGeohashQuery (CH, own 6-9 clamp, absent->6). SEPARATE: scanPaths() reads the same flag directly -> HistoricPathBuilder per-hour debug color/label (no UI trigger).",
+    "tables": ["clarity.hits (HitDirectHotspotQuery)", "clarity.sc_positions (KitHistoricPositionsQuery -> HistoricPathBuilder)", "zod public_hotlist/public_address CDC (HotlistAddressGeohashQuery)"],
+    "related_components": ["ClarityScoutMapController", "ClarityScoutBirdsEyeController", "ScoutMapHelpers trait", "HistoricPathBuilder"]
+  },
+  "exhaustiveness": {
+    "grep_patterns": ["resolveDebugPrecision", "scanner_debug_map_enabled|scannerDebugMapEnabled|debugMapEnabled", "mapStore.(mapType|debugPrecision|toggleMapType|setDebug)", "handleDebugChange|DebugMapControls", "precision (in clarity-scout)", "satellite|hybrid"],
+    "result": "All consumers of the removed symbols are WITHIN the enumerated files (DebugMapControls.vue, DashboardOverlay.vue, ScannerMap.vue, map.js) frontend; ScoutMapHelpers + both controllers + config/app.php backend. No missed caller outside the plan. Only ticket-omissions: Bird's Eye controller (found) and the shared scanPaths flag (found).",
+    "sites": [
+      {"site": "DashboardOverlay.vue:244-248,361,561-564", "class": "buggy(remove)", "reason": "import + usage + debugMapEnabled const + handleDebugChange"},
+      {"site": "DebugMapControls.vue (whole)", "class": "buggy(remove)", "reason": "the control itself"},
+      {"site": "map.js:405,454,666-667 + mapType/debugPrecision defs + returned obj", "class": "buggy(remove under B)", "reason": "dead store state/fns once popover gone"},
+      {"site": "ScannerMap.vue:202,1673,1842-1843", "class": "buggy(remove under B)", "reason": "mapType init + watchers become no-ops"},
+      {"site": "clarity-scout.blade.php:25 / clarity-scout-birds-eye.blade.php:17", "class": "buggy(remove under B)", "reason": "debugMapEnabled injection, no consumer once const gone"},
+      {"site": "ScoutMapHelpers.php:117-124", "class": "buggy(remove under B)", "reason": "resolveDebugPrecision + precision validation rule"},
+      {"site": "ClarityScoutMapController.php:394,435", "class": "buggy(replace w/ 7 under B)", "reason": "hardcode precision=7"},
+      {"site": "ClarityScoutMapController.php:74 (scanPaths $debug)", "class": "contingent(Q2)", "reason": "shared flag, separate feature"},
+      {"site": "ClarityScoutBirdsEyeController.php:372,414", "class": "buggy(replace w/ 7 under B)", "reason": "same trait method, missed by ticket"},
+      {"site": "HitDirectHotspotQuery/HotlistAddressGeohashQuery `?? 6`", "class": "safe(leave)", "reason": "shared non-Scout fallback; MUST NOT change"},
+      {"site": "colorMapEnabled/toggleColorMap (DEV-2060)", "class": "safe(leave)", "reason": "separate user-facing feature"}
+    ]
+  },
+  "data_impact": {
+    "pg_tables": ["kits", "kit_settings", "users"],
+    "ch_tables": ["clarity.hits", "clarity.sc_positions", "zod public_hotlist/public_address CDC"],
+    "mv_or_cdc_implications": "precision param feeds geohashEncode() aggregation width in HitDirectHotspotQuery & HotlistAddressGeohashQuery; default is 7 via resolveDebugPrecision, but the query-class absent-fallback is 6 (the trap).",
+    "indexes_relied_on": "none changed"
+  },
+  "derivation_log": [],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "AC-1 control never renders", "kind": "agent", "intent": "with SCANNER_DEBUG_MAP_ENABLED=true, load /scout (impersonated admin) and Bird's Eye; confirm no Debug button in the map layers panel on either"},
+      {"ac": "AC-2 no dead refs", "kind": "human", "intent": "npm run build clean + php artisan test on touched tests; grep-diff no orphaned imports/exports for the chosen option"},
+      {"ac": "AC-3 default precision 7 / roadmap", "kind": "agent", "intent": "hit /api/scout/map/heatmap/hits & /heatmap/orders with seeded data, assert geohash length 7; map inits at roadmap basemap"}
+    ],
+    "seed_scenario": "One org with a Scout kit/driver; seed clarity.hits + an open hotlist entry in a known bbox (existing fixtures ~lat 39.7684/lng -86.1581) so both heatmaps return features; seed clarity.sc_positions spanning an hour boundary so /map/scan-paths returns a segment.",
+    "personas": ["Admin impersonator viewing driver Scout map", "Admin viewing Bird's Eye / Org Map (DEV-2116)"],
+    "pg_tables": ["kits", "kit_settings", "users"],
+    "ch_tables": ["clarity.hits", "clarity.sc_positions"]
+  },
+  "missed_caller_candidates": []
+}

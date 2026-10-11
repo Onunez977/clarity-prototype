@@ -1,0 +1,50 @@
+{
+  "key": "DEV-2293",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "only main-ahead candidate was 'deploy' (production deploy branch, 74 behind main, carries only GHA-deploy automation commits) — not a feature branch to stack on; base=main, confidence high, no sub-agent needed",
+  "branch": "claude/DEV-2293",
+  "phase": "done",
+  "models": {"base": "haiku", "recall": "haiku", "prep": "sonnet", "plan": "opus", "plan_arbiter": "opus", "implement": "sonnet", "implement_simple": "sonnet", "arbitrate": "opus", "offload": "sonnet", "review": "opus"},
+  "efforts": {"prep": "inherit", "plan": "inherit", "plan_arbiter": "inherit", "implement": "inherit", "implement_simple": "inherit", "arbitrate": "inherit", "offload": "inherit", "review": "inherit"},
+  "timings": [],
+  "flags": {"companion": false, "review_policy": "functional", "jira_mirror": true, "start_at": null, "stop_at": null, "only": null, "skip": [], "force": false},
+  "knowledge_cards_loaded": ["clarity/scout", "clickhouse/core"],
+  "escalated": false,
+  "escalation_triggers": [],
+  "best_of_n": false,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [
+    {"file": "resources/js/clarity-scout/App.vue", "symbol": "store.drivers (followedDriverName)", "referenced_at": "App.vue:322-330"},
+    {"file": "resources/js/clarity-scout/App.vue", "symbol": "store.drivers (noKitsReporting)", "referenced_at": "App.vue:339-345"},
+    {"file": "resources/js/clarity-scout/components/DashboardOverlay.vue", "symbol": "DriverSelector mount (admin-only)", "referenced_at": "DashboardOverlay.vue:45"}
+  ],
+  "perf_validation": {"required": false, "ch_tables": [], "approach": "", "measurement": "", "verdict": "pending", "measured_at": null},
+  "diff_base": "b54685aecd22cc00cb7251347a05f659f2d6e024",
+  "subtasks": [{"id": "t1", "status": "merged", "worktree_path": "REPO_PATH (single-node fast path)", "branch": "claude/DEV-2293", "complexity": "complex", "model": "sonnet"}],
+  "review_number": 5,
+  "pr": {"number": 307, "url": "https://github.com/insight-lpr/platform/pull/307", "draft": true},
+  "pr_urls": {},
+  "jira_in_progress_by": "already-in-progress @ intake (ticket was In Progress before the run)",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "undraft did not auto-transition (no draft-aware GH action fired); pipeline transitioned To In Code Review via Atlassian MCP (transition id 4) @ 2026-08-05",
+  "assumed": [],
+  "comment_ids": {"status": "38075", "build_record": "38077"},
+  "qa": {"ledger": ".context/qa-prep-ledger.json", "agent_report": ".context/qa-agent-report.md", "ac_results": ".context/qa-ac-results.json", "verdict": "PASS", "torn_down": true, "provisioned_early": true, "provisioning": {"bootstrap": "skipped-already-provisioned", "deps": "not-run", "migrations": "already-migrated", "docker_daemon": "n/a", "ch_container": "created (clarity-qa-clickhouse :18123, literal clarity/zod DBs)", "frontend_build": "n/a", "postgres_db": "zod_claude_dev_2293_c35c08", "ch_strategy": "docker", "herd_site": "clarity-claude_dev_2293_c35c08.test"}},
+  "record": {
+    "tests": [{"cmd": "php artisan test --compact tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php", "passed": 32, "failed": 0, "skipped": 0, "note": "RequiresClickhouse-gated, ran against local Docker CH; red-first confirmed. Full clarity-scout group deferred to CI (OOMs locally at 128M memory_limit — pre-existing)."}],
+    "deviations": [{"source": "worker", "edit": "drivers() active-kit CH lookup wrapped in try/catch → degrades to active_in_range:false on CH error (matches driverPositions/scanPaths/hits/stats convention in the same controller)", "ac_ref": null, "ac_delta": null}, {"source": "worker", "edit": "range whitelist includes 'yesterday' (scanPaths()'s real 6-value ladder), per the spec's 'whitelist exactly like scanPaths()' instruction", "ac_ref": null, "ac_delta": null}, {"source": "qa-loop", "edit": "Added help text beneath the driver picker (DriverSelector.vue) explaining it lists scan-active drivers for the range, search finds inactive ones, and the map shows all live-GPS drivers — Dalton-requested during manual QA to resolve admin confusion about the map showing more dots than the picker list. Re-reviewed at RN3. Later shortened to one sentence per Dalton.", "ac_ref": null, "ac_delta": null}, {"source": "merge", "edit": "Merged origin/main (38 commits ahead since base) to reconcile with main. Controller auto-merged cleanly (my drivers()/activeKitIdsForRange() + main's DEV-2253 driverPositions() scan-fallback coexist); hand-merged the test file to keep both helpers (insertScanHot + main's insertScPositionFor) and both test sets (43 methods). Rebuilt assets from merged source. Note: main added a new HelpPanel.vue while this ticket added inline picker help text — design overlap flagged for Dalton, no conflict.", "ac_ref": null, "ac_delta": null}, {"source": "qa-loop", "edit": "BUGFIX (found in human QA): 'Select all' in the driver picker selected the FULL org roster (store.drivers, all 15) instead of the drivers listed in the dropdown — on a filtered range it added every kit as a chip while only the active ones were shown. Fixed selectAll() to select options.value (the range-active/visible list). Verified in browser: Last 7 -> 2 chips, Today -> 1 chip; kit_ids[] to map endpoints carry only active kits. Re-reviewed RN4.", "ac_ref": "AC-1", "ac_delta": null}],
+    "deviations": [],
+    "review": {"lanes": [3, 1], "scores": [90, 90, 90, 100, 100, 100, 100], "findings_fixed": ["Low: active_in_range cache key omitted timezone -> cross-tz same-org admins could collide at day boundary; added :{timezone} to the key (mirrors recentHits). Confirmed fixed RN2 (100/100).", "QA bug: 'Select all' selected the full roster instead of the listed range-active drivers; fixed selectAll()->options, verified in browser, RN4 (100/100)."], "findings_residual": ["non-scoring nits: redundant distinct()+unique(); FINAL on an existence check; CH-outage empty-state indistinguishable from genuine zero-active", "follow-up (out of scope): stats()/hits() cache keys share the same pre-existing tz-omission — worth aligning now that drivers()/recentHits() are fixed"], "lane_sources": [{"lane": "claude1", "source": "in-session-agent"}, {"lane": "claude2", "source": "in-session-agent"}, {"lane": "claude3", "source": "in-session-agent"}, {"lane": "claude1-rn2", "source": "in-session-agent"}, {"lane": "claude1-rn3", "source": "in-session-agent"}, {"lane": "claude1-rn4", "source": "in-session-agent"}, {"lane": "claude1-rn5", "source": "in-session-agent"}], "rerun_required": false, "reviewed_sha": "5f86c1b794d39dd0d18eb8446745ebeec2060282", "rework_pivot": false},
+    "ac": [
+      {"item": "Driver picker filtered to drivers with >=1 scan in the active range", "status": "SATISFIED", "evidence": "A1 + live API: default Today shows only kit 1; roster full-15 with active_in_range flags (today->[1])"},
+      {"item": "Changing the range updates the driver list", "status": "SATISFIED", "evidence": "A2 + API: Last 60 -> 3 active, back to Today -> 1; last_30->[1,2], last_60->[1,2,3]"},
+      {"item": "Zero active drivers -> empty-state message", "status": "SATISFIED", "evidence": "A5 (full agent-qa): cleared scans_hot -> picker showed exactly 'No drivers have scanned in this time range.' on Today + 60d, distinct from search-empty text; no console errors; env re-seeded"},
+      {"item": "Driver name plates toggle unaffected", "status": "SATISFIED", "evidence": "A4: toggle present + non-disruptive; roster stays full (annotate-not-shrink)"},
+      {"item": "Performance acceptable", "status": "SATISFIED", "evidence": "single bounded cached CH read; no lag, no console errors, no 4xx/5xx"},
+      {"item": "Q1 search reveals inactive drivers with a note", "status": "SATISFIED", "evidence": "A3: 'klarson' surfaced dimmed with 'inactive in this range' note"}
+    ]
+  }
+}

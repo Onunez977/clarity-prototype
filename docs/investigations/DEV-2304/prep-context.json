@@ -1,0 +1,371 @@
+{
+  "key": "DEV-2304",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "reconciled_from": {
+    "fast_pass": 1,
+    "deep_candidates": 3,
+    "grep_backstop": true,
+    "technique": "insightlpr:multi-candidate-merge (union additive, agreement=settled, disagreement=open question, grounded beats confident, conservative on resolved)"
+  },
+  "synthesis": "On the client-portal \"Manage your Clarity Subscription\" page, the \"RDN Statistics Push\" toggle is rendered as a live, clickable switch for any org admin whose tier is not BASIC \u2014 including Clarity Pro Plus (the reporter's org 541). The backing Livewire action Subscription::toggleRdnMetricsPush() then rejects the write with a bare `return;` unless the org's resolved proTier() is exactly PRO_LITE or CLARITY_PRO. For a Pro Plus admin the click round-trips to the server, is silently swallowed (no write, no activity-log entry, no notification, no dispatched event), and the component re-renders with identical state \u2014 which is indistinguishable from an inert toggle. Verified first-hand: the render gate is `$currentTier !== ProTierEnum::BASIC` (subscription.blade.php:431) while the write gate is `in_array($org->proTier(), [ProTierEnum::PRO_LITE, ProTierEnum::CLARITY_PRO], true)` (Subscription.php:194). A second, independent gap: the action emits NO success/error feedback on ANY path, for any tier, so AC5 is unmet even where the toggle works today. The desired outcome is a toggle whose rendered affordance and backend entitlement agree, that persists and reads back correctly, and that always tells the user what happened. WHICH WAY to reconcile the two gates (extend entitlement to Pro Plus vs. stop rendering an active toggle for Pro Plus) is a product decision this prep deliberately does not make.",
+  "scope": {
+    "summary": "Make the RDN Statistics Push toggle's rendered affordance and its backend entitlement gate agree, and add explicit success/error feedback so a click is never silent. The exact diff shape in all three code files is contingent on open question Q1 (is Clarity Pro Plus entitled to RDN Statistics Push?). Under EITHER resolution the AC5 feedback work and the new Pro-Plus test coverage are identical; only the tier lists / render condition differ.",
+    "proposed_changes": [
+      {
+        "file": "app/Filament/Pages/Subscription.php",
+        "change": "Resolution A (Pro Plus IS entitled): add ProTierEnum::CLARITY_PRO_PLUS to the allow-list. Resolution B (Pro Plus is NOT entitled): leave the allow-list, but replace the bare `return;` with visible feedback so a rejected attempt is never silent.",
+        "reason": "Line 194 is the exact site that silently swallows every Pro Plus toggle attempt \u2014 the reported defect.",
+        "ref": "app/Filament/Pages/Subscription.php:194",
+        "contingent_on": "Q1"
+      },
+      {
+        "file": "app/Filament/Pages/Subscription.php",
+        "change": "Add Filament Notification::make()->success()->send() on the successful write, and a ->danger()/->warning() notification on each rejection path (non-admin, non-entitled tier) instead of the current bare `return;`.",
+        "reason": "AC5 is unmet for EVERY tier today \u2014 toggleRdnMetricsPush() has zero Notification/dispatch calls. Sibling convention on this app's Filament pages is Notification::make()->title(...)->success()/->danger()->send() (see app/Filament/Pages/Roles.php, app/Filament/Pages/ManageZones.php).",
+        "ref": "app/Filament/Pages/Subscription.php:186-217",
+        "contingent_on": null
+      },
+      {
+        "file": "resources/views/filament/pages/subscription.blade.php",
+        "change": "Resolution A: no change needed (the section already renders for Pro Plus). Resolution B: narrow the render condition to the entitled tier set and show a disabled control with explanatory copy rather than a fully interactive switch.",
+        "reason": "The `$currentTier !== BASIC` render condition is broader than the backend allow-list; that divergence is what makes the bug user-visible. Whichever way it is resolved, the two conditions must be made to express the same rule or this bug class recurs.",
+        "ref": "resources/views/filament/pages/subscription.blade.php:431",
+        "contingent_on": "Q1"
+      },
+      {
+        "file": "app/Jobs/Rdn/DispatchRdnMetricsHourly.php",
+        "change": "Resolution A ONLY: mirror the widened tier list in eligibleOrgs(). Resolution B: no change.",
+        "reason": "The consuming hourly job filters on the SAME org_meta key with an identical, separately-maintained [PRO_LITE, CLARITY_PRO] list. Widening only the write gate would let a Pro Plus admin successfully persist `true` while the dispatcher never publishes for that org \u2014 trading one silent no-op for a worse one.",
+        "ref": "app/Jobs/Rdn/DispatchRdnMetricsHourly.php:105-111",
+        "contingent_on": "Q1"
+      },
+      {
+        "file": "tests/Filament/Pages/SubscriptionTest.php",
+        "change": "Add CLARITY_PRO_PLUS coverage for toggleRdnMetricsPush (on + off + persistence + mount read-back) pinning whichever resolution is chosen, plus notification assertions for the success and rejection paths.",
+        "reason": "No test anywhere exercises CLARITY_PRO_PLUS against this toggle; that gap is precisely why the mismatch shipped unnoticed. Existing helpers createUser(pro: true)/makeOrgPro() write no explicit tier, so Org::proTier() backward-compat-defaults them to CLARITY_PRO \u2014 every existing test lives in the entitled tier universe by construction.",
+        "ref": "tests/Filament/Pages/SubscriptionTest.php:1386-1509",
+        "contingent_on": null
+      },
+      {
+        "file": "tests/Feature/RdnMetrics/DispatchRdnMetricsHourlyTest.php",
+        "change": "Add a CLARITY_PRO_PLUS eligibility case asserting the dispatcher's tier list matches the Subscription page's, so the write gate and read gate cannot silently diverge again.",
+        "reason": "Locks write/read gate parity, which is the durable fix for this bug class regardless of which resolution is chosen.",
+        "ref": "tests/Feature/RdnMetrics/DispatchRdnMetricsHourlyTest.php",
+        "contingent_on": null
+      }
+    ],
+    "target_files": [
+      "app/Filament/Pages/Subscription.php",
+      "resources/views/filament/pages/subscription.blade.php",
+      "app/Jobs/Rdn/DispatchRdnMetricsHourly.php",
+      "tests/Filament/Pages/SubscriptionTest.php",
+      "tests/Feature/RdnMetrics/DispatchRdnMetricsHourlyTest.php"
+    ],
+    "out_of_scope": [
+      "The four plan-tier buttons rendering as disabled \"Contact your account manager\" \u2014 the ticket explicitly calls this out as intentional and separate (it is isSelfSubscribable() gating, a different mechanism from the RDN allow-list).",
+      "RDN publish correctness downstream of eligibility: RdnMetricsPublisher, PublishRdnMetric, the SQS envelope, idempotency keys, RdnHitHourCountQuery / RdnScanHourCountQuery. Not implicated \u2014 the bug is entirely in the opt-in gate.",
+      "Re-modelling RDN Statistics Push as a FeatureEnum / Pennant feature. It is deliberately a bespoke org_meta boolean, matching siblings like platform_repo_pro_tier; converting it is a refactor this bug does not need.",
+      "A broader audit of what else Clarity Pro Plus should/shouldn't inherit (ProTierEnum::features()) \u2014 a Pro Plus entitlement audit is its own ticket.",
+      "DEV-2207's Subscription page copy changes \u2014 already merged to main and present on this branch; no conflict.",
+      "Frontend asset rebuild: the surface is server-rendered Blade + Livewire with no Vue/Alpine component, so no npm run build / public/build change is required."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "RDN Statistics Push toggle responds to user interaction",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "The reported defect. Resolution A makes the toggle work for Pro Plus; Resolution B stops rendering an active switch the backend will reject and explains why. Either satisfies 'responds' \u2014 a dead clickable switch does not."
+    },
+    {
+      "item": "Toggling on enables the feature and persists the state",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "The write path (OrgMeta::updateProperties on zod.org_meta) is already proven correct for entitled tiers by existing passing tests; this AC needs the tier gate resolved plus new Pro Plus coverage."
+    },
+    {
+      "item": "Toggling off disables the feature and persists the state",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Symmetric with the on-path, same write mechanism."
+    },
+    {
+      "item": "UI reflects the current state accurately on page load",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Already correct in code \u2014 mount() reads the identical platform_repo_pro_rdn_metrics_push key the action writes (Subscription.php:62 vs :203). No code change expected; covered by a regression test so the fix cannot break read-back."
+    },
+    {
+      "item": "Appropriate success/error feedback is shown on toggle",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "A real, independent gap: the action emits no notification on any path for any tier. Unanimous across all four prep passes; not contingent on Q1."
+    }
+  ],
+  "questions": [
+    {
+      "q": "Is Clarity Pro Plus meant to be entitled to RDN Statistics Push? Resolution A = add CLARITY_PRO_PLUS to the allow-list in BOTH Subscription.php:194 and DispatchRdnMetricsHourly.php:107 (the toggle starts working for Pro Plus). Resolution B = Pro Plus is deliberately excluded, so stop rendering an active toggle for it and explain why. Evidence pulls both ways: the DEV-1830 commit that shipped the toggle states its scope as \"shown only when the org is Pro Lite or Clarity Pro\" and CLARITY_PRO_PLUS already existed two days earlier (DEV-1874, #142, 2026-05-18 vs #138, 2026-05-20) \u2014 which reads as deliberate; but ProTierEnum::CLARITY_PRO_PLUS::features() is a strict superset of CLARITY_PRO everywhere else, the page's own copy sells Pro Plus as \"everything in Clarity Pro, plus\u2026\", and the ticket's expected behavior assumes the toggle simply works. This decides the diff shape in three files and touches paid-tier entitlement, so it is not auto-answerable.",
+      "answered": true,
+      "answer": "Resolution A \u2014 Clarity Pro Plus IS entitled. Add ProTierEnum::CLARITY_PRO_PLUS to BOTH allow-lists (Subscription.php:194 and DispatchRdnMetricsHourly.php:105-109) so the toggle works end-to-end. Rationale accepted: Pro Plus is the $1199 top tier, its features() is a strict superset of Clarity Pro everywhere else, and the page sells it as 'everything in Clarity Pro, plus...'; the DEV-1830 commit's narrower stated scope was written two days after the tier shipped and simply never revisited.",
+      "source": "human:Dalton 2026-08-04"
+    },
+    {
+      "q": "If Resolution B (Pro Plus not entitled): should the toggle be hidden entirely for that tier, or rendered disabled with an explanatory \"not available on your plan\" line \u2014 matching the existing sibling patterns on this page (the blank-rdn_id amber warning at subscription.blade.php:441, and the app-wide ProFeatureToggle disabled+hint+upgrade-CTA convention)?",
+      "answered": true,
+      "answer": "N/A \u2014 moot under Resolution A. The toggle stays rendered for Pro Plus and now works, so no hide/disabled-with-copy variant is needed.",
+      "source": "human:Dalton 2026-08-04"
+    },
+    {
+      "q": "Should toggleRdnMetricsPush() gain the app-wide `session()->has('admin_impersonator')` bypass that other tier/feature gates in this codebase use, so InsightLPR staff can manage this setting for any org while impersonating? It is the convention elsewhere and this bug was found under impersonation \u2014 but adding an entitlement bypass to a paid-tier gate is a scope expansion with a security dimension, so it is a decision, not a cleanup.",
+      "answered": true,
+      "answer": "No \u2014 out of scope for this ticket. Deliberately NOT adding the admin_impersonator bypass: it is the convention elsewhere, but adding an entitlement bypass to a paid-tier gate is a scope expansion with a security dimension and belongs in its own ticket. Impersonation is not the cause of this bug.",
+      "source": "human:Dalton 2026-08-04"
+    },
+    {
+      "q": "Is admin impersonation itself the cause (does the impersonated session lose the ADMIN role or otherwise short-circuit the guard)?",
+      "answered": true,
+      "answer": "No. ImpersonateController logs in AS the target user (Auth::loginUsingId), so auth()->user()->hasRole(ADMIN) evaluates the impersonated user's own role in their own org team context \u2014 a real session, not an overlay. Impersonation is how the bug was found, not why it happens. Corroborated by three independent prep passes reading the controller.",
+      "source": "code"
+    },
+    {
+      "q": "Is this a JS/asset or Livewire-binding problem (nothing wired to the click)?",
+      "answered": true,
+      "answer": "No. The button is plain Blade with wire:click=\"toggleRdnMetricsPush(...)\" (subscription.blade.php:454), no custom JS, no Vue/Alpine component. The action DOES fire and reach the server; it is rejected at the tier check (Subscription.php:194) and returns without side effects, which presents identically to an inert control. No public/build asset is involved, so no npm run build is needed.",
+      "source": "code"
+    },
+    {
+      "q": "Does the page read the flag back correctly on load (AC4)?",
+      "answered": true,
+      "answer": "Yes. mount() reads $org->meta?->properties['platform_repo_pro_rdn_metrics_push'] (Subscription.php:62) \u2014 the identical key the action writes (:203) and the dispatcher filters on. Verified by reading the code; no change needed for AC4 beyond a regression test.",
+      "source": "code"
+    },
+    {
+      "q": "Was the reporter actually an org ADMIN? (If not, the Blade renders an \"Admin-only\" label and no switch at all, which would be a different bug.)",
+      "answered": true,
+      "answer": "Yes, by construction of the symptom: the switch is only rendered for hasRole(ADMIN) (subscription.blade.php:448), and the report describes a switch that stays in position when clicked \u2014 a non-admin would have seen the \"Admin-only\" text with nothing to click. Stated as an assumption for Dalton to correct; it will also be re-confirmed during QA. One prep pass wanted this marked needs-human; recorded here as answered-with-evidence plus a QA verification item rather than blocking on it.",
+      "source": "code"
+    },
+    {
+      "q": "Is DEV-2207 (Subscription page copy updates, listed 'In Code Review') an in-flight conflict on this page?",
+      "answered": true,
+      "answer": "No. It is already merged into main and present on this branch (verified by two prep passes via git merge-base --is-ancestor); the Jira status on the precedent is stale. Its diff touched tier-card copy, not the RDN section.",
+      "source": "code"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "Convergence: all four independent prep passes plus a first-hand driver read landed on the same root cause and the same two-gate mismatch. The grep backstop independently confirms there are EXACTLY two hard-coded tier allow-lists in the repo that omit CLARITY_PRO_PLUS \u2014 Subscription.php:194 and DispatchRdnMetricsHourly.php:107 \u2014 so the exhaustiveness sweep is closed, not merely sampled.",
+    "The two allow-lists are duplicated by hand, not shared code. They agree with each other today only by coincidence. Whichever resolution is chosen, consider expressing the entitled-tier set ONCE (e.g. a ProTierEnum helper or a single constant) so the render condition, the write gate, and the read gate cannot drift again \u2014 that is the durable fix for this bug class.",
+    "Reconciled disagreement: two passes called DispatchRdnMetricsHourly.php:107 'buggy', two called it 'safe'. Conservative merge: it is NOT independently buggy today (it matches the write gate), but it is in scope and becomes a defect the moment the write gate widens alone. Recorded as must-mirror-under-Resolution-A.",
+    "Reconciled disagreement: on whether the Pro Plus omission was deliberate, one pass said 'clearly an oversight (tier added first, never revisited)' while two cited the DEV-1830 commit's own stated scope as evidence of deliberate exclusion. Grounded beats confident: the commit message is verifiable and says 'shown only when the org is Pro Lite or Clarity Pro' (driver-verified), and CLARITY_PRO_PLUS demonstrably pre-dated it by two days. That does NOT settle product intent \u2014 it raises the stakes on Q1 rather than resolving it, which is why Q1 is needs-human.",
+    "Whatever the tier decision, the Blade render condition shipped in the SAME commit as its own contradicting statement of scope, so the UI/backend divergence has existed since day one \u2014 it is an original implementation bug, not a later regression.",
+    "activity('rdn_metrics_toggle') audit logging fires only on a successful write, so today there is no audit trail for a rejected Pro Plus attempt. Preserve the existing logging as-is; optionally log rejections if Resolution B is chosen.",
+    "Blast radius: this is paid-tier entitlement logic on the subscription page whose org_meta properties also drive upgrade/downgrade billing state (platform_repo_pro, platform_repo_pro_tier, platform_repo_pro_billing). Treat the Subscription page as billing-adjacent for planning and review: it warrants a blast-radius tag and human approval before implementation, and a 3-lane review.",
+    "Note for the plan: the toggle's write is a single-row JSON merge via OrgMeta::updateProperties on the zod connection \u2014 no cross-connection join, no migration, no ClickHouse write. The proven-correct write path is why this is a gate bug, not a persistence bug."
+  ],
+  "tests": [
+    {
+      "file": "tests/Filament/Pages/SubscriptionTest.php",
+      "what_it_pins": "A CLARITY_PRO_PLUS admin's toggleRdnMetricsPush behavior per the resolved decision \u2014 Resolution A: on/off both persist to org_meta and emit the activity entry, mirroring the existing test_admin_can_toggle_rdn_metrics_push_on/off; Resolution B: the toggle is not offered as an active control for Pro Plus and a rejected call produces visible feedback rather than a silent no-op."
+    },
+    {
+      "file": "tests/Filament/Pages/SubscriptionTest.php",
+      "what_it_pins": "AC5: a Filament notification is sent on a successful toggle and on each rejection path (non-admin, non-entitled tier) \u2014 asserted via assertNotified(), the convention used in tests/Filament/Pages/RolesPageTest.php. Zero coverage exists today."
+    },
+    {
+      "file": "tests/Filament/Pages/SubscriptionTest.php",
+      "what_it_pins": "AC4 regression: with platform_repo_pro_rdn_metrics_push pre-seeded true, mount() renders the switch in the ON state before any interaction."
+    },
+    {
+      "file": "tests/Feature/RdnMetrics/DispatchRdnMetricsHourlyTest.php",
+      "what_it_pins": "eligibleOrgs() tier parity with the Subscription page's write gate for a CLARITY_PRO_PLUS org that has opted in (included under Resolution A, excluded under Resolution B) \u2014 mirroring the existing BASIC-tier exclusion test. This is the test that prevents the write/read gates from silently diverging again."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Filament/Pages/Subscription.php:186-217 \u2014 toggleRdnMetricsPush(); ADMIN guard at :188, tier allow-list at :194 (ROOT CAUSE \u2014 bare `return;` for Pro Plus), org_meta write at :202, activity log at :206-214, UI property set at :216. No notification anywhere.",
+      "app/Filament/Pages/Subscription.php:53-73 \u2014 mount(); reads currentTier via proTier() at :58, orgRdnId at :61, and rdnMetricsPushEnabled from the same org_meta key at :62 (AC4 already correct).",
+      "resources/views/filament/pages/subscription.blade.php:431 \u2014 render condition `$currentTier !== ProTierEnum::BASIC` (broader than the backend allow-list \u2014 the visible half of the bug).",
+      "resources/views/filament/pages/subscription.blade.php:448-470 \u2014 ADMIN-gated switch button; wire:click at :454, wire:loading.attr=disabled at :455; else-branch renders the \"Admin-only\" label.",
+      "resources/views/filament/pages/subscription.blade.php:441-445 \u2014 existing blank-rdn_id amber warning; a good precedent for Resolution B's explanatory copy.",
+      "app/Jobs/Rdn/DispatchRdnMetricsHourly.php:92-111 \u2014 eligibleOrgs(); SQL filters on rdn_id + properties->platform_repo_pro + properties->platform_repo_pro_rdn_metrics_push, then a PHP-side in_array(proTier(), [PRO_LITE, CLARITY_PRO], true) at :105-109 (the read-side twin of the write gate; the PHP-side filter exists because proTier() resolves pending downgrades against the current date).",
+      "app/Models/Org.php:288-312 \u2014 proTier(); resolves platform_repo_pro_tier, applies pending-downgrade override, and backward-compat-defaults a legacy pro org with no explicit tier to CLARITY_PRO.",
+      "app/Models/OrgMeta.php:43-52 \u2014 updateProperties(); merge-and-save on the JSON properties column. Proven correct by requestUpgrade/requestDowngrade on the same page.",
+      "app/Enums/ProTierEnum.php:9-12 \u2014 BASIC / PRO_LITE / CLARITY_PRO / CLARITY_PRO_PLUS; :63-77 CLARITY_PRO_PLUS::features() is a strict superset of CLARITY_PRO; :86 CLARITY_PRO_PLUS is not self-subscribable.",
+      "app/Filament/Forms/Components/ProFeatureToggle.php \u2014 sibling convention for presenting an ineligible toggle (disabled + hint + upgrade CTA) instead of letting a click silently no-op.",
+      "tests/Filament/Pages/SubscriptionTest.php:1386-1509 \u2014 existing RDN toggle group; covers admin on/off, BASIC-tier denial, non-admin denial, and mount read-back. No CLARITY_PRO_PLUS case, no notification assertions.",
+      "tests/Feature/RdnMetrics/DispatchRdnMetricsHourlyTest.php:33-187 \u2014 existing dispatcher eligibility coverage. No CLARITY_PRO_PLUS case.",
+      "tests/TestCase.php:48-125 \u2014 createUser(pro: true)/makeOrgPro() set platform_repo_pro without an explicit tier, so proTier() defaults them to CLARITY_PRO \u2014 the structural reason no existing test ever reached the Pro Plus path."
+    ],
+    "code_flow": "RENDER: mount() resolves currentTier via Org::proTier() and reads rdnMetricsPushEnabled from org_meta.properties \u2192 the Blade renders the RDN section whenever currentTier !== BASIC, and inside it renders a real switch when the viewer hasRole(ADMIN), else an \"Admin-only\" label. CLICK: wire:click=\"toggleRdnMetricsPush(<negated current>)\" \u2192 Subscription::toggleRdnMetricsPush(bool) \u2192 ADMIN check \u2192 in_array(proTier(), [PRO_LITE, CLARITY_PRO], true); Pro Plus fails here and returns with NO write, NO activity entry, NO notification \u2192 (entitled path only) OrgMeta::updateProperties(['platform_repo_pro_rdn_metrics_push' => $value]) on zod.org_meta \u2192 activity('rdn_metrics_toggle') \u2192 $this->rdnMetricsPushEnabled = $value re-renders the switch. CONSUME (hourly, scheduled): DispatchRdnMetricsHourly::handle() \u2192 eligibleOrgs() (same org_meta key + the same duplicated tier allow-list) \u2192 dispatchBatchForOrg() \u2192 Bus::batch of PublishRdnMetric jobs on the {low} queue \u2192 counts read from ClickHouse (RdnScanHourCountQuery over clarity.scan_report_hourly, RdnHitHourCountQuery over clarity.hits_hot) \u2192 RdnMetricsPublisher \u2192 SQS.",
+    "tables": [
+      "zod public.org_meta \u2014 properties JSON; keys platform_repo_pro_rdn_metrics_push (the toggled flag), platform_repo_pro, platform_repo_pro_tier",
+      "zod public.orgs \u2014 rdn_id (read-only in this flow)"
+    ],
+    "related_components": [
+      "Spatie ActivityLog \u2014 log name 'rdn_metrics_toggle'",
+      "Laravel Horizon '{low}' queue \u2014 DispatchRdnMetricsHourly, PublishRdnMetric",
+      "Illuminate\\Bus\\Batch \u2014 per-org batch of PublishRdnMetric jobs",
+      "App\\Services\\Rdn\\RdnMetricsPublisher \u2014 SQS envelope publisher (downstream, unaffected)",
+      "RdnScanHourCountQuery / RdnHitHourCountQuery \u2014 ClickHouse read side (downstream, unaffected)",
+      "Filament\\Notifications\\Notification \u2014 required addition for AC5; not currently used by this action",
+      "FlushPennant \u2014 used by requestUpgrade/requestDowngrade, correctly NOT used here (RDN push is not a Pennant feature)"
+    ]
+  },
+  "exhaustiveness": {
+    "grep_patterns_used": [
+      "git grep -n 'platform_repo_pro_rdn_metrics_push'",
+      "git grep -n 'toggleRdnMetricsPush'",
+      "git grep -n 'rdn_metrics_toggle'",
+      "git grep -nE 'ProTierEnum::(PRO_LITE|CLARITY_PRO)\\b'",
+      "git grep -n 'ProTierEnum::PRO_LITE, ProTierEnum::CLARITY_PRO'",
+      "git grep -n 'in_array(.*proTier'",
+      "git grep -n 'match (.*proTier'",
+      "git grep -n 'proTier('",
+      "git grep -n 'updateProperties('",
+      "git grep -n 'rdn_id'",
+      "git grep -n 'admin_impersonator'",
+      "git grep -n 'wire:click=\"toggle'",
+      "git grep -n 'Notification::make'",
+      "git grep -n 'assertNotified'",
+      "git log --format=%H -1 -S 'toggleRdnMetricsPush' -- app/Filament/Pages/Subscription.php (origin commit + stated scope)",
+      "git log -1 -S 'CLARITY_PRO_PLUS' -- app/Enums/ProTierEnum.php (tier introduction date vs toggle date)"
+    ],
+    "closed": true,
+    "closure_evidence": "An independent grep backstop swept every hard-coded ProTierEnum allow-list in the repo and found exactly two that omit CLARITY_PRO_PLUS: Subscription.php:194 and DispatchRdnMetricsHourly.php:107. Both are in target_files. No third site exists.",
+    "sites": [
+      {
+        "site": "app/Filament/Pages/Subscription.php:194",
+        "verdict": "buggy",
+        "reason": "PRIMARY. Write-side allow-list [PRO_LITE, CLARITY_PRO] omits CLARITY_PRO_PLUS and rejects with a bare `return;` \u2014 the silent no-op the ticket reports."
+      },
+      {
+        "site": "resources/views/filament/pages/subscription.blade.php:431",
+        "verdict": "buggy",
+        "reason": "Render condition (`!== BASIC`) is broader than the write gate, so an active-looking switch is shown to a tier the backend will reject \u2014 the visible half of the same defect, and it contradicts its own commit's stated scope."
+      },
+      {
+        "site": "app/Jobs/Rdn/DispatchRdnMetricsHourly.php:105-109",
+        "verdict": "must-mirror",
+        "reason": "Read-side twin of the write gate; identical hand-duplicated list. Not independently buggy today (it agrees with :194), but becomes a worse silent failure if only the write gate widens. In scope under Resolution A."
+      },
+      {
+        "site": "app/Filament/Pages/Subscription.php:75-129 (requestUpgrade)",
+        "verdict": "safe",
+        "reason": "Gated by isSelfSubscribable(), a different and correctly-maintained mechanism; Pro Plus exclusion here is intentional and the ticket explicitly puts it out of scope."
+      },
+      {
+        "site": "app/Filament/Pages/Subscription.php:131-184 (requestDowngrade)",
+        "verdict": "safe",
+        "reason": "Same isSelfSubscribable() mechanism, not the hard-coded allow-list idiom."
+      },
+      {
+        "site": "app/Filament/Pages/Subscription.php:219-254 (cancelDowngrade)",
+        "verdict": "safe",
+        "reason": "Only checks ADMIN role plus the presence of a pending downgrade; no tier allow-list involved."
+      },
+      {
+        "site": "resources/views/filament/pages/subscription.blade.php:448 (ADMIN gate on the switch)",
+        "verdict": "safe",
+        "reason": "Correctly mirrors the hasRole(ADMIN) check in the action; the reporter evidently passed it since a switch rendered."
+      },
+      {
+        "site": "app/Enums/FeatureEnum.php minimumTier()",
+        "verdict": "safe",
+        "reason": "Pennant/FeatureEnum tier gating for other Pro features; RDN push is not modeled as a FeatureEnum so this path is untouched."
+      },
+      {
+        "site": "app/Models/Org.php:288-312 (proTier)",
+        "verdict": "safe",
+        "reason": "Tier resolution itself is correct and handles all four cases plus pending downgrades; it is the consumers' hard-coded subsets that are wrong."
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [
+      "zod public.org_meta (properties JSON \u2014 platform_repo_pro_rdn_metrics_push, platform_repo_pro, platform_repo_pro_tier)",
+      "zod public.orgs (rdn_id, read-only)"
+    ],
+    "ch_tables": [
+      "clarity.scan_report_hourly (read downstream by RdnScanHourCountQuery \u2014 unaffected)",
+      "clarity.hits_hot (read downstream by RdnHitHourCountQuery \u2014 unaffected)"
+    ],
+    "mv_or_cdc_implications": "None. The fix is confined to a PHP tier check, a Blade render condition, and a single-row JSON merge on Postgres. No migration, no ClickHouse write, no materialized view, no CDC path. Under Resolution A more orgs become eligible for the hourly dispatcher, which increases read volume against the two ClickHouse tables it already queries hourly \u2014 a scale note, not a schema impact.",
+    "indexes_relied_on": []
+  },
+  "derivation_log": [],
+  "perf_validation_note": "Not required. No >1B-row ClickHouse surface is introduced or re-shaped; the only CH involvement is the existing hourly job's already-scoped reads, and the change does not defer a perf question to QA.",
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC-1 toggle responds",
+        "kind": "agent",
+        "intent": "As an ADMIN on each non-BASIC tier, click the toggle and assert aria-checked flips (and, per the resolution, that Pro Plus either flips or is a clearly disabled/explained control rather than a dead switch)."
+      },
+      {
+        "ac": "AC-2 / AC-3 persistence",
+        "kind": "agent",
+        "intent": "Toggle on, reload the page, assert still on; toggle off, reload, assert still off. Cross-check org_meta.properties['platform_repo_pro_rdn_metrics_push'] read-only."
+      },
+      {
+        "ac": "AC-4 state on load",
+        "kind": "agent",
+        "intent": "Pre-seed the flag true, load the page fresh, assert the switch renders ON with no interaction."
+      },
+      {
+        "ac": "AC-5 feedback",
+        "kind": "agent",
+        "intent": "Assert a Filament notification appears on a successful toggle, and that a rejected attempt (non-admin, or non-entitled tier) produces visible feedback instead of silence."
+      },
+      {
+        "ac": "Reporter-was-ADMIN assumption",
+        "kind": "agent",
+        "intent": "Confirm a non-admin sees the \"Admin-only\" label and no switch \u2014 closing the one prep assumption recorded as answered-by-evidence."
+      },
+      {
+        "ac": "Q1 resolution matches product intent",
+        "kind": "human",
+        "intent": "Eyeball the final Pro Plus behavior on the real page and confirm it is what was decided (works, vs. hidden/disabled with copy)."
+      },
+      {
+        "ac": "Consumer parity (Resolution A only)",
+        "kind": "human",
+        "intent": "Confirm an opted-in Pro Plus org actually appears in the hourly dispatcher's eligible set, so the toggle's promise is honored end-to-end."
+      }
+    ],
+    "seed_scenario": "Three orgs, one per non-BASIC tier (PRO_LITE, CLARITY_PRO, CLARITY_PRO_PLUS via org_meta.properties.platform_repo_pro_tier, each with platform_repo_pro true and a non-blank rdn_id), each with an ADMIN-role user in that org's permission team, plus one non-admin user for the Admin-only path and one BASIC-tier org as the negative control. Exercise platform_repo_pro_rdn_metrics_push both absent/false and pre-set true so both toggle directions and the on-load read are covered per tier. The CLARITY_PRO_PLUS fixture is the one that matters \u2014 note that createUser(pro: true) does NOT produce it (it defaults to CLARITY_PRO), so the tier must be written explicitly.",
+    "personas": [
+      "Org admin (BlackAdam RoleEnum::ADMIN) on CLARITY_PRO_PLUS \u2014 the reported broken path",
+      "Org admin on CLARITY_PRO or PRO_LITE \u2014 the known-good control that must not regress",
+      "Non-admin org user \u2014 must see the \"Admin-only\" label and no switch",
+      "InsightLPR staff impersonating an org admin \u2014 the discovery path; relevant if Q3 (impersonator bypass) is accepted"
+    ],
+    "pg_tables": [
+      "zod public.org_meta",
+      "zod public.orgs"
+    ],
+    "ch_tables": []
+  },
+  "missed_caller_candidates": [],
+  "confidence": 88,
+  "escalated": true,
+  "escalation_triggers": [
+    "fast-pass confidence 78 (< 80)",
+    "fast-pass escalate.recommend = true",
+    "material open question with answered:false (Pro Plus entitlement)",
+    "blast-radius surface: paid-tier entitlement on the billing-adjacent Subscription page",
+    "fix spans a hand-duplicated write gate and read gate that must change in lockstep"
+  ],
+  "escalate": {
+    "recommend": false,
+    "reason": "Escalation already ran (3 blind candidates + a grep backstop, reconciled). The technical picture is closed and unanimous, and the exhaustiveness sweep is provably complete. What remains is a product decision, not more analysis \u2014 further passes cannot resolve it."
+  },
+  "blast_radius_approval": {
+    "approved": true,
+    "by": "human:Dalton 2026-08-04",
+    "scope": "app/Filament/Pages/Subscription.php + app/Jobs/Rdn/DispatchRdnMetricsHourly.php (billing-adjacent Subscription page / paid-tier entitlement)",
+    "note": "Change writes only the platform_repo_pro_rdn_metrics_push org_meta key \u2014 no migration, no billing-state write, no ClickHouse write. Review to run 3 lanes."
+  },
+  "resolution": "A"
+}

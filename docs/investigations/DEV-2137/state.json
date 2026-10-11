@@ -1,0 +1,47 @@
+{
+  "key": "DEV-2137",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2137",
+  "phase": "done",
+  "models": {"base": "haiku", "recall": "haiku", "prep": "sonnet", "plan": "opus", "implement": "opus", "implement_simple": "sonnet", "offload": "sonnet", "review": "opus"},
+  "flags": {"companion": false, "review_policy": "functional", "jira_mirror": true, "start_at": null, "stop_at": null, "only": null, "skip": [], "force": false},
+  "knowledge_cards_loaded": [],
+  "escalated": true,
+  "escalation_triggers": ["Q4 data-semantics needs-human", "prep confidence 62 (<80)", "escalate.recommend", "CH data-correctness on dispatch-facing surface", "stale ticket premise (endpoint already exists)"],
+  "missed_caller_candidates": [],
+  "diff_base": "b722587696e4cf87480fa53f6f5e76c42a672441",
+  "subtasks": [{"id": "t1", "status": "merged", "worktree_path": "", "branch": "claude/DEV-2137", "complexity": "complex", "model": "opus"}],
+  "review_number": 2,
+  "pr": {"number": 252, "url": "https://github.com/insight-lpr/platform/pull/252", "draft": true},
+  "pr_urls": {},
+  "jira_in_progress_by": "daltonmccleery @ 2026-07-01T19:27:00Z",
+  "jira_transitioned_by": "manual-daltonmccleery",
+  "assumed": [],
+  "comment_ids": {"status": "33840", "build_record": "33906"},
+  "precedents": [],
+  "qa": {"ledger": ".context/qa-prep-ledger.json", "agent_report": ".context/qa-agent-report.md", "ac_results": ".context/qa-ac-results.json", "torn_down": true, "provisioned_early": true,
+         "provisioning": {"bootstrap": "ran", "deps": "via-bootstrap", "migrations": "ran", "docker_daemon": "started", "ch_container": "created", "frontend_build": "not-needed", "postgres_db": "zod_claude_dev_2137", "ch_strategy": "docker", "herd_site": "clarity-claude_dev_2137.test"}},
+  "record": {
+    "tests": [
+      {"cmd": "CLICKHOUSE_DATABASE_CLARITY=clarity CLICKHOUSE_DATABASE_ZOD=zod php artisan test --compact --filter=ClarityScoutBirdsEyeControllerTest", "passed": 11, "failed": 0},
+      {"cmd": "php artisan test --compact --filter=ClarityScoutDashboardControllerTest (driver: +range test, cache-key updated)", "passed": 41, "failed": 0}
+    ],
+    "deviations": [
+      "Local CH test-DB prefix gotcha: models/tests hardcode literal clarity./zod. prefixes; worker created literal clarity/zod DBs in local Docker CH and ran with CLICKHOUSE_DATABASE_CLARITY=clarity CLICKHOUSE_DATABASE_ZOD=zod (CI already uses literal names, unaffected).",
+      "Full platform suite not run locally (CH-prefix gotcha makes unrelated CH tests false-fail locally; CI runs the full suite on the main PR). Affected filter + driver regression suite both green."
+    ],
+    "review": {"lanes": ["ch-correctness", "tenancy-ac", "tests-frontend", "rn2-driver-range-gate"], "scores": [100, 100, 96, 98], "gate": "pass (RN1 min 96, RN2 98; both >= 90; in-session adversarial-reviewer lanes substituted for review.sh under embedded harness)", "findings_fixed": ["A8/AC-6: driver recent-hits carried stray ?range (shared store) — gated range-passing to admin mode in dashboard.js (export ADMIN_MODE from fetch.js); driver request byte-identical, re-verified + RN2 98/100"], "findings_residual": ["N1: driver Live Hits list also shows Direct/Staging label instead of 'Open' (shared component) — ACCEPTED by Dalton 2026-07-01 ('label everywhere'), no code change", "N2 (nit): Carbon::setTestNow reset on happy path, not tearDown", "N3 (nit): recentHits uncached (intended per prep)", "N4 (nit): liveHitsExpanded shared collapse key admin/driver (pre-existing)", "N5 (nit): org-scoping test leak row excluded by kit_id alone, doesn't isolate forKitOrg dimension"]},
+    "ac": [
+      {"item": "AC-1 list renders admin org-wide", "status": "SATISFIED", "evidence": "agent-qa A1/A2: recent-hits 200, 3 today / 7 at 30d, org 2 kit 1"},
+      {"item": "AC-2 collapsible", "status": "SATISFIED", "evidence": "agent-qa A3: collapse↔expand clean; scroll-when-long deferred to human QA (≤7 rows seeded)"},
+      {"item": "AC-3 Direct/Staging pill in list", "status": "SATISFIED", "evidence": "agent-qa A4: DIRECT LIVE/STAGING LIVE pills, no literal 'Open'"},
+      {"item": "AC-4 same label in detail view", "status": "SATISFIED", "evidence": "agent-qa A7: MapShell sheet shows the pill, no 'Open'; regression-only (no code change)"},
+      {"item": "AC-5 date-filter scoping (moves-together)", "status": "SATISFIED", "evidence": "agent-qa A5/A6: 30 Days refetch, list 3→7 moves with stats; repossessed-current (800008) excluded"},
+      {"item": "AC-6 driver view unchanged", "status": "SUPERSEDED", "evidence": "Reversed by Dalton during human QA (2026-07-01): the driver Live Hits list should ALSO respect the date filter (was all-time). Driver recentHits now takes ?range (getDateRange + forCreatedBetween, range in cache key), frontend un-gated so both driver+admin pass range, copy updated ('in the selected date range'). Driver keeps its Direct-only + frozen-status semantics (current-status remains the separate DEV-2117 driver gap). +1 driver feature test (41 pass). Dalton to verify live."}
+    ]
+  }
+}

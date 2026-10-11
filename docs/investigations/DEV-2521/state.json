@@ -1,0 +1,404 @@
+{
+  "key": "DEV-2521",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "feature route -> CLARITY main. base-resolve.sh returned 10 main-ahead candidates (otto*, cursor/scout-*, stack-otto-*, and two chore/* branches); none carries authentication/OTP/login work, so this ticket does not stack on any of them. Determined inline by the driver rather than via the TICKET_BASE_MODEL sub-agent \u2014 recorded as a deviation.",
+  "branch": "claude/DEV-2521",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "prep-fast",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 288,
+      "tokens_total": 124437
+    },
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 226,
+      "tokens_total": 54605
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "no_spawn": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false,
+    "eli5": true
+  },
+  "knowledge_cards_loaded": [],
+  "escalated": true,
+  "escalation_triggers": [
+    "prep confidence 55 (<80)",
+    "escalate.recommend=true from the fast pass",
+    "4 questions with answered:false",
+    "blast-radius surface: authentication"
+  ],
+  "best_of_n": false,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "1b85fa39893d8f6695e04d365f20bfa9160f9940",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": null,
+      "branch": "claude/DEV-2521",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 4,
+  "pr": {
+    "number": 402,
+    "url": "https://github.com/insight-lpr/platform/pull/402",
+    "draft": false
+  },
+  "pr_urls": {},
+  "spawned_sessions": [],
+  "jira_in_progress_by": null,
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "To Do -> In Progress -> In Code Review via Atlassian MCP. The first In Code Review transition was premature (before human QA) and was reverted to In Progress at the operator s instruction; re-applied after the operator confirmed QA complete.",
+  "assumed": [],
+  "comment_ids": {
+    "status": "39771",
+    "build_record": "39831"
+  },
+  "qa": {
+    "ledger": "",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "provisioned_early": true,
+    "provisioning": {
+      "provision_mode": "full",
+      "bootstrap": "ran",
+      "deps": "via-bootstrap",
+      "migrations": "ran",
+      "docker_daemon": "n/a",
+      "ch_container": "n/a",
+      "frontend_build": "not-needed",
+      "postgres_db": "zod_claude_dev_2521",
+      "test_db": "zod_testing_claude_dev_2521",
+      "ch_strategy": "docker-shared (repointed at the pre-existing clarity-qa-clickhouse container on :18123, literal clarity/zod; container NOT created by this run)",
+      "herd_site": "clarity-claude_dev_2521.test",
+      "reused": "PROVISION_REUSE=1 \u2014 Phase 3.5 env still standing, provisioning track skipped"
+    },
+    "resource_envelope": {
+      "path": null,
+      "verdict": "not-measured",
+      "basis": "n/a",
+      "peak_rss_bytes": null,
+      "wall_clock_seconds": null,
+      "plausible_concurrency": null,
+      "projected_marginal_gb": null,
+      "headroom_gb": null,
+      "host_ram_gb": null,
+      "extrapolation_factor": null,
+      "note": "scale_relevant=false \u2014 login-path conditional, once per interactive sign-in; no command, job, query class or migration. Explicit N/A, not an unmeasured scale-relevant change."
+    },
+    "receipt": ".context/qa-complete.md"
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "vendor/bin/phpunit --filter CustomLoginPageTest",
+        "passed": 17,
+        "failed": 0
+      },
+      {
+        "cmd": "vendor/bin/pint --dirty",
+        "passed": 1,
+        "failed": 0
+      }
+    ],
+    "deviations": [
+      {
+        "source": "intake",
+        "edit": "Base-branch decision made inline by the driver instead of dispatching the TICKET_BASE_MODEL haiku sub-agent. base-resolve.sh returned 10 candidates, but none carries auth/OTP/login work, so base=main was unambiguous and needs no human gate (the gate only fires for a non-main base).",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "prep",
+        "edit": "Escalation fired (confidence 55, 4 unanswered questions, auth blast-radius) but the best-of-3 deep candidate fan-out was NOT run. All four blocking questions are source:needs-human (guard shape, opt-in flag vs deploy-workflow conflict, UI behavior, rate limiting) - independent candidates cannot answer an operator policy call, so three more passes would re-derive the same gate. The cheap grep backstop WAS run inline and confirmed a single login surface.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "plan",
+        "edit": "Plan authored inline by the Opus driver rather than dispatched to a separate TICKET_PLAN_ARBITER_MODEL session. Same model tier, and the approach was fully determined by the Phase 2 interview answers over a 2-file surface - a fresh-context dispatch would re-derive it at full cost.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "provision",
+        "edit": "Moved the run from the main checkout into .claude/worktrees/DEV-2521 before provisioning. Phase 0 cuts the branch in REPO_PATH (main checkout); qa-prep then resolves MODE=checkout, which is verify-only and never creates branch DBs \u2014 so Phase 3.5's stated isolation guarantee would not have held. Operator chose the worktree path.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "provision",
+        "edit": "bootstrap's db:seed failed on the no_scans_in_illegal_states() trigger (missing tiger.state.simplified_geom). This is the exact failure qa-prep Step 4's PostGIS patch exists for: patch applied, Step 5 reseed then succeeded. Working as designed, recorded because the bootstrap log shows a scary-looking failure.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "provision",
+        "edit": "ClickHouse deferred (QA_PROVISION_CH=no) \u2014 the change is login-path only. CH host neutralized to 127.0.0.1 in .env and .env.testing so a stray CH hit fails loud-and-local instead of reaching the Cloud creds bootstrap copied in. ClarityScoutClickhouseSeeder skipped accordingly.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "implement",
+        "edit": "phpunit.xml forces APP_ENV=testing (line 27) and isProduction() is a strict container-'env' check, so after this change the OTP flow is UNREACHABLE in the test suite by default. The worker added a withProductionEnvironment() helper and wrapped the 4 pre-existing tests whose assertions only hold when the OTP step actually runs (test_sends_otp, test_client_org_user_with_active_access_grant_can_request_otp_without_client_role, test_repo_org_user_with_hotlist_enabled_authenticates_to_app, test_authenticate_with_invalid_otp). Diff reviewed by the driver: every assertion is preserved verbatim, only re-indented into the closure \u2014 no assertion weakened or dropped.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "implement",
+        "edit": "isProduction() honors the container 'env' binding, NOT config('app.env') \u2014 the helper sets app()['env'] and restores it in a finally. Worth knowing for any future environment-gated test.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "implement",
+        "edit": "Confirmed the approach's assumption that the hidden+required OTP TextInput is skipped by validation while otp_sent is false \u2014 no form change was needed; the bypass tests pass without ever setting data.otp.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "review",
+        "edit": "Reverted the Laravel Boost guideline blocks that the provisioning bootstrap re-added to CLAUDE.md and AGENTS.md (675 lines). php scripts/okf-lint.php failed on both before the revert and passes after. Drift introduced by this run's own bootstrap, not by the ticket.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "review-scope-change",
+        "edit": "Operator directed (2026-09-14) that residual H1 be fixed in this ticket rather than tracked separately. That adds .github/workflows/kamal-pr-preview.yml to the diff - outside plan.target_files, which named only CustomLoginPage.php and its test. The staging target now resolves APP_ENV to 'production' instead of the hardcoded 'preprod', because that target points DB_HOST at the production database. Verified no app code branches on the literal 'preprod' (grep app/ config/ routes/), so the only behavioural deltas are production-correct ones: the OTP bypass shuts off, ClickhouseQuery's production swallow engages, and the QA workflow routes + TestingWorkflowMiddleware disable themselves - all desirable when the app is holding production data. kamal-deploy.yml is unaffected (environment: qa -> QA DB).",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "review-scope-change",
+        "edit": "Operator directed that H2 and H3 also be fixed now. H2 adds tests/e2e/helpers/auth.ts to the diff: loginViaOtp() now races the post-submit redirect against the OTP field appearing, returns early when the bypass already authenticated, and only then requires the OTP field. Two docblocks corrected - the resolution-order comment and loginAsNonProOrgAdmin's 'Always uses the real OTP form', which the bypass had made untrue. H3 changed the production audit assertion from assertNotSame(negative) to assertNotNull(row) + assertSame(the OTP captured before forget()).",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "review",
+        "edit": "All three RN3 lanes reported phpunit hanging 8-25 min and filed it as environment trouble; one ran a control test untouched by the diff and confirmed it hung too. Root cause found by the driver: the lanes each ran --filter CustomLoginPageTest concurrently against the SAME zod_testing_claude_dev_2521 database and deadlocked on platform.permissions_id_seq / permissions (Lock:transactionid + Lock:relation), and the orphaned processes kept the locks after the lanes ended. Killed 7 orphan PIDs; the suite then ran in 5.7s. Not a code defect. The RN4 lane was explicitly told not to run the suite.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "qa-loop",
+        "edit": "ENV ONLY, no application code. qa-prep's CH-deferred path left the worktree .env with ClickHouse on a closed port (127.0.0.1:8443, HTTPS=true), Postgres database names in CLICKHOUSE_DATABASE_CLARITY/_ZOD, and stale Cloud credentials, so /app 500'd on the ScanCount widget and blocked the human-QA guide's first step. Proven unrelated to the diff by reproducing the identical 500 through the dev-login route. Repointed at the pre-existing local container (:18123, literal clarity/zod, default user, HTTPS off) per the known 'literal clarity/zod' constraint; /app now 200. Prior values recorded in the ledger env_restore for teardown.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "handoff",
+        "edit": "Undrafted the PR, retitled it, and transitioned the ticket to In Code Review before human QA had been done. Operator corrected it. Reverted both: PR back to draft with the [WIP] prefix, ticket to In Progress. Root cause: /ticket Phase 7 calls the human-QA park a NOTIFICATION park and says to keep going, while also ordering undraft AFTER the park and saying to draft-and-HOLD the Build Record. Treated the park as non-blocking; it is blocking.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "qa-loop",
+        "edit": "Teardown env_restore hazard. Reverting the recorded .env keys put CLICKHOUSE_HOST back to the production ClickHouse Cloud cluster together with a real CLICKHOUSE_PASSWORD, because that was their pre-QA value (bootstrap copies them in). The worktree survives teardown, so this would have left live production CH credentials wired into it - the exact thing the never-wire-Cloud-into-a-worktree rule forbids. Driver re-neutralized CLICKHOUSE_HOST to 127.0.0.1 and cleared both CH passwords after the restore. env_restore should not carry CLICKHOUSE_HOST or CH credentials.",
+        "ac_ref": null,
+        "ac_delta": null
+      }
+    ],
+    "review": {
+      "lanes": [
+        "claude1"
+      ],
+      "rounds": [
+        {
+          "rn": 1,
+          "lanes": 3,
+          "scores": [
+            92,
+            82,
+            92
+          ],
+          "gate": "fail (min 82 < 90)"
+        },
+        {
+          "rn": 2,
+          "lanes": 3,
+          "scores": [
+            100,
+            80,
+            93
+          ],
+          "gate": "fail (min 80 < 90)"
+        },
+        {
+          "rn": 3,
+          "lanes": 3,
+          "scores": [
+            100,
+            94,
+            94
+          ],
+          "gate": "pass (min 94)"
+        },
+        {
+          "rn": 4,
+          "lanes": 1,
+          "scores": [
+            100
+          ],
+          "gate": "pass (min 100) - re-gate of the post-RN3 hardening"
+        }
+      ],
+      "scores": [
+        100
+      ],
+      "findings_fixed": [
+        "RN1 M1 (all 3 lanes): 3 OTP-verification tests vacuous under the bypass (CustomLoginPageTest :86 :106 :216) - wrapped in withProductionEnvironment(); proven by mutation (wrong OTP now fails).",
+        "RN1 M2 (all 3 lanes): 4 negative-eligibility tests tautological, sendOtp() eligibility gate uncovered (:128 :148 :175 :195) - wrapped; proven by mutation (stripping the filter now fails 4 tests, previously 0).",
+        "RN1 L1 (claude2, claude3): resolveEligibleUser(string) -> TypeError 500 on a null email via the public resend_otp path - now ?string with an early null guard.",
+        "RN1 L2/L3 (all 3 lanes): withProductionEnvironment() only flipped the container env binding - now sets AND restores both app()['env'] and config('app.env') and self-asserts app()->isProduction().",
+        "RN1 L2/L3 (all 3 lanes): BYPASSED_NON_PROD audit marker untested - pinned on the bypass row and on the production row.",
+        "RN1 coverage holes (claude2, claude3): no client-panel bypass test, no existing-but-ineligible bypass test - both added. 15 tests/76 assertions -> 17 tests/103 assertions.",
+        "RN2 H1 (claude2, HIGH; driver-verified against the GitHub environment vars: staging's QA_DB_HOST is literally pg-prod...rds.amazonaws.com): kamal-pr-preview.yml's staging target ran APP_ENV=preprod against the PRODUCTION database, so the bypass would have made a staging-target preview a credential-free login to production data. APP_ENV now resolves per-target.",
+        "RN2 H2 (claude2 + claude3): tests/e2e/helpers/auth.ts loginViaOtp() hard-waited for an OTP field the bypass prevents from rendering, breaking 6 committed spec files. Now races the post-submit redirect against the OTP field and returns early when already authenticated.",
+        "RN2 H3 (claude2 + claude3): the production audit assertion used assertNotSame(negative) and passed when no activity row existed. Now assertNotNull(row) + assertSame($otp captured before forget()). Mutation-proven.",
+        "RN3 M1 (claude2, scored; claude1 + claude3 rated the same point non-scoring and proved it unreachable today): the APP_ENV guard was fail-OPEN - it enumerated the dangerous target and defaulted everything else to bypass-ON. Inverted to an allow-list so an unknown, new, or renamed target gets 'production'. RN4 built the full truth table across all 6 trigger shapes and confirmed it cannot yield an empty string, cannot disagree with the environment: key, and fails closed.",
+        "RN3 documentation miss (all 3 lanes): 7 stale E2E_OTP docstrings, including auth.ts:130 which is THROWN to the developer at :143. All corrected."
+      ],
+      "findings_residual": [
+        {
+          "id": "H1",
+          "lane": "claude2",
+          "severity": "HIGH",
+          "scoring": true,
+          "driver_verified": true,
+          "file": ".github/workflows/kamal-pr-preview.yml:18,56-60,98",
+          "summary": "The PR-preview workflow's `staging` target overrides QA_DB_HOST to the PRODUCTION DB host while hardcoding APP_ENV: preprod. With this change merged, a staging-target preview is a VPC-reachable app on production data where any known panel-eligible email logs in with no password and no OTP. This falsifies the premise of the operator's approved Q3 answer ('preprod holds non-production data behind the VPC'). Remediation is outside the two touched files: either set a production-valued APP_ENV on the staging target, or remove the staging/prod-DB option. MATERIAL - requires an operator decision, not auto-answerable."
+        },
+        {
+          "id": "H2",
+          "lane": "claude2 (MEDIUM) + claude3 (MEDIUM, as M1)",
+          "severity": "MEDIUM",
+          "scoring": true,
+          "driver_verified": true,
+          "file": "tests/e2e/helpers/auth.ts:149-157",
+          "summary": "loginViaOtp() calls assertNotProduction(baseURL) and then hard-waits 15s for an OTP field the bypass now prevents from rendering, so the helper throws in every environment it is permitted to run in. Breaks 6 committed spec files (unique-scans-to-case-claims, missed-opportunities, staging-live-hit-leader, lpr-repossessions, unique-lpr-case-claims, unique-scans-leaderboard). Also contradicts the helper's own docblock ('Always uses the real OTP form'). No Playwright CI job exists, so CI stays green and this surfaces only on the next manual `npm run test:e2e`. Fix is small: branch on OTP-field visibility / early-return once the URL leaves /login, and update the docblock."
+        },
+        {
+          "id": "H3",
+          "lane": "claude2 (LOW) + claude3 (LOW, as L2); claude1 rates it non-scoring N1",
+          "severity": "LOW",
+          "scoring": true,
+          "driver_verified": true,
+          "file": "tests/Filament/Auth/CustomLoginPageTest.php:413-416",
+          "summary": "The production-side audit assertion uses assertNotSame('BYPASSED_NON_PROD', ... ?? null), which also passes when no Login activity row exists at all. Not vacuous today (the positive sibling at :322 proves rows are written), but it pins a negative. Fix: assert the positive OTP value captured before forget()."
+        }
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "in-session-agent"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "c91500def5d055a16bc3ce3a64e99d8dabeab359",
+      "rework_pivot": false,
+      "fallback_reason": "review.sh claude -p lanes returned 'Not logged in - Please run /login' (0/3 valid) at RN1; lanes run in-session via insightlpr:adversarial-reviewer per /ticket Phase 5",
+      "head_at_review": "7bafbaef72fd7b506242026f0c4855f7bdd29f4b",
+      "findings_adjudicated_not_fixed": [
+        {
+          "id": "RN3-claude3-M1",
+          "severity": "MEDIUM",
+          "disposition": "fact confirmed, scope rejected",
+          "detail": "Claim: the production-data fix covers only the Postgres axis; ClickHouse is excluded by assertion. Driver read the GitHub Actions variables: QA_CLICKHOUSE_HOST = zd69ju2h8d.us-east-2.aws.clickhouse.cloud, i.e. the production ClickHouse Cloud cluster with the literal clarity/zod databases. The FACT is correct. But kamal-deploy.yml:94 uses the same variable, so pre-platform and every preview have ALWAYS read production ClickHouse, and CLICKHOUSE_WRITE_USERNAME falls back to the read-only CLICKHOUSE_USERNAME. Pre-existing and deliberate, not introduced by this diff; making preprod login frictionless IS this ticket and pre-platform is its target. Recorded as accepted risk. Follow-up noted: kamal-pr-preview.yml:319 prints 'ClickHouse stays QA in every target', which is misleading about a security-relevant fact."
+        },
+        {
+          "id": "RN3-claude2-M2",
+          "severity": "MEDIUM",
+          "disposition": "refuted",
+          "detail": "Claim: flipping staging to APP_ENV=production leaves that target with no deliverable OTP and therefore no login path. The lane flagged it as contingent on a variable it could not read. Driver read it: the staging GitHub environment defines MAIL_MAILER=smtp, MAIL_HOST=sandbox.smtp.mailtrap.io, MAIL_PORT=2525, MAIL_USERNAME. Mail works; the target retains a login path."
+        }
+      ]
+    },
+    "ac": [
+      {
+        "item": "AC-1",
+        "status": "SATISFIED",
+        "evidence": "Single submit with an eligible email logs in on BOTH panels with no OTP field and no OTP mail: app panel -> /app (A1, re-verified on a rendering dashboard), client panel -> /client/scans (A4). OTP input absent from the DOM pre-submit (A2); no one-time-password entry in laravel.log after login (A3)."
+      },
+      {
+        "item": "AC-2",
+        "status": "SATISFIED",
+        "evidence": "Unknown email rejected with 'Account Not Found' and stays logged out (A5). An EXISTING but panel-ineligible user is rejected with a byte-identical message (A6) \u2014 proving this is an OTP bypass, not an authentication bypass. Confirmed independently at the unit level: resolveEligibleUser('qa-ineligible@tester.com') returns null (B4)."
+      },
+      {
+        "item": "AC-3",
+        "status": "SATISFIED",
+        "evidence": "Not browser-testable by construction \u2014 this QA site runs APP_ENV=local, which is exactly what enables the bypass. Verified two other ways: the automated end-to-end production test passes (B2), and statically there is exactly ONE isProduction() call site in app/ with config/app.php:29 defaulting APP_ENV to 'production', so the guard fails closed when unset (B3)."
+      },
+      {
+        "item": "AC-4",
+        "status": "SATISFIED",
+        "evidence": "vendor/bin/phpunit --filter CustomLoginPageTest -> OK (17 tests, 104 assertions), run serially by the driver. Grew from 15 tests/76 assertions pre-review. NOTE: no CI run exists on the reviewed code \u2014 every commit after the original implement commit carries [skip ci], and a clean-message commit did not trigger a run."
+      }
+    ],
+    "open_risks": [
+      {
+        "id": "CI-NOT-RUN",
+        "severity": "MEDIUM",
+        "summary": "No CI run exists for the reviewed code. `Pint & Tests` last passed on fd0672418 (the original implement commit), before all three rounds of review fixes and the hardening. Three trigger attempts produced nothing: two clean-message pushes (synchronize) and the undraft (ready_for_review).",
+        "diagnosis": "NOT specific to this PR or branch. GitHub Actions has produced ZERO workflow runs repo-wide since 2026-09-14T15:51Z (~2h40m as of 18:30Z) across all branches and all workflows, including main deploys and an unrelated active branch. The workflows are all `active` and the repo is not archived/disabled, so this looks like an org-level Actions outage, a policy change, or exhausted Actions minutes \u2014 none of which this run can fix.",
+        "mitigation": "The suite was executed locally three times on the final code and passed identically each time: 17 tests / 104 assertions (twice by the driver, once independently by a review lane after DB contention cleared). AC-3 (production still requires the OTP) rests on that plus the static guard check, because no QA environment can exercise the production branch.",
+        "action": "Before merge, confirm Actions is running again and get a green `Pint & Tests` on the final SHA."
+      }
+    ]
+  },
+  "repo_path_note": "Run MOVED to a worktree at .claude/worktrees/DEV-2521. Phase 0 created the branch in REPO_PATH (the main checkout), which sends qa-prep's mode detection to consent-gated `checkout` mode where it CANNOT provision \u2014 so Phase 3.5's isolation would silently not happen. Moved deliberately; all later phases target the worktree, not <APP>_LOCAL_PATH."
+}

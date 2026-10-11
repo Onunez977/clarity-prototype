@@ -1,0 +1,244 @@
+{
+    "key": "DEV-2374",
+    "app": "clarity",
+    "route": "feature",
+    "mode": "normal",
+    "base_branch": "main",
+    "base_branch_reason": "human:Dalton chose main over stacked cursor/cdba328d (DEV-2222)",
+    "branch": "claude/DEV-2374",
+    "phase": "reviewed",
+    "models": {
+        "base": "haiku",
+        "recall": "haiku",
+        "prep": "sonnet",
+        "plan": "opus",
+        "plan_arbiter": "opus",
+        "implement": "sonnet",
+        "implement_simple": "sonnet",
+        "arbitrate": "opus",
+        "offload": "sonnet",
+        "review": "opus"
+    },
+    "efforts": {
+        "prep": "inherit",
+        "plan": "inherit",
+        "plan_arbiter": "inherit",
+        "implement": "inherit",
+        "implement_simple": "inherit",
+        "arbitrate": "inherit",
+        "offload": "inherit",
+        "review": "inherit"
+    },
+    "timings": [],
+    "flags": {
+        "companion": false,
+        "review_policy": "functional",
+        "jira_mirror": true,
+        "start_at": null,
+        "stop_at": null,
+        "only": null,
+        "skip": [
+            "verify"
+        ],
+        "force": false
+    },
+    "knowledge_cards_loaded": [
+        "clarity/scout.md",
+        "clickhouse/core.md"
+    ],
+    "escalated": true,
+    "escalation_triggers": [
+        "answered:false questions at intake",
+        "confidence low (sparse ticket)",
+        "competing Org-Map vs KUP framing in DEV-2341"
+    ],
+    "best_of_n": false,
+    "needs_human_interview": false,
+    "missed_caller_candidates": [],
+    "perf_validation": {
+        "required": false,
+        "ch_tables": [],
+        "approach": "",
+        "measurement": "",
+        "verdict": "pending",
+        "measured_at": null
+    },
+    "diff_base": "a54f870a948d17e8d24556472ede60a08065a841",
+    "subtasks": [
+        {
+            "id": "t1",
+            "status": "merged",
+            "worktree_path": "/Users/daltonmccleery/Herd/platform/.claude/worktrees/dev-2374-500c72a1",
+            "branch": "claude/DEV-2374",
+            "complexity": "complex",
+            "model": "sonnet"
+        },
+        {
+            "id": "t2",
+            "status": "merged",
+            "worktree_path": "",
+            "branch": "",
+            "complexity": "simple",
+            "model": "sonnet"
+        },
+        {
+            "id": "t3",
+            "status": "merged",
+            "worktree_path": "",
+            "branch": "",
+            "complexity": "simple",
+            "model": "sonnet"
+        }
+    ],
+    "review_number": 8,
+    "pr": {
+        "number": 331,
+        "url": "https://github.com/insight-lpr/platform/pull/331",
+        "draft": false
+    },
+    "pr_urls": {
+        "main": "https://github.com/insight-lpr/platform/pull/331"
+    },
+    "jira_in_progress_by": "daltonmccleery@gmail.com @ 2026-08-14T15:07:40Z",
+    "jira_transitioned_by": "pipeline-mcp",
+    "jira_transitioned_detail": null,
+    "assumed": [],
+    "comment_ids": {
+        "decision_dev2222": "38267",
+        "decision_dev2341": "38268",
+        "status": "38269"
+    },
+    "qa": {
+        "ledger": ".context/qa-prep-ledger.json",
+        "agent_report": ".context/qa-agent-report.md",
+        "ac_results": ".context/qa-ac-results.json",
+        "verdict": "PASS",
+        "torn_down": true
+    },
+    "record": {
+        "tests": [
+            {
+                "cmd": "php artisan test --compact --filter=test_scan_paths_",
+                "passed": 0,
+                "failed": 0,
+                "note": "10 skipped \u2014 RequiresClickhouse; local CH not provisioned in this session"
+            }
+        ],
+        "deviations": [],
+        "review": {
+            "lanes": [
+                "claude1",
+                "claude2",
+                "claude3"
+            ],
+            "scores": [
+                70,
+                82,
+                88
+            ],
+            "findings_fixed": [
+                "RN2 H1: org-scale 50m dedup",
+                "RN2 H2: fixture spacing >50m",
+                "RN2 H3: splice path_json",
+                "RN2 H4: cache countPoints",
+                "RN2 M2: 422 over-budget",
+                "RN2 M5: atomic chunk publish",
+                "RN3 H1: bbox pushdown into KitRangePathsQuery + count/cache (strategy B)",
+                "RN3 H2: fleet-wide 1.5M aggregate budget (max_points + X-Scout-Render-Points)",
+                "RN3 H3: 422/truncation toast (stop silent skip-and-continue)",
+                "RN3 H4: parallel waves + incremental publish (concurrency 4)",
+                "RN4 H1: full-remaining max_points per wave (not equal-share)",
+                "RN4 H2: empty settled fetch clears prior paths",
+                "RN4 H3: per-chunk errors isolated (no Promise.all wipe)",
+                "RN4 M2: skip historical fetch until kit roster exists",
+                "RN4 M4/M5: remove probe command + PII bench fixtures",
+                "RN5 H1: sequential chunks + incremental publish (no parallel over-fetch)",
+                "RN5 M1: non-422 failures leave layer intact (no wipe/wrong toast)",
+                "RN5 M2: parseRenderPointsHeader treats missing header as fallback",
+                "RN5 M3: defer historical until roster; retry from fetchDrivers; ScoutHome awaits drivers first",
+                "RN5 M4: segments via handle()+try/catch (no silent [] on CH failure)",
+                "RN6 H1: continue past over-budget chunks; always publish to clear stale viewport",
+                "RN6 M2: pending roster retry only with settled eligible bbox",
+                "RN6 M4: non-422 chunk failures mark truncated for toast",
+                "RN7 consensus H: rebuilt+committed public/build (Scout bundle matches map.js)",
+                "RN7 consensus M: loadError vs budgetTruncated \u2014 no wipe / wrong toast on CH 500",
+                "RN7 H: single handle() + countHistoricalRenderPoints (no countPoints+handle double)",
+                "RN7 L: path_json splice guard; historical outer catch \u2192 500; drop .timings.lock"
+            ],
+            "findings_residual": [
+                "RN8 H1 (claude1): budget enforced after full assembly \u2014 OOM/timeout risk before 422 (tension with RN7 double-pipeline fix)",
+                "RN8 H1 (claude2): remaining chunks still assemble after fleet budget exhausted then 422 discarded",
+                "RN8 M1: countHistoricalRenderPoints vs splice validity guards can diverge on bad path_json",
+                "RN8 M: empty roster silent defer; max_points malformed\u21920; PHP json_decode of path_json for counting",
+                "RN8 contested/OOS: 50m dedup, sc_positions-only, PG-024 chlocal"
+            ],
+            "lane_sources": [
+                {
+                    "lane": "claude1",
+                    "source": "harness-claude-p"
+                },
+                {
+                    "lane": "claude2",
+                    "source": "harness-claude-p"
+                },
+                {
+                    "lane": "claude3",
+                    "source": "harness-claude-p"
+                }
+            ],
+            "rerun_required": true,
+            "reviewed_sha": "9ac19b5e2ccb560855b99937a966dcf58bb982e5",
+            "rework_pivot": false,
+            "park_reason": "RN8 MIN 70 after authorized RN7 residual pass; ticket policy max 1 fix cycle \u2014 park for human"
+        },
+        "ac": [
+            {
+                "item": "Historical Org Map ranges render continuous sc_positions GPS tracks",
+                "status": "SATISFIED",
+                "evidence": "KitRangePathsQuery segments=2; browser fetchScanPaths(yesterday) \u2192 12 rows \u00d7 pathLen=40 is_today=false; X-Scout-Render-Points present"
+            },
+            {
+                "item": "Historical path loads chunked by kit groups",
+                "status": "SATISFIED",
+                "evidence": "Network: scan-paths with kit_ids batches of 10 + max_points fleet debit"
+            },
+            {
+                "item": "Live Org Map behaviour unchanged",
+                "status": "SATISFIED",
+                "evidence": "Org Map loads; today scan-paths 200; live endpoints still polled"
+            },
+            {
+                "item": "No KUP code changes",
+                "status": "SATISFIED",
+                "evidence": "git diff origin/main...HEAD has no KitUserPathController"
+            }
+        ]
+    },
+    "related": {
+        "dev_2222": "https://github.com/insight-lpr/platform/pull/320",
+        "dev_2341": "https://insightlpr-team.atlassian.net/browse/DEV-2341"
+    },
+    "scope_correction": {
+        "at": "2026-08-14T17:19:39Z",
+        "deliverable": "historical Org Map continuous GPS + kit-group chunking; Live untouched",
+        "prior_jira": "do not touch",
+        "r2_r3": "leave on DEV-2341"
+    },
+    "oos": {
+        "pg_024": {
+            "at": "2026-08-14T20:45:15Z",
+            "decision": "out of scope for DEV-2374",
+            "owner": "chlocal projection on clarity.sc_positions",
+            "source": "human:Dalton"
+        }
+    },
+    "worktree": {
+        "path": "/Users/daltonmccleery/Herd/platform/.claude/worktrees/dev-2374-500c72a1",
+        "name": "dev-2374-500c72a1",
+        "herd_url": "https://clarity-claude_dev_2374.test",
+        "dev_db": "zod_claude_dev_2374",
+        "test_db": "zod_testing_claude_dev_2374",
+        "created_at": "2026-08-17T14:32:51Z",
+        "note": "retrofit \u2014 ticket ran on main checkout until Agent QA required isolation"
+    }
+}

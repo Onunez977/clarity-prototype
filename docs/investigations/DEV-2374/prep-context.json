@@ -1,0 +1,185 @@
+{
+  "synthesis": {
+    "problem": "Org Map historical date ranges still render fragmented kit_scan_paths; KUP uses continuous sc_positions (DEV-2177). Org Map looks less accurate for yesterday/7/30-day views.",
+    "outcome": "Org Map historical paths use continuous GPS like KUP, loaded in kit-group chunks. Live Org Map unchanged."
+  },
+  "scope": {
+    "summary": "Historical Org Map only: continuous GPS paths + client/server chunking by kit groups. Live untouched.",
+    "proposed_changes": [
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+        "change": "scanPaths (or successor) serves continuous GPS for historical ranges; accept kit_ids batches",
+        "reason": "Org Map\u2192KUP historical parity",
+        "ref": "Dalton historical-only"
+      },
+      {
+        "file": "app/Clickhouse/Queries/KitRangePathsQuery.php",
+        "change": "reuse from Bird's Eye historical path endpoint",
+        "reason": "DEV-2177 continuous assembly already exists",
+        "ref": "okf"
+      },
+      {
+        "file": "resources/js/clarity-scout/** (map store / birds-eye fetch)",
+        "change": "chunk kit_ids and merge historical path layers",
+        "reason": "Dalton chunk strategy",
+        "ref": "gate"
+      }
+    ],
+    "target_files": [
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+      "app/Clickhouse/Queries/KitRangePathsQuery.php",
+      "resources/js/clarity-scout/stores/map.js",
+      "resources/js/clarity-scout/lib/adminScope.js"
+    ],
+    "out_of_scope": [
+      "Live driverPositions / driverPaths",
+      "KitUserPathController",
+      "DEV-2228 live trail fallback",
+      "DEV-2222/2341/PR#320 comment edits"
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Historical Org Map ranges (yesterday / last_N) render continuous sc_positions GPS tracks comparable to KUP for the same window",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "core ask"
+    },
+    {
+      "item": "Historical path loads are chunked by groups of kits (not one all-kits mega payload)",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Dalton chunk strategy"
+    },
+    {
+      "item": "Live Org Map behaviour unchanged",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Dalton historical-only"
+    },
+    {
+      "item": "No KUP code changes",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Org Map \u2192 KUP direction only"
+    }
+  ],
+  "questions": [
+    {
+      "q": "Base branch?",
+      "answered": true,
+      "answer": "main",
+      "source": "human:Dalton 2026-08-14"
+    },
+    {
+      "q": "Scope A historical / B historical+Live / C other?",
+      "answered": true,
+      "answer": "Historical only \u2014 Live working as expected",
+      "source": "human:Dalton 2026-08-14"
+    },
+    {
+      "q": "Large-org load strategy?",
+      "answered": true,
+      "answer": "Batch/chunk calls by groups of kits (not refuse/thin/cap)",
+      "source": "human:Dalton 2026-08-14"
+    },
+    {
+      "q": "What does continuous mean / which surface?",
+      "answered": true,
+      "answer": "Continuous = sc_positions GPS tracks for historical ranges (yesterday/7/30/etc.); Live untouched",
+      "source": "human:Dalton 2026-08-14"
+    },
+    {
+      "q": "Touch prior Jira/PR comments?",
+      "answered": true,
+      "answer": "No",
+      "source": "human:Dalton 2026-08-14"
+    },
+    {
+      "q": "R2/R3 on DEV-2341?",
+      "answered": true,
+      "answer": "leave",
+      "source": "human:Dalton 2026-08-14"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "Route is feature but deliverable is decision-only (no app diff). Verify empty-diff guard (excludes docs/investigations/) will not see an app change \u2014 handoff must account for that.",
+    "Implication of Dalton's accuracy note: if anything should change later, it is Org Map toward KUP \u2014 not KUP toward Org Map. That work is NOT in this ticket."
+  ],
+  "tests": [],
+  "grounding": {
+    "key_files": [
+      "app/Http/Controllers/KitUserPathController.php (KUP paths + fallback under DEV-2222)",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:175-177 (Bird's Eye missing-set from full Kit collection)",
+      "okf/concepts/scout-clickhouse-queries.md:141 (don't port mapping-keyed lookup onto kit_scan_paths \u2014 written for Scout)",
+      "docs/investigations context via PR #320 residual findings / DEV-2341"
+    ],
+    "code_flow": "KUP paths(): continuous KitRangePathsQuery (sc_positions) then per-kit kit_scan_paths fallback. Bird's Eye driverPositions(): OrgLivePositionsQuery then OrgScanPathPositionsQuery over full scoped Kit collection. Shared ClickHouse tables, different controllers, different product surfaces, different selection models.",
+    "tables": [
+      "clarity.sc_positions",
+      "clarity.kit_scan_paths"
+    ],
+    "related_components": [
+      "Kit User Path (client portal)",
+      "Scout Admin Org Map / Bird's Eye"
+    ]
+  },
+  "exhaustiveness": {
+    "patterns": [
+      "KitUserPath",
+      "ClarityScoutBirdsEye",
+      "kitsByMapping",
+      "kit_scan_paths"
+    ],
+    "sites": [
+      {
+        "location": "KitUserPathController::paths",
+        "verdict": "safe",
+        "reason": "KUP surface \u2014 decision says leave behaviour; R1 rejected as Org-Map conflation"
+      },
+      {
+        "location": "ClarityScoutBirdsEyeController::driverPositions",
+        "verdict": "safe",
+        "reason": "Org Map surface \u2014 out of scope; not a KUP precedent"
+      },
+      {
+        "location": "DEV-2341 R1 text",
+        "verdict": "buggy (process)",
+        "reason": "Uses Bird's Eye as KUP correctness evidence \u2014 this ticket disposes that"
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [],
+    "ch_tables": [],
+    "mv_or_cdc_implications": "none \u2014 decision-only",
+    "indexes_relied_on": []
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "Org Map historical path query over many kits \u00d7 multi-day sc_positions",
+    "driving_tables": [
+      {
+        "table": "clarity.sc_positions",
+        "source": "clickhouse",
+        "note": "chunked by kit groups client-side; reuse KitRangePathsQuery MAX_RENDER_POINTS per chunk"
+      }
+    ],
+    "growth": "org kit count \u00d7 days of GPS",
+    "schedule": null,
+    "allocation_sketch": "Per-chunk KitRangePathsQuery; client merges. Avoid single all-kits CH+PHP inflate.",
+    "oracle_status": "not-required-for-gate",
+    "unresolved": []
+  },
+  "derivation_log": [],
+  "qa_hint": null,
+  "confidence": 90,
+  "escalate": {
+    "recommend": false,
+    "reason": "all material questions answered; historical-only + chunking"
+  },
+  "gate": "CLEAN",
+  "mode": "normal",
+  "missed_caller_candidates": []
+}

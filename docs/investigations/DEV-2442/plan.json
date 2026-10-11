@@ -1,0 +1,119 @@
+{
+  "key": "DEV-2442",
+  "decision": "C+B (forward-only restore + honest UI)",
+  "uat_needed": true,
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Make GetOrgHotlistCaseInfo's hotlist_json write non-destructive and idempotent",
+      "approach": "Two defects block the restore. (a) DATA LOSS: app/Jobs/Rdn/GetOrgHotlistCaseInfo.php:88-91 rebuilds the whole json blob through HotlistJsonData, which declares only ?int $branch_id (app/Dto/HotlistJsonData.php). Measured in production, 95,542,900 of 95,542,925 live hotlist_json rows carry OTHER keys - case_number (91.2M), vehicle_color (87.6M), description (81.5M), entering_agency (57.3M), expires_at (12.0M) and ~15 more - written by an external (Backyard/graphql) producer. The current firstOrNew + toArray() + from(array_merge(...)) round trip silently DELETES every one of those keys on save. Restoring the dispatch without fixing this destroys production data on the first run. Fix with a targeted jsonb_set write that touches only the branch_id key: HotlistJson::query()->where('hotlist_id', ...)->update(['json' => new Expression(\"jsonb_set(coalesce(\\\"json\\\", '{}'::jsonb), '{branch_id}', <int-cast literal or 'null'::jsonb>, true)\"), 'updated_at' => now()]), falling back to an insert when 0 rows are affected. Rejected alternative: widening HotlistJsonData to enumerate the observed keys - the blob is externally owned, so the enumeration is stale the moment a new key appears. (b) NO IDEMPOTENCY: handle() makes a live SOAP call even when branch_id is already resolved. Add an early return before RDN::make() when the row already has the key: HotlistJson::query()->where('hotlist_id', $this->hotlist->id)->whereRaw(\"jsonb_exists(json, 'branch_id')\")->exists(). Use jsonb_exists(), not whereNull('json->branch_id') - a legitimate null (RDN's vendor_branch_name did not match any Branch.branch_name by exact string, per GetOrgHotlistCaseInfo.php:76-82) must count as enriched or the job re-calls RDN for it every single day forever.",
+      "target_files": [
+        "app/Jobs/Rdn/GetOrgHotlistCaseInfo.php",
+        "tests/Feature/Jobs/Rdn/GetOrgHotlistCaseInfoTest.php"
+      ],
+      "intended_diffs": "app/Jobs/Rdn/GetOrgHotlistCaseInfo.php: add a private isAlreadyEnriched(): bool helper and early-return from handle() before RDN::make() (line 64); replace the firstOrNew/toArray/array_merge/save block (lines 84-93) with a jsonb_set update + insert fallback that preserves unknown keys. Keep the Branch lookup (lines 76-82) unchanged. No new comments beyond one line explaining why jsonb_set is used instead of the DTO. tests/Feature/Jobs/Rdn/GetOrgHotlistCaseInfoTest.php: add test_it_preserves_existing_json_keys_when_writing_branch_id (seed HotlistJson with json = ['case_number' => 'ABC-1', 'vehicle_color' => 'Blue'], run the job, assert BOTH survive and branch_id == 12345) and test_it_does_not_call_rdn_when_branch_id_is_already_present (seed json with a branch_id key, mock ->shouldReceive('__soapCall')->never(), assert the stored json is untouched). Existing tests keep passing unchanged.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "GetOrgHotlistCaseInfoTest",
+      "ui_impact": false,
+      "blast_radius": ["external_api_dispatch"],
+      "complexity": "complex"
+    },
+    {
+      "id": "t2",
+      "title": "Bound GetOrgHotlistCases with an open+recency window, a per-org run cap, and a corrected enrichment guard",
+      "approach": "THE CENTRAL DESIGN NODE. The prep directive says to restore ->doesntHave('case'). That cannot be restored verbatim and would be a silent no-op if it were: at f67a59464 Hotlist::case() pointed at a dedicated App\\Models\\HotlistCase table written ONLY by this job, and the squash-merge of PR #97 (433b46265) replaced it with hotlistJson() -> HotlistJson, a shared sidecar with an external writer. Measured: 135,604 hotlist_json rows were created in the last day against 273,924 new hotlists - roughly half of all new hotlists already have a row before this job ever sees them, so ->doesntHave('hotlistJson') would permanently and silently skip about half the fleet. The correct forward-only guard tests for KEY absence inside the blob, not row absence: ->whereDoesntHave('hotlistJson', fn (Builder $query) => $query->whereRaw(\"jsonb_exists(json, 'branch_id')\")). Both models are on the 'zod' connection (app/Models/Hotlist.php:104, app/Models/HotlistJson.php:14), so this is a same-connection subquery - not the cross-connection trap that silently returns empty. THE BOUND: ->open() (Hotlist::scopeOpen, app/Models/Hotlist.php:231) + ->where('created_at', '>=', now()->subDays(config('services.rdn.case_info_lookback_days'))) + ->orderByDesc('created_at') + ->limit($this->maxPerRun()). ->open() is doing double duty: it makes the query index-aligned on hotlist_org_id_status_created_at (org_id, status, created_at) - the ONLY index that supports this predicate, since there is no plain (org_id, created_at) - turning the largest org's 17.3M-row sort into an O(limit) backwards index range scan; and it is semantically exact, because clarity.hotlist_status_aggregate_mv is REFRESH ... APPEND TO driven solely by public_hotlist_status_log's watermark, so a future status-log row is the ONLY path by which branch_id ever reaches the Total Assignments / Total Repossessions cards, and only OPEN orders can still produce one. Resolve the cap as config('services.rdn.case_info_max_per_run') with a per-org override at org_meta.properties['rdn_case_info_max_per_run'], mirroring the established rdn_rate_limit override (app/Providers/AppServiceProvider.php:85, app/Services/RDN.php:140) so a single org can be dialled up for verification without changing fleet exposure.",
+      "intended_diffs": "config/services.php: extend the existing 'rdn' block (line 44) with 'case_info_lookback_days' => (int) env('RDN_CASE_INFO_LOOKBACK_DAYS', 7) and 'case_info_max_per_run' => (int) env('RDN_CASE_INFO_MAX_PER_RUN', 500) and 'default_rate_limit' => (int) env('RDN_DEFAULT_RATE_LIMIT', 100) (the last is consumed by t4). app/Jobs/Rdn/GetOrgHotlistCases.php: replace the handle() query chain (lines 39-45) with the bounded chain above; add a private maxPerRun(): int reading the org override then the config default. Explicit return types throughout; no constructor change. tests/Feature/Jobs/Rdn/GetOrgHotlistCasesTest.php (NEW, extends Tests\\TestCase): test_it_dispatches_only_for_hotlists_without_a_branch_id (seed 3 open hotlists - one with no hotlist_json row, one with a row lacking branch_id, one with branch_id already set - Bus::fake/Queue::fake, assert exactly 2 GetOrgHotlistCaseInfo dispatches and that the enriched one is absent); test_it_skips_hotlists_outside_the_lookback_window; test_it_skips_non_open_hotlists; test_it_caps_dispatches_per_run (config()->set('services.rdn.case_info_max_per_run', 2), seed 5 eligible, assert 2); test_it_honors_the_per_org_cap_override.",
+      "target_files": [
+        "app/Jobs/Rdn/GetOrgHotlistCases.php",
+        "config/services.php",
+        "tests/Feature/Jobs/Rdn/GetOrgHotlistCasesTest.php"
+      ],
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "GetOrgHotlistCasesTest",
+      "ui_impact": false,
+      "blast_radius": ["external_api_dispatch"],
+      "complexity": "complex"
+    },
+    {
+      "id": "t3",
+      "title": "Restore the GetOrgHotlistCases dispatch in GenerateRdnCache::queueBatch()",
+      "approach": "Re-add the third job to the Bus::batch([...]) at app/Console/Commands/GenerateRdnCache.php:43-46, in the style the file uses today, preserving the original 3-minute delay so GetOrgBranches has landed the Branch rows that GetOrgHotlistCaseInfo:77-79 looks up by exact branch_name: (new GetOrgHotlistCases(orgId: $org->id))->delay(now()->addMinutes(3)). Re-add the use App\\Jobs\\Rdn\\GetOrgHotlistCases import that 9aaeafead removed. This is the line 6092806dd 'Cleanup' deleted; it is a one-line restore and is deliberately LAST in the graph so the batch is only re-armed once the destructive-write fix (t1) and the bound (t2) are both in place. The command is scheduled dailyAt('5:00') in production only (routes/console.php:24-29).",
+      "intended_diffs": "app/Console/Commands/GenerateRdnCache.php: one import line + one array element. tests/Feature/Console/Commands/PullRdnOrgClientsTest.php (the existing GenerateRdnCache test, despite its name): add test_dispatches_hotlist_cases_for_active_org asserting Bus::assertBatched(fn ($batch) => $batch->jobs->contains(fn ($job) => $job instanceof GetOrgHotlistCases)) - this is the exact assertion whose absence let the regression ship in PR #97 and go unnoticed for ~10 months. Do NOT create a new GenerateRdnCacheTest.php; the coverage belongs in the file that already drives this command.",
+      "target_files": [
+        "app/Console/Commands/GenerateRdnCache.php",
+        "tests/Feature/Console/Commands/PullRdnOrgClientsTest.php"
+      ],
+      "depends_on": ["t1", "t2"],
+      "parallelizable": false,
+      "test_filter": "PullRdnOrgClientsTest",
+      "ui_impact": false,
+      "blast_radius": ["scheduled_command", "external_api_dispatch"],
+      "complexity": "simple"
+    },
+    {
+      "id": "t4",
+      "title": "Default the rdn-api rate limiter to 100/min for orgs with no configured limit",
+      "approach": "FLAGGED DRIVER ASSUMPTION - reviewer must confirm, and this node is deliberately separable so it can be dropped without touching t1-t3. RateLimiter::for('rdn-api') at app/Providers/AppServiceProvider.php:84-90 returns Limit::none() when org_meta.properties['rdn_rate_limit'] is unset. Measured: 22,684 of 23,029 org_meta rows (98.5%) are unset, covering 139.8M of the 146.5M hotlist backlog, so today the middleware is effectively inert for almost the entire fleet. Replace the null branch with the config default from t2 (config('services.rdn.default_rate_limit'), 100/min) keyed the same way, by('rdn-api:'.$job->org->id). 100 is the ONLY value present in production - all 345 configured orgs use it - so this makes the unconfigured majority match the configured minority rather than inventing a number. This is a SECONDARY layer: t2's per-org run cap is the primary control, and the plan does not depend on this node for safety.",
+      "intended_diffs": "app/Providers/AppServiceProvider.php: collapse lines 85-89 to $rateLimit = $job->org->meta?->properties['rdn_rate_limit'] ?? config('services.rdn.default_rate_limit'); return Limit::perMinute((int) $rateLimit)->by('rdn-api:'.$job->org->id);. tests/Feature/Providers/RdnApiRateLimiterTest.php (NEW): resolve the named limiter via RateLimiter::limiter('rdn-api') and assert (a) an org with properties['rdn_rate_limit' => 250] yields maxAttempts 250, (b) an org with no meta row yields 100 and is NOT a Limit::none() (assert maxAttempts, not the class), (c) the key is scoped per org id.",
+      "target_files": [
+        "app/Providers/AppServiceProvider.php",
+        "tests/Feature/Providers/RdnApiRateLimiterTest.php"
+      ],
+      "depends_on": ["t2"],
+      "parallelizable": false,
+      "test_filter": "RdnApiRateLimiterTest",
+      "ui_impact": false,
+      "blast_radius": ["external_api_dispatch"],
+      "complexity": "simple"
+    },
+    {
+      "id": "t5",
+      "title": "Honest UI: disable the branch filter behind a cheap per-org org_meta signal",
+      "approach": "The Select::make('branch_id') at app/Filament/Pages/ClientAnalytics.php:132-139 currently offers real branch names (GetOrgBranches works) against a column that is universally 0 across all 7 consumer tables, so picking a branch reports a false business fact - 'Tampa: 0 repossessions'. Do NOT hide it: resources/views/filament/pages/client-analytics-guide.blade.php:149 and :180 document this filter as working, so silent removal contradicts published user-facing docs. Instead disable it with an explanation while data accrues. Detection must be CHEAP - no live ClickHouse absence-probe, because absence is that probe's worst case (a full org-range granule scan on every page load). Follow the existing org_meta.properties per-feature-override pattern (app/Models/Org.php:186 isClientPortalEnabled(), :354 individual feature flag): add Org::isBranchAnalyticsReady(): bool returning (bool) ($this->meta?->properties['branch_analytics_ready'] ?? false). Default false, ops-set per org once that org's enrichment coverage has actually been measured. That is deliberately a human gate, not an auto-flip: forward-only coverage is genuinely poor for the largest orgs (the biggest org creates ~59k hotlists/day against a 500/run cap), so someone should look before the product tells a customer their branch filter works. Auto-activation is listed as a deferred follow-up in plan.md. Wire it as ->disabled(fn (): bool => ! auth()->user()->org->isBranchAnalyticsReady()) plus a matching ->helperText(...) and ->placeholder('All Branches') retained; the filter plumbing and all 29 forBranch() call sites stay untouched and correct, so the filter self-enables the moment the flag flips.",
+      "intended_diffs": "app/Models/Org.php: one isBranchAnalyticsReady(): bool method placed next to isClientPortalEnabled() (line 184). app/Filament/Pages/ClientAnalytics.php: add ->disabled(...) and ->helperText(...) to the existing Select in filtersForm() (lines 132-139); no other change, no change to getFilters()/updatedFilters(). tests/Filament/Widgets/Client/ClientTableBranchFilterTest.php: add test_branch_select_is_disabled_when_org_has_no_branch_analytics_data and test_branch_select_is_enabled_when_org_meta_flag_is_set, driving the page via Livewire::test(ClientAnalytics::class) and asserting on the schema component state - the existing tests in this file only assert type coercion and SQL shape, which is the blind spot the prep called out.",
+      "target_files": [
+        "app/Models/Org.php",
+        "app/Filament/Pages/ClientAnalytics.php",
+        "tests/Filament/Widgets/Client/ClientTableBranchFilterTest.php"
+      ],
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "ClientTableBranchFilterTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "simple"
+    }
+  ],
+  "excluded_sites": [
+    {
+      "site": "Historical backfill of hotlist_json.branch_id across the 95.5M-row un-enriched backlog",
+      "reason": "Explicitly withdrawn by the ticket owner. clarity.hotlist_status_aggregate is REFRESH ... APPEND TO on public_hotlist_status_log's watermark and cannot be changed, so rows already appended with branch_id = 0 stay 0 permanently - a 146M-call backfill would not revive the AC-2 stat cards."
+    },
+    {
+      "site": "clarity.hotlist_status_aggregate / hotlist_status_aggregate_mv rebuild (chlocal-owned)",
+      "reason": "Declared a hard constraint by the ticket owner: cannot be changed. Historical per-branch Total Assignments / Total Repossessions are accepted as permanently out of reach."
+    },
+    {
+      "site": "The 29 forBranch() / branch_id call sites across app/Clickhouse/Queries/Client/ and app/Filament/Widgets/Client/",
+      "reason": "Verified correct since DEV-2345 (78cddfbc1). One systemic data cause, not N widget bugs - changing them would be unrelated drift."
+    },
+    {
+      "site": "okf/concepts/rdn.md, which still describes the case-info pipeline as operative",
+      "reason": "Stale and must be corrected, but CLAUDE.md's WRITE rule forbids wiki edits while work is in flight. Queued for the post-merge pass."
+    },
+    {
+      "site": "Branch enrichment for Location_Services, iRepo, NICB, Primeritus and Manual_Upload orders",
+      "reason": "Only the RDN integration has any branch mechanism; no equivalent path exists or is planned for the other integrations."
+    },
+    {
+      "site": "Moving GetOrgHotlistCases / GetOrgHotlistCaseInfo onto the RdnJob base class",
+      "reason": "Explicitly forbidden by the ticket directive - they implement ShouldQueue directly and that distinction is deliberate and wiki-corrected."
+    },
+    {
+      "site": "Horizon {low} supervisor process count (config/horizon.php:214,219 - 1 process each)",
+      "reason": "An ops/capacity decision, not a code change in this ticket. Called out in plan.md as a rollout prerequisite because it caps real throughput far below the rate ceiling."
+    }
+  ]
+}

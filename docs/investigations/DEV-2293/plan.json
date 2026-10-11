@@ -1,0 +1,31 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Range-filter the Scout Org Map driver picker (annotate active_in_range + frontend wiring + tests)",
+      "approach": "Backend: ClarityScoutBirdsEyeController::drivers() reads a whitelisted `range` query param (reuse the same ladder + fallback-to-'today' scanPaths() uses), resolves [start,end] via getDateRange($range, $user->timezone), and computes the set of kit_ids that scanned in-window via a NEW private helper activeKitIdsForRange($orgId,$kitIds,$start,$end) built on the ClickhouseScan forWindow()->final()->forOrg() pattern (mirror stats():481-486): whereIntegerInRaw('kit_id', $kitIds), whereBetween(scanned_at,[start,end]), select+distinct pluck('kit_id'). Annotate each mapped roster entry with active_in_range (kit_id in the active set) and RETURN THE FULL ROSTER (do not filter server-side). Cache the active-kit-id lookup per org+range at mapCacheTtl($range); do NOT alter orgScoutKits()'s own cache. Frontend: fetchDrivers(range) forwards the range (store.drivers stays the full annotated roster); useBirdsEyePolling initial call passes dashboard.range (and stays OUT of the live poll); ScoutHome.vue range watcher adds an admin-gated fetchDrivers(newRange); DriverSelector shows only active_in_range entries by default, reveals inactive matches WITH a note on search, resolves selected/followed chips from the full roster, and adds a true-empty-state message. Tests: update the 3 existing drivers() tests whose premise is invalidated (+ the class doc-comment), add AC1/AC2/AC3 backend tests seeding now()-relative scans_hot rows.",
+      "target_files": [
+        "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+        "resources/js/clarity-scout/stores/map.js",
+        "resources/js/clarity-scout/composables/useBirdsEyePolling.js",
+        "resources/js/clarity-scout/views/ScoutHome.vue",
+        "resources/js/clarity-scout/components/DriverSelector.vue",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php"
+      ],
+      "intended_diffs": "controller: +range param read/whitelist in drivers(); +private activeKitIdsForRange() helper; +active_in_range on each mapped entry; +Cache::remember on the active-set lookup; doc-comment update. map.js: fetchDrivers(range=null) -> buildUrl('/drivers', range ? {range} : {}). useBirdsEyePolling.js: onMounted fetchDrivers(dashboard.range). ScoutHome.vue: inside the dashboard.range watcher, `if (mapStore.adminMode) mapStore.fetchDrivers(newRange)`. DriverSelector.vue: computed visibleOptions = search ? (active ++ inactive-matches-with-note) : active-only; selected chips resolve from full roster; empty-state branch when no active && no search. test file: seed insertScanHot()-style now()-relative rows; new tests + updated 3 existing + doc-comment.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "ClarityScoutBirdsEyeControllerTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "ClarityScoutBirdsEyeController::orgScoutKits()/scopedKits()", "reason": "must stay range-agnostic; shared by stats/hits/paths kit_ids intersection — range-filtering it would wrongly narrow those endpoints"},
+    {"site": "ClarityScoutMapController.php:125,188 (orgScoutKits refs)", "reason": "driver-side single-kit map; unrelated to the admin picker and orgScoutKits is not modified"},
+    {"site": "ScoutUsersResource.php:516", "reason": "doc-comment cross-reference only"},
+    {"site": "App.vue followedDriverName / noKitsReporting", "reason": "safe under annotate-not-shrink (store.drivers stays whole); no change needed"},
+    {"site": "DriverSelector nameplate toggle (driverNameplatesEnabled)", "reason": "AC-4 — independent store field, untouched"}
+  ]
+}

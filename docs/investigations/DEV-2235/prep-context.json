@@ -1,0 +1,470 @@
+{
+  "key": "DEV-2235",
+  "gate": "CLEAN",
+  "mode": "normal",
+  "route": "feature",
+  "reconcile": {
+    "method": "insightlpr:multi-candidate-merge",
+    "candidates": [
+      "fast-pass (sonnet)",
+      "candidate-1 (sonnet, conf 82)",
+      "candidate-2 (sonnet, conf 78)",
+      "candidate-3 (sonnet, conf 76)"
+    ],
+    "reconciled_by": "driver (opus, in-session)",
+    "note": "Every inter-candidate disagreement below was settled by DIRECT CODE VERIFICATION by the reconciler rather than by vote \u2014 grounded beats confident. The specific files/lines read to settle each dispute are recorded in disputes_resolved[]."
+  },
+  "synthesis": "Org admins in Scout Bird's Eye \u2014 the same Vue/Pinia app the driver PWA runs, in adminMode \u2014 can select a hit but cannot disposition it. The disposition control in the shared MapShell.vue is gated only on the selected hit carrying a scan_id, not on driver mode, so this is a backend-only change. Three gaps block it: the two admin hit-payload builders on ClarityScoutBirdsEyeController omit scan_id (and disposition); the scout/org-map/api route group has no POST route so the save 405s; and the driver's disposition controller is kit-scoped (kit_id === user->kit_id), which would 404 for an admin on every scan they did not personally drive. The outcome is parity: an admin sets a disposition through the existing UI, it persists to Postgres and syncs to ClickHouse, is audit-attributed to the admin, and the hit optimistically keeps/hides exactly like the driver flow \u2014 with org tenancy enforced on the write and zero driver-behavior change.",
+  "scope": {
+    "summary": "Add scan_id AND disposition to both admin Bird's Eye hit payloads; add a throttled POST scout/org-map/api/scan/disposition route inside the existing auth + ClarityScoutAdminMiddleware group; add a new thin org-scoped ClarityScoutBirdsEyeDispositionController that reuses the existing ScoutScanDispositionRequest and mirrors the DRIVER controller's tenancy-404 and reason-normalization patterns (NOT DispositionController's, which would introduce two defects).",
+    "proposed_changes": [
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+        "change": "In the hits() payload map, add 'scan_id' => $hit->scan_id and 'disposition' => $hit->disposition.",
+        "reason": "scan_id is the sole gate on MapShell.vue's disposition control (MapShell.vue:79). disposition is what seeds the control from the saved value on re-open (MapShell.vue:236 `selectedDisposition.value = hit?.disposition ?? ''`); the driver payload carries it with an explicit DEV-2059 F1 comment, so omitting it would leave an admin's already-set disposition rendering as a blank placeholder \u2014 a real parity break, not cosmetic.",
+        "ref": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:332-346 (verified: has neither key) vs app/Http/Controllers/Api/ClarityScoutMapController.php:350,361 (has both)"
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+        "change": "In the recentHits() payload map, add 'scan_id' => $hit->scan_id and 'disposition' => $hit->disposition as DISTINCT keys alongside the existing 'id' => $hit->id.",
+        "reason": "CAUTION (verified): this map already emits 'id' => $hit->id, which is the ClickHouse Hit ROW id, NOT the scan. scan_id must be added as a separate key \u2014 renaming or reusing 'id' would silently post the wrong identifier. Beyond rendering, scan_id here is REQUIRED for AC-2: dashboard.js routes recentHits through mapStore().applyHiddenScanIdsFilter and map.js's KEEP-patch matches on h.scan_id === scanId, so with scan_id undefined the optimistic keep/hide is a no-op on this surface.",
+        "ref": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:576-593 (verified) vs app/Http/Controllers/Api/ClarityScoutDashboardController.php:164-174 (driver has id + scan_id + disposition); resources/js/clarity-scout/stores/dashboard.js:37-40; resources/js/clarity-scout/stores/map.js:852"
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeDispositionController.php",
+        "change": "NEW single-invoke controller. (a) Validate with the EXISTING App\\Http\\Requests\\ScoutScanDispositionRequest (no new FormRequest). (b) Resolve the scan OUTSIDE any try/catch: Scan::query()->where('id', $request->input('scan_id'))->forOrg((int) auth()->user()->org_id, withSharedKits: Feature::active(FeatureEnum::SHARED_KITS->slug()))->firstOrFail(). (c) Normalize reason exactly as the driver does: $reason = $request->input('disposition') === DispositionEnum::INVALID_SCAN->value ? ($request->input('reason') ?? 'other') : 'other'. (d) $scan->updateDisposition(disposition:, user: $request->user(), reason: $reason) inside a try/catch returning 500 on failure. (e) Analytics::track('disposition-saved', $request->user(), ['scan_id'=>..., 'disposition'=>..., 'reason'=>$reason, 'from_scout'=>true], page: ScoutAnalyticsPage::BirdsEye->value) in its OWN try/catch so a tracking failure never blocks the save. [DECIDED human:Dalton 2026-08-03 \u2014 additive page tag, from_scout boolean NOT widened.] Return response(status: 200).",
+        "reason": "A dedicated controller is REQUIRED for correctness, not just for tidy analytics. Reusing DispositionController would import TWO verified defects: (1) it wraps the tenancy lookup in a try/catch that swallows ModelNotFoundException into a 500 \u2014 its own test pins 500 for a cross-org scan \u2014 whereas the driver controller deliberately keeps the lookup outside the try/catch, its comment stating tenancy failures 'must be unambiguous'; (2) it forwards $request->input('reason') raw, and map.js OMITS the reason key for every non-Invalid-Scan disposition (`if (reason) { payload.reason = reason; }`), so reason arrives null \u2014 and Scan::updateDisposition's guard is `if ($reason !== 'other')`, which null satisfies, spuriously creating a human-review ScanValidation row on EVERY Accessible / New Hit / Moving / Inaccessible admin save. DispositionController's existing web caller masks this by always sending 'other' client-side.",
+        "ref": "app/Http/Controllers/DispositionController.php:16-48; app/Http/Controllers/Api/ClarityScoutScanDispositionController.php:19-43 (both comments verified); app/Models/Scan.php:513-535 (the `$reason !== 'other'` guard, verified); resources/js/clarity-scout/stores/map.js:833-836 (the omission, verified)"
+      },
+      {
+        "file": "routes/web.php",
+        "change": "Inside the scout/org-map Route::prefix('api') group, grouped with the explicit routes and ABOVE the GET-only {any} JSON-404 catch-all: Route::post('scan/disposition', ClarityScoutBirdsEyeDispositionController::class)->middleware('throttle:30,1');",
+        "reason": "The group is GET-only today, so the save cannot land. throttle:30,1 mirrors the driver Scout disposition route exactly, which is the ticket's stated parity target. Registering above the catch-all keeps it consistent with the group's existing ordering (the catch-all is GET-only so it would not intercept a POST regardless).",
+        "ref": "routes/web.php:117-148; routes/api.php:62 (verified: driver route IS ->middleware('throttle:30,1'))"
+      },
+      {
+        "file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php",
+        "change": "Extend recentHits() assertions to pin scan_id + disposition, and ADD a first-ever test for hits() pinning the same two keys.",
+        "reason": "hits() has NO dedicated test today, so without a new one the map-marker half of this change ships unpinned. The existing seedHit() helper already defaults scan_id, keeping this cheap.",
+        "ref": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php (existing recentHits coverage only)"
+      },
+      {
+        "file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeDispositionControllerTest.php",
+        "change": "NEW test class (Postgres-only, NOT RequiresClickhouse) mirroring DispositionControllerTest + ClarityScoutScanDispositionControllerTest conventions.",
+        "reason": "Pins the org-scoped write, the 404-not-500 tenancy behavior, the reason-normalization fix, admin audit attribution, and the middleware gating.",
+        "ref": "tests/Feature/Http/Controllers/DispositionControllerTest.php; tests/Feature/Http/Controllers/Api/ClarityScoutScanDispositionControllerTest.php"
+      }
+    ],
+    "target_files": [
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeDispositionController.php",
+      "routes/web.php",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeDispositionControllerTest.php"
+    ],
+    "out_of_scope": [
+      "Any Vue/JS change. Verified: MapShell.vue's control, its DISPOSITION_OPTIONS, map.js's updateSelectedHitDisposition/hiddenScanIds/KEEP_VISIBLE_DISPOSITIONS, dashboard.js's applyHiddenScanIdsFilter, and lib/fetch.js's buildUrl all already work adminMode-agnostically once the payload carries scan_id and the route exists.",
+      "resources/js/clarity-scout/lib/analyticsEvents.js \u2014 no client-side disposition event exists; disposition tracking is server-side only. (Resolves a grep-backstop candidate.)",
+      "A NEW FormRequest subclass. ScoutScanDispositionRequest is directly reusable (verified: authorize() is just auth()->check(), no kit binding; rules() already restrict disposition to the 5 driver values).",
+      "Fixing DispositionController's own latent null-reason ScanValidation bug. Its only caller (resources/js/app.js) always sends reason:'other', so it is not currently exercised. Real but pre-existing and outside this ticket's blast radius \u2014 worth a follow-up ticket.",
+      "Widening the UI so admins can pick Valid/Reviewed/Invalid (see open question Q2).",
+      "app/Filament/Actions/BulkDispositionAction.php and the Filament Hits/MissedOpportunity resources \u2014 separate admin surfaces, read/write unaffected.",
+      "DEV-2117 frozen hotlist_status divergence and any other pre-existing Direct/Staging labeling work.",
+      "Kit-reassignment-across-orgs edge case (a denormalized ClickHouse kit_org_id going stale against Postgres kits.org_id) \u2014 residual risk, not introduced here."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "In Birds Eye, selecting a hit shows the disposition control and an admin can set a disposition; it persists (meta.disposition + ClickHouse sync) and is attributed to the admin in the activity log.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Delivered by the payload additions + the new org-scoped controller. Scan::updateDisposition already writes meta.disposition, dispatches SyncDispositionToClickhouse, and logs activity('Disposition')->causedBy($user) unconditionally \u2014 since $request->user() is the admin, attribution is correct with zero extra code. Note: full parity requires the disposition field too, or the control renders blank on re-open."
+    },
+    {
+      "item": "The hit is optimistically kept/removed per KEEP_VISIBLE_DISPOSITIONS, matching driver behavior, and does not reappear on the next poll (within the suppression TTL).",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "The store logic is already adminMode-agnostic, but this AC is NOT free: it depends on scan_id reaching the recentHits payload, because both the KEEP-patch (h.scan_id === scanId) and the dashboard store's applyHiddenScanIdsFilter key on scan_id. Verified KEEP_VISIBLE_DISPOSITIONS = ['New Hit','Accessible'] and HIDDEN_SCAN_TTL_MS = 3 minutes."
+    },
+    {
+      "item": "Org scoping holds: an admin can only disposition hits within their own org's scope (incl. the Staging-Live decision above); driver disposition behavior is unchanged.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Scan::forOrg is kit-ownership scoped, the same axis as the read side's forKitOrg, so the write set is a superset of the display set \u2014 no visible hit can 404 on save (see Q3). Driver behavior is unchanged because no driver file is touched."
+    },
+    {
+      "item": "A non-Invalid-Scan disposition set from Birds Eye must NOT create a ScanValidation human-review row.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Derived from verified code, not from the ticket. This is the defect the naive 'reuse DispositionController' reading would introduce; the driver path already guards it. Without this AC the feature would silently pollute the human-review queue on nearly every admin save."
+    },
+    {
+      "item": "A cross-org scan must return a clean 404, not a 500.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Derived from the driver controller's explicit design comment ('tenancy failures here must be unambiguous'). DispositionController's swallow-to-500 is pinned by its own test, so reusing it would make an authorization failure indistinguishable from a server error."
+    },
+    {
+      "item": "The disposition-saved analytics event from Bird's Eye carries from_scout=true AND page='clarity-scout-birds-eye', leaving the existing from_scout semantics unchanged.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Settled at the Phase-2 gate (human:Dalton 2026-08-03, option a). Makes admin-vs-driver dispositions separable in analytics without changing the meaning of an existing field."
+    }
+  ],
+  "questions": [
+    {
+      "q": "Analytics discriminator: the disposition-saved event currently carries a single boolean from_scout (false = web admin panel, true = driver Scout PWA). An admin dispositioning from Bird's Eye is a THIRD source that does not fit the boolean. Should it (a) send from_scout=true and additionally tag page: ScoutAnalyticsPage::BirdsEye (an unused enum case 'clarity-scout-birds-eye' already exists in the codebase with no callers, apparently reserved for this), (b) send from_scout=true with no extra tag and stay indistinguishable from a driver save, or (c) widen the discriminator to a string/source field (a small change to existing analytics semantics)?",
+      "answered": true,
+      "answer": "(a) Send from_scout=true AND additionally tag page: ScoutAnalyticsPage::BirdsEye->value ('clarity-scout-birds-eye'). Purely additive \u2014 no existing analytics series changes meaning, admin-vs-driver stays separable via the page tag, and it activates an enum case already reserved for this surface. The from_scout boolean is NOT widened.",
+      "source": "human:Dalton 2026-08-03",
+      "materiality": "material \u2014 data semantics of an existing analytics series; option (c) changes an established field's meaning. Flagged needs-human by 3 of 4 prep passes.",
+      "conservative_default_if_yolo": "(a) from_scout=true + page: ScoutAnalyticsPage::BirdsEye \u2014 purely additive, breaks no existing series, and uses an enum case already reserved."
+    },
+    {
+      "q": "Enum breadth: should admins in Bird's Eye be restricted to the 5 driver-facing dispositions (New Hit / Accessible / Moving / Inaccessible / Invalid Scan), or eventually be allowed the wider admin set (Valid / Reviewed / Invalid)? For THIS ticket the code settles the implementation \u2014 MapShell.vue's DISPOSITION_OPTIONS hardcodes exactly the 5 with no adminMode branch, so under 'no frontend changes' the UI can never send more, and reusing ScoutScanDispositionRequest enforces that server-side. But the ticket explicitly asks to 'decide intentionally', and there IS a counter-precedent: BulkDispositionAction already exposes the FULL DispositionEnum to admins on the Filament Hits resource. Confirm restricting to the 5 (and treat widening as a separate ticket)?",
+      "answered": true,
+      "answer": "Restrict to the 5 driver-facing values (New Hit / Accessible / Moving / Inaccessible / Invalid Scan), enforced server-side by reusing the existing ScoutScanDispositionRequest. True parity with the driver; no frontend change. Widening to the full DispositionEnum is explicitly a SEPARATE future ticket (it needs a MapShell.vue adminMode branch to be reachable at all).",
+      "source": "human:Dalton 2026-08-03",
+      "materiality": "material \u2014 AC ambiguity the ticket itself flagged for an intentional decision. Note the implementation does not block on it: the recommended build restricts to the 5, and widening later would require a frontend change anyway.",
+      "conservative_default_if_yolo": "Restrict to the 5 driver values; widening is a separate ticket requiring a UI change."
+    },
+    {
+      "q": "Which controller should back the route \u2014 reuse DispositionController, or a thin dedicated ClarityScoutBirdsEyeDispositionController?",
+      "answered": true,
+      "answer": "Dedicated thin controller. Unanimous across all 4 prep passes, and settled by code for a correctness reason stronger than the ticket's own analytics/throttle rationale: reusing DispositionController would import both the swallow-tenancy-into-500 behavior and the raw-reason passthrough that spuriously creates ScanValidation rows against map.js's payload shape.",
+      "source": "code"
+    },
+    {
+      "q": "Staging-Live scope subtlety (DEV-2053): does the read side's forKitOrg diverge from the write side's forOrg, leaving hits visible but undispositionable?",
+      "answered": true,
+      "answer": "NO divergence \u2014 the ticket's concern rests on a naming collision across two different models. App\\Clickhouse\\Models\\Hit::scopeForOrg filters hotlist_org_id (the DEV-2053 ambiguity) but the hit READ path never uses it; hits()/recentHits() use scopeForKitOrg (kit_org_id) and additionally pre-filter kit_ids to the org's own kits. The disposition WRITE happens on the Postgres Scan model, whose scopeForOrg has no hotlist concept at all \u2014 verified at app/Models/Scan.php:435-443 it resolves Kit::getKits($org_id, withShared)->pluck('id') then whereIntegerInRaw('kit_id', $kitIds), i.e. kit-ownership, the SAME axis as kit_org_id. So the write set is a superset of the display set (identical, plus shared kits when SHARED_KITS is active) and an admin can disposition every hit they can see, Direct and Staging-Live alike. Independently reached by all 4 passes and then verified directly in the code by the reconciler. An existing test already documents the Staging-Live case (a divergent hotlist_org_id with the same kit_org_id).",
+      "source": "code"
+    },
+    {
+      "q": "Should the new POST route be throttled, and at what rate?",
+      "answered": true,
+      "answer": "Yes \u2014 throttle:30,1. Settled by code against a candidate that claimed no sibling disposition endpoint is throttled: routes/api.php:62 verifiably registers the DRIVER disposition route with ->middleware('throttle:30,1'). Since this ticket's stated goal is parity with that driver endpoint, matching its throttle is the precedent-following choice. (The web DispositionController route at routes/web.php:89 is indeed unthrottled, which is the likely source of the confusion.)",
+      "source": "code"
+    },
+    {
+      "q": "Is a CSRF exemption needed for the new POST?",
+      "answered": true,
+      "answer": "No. The scout/org-map group lives in routes/web.php under the default web middleware (session + CSRF), and lib/fetch.js's authHeaders() already attaches X-CSRF-TOKEN in adminMode.",
+      "source": "code"
+    },
+    {
+      "q": "Does a new FormRequest subclass need to be created for the admin path?",
+      "answered": true,
+      "answer": "No. Verified ScoutScanDispositionRequest is generic \u2014 authorize() is just auth()->check() with no kit/driver binding, and rules() already restricts disposition to DispositionEnum::formOptions(missedOpportunity: false), exactly the 5 values MapShell offers. Reuse it as-is; the fast pass's proposed ScoutBirdsEyeScanDispositionRequest would be pure duplication.",
+      "source": "code"
+    }
+  ],
+  "blockers": [],
+  "disputes_resolved": [
+    {
+      "dispute": "Add `disposition` to the admin payloads, or only `scan_id`?",
+      "positions": "fast-pass said add both; candidates 1/2/3 mentioned only scan_id",
+      "resolution": "ADD BOTH. Verified MapShell.vue:236 seeds the control via `hit?.disposition ?? ''`, and the driver payloads carry disposition with an explicit DEV-2059 F1 comment about not resetting to the placeholder on re-open. A single-lane finding that 3 of 4 passes missed; kept per the zero-tolerance floor and then confirmed in code.",
+      "evidence": "resources/js/clarity-scout/components/MapShell.vue:225-236; app/Http/Controllers/Api/ClarityScoutMapController.php:361; app/Http/Controllers/Api/ClarityScoutDashboardController.php:174"
+    },
+    {
+      "dispute": "Is any sibling disposition route throttled?",
+      "positions": "candidate 2 said none are, and therefore proposed no throttle; fast-pass/candidate 1/candidate 3 said mirror throttle:30,1",
+      "resolution": "Candidate 2's premise is factually WRONG. The driver route is throttled 30,1. Adopt throttle:30,1.",
+      "evidence": "routes/api.php:62 (verified by direct read)"
+    },
+    {
+      "dispute": "New FormRequest subclass, or reuse ScoutScanDispositionRequest?",
+      "positions": "fast-pass proposed a new ScoutBirdsEyeScanDispositionRequest; candidates 1/2/3 said reuse as-is",
+      "resolution": "REUSE as-is \u2014 the fast pass's subclass is unnecessary. Verified the request has no driver/kit coupling.",
+      "evidence": "app/Http/Requests/ScoutScanDispositionRequest.php + app/Http/Requests/ScanDispositionRequest.php (read in full)"
+    },
+    {
+      "dispute": "Does a POST to the org-map api group 404 or 405 today?",
+      "positions": "ticket said '404/405s'; candidates 2/3 said specifically 405",
+      "resolution": "405 (the URI matches a GET-only sibling, so MethodNotAllowed is raised before the GET-only catch-all applies). Cosmetic \u2014 does not change the fix.",
+      "evidence": "routes/web.php:117-148"
+    },
+    {
+      "dispute": "Have the ticket's cited line numbers drifted?",
+      "positions": "fast-pass and candidate 3 said drifted; candidate 1 said accurate",
+      "resolution": "UNRESOLVED and immaterial. The payload maps were located by content, not by line number, and both are confirmed to omit scan_id/disposition. The build session must locate by content regardless.",
+      "evidence": "n/a"
+    },
+    {
+      "dispute": "Does the reason-normalization defect actually exist?",
+      "positions": "candidates 2 and 3 found it independently; fast-pass and candidate 1 did not raise it",
+      "resolution": "CONFIRMED, and it is the single most important finding of the deep path. Verified all three links in the chain: map.js omits reason unless truthy; DispositionController forwards it raw; Scan::updateDisposition's guard is `if ($reason !== 'other')`, which null satisfies. The driver controller's own comment documents the fix.",
+      "evidence": "resources/js/clarity-scout/stores/map.js:833-836; app/Http/Controllers/DispositionController.php:24-28; app/Models/Scan.php:535; app/Http/Controllers/Api/ClarityScoutScanDispositionController.php:29-36"
+    }
+  ],
+  "notes": [
+    "recentHits() already emits 'id' => $hit->id (the ClickHouse Hit row id). scan_id must be a DISTINCT additional key \u2014 a rename would post the wrong identifier.",
+    "AC-2 spans BOTH Bird's Eye surfaces, not just map markers: dashboard.js:37-40 routes recentHits results through mapStore().applyHiddenScanIdsFilter, and map.js's KEEP-patch matches on h.scan_id. Independently surfaced by the grep backstop and candidates 2 and 3.",
+    "buildUrl() in lib/fetch.js auto-appends the driver-selector's kit_ids to every adminMode request (except /map/heatmap/*), including this POST. Harmless \u2014 the controller scopes by org and ignores query params \u2014 but a reviewer will see kit_ids on the POST in network logs.",
+    "Both admin payloads are cached (~10s TTL). Adding fields is additive and self-heals within seconds of deploy; no cache-bust needed.",
+    "Bird's Eye's read-side kit pre-filter uses Kit::forOrg (literal kits.org_id, NO shared-kit widening) while the write scope optionally includes shared kits when SHARED_KITS is active. The write scope is therefore a strict superset of what Bird's Eye displays. Not a new risk \u2014 identical to DispositionController's existing behavior \u2014 and it fails safe (no visible hit can 404). Worth a reviewer's eye.",
+    "KEEP_VISIBLE_DISPOSITIONS = ['New Hit','Accessible'] (verified map.js:775), so Moving / Inaccessible / Invalid Scan are HIDE dispositions with a 3-minute suppression TTL.",
+    "An unused App\\Enums\\ScoutAnalyticsPage::BirdsEye case ('clarity-scout-birds-eye') exists with no callers \u2014 a strong signal it was reserved for exactly this surface. Relevant to open question Q1.",
+    "app/Filament/Actions/BulkDispositionAction.php already exposes the FULL DispositionEnum to admins on the Filament Hits resource \u2014 the one genuine counter-precedent for open question Q2.",
+    "The scout.md knowledge card warns Scout ticket grounding goes stale fast (DEV-2137 scoped work that already existed). Re-verified here: all three claimed gaps are REAL on current main. Only the line numbers were in question.",
+    "No driver file is touched, so the driver disposition path is unchanged by construction; the existing driver and web disposition test files serve as regression guards."
+  ],
+  "tests": [
+    {
+      "file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php",
+      "what_it_pins": "hits() (NEW test \u2014 no coverage exists today) and recentHits() payloads both include scan_id and disposition, for Direct and Staging-Live hit types. Mirrors the existing assertJsonPath style."
+    },
+    {
+      "file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeDispositionControllerTest.php",
+      "what_it_pins": "NEW Postgres-only class (NOT RequiresClickhouse): admin can disposition a scan on ANY kit in their org; cross-org scan returns 404 (NOT 500); nonexistent scan 404; missing/invalid disposition 422; an admin-only value (Valid/Reviewed/Invalid) rejected 422; a non-Invalid-Scan disposition with NO reason key creates NO ScanValidation row (the reason-normalization regression); Invalid Scan + a real reason DOES create one; activity('Disposition') attributed to the ADMIN; SyncDispositionToClickhouse dispatched; analytics event fires with whatever discriminator Q1 settles on; 403 for a non-admin and 403 without the CLARITY_SCOUT feature."
+    },
+    {
+      "file": "tests/Feature/Http/ClarityScoutOrgMapRoutingTest.php",
+      "what_it_pins": "Optional, non-RequiresClickhouse per the repo's routing-test convention: POST /scout/org-map/api/scan/disposition reaches the controller rather than the SPA shell or a 405."
+    },
+    {
+      "file": "tests/Feature/Http/Controllers/DispositionControllerTest.php",
+      "what_it_pins": "No change \u2014 regression guard that the web disposition path is untouched."
+    },
+    {
+      "file": "tests/Feature/Http/Controllers/Api/ClarityScoutScanDispositionControllerTest.php",
+      "what_it_pins": "No change \u2014 regression guard that driver disposition behavior is unchanged."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:278-359 (hits), :518-602 (recentHits)",
+      "app/Http/Controllers/Api/ClarityScoutMapController.php:345-372 (driver hits \u2014 reference impl, has scan_id + disposition)",
+      "app/Http/Controllers/Api/ClarityScoutDashboardController.php:160-182 (driver recentHits \u2014 has id + scan_id + disposition)",
+      "app/Http/Controllers/DispositionController.php:16-48 (org-scoped, swallow-to-500, raw reason)",
+      "app/Http/Controllers/Api/ClarityScoutScanDispositionController.php:19-71 (kit-scoped; the tenancy-404 + reason-normalization patterns to mirror)",
+      "app/Http/Requests/ScanDispositionRequest.php (base, full enum, reason nullable)",
+      "app/Http/Requests/ScoutScanDispositionRequest.php (5-value restriction \u2014 reuse as-is)",
+      "app/Models/Scan.php:435-443 (scopeForOrg \u2014 kit-ownership), :513-560 (updateDisposition \u2014 activity log + the `$reason !== 'other'` ScanValidation guard)",
+      "app/Models/Kit.php:106-109 (scopeForOrg), :235-260 (getKits)",
+      "app/Clickhouse/Models/Hit.php:30-58 (scopeForOrg = hotlist_org_id vs scopeForKitOrg = kit_org_id)",
+      "app/Http/Middleware/ClarityScoutAdminMiddleware.php",
+      "routes/web.php:89 (web disposition, unthrottled), :117-148 (org-map api group, GET-only + GET-only JSON-404 catch-all)",
+      "routes/api.php:62 (driver disposition, throttle:30,1)",
+      "resources/js/clarity-scout/components/MapShell.vue:72-143 (control, gated on scan_id at :79), :196-202 (DISPOSITION_OPTIONS), :225-236 (seeds from hit.disposition)",
+      "resources/js/clarity-scout/stores/map.js:775 (KEEP_VISIBLE_DISPOSITIONS), :831-908 (updateSelectedHitDisposition, reason omission at :833-836, KEEP-patch at :852, hiddenScanIds TTL)",
+      "resources/js/clarity-scout/stores/dashboard.js:37-40 (shares applyHiddenScanIdsFilter)",
+      "resources/js/clarity-scout/lib/fetch.js (buildUrl/BASE_URL adminMode switch, authHeaders X-CSRF-TOKEN)",
+      "app/Enums/DispositionEnum.php, app/Enums/ScoutAnalyticsPage.php (unused BirdsEye case)",
+      "app/Jobs/SyncDispositionToClickhouse.php",
+      "app/Filament/Actions/BulkDispositionAction.php (full-enum admin precedent, different surface)"
+    ],
+    "code_flow": "Admin selects a hit in Bird's Eye -> MapShell.vue renders the disposition control (gated on selectedHit.scan_id) and seeds it from selectedHit.disposition -> admin picks a value -> map.js updateSelectedHitDisposition() POSTs buildUrl('/scan/disposition'), which in adminMode resolves to /scout/org-map/api/scan/disposition (session cookie + X-CSRF-TOKEN) -> auth + ClarityScoutAdminMiddleware -> NEW ClarityScoutBirdsEyeDispositionController -> ScoutScanDispositionRequest validates the 5-value enum -> Scan::forOrg(admin org)->firstOrFail() (clean 404 on tenancy failure) -> reason normalized to 'other' unless Invalid Scan -> Scan::updateDisposition() writes scans_metadata.meta.disposition, logs activity('Disposition')->causedBy(admin), dispatches SyncDispositionToClickhouse (ALTER..UPDATE across scans_hot/cold, hits_hot/cold, missed_opportunities) -> Analytics::track('disposition-saved') in its own try/catch -> 200 -> the store applies KEEP_VISIBLE_DISPOSITIONS / hiddenScanIds optimistically across BOTH the map markers and the dashboard-store-fed recent-hits card. The read side changes only in that both admin payload builders now emit scan_id + disposition.",
+    "tables": [
+      "platform.scans",
+      "platform.scans_metadata (meta jsonb.disposition)",
+      "platform.scan_validations",
+      "platform.activity_log",
+      "platform.kits",
+      "clarity.hits_hot",
+      "clarity.hits_cold",
+      "clarity.scans_hot",
+      "clarity.scans_cold",
+      "clarity.missed_opportunities",
+      "clarity.hotlist"
+    ],
+    "related_components": [
+      "SyncDispositionToClickhouse job",
+      "Spatie Activitylog (log_name 'Disposition')",
+      "Analytics facade ('disposition-saved')",
+      "ScanValidation (human-review side effect)",
+      "Pennant SHARED_KITS + CLARITY_SCOUT flags",
+      "ClarityScoutAdminMiddleware",
+      "Pinia map.js + dashboard.js stores"
+    ]
+  },
+  "exhaustiveness": {
+    "patterns_used": [
+      "grep \"'scan_id' =>\" across app/Http/Controllers + app/Clickhouse (every hit-payload builder)",
+      "grep \"updateDisposition(\" across app/ (every disposition write call site)",
+      "grep \"scan/disposition|scan.disposition|DispositionController::class\" across routes/ app/Filament (every disposition route registration)",
+      "grep \"function scopeForOrg|function scopeForKitOrg|kit_org_id|hotlist_org_id\" across app/Models/Scan.php app/Models/Kit.php app/Clickhouse/Models/Hit.php",
+      "grep \"buildUrl|BASE_URL\" across resources/js/clarity-scout/",
+      "grep \"KEEP_VISIBLE_DISPOSITIONS|hiddenScanIds|updateSelectedHitDisposition|selectedHit\" across resources/js/clarity-scout/",
+      "grep \"throttle\" across routes/api.php routes/web.php"
+    ],
+    "sites": [
+      {
+        "site": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:332-346 (hits)",
+        "verdict": "buggy",
+        "reason": "Admin map-marker payload omits BOTH scan_id and disposition \u2014 gap #1."
+      },
+      {
+        "site": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:576-593 (recentHits)",
+        "verdict": "buggy",
+        "reason": "Admin recent-hits payload omits both; also breaks AC-2's optimistic hide on the dashboard-card surface."
+      },
+      {
+        "site": "routes/web.php:117-148 (scout/org-map/api group)",
+        "verdict": "buggy",
+        "reason": "GET-only; a POST to scan/disposition 405s today \u2014 gap #2."
+      },
+      {
+        "site": "app/Http/Controllers/Api/ClarityScoutMapController.php:345-372 (driver hits)",
+        "verdict": "safe",
+        "reason": "Already carries scan_id + disposition; the reference implementation."
+      },
+      {
+        "site": "app/Http/Controllers/Api/ClarityScoutDashboardController.php:160-182 (driver recentHits)",
+        "verdict": "safe",
+        "reason": "Already carries id + scan_id + disposition."
+      },
+      {
+        "site": "app/Http/Controllers/Api/ClarityScoutTripsController.php:365-379,470-495 (trip/day markers)",
+        "verdict": "safe",
+        "reason": "Intentionally scan_id-less and read-only per MapShell.vue's own comment; driver-only, no admin equivalent. NOT a missed surface."
+      },
+      {
+        "site": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php (heatmapHits/heatmapOrders/driverPaths/driverPositions/scanPaths)",
+        "verdict": "safe",
+        "reason": "Aggregated/path data with no single-hit disposition concept; no scan_id expected."
+      },
+      {
+        "site": "app/Http/Controllers/DispositionController.php (web write path)",
+        "verdict": "safe",
+        "reason": "Unaffected here. Carries a latent null-reason bug masked by its only caller always sending 'other' \u2014 noted as a follow-up, deliberately NOT reused."
+      },
+      {
+        "site": "app/Http/Controllers/Api/ClarityScoutScanDispositionController.php (driver write path)",
+        "verdict": "safe",
+        "reason": "Correctly kit-scoped for the driver; untouched. Supplies both patterns the new controller mirrors."
+      },
+      {
+        "site": "app/Filament/Actions/BulkDispositionAction.php:62-80",
+        "verdict": "safe",
+        "reason": "Separate Filament bulk surface relying on resource-query scoping; full enum by design; untouched."
+      },
+      {
+        "site": "routes/api.php:62 (driver disposition route)",
+        "verdict": "safe",
+        "reason": "Exists and is throttled 30,1; the throttle precedent for the new route."
+      },
+      {
+        "site": "routes/web.php:89 (web disposition route)",
+        "verdict": "safe",
+        "reason": "Exists, unthrottled; not modified."
+      },
+      {
+        "site": "resources/js/clarity-scout/lib/analyticsEvents.js",
+        "verdict": "safe",
+        "reason": "Client-side analytics enum mirror; no disposition event exists client-side, so no change needed. Resolves a grep-backstop candidate."
+      },
+      {
+        "site": "resources/js/clarity-scout/stores/dashboard.js:37-40",
+        "verdict": "safe",
+        "reason": "Already delegates to mapStore().applyHiddenScanIdsFilter; needs no change, but is WHY scan_id must reach the recentHits payload."
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [
+      "platform.scans (read)",
+      "platform.scans_metadata (write \u2014 meta.disposition)",
+      "platform.scan_validations (conditional write \u2014 must NOT fire for non-Invalid-Scan)",
+      "platform.activity_log (write)",
+      "platform.kits (read, org scoping)"
+    ],
+    "ch_tables": [
+      "clarity.hits_hot",
+      "clarity.hits_cold",
+      "clarity.scans_hot",
+      "clarity.scans_cold",
+      "clarity.missed_opportunities",
+      "clarity.hotlist (read, FINAL semi-join)"
+    ],
+    "mv_or_cdc_implications": "No new MV or CDC path and no schema change. SyncDispositionToClickhouse already issues the ALTER TABLE ... UPDATE mutations for both existing disposition callers; this ticket only adds a third caller of the same job.",
+    "indexes_relied_on": [
+      "scans.id (PK)",
+      "scans.kit_id (whereIntegerInRaw in Scan::forOrg)",
+      "kits.org_id (Kit::getKits)",
+      "hits_hot/hits_cold kit_org_id + hotlist_id (existing CH read scoping, unchanged)"
+    ]
+  },
+  "derivation_log": [
+    {
+      "query_shape": "Scan::query()->where('id', :scan_id)->forOrg(:org_id, withSharedKits: :bool)->firstOrFail(), where forOrg expands to whereIntegerInRaw('kit_id', Kit::getKits(:org_id, withShared)->pluck('id'))",
+      "param_classes": "scan_id: positive int from a validated request; org_id: authenticated admin's org_id; withSharedKits: bool from the Pennant SHARED_KITS flag",
+      "aggregate_result": "Existence check only \u2014 one row or ModelNotFoundException. Confirmed kit-ownership scoping with no hotlist_org_id term.",
+      "why": "Settles the ticket's Staging-Live open question by establishing the write-side predicate is the same axis as the read side's kit_org_id."
+    },
+    {
+      "query_shape": "ClickhouseHit::forWindow(:start)->final()->forKitOrg(:org_id)->whereIntegerInRaw('kit_id', :scoped_kit_ids)->forHitTypes([Live, Staging_Live]) with an Open-hotlist FINAL semi-join",
+      "param_classes": "org_id: int; scoped_kit_ids: int[] from Kit::forOrg (no shared widening); hit_type enum; datetime window",
+      "aggregate_result": "Every returned row already satisfies kit.org_id = the admin's org by construction, independent of hotlist_org_id.",
+      "why": "Establishes the read set is a subset of the write set, so no visible hit can 404 on save."
+    },
+    {
+      "query_shape": "Static read of Scan::updateDisposition's ScanValidation guard: `if ($reason !== 'other') { ... ScanValidation::create(...) }`",
+      "param_classes": "reason: ?string (null when the client omits the key)",
+      "aggregate_result": "null !== 'other' evaluates true \u2014 a null reason creates a human-review row.",
+      "why": "Confirms the reason-normalization defect that reusing DispositionController would introduce; this is the derived AC-4."
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC-1",
+        "kind": "agent",
+        "intent": "Seed a Live hit (clarity.hits_hot, dated relative to now()) for an org's kit plus its underlying Postgres Scan. As that org's admin, GET /scout/org-map/api/map/hits and /dashboard/recent-hits and assert scan_id AND disposition are present. POST /scout/org-map/api/scan/disposition with that scan_id + 'Accessible'; assert 200, scans_metadata.meta.disposition updated, an activity_log row with log_name Disposition causedBy the admin, and SyncDispositionToClickhouse dispatched."
+      },
+      {
+        "ac": "AC-1 (re-open seeding)",
+        "kind": "human",
+        "intent": "In a browser as an org admin, open Bird's Eye, select a hit, confirm the disposition control renders with the same 5 options a driver sees, save one, then RE-OPEN the same hit and confirm the control shows the saved value rather than a blank placeholder (this is what the disposition payload field buys)."
+      },
+      {
+        "ac": "AC-2",
+        "kind": "agent",
+        "intent": "POST a HIDE disposition (Moving or Inaccessible) and confirm the hit disappears from BOTH /map/hits and /dashboard/recent-hits and does not reappear on a re-poll inside the 3-minute TTL; POST a KEEP disposition (Accessible) and confirm the hit stays with its disposition reflected."
+      },
+      {
+        "ac": "AC-3",
+        "kind": "agent",
+        "intent": "Seed a Staging-Live hit whose hotlist_org_id belongs to a DIFFERENT org while kit_org_id stays the admin's org; confirm it is visible AND dispositionable (200, not 404) \u2014 the concrete regression test for the resolved Q3. Separately, attempt a scan on another org's kit entirely and assert 404 (not 500)."
+      },
+      {
+        "ac": "AC-4 (derived)",
+        "kind": "agent",
+        "intent": "POST a non-Invalid-Scan disposition with NO reason key and assert NO scan_validations row is created; then POST Invalid Scan with a real reason and assert one IS created."
+      },
+      {
+        "ac": "AC-5 (derived)",
+        "kind": "agent",
+        "intent": "Assert the cross-org attempt returns 404 specifically, distinguishing authorization failure from a 500."
+      }
+    ],
+    "seed_scenario": "One org with an admin user (RoleEnum::ADMIN, CLARITY_SCOUT active) and at least one Scout-enrolled kit. Seed a Postgres Scan on that kit plus a matching clarity.hits_hot row (hit_type Live, hotlist_id -> an Open clarity.hotlist row, kit_org_id = the org, scan_id -> the Postgres Scan). Add a second hits_hot row with hit_type Staging_Live whose hotlist_org_id is a DIFFERENT org while kit_org_id stays the admin's org, with its own Scan on the same kit. Add a second unrelated org with its own kit + scan to prove the cross-org 404. IMPORTANT: date all ClickHouse fixtures relative to now() \u2014 hits_hot enforces a 90-day TTL at insert, so a hardcoded date silently reads back zero rows.",
+    "personas": [
+      "Org admin in Bird's Eye \u2014 the actor gaining the new capability",
+      "Scout driver \u2014 regression-only, to confirm the driver disposition flow is untouched"
+    ],
+    "pg_tables": [
+      "scans",
+      "scans_metadata",
+      "scan_validations",
+      "activity_log",
+      "kits",
+      "orgs"
+    ],
+    "ch_tables": [
+      "clarity.hits_hot",
+      "clarity.hits_cold",
+      "clarity.hotlist"
+    ]
+  },
+  "confidence": 88,
+  "confidence_note": "Higher than every individual pass (76-82) because the four passes independently converged on the load-bearing Staging-Live conclusion, and because every inter-pass disagreement was then settled by direct code verification rather than by vote. The residual uncertainty is the two open product questions, neither of which blocks the recommended implementation.",
+  "escalated": true,
+  "escalation_triggers": [
+    "confidence < 80 on the fast pass (78)",
+    "escalate.recommend = true on the fast pass",
+    "an unanswered needs-human question (analytics discriminator)",
+    "auth/tenancy-sensitive write path"
+  ]
+}

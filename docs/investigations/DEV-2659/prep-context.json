@@ -1,0 +1,215 @@
+{
+  "key": "DEV-2659",
+  "track": "product",
+  "generated_at": "2026-09-25T00:05:00Z",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "confidence": 88,
+  "base_sha": "a4b5074630771c1f4121a5ca34f255c71afe0755",
+  "schema_gate_sha": "25870f75661f07a27a69124a414e557d4c11fff0",
+  "escalate": {
+    "recommend": false,
+    "reason": "Q1 is answered from the code and the steering. The orgs CTE has no reader after is_internal = 0, so Implement deletes it and does not add a type IN (1, 2) docblock."
+  },
+  "reconcile": {
+    "method": "Single prep pass against origin/main a4b5074630771c1f4121a5ca34f255c71afe0755. Live Jira re-GET 2026-09-24. 25870f75 (#449) is an ancestor. Best-of-N not run.",
+    "candidates": 1,
+    "driver_verified": [
+      "database/schema/clickhouse-schema.sql on a4b50746 defines clarity.billing_claim_events (line 18), clarity.billing_claim_events_v (line 85), clarity.orgs (line 89), and clarity.billing_claim_events_mv (line 102).",
+      "billing_claim_events_v selects from billing_claim_events FINAL WHERE _peerdb_is_deleted = 0 and does not project _peerdb_is_deleted.",
+      "billing_claim_events_mv sets is_internal from zod.public_orgs FINAL (all types) and restricts event_type to case-claim.",
+      "clarity.orgs is SELECT * FROM zod.public_orgs WHERE type IN (1, 2), with no FINAL and no tombstone predicate.",
+      "UniqueLprCaseClaimsQuery orgs CTE lines 252-256 is the only orgs reader, via the needle LEFT JOINs at lines 275-276. Claims scan is zod.public_billing_events plus JSONExtract plus public_api_keys (lines 257-271). Deduped stage is inline uniqExactIf at lines 217-218.",
+      "LprRepossessionsQuery orgs CTE lines 167-171 is the only orgs reader, via the needle LEFT JOINs at lines 191-192. deduped CTE is lines 197-202 and the outer SELECT reads it once. Guards: d.agent_org_id != 0 (line 208), h.id != 0 (line 220).",
+      "Neither class extends ClickhouseQuery. CompanyMetricsCacheScopeTest asserts the docblock strings DEV-2659 and billing_claim_events_v; the SQL body does not yet read the view.",
+      "okf/concepts/billing-events.md still documents zod.public_billing_events, JSONExtract, the 3.0x single-pass measurement, uniqExact, and Jul 2026 figures 15128 / 14288 / 11975. okf/concepts/platform-gotchas.md PG-028 and PG-030 match the ticket non-negotiables. Wiki was not edited."
+    ]
+  },
+  "synthesis": "Both funnel queries read clarity.billing_claim_events_v with is_internal = 0. The orgs CTE and the insightlpr needle joins are deleted because they have no remaining reader. No clarity.orgs swap. No type IN (1, 2) docblock. One PHP definition of the dedup triple (forwarder_org_id, agent_org_id, vin). Claims window and monthlySeries use uniqExactIf on that triple in one SELECT. Repos materializes the deduped CTE from the same definition and still joins public_hotlist and public_hotlist_status_log. Item 5 / AC-7 stays out of ship.",
+  "schema_proof": {
+    "proved": true,
+    "path": "SCHEMA-GATE / platform#449 ancestor of this base",
+    "file": "database/schema/clickhouse-schema.sql",
+    "sha": "a4b5074630771c1f4121a5ca34f255c71afe0755",
+    "ancestor": "25870f75661f07a27a69124a414e557d4c11fff0",
+    "objects": {
+      "clarity.billing_claim_events": 18,
+      "clarity.billing_claim_events_v": 85,
+      "clarity.orgs": 89,
+      "clarity.billing_claim_events_mv": 102
+    },
+    "read_surface": "clarity.billing_claim_events_v",
+    "fleet_soft_ok": {
+      "claimed": false,
+      "reason": "No qa-prep-ledger.json for this key. Neighbor ledgers are not this environment."
+    },
+    "fleet_clickhouse": {
+      "strategy": "docker",
+      "driver": "clickhouse",
+      "host": "127.0.0.1",
+      "schema": "database/schema/clickhouse-schema.sql",
+      "contract": ".claude/skills/release-prep/SKILL.md clickhouse-qa up.sh",
+      "container": "clarity-qa-clickhouse",
+      "http_port": 18123,
+      "database_clarity_pattern": "clarity_{wt}",
+      "database_zod_pattern": "zod_{wt}",
+      "not_a_done_signal": ["CLICKHOUSE_DRIVER=pgsql", "agent scratch port 8123", "ClickHouse Cloud writes"]
+    }
+  },
+  "mapping": {
+    "UniqueLprCaseClaimsQuery": {
+      "today": "zod.public_billing_events + JSONExtract(vin, claimed_by_org_id, and on the pre-claim branch hotlist_id and ts) + public_api_keys FINAL + orgs CTE from zod.public_orgs FINAL + needle LEFT JOINs.",
+      "target_columns_on_view": ["org_id", "agent_org_id", "vin", "hotlist_id", "success", "is_internal", "event_date", "ts", "event_type"],
+      "orgs_readers": ["kept LEFT JOIN orgs fo", "kept LEFT JOIN orgs ao"]
+    },
+    "LprRepossessionsQuery": {
+      "today": "Same billing preamble. deduped CTE groups (bucket, forwarder_org_id, agent_org_id, vin) with min(claim_date), then LEFT JOIN public_hotlist and public_hotlist_status_log.",
+      "billing_leg_only": "Hotlist and status-log legs stay. DEV-2657 / DEV-2660.",
+      "orgs_readers": ["kept LEFT JOIN orgs fo", "kept LEFT JOIN orgs ao"]
+    },
+    "clarity_orgs_cte": {
+      "required_shape_if_read": "SELECT id, lower(replaceRegexpAll(coalesce(argMax(name, _peerdb_version), ''), '[^a-zA-Z0-9]', '')) AS n FROM clarity.orgs WHERE _peerdb_is_deleted = 0 GROUP BY id",
+      "remaining_readers_after_is_internal": 0
+    }
+  },
+  "scope": {
+    "summary": "Ship ACs 1-6 and 8-9 once Q1 is answered. AC-7 / Item 5 stays out.",
+    "in": [
+      "Both funnel queries read clarity.billing_claim_events_v.",
+      "No JSONExtract, no public_api_keys join, no orgs LEFT JOIN for the insightlpr needle.",
+      "Single-pass. uniqExact. Sentinel guards. No ClickhouseQuery base.",
+      "Shared deduped definition. Jul 2026 reconciliation 15128 / 14288 / 11975.",
+      "type IN (1, 2) docblock, wording depends on Q1."
+    ],
+    "out_of_ship": [
+      "Item 5 / AC-7: drop forwarder_org_id from the uniq key.",
+      "Changing the clarity.orgs view (DEV-2656 closed, not needed).",
+      "Hotlist and status-log rewrites (DEV-2657 / DEV-2660).",
+      "Re-implementing the 8-day settle window. ResolvesDashboardCacheTtl already has it on this base.",
+      "okf/ edits during this run.",
+      "Cloud ClickHouse writes.",
+      "phase=provisioned."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "AC-1 Both funnel queries read the denormalized billing object; no JSONExtract, no public_api_keys join, no orgs LEFT JOIN for the internal-org needle.",
+      "source": "ticket description",
+      "decision": "implement",
+      "reason": "Read clarity.billing_claim_events_v. Filter is_internal = 0. Org scope stays ({org} = 0 OR org_id = {org} OR agent_org_id = {org}). Pre-claim hotlist_id and ts come from the view columns. The hits_cold join stays."
+    },
+    {
+      "item": "AC-2 Read rows and bytes for a one-month single-org window drop, measured with X-ClickHouse-Summary.",
+      "source": "ticket description",
+      "decision": "prove_at_qa",
+      "reason": "Comment 41325 records org 165, Jul 2026: view 24576 rows / 0.25 MB versus current 43521627 rows / 1852.59 MB. Re-measure on the fleet Docker path at Provision. Not measured in this run."
+    },
+    {
+      "item": "AC-3 The clarity.orgs CTE dedups by argMax(_peerdb_version) with _peerdb_is_deleted = 0. No bare FROM clarity.orgs as a join source. Fixture with two CDC versions proves no fan-out.",
+      "source": "ticket description",
+      "decision": "implement_as_deletion",
+      "reason": "After AC-1 the orgs CTE has zero readers. AC-3 is met by the absence of any FROM clarity.orgs. No argMax CTE and no two-version fan-out fixture."
+    },
+    {
+      "item": "AC-4 Both queries still read their expensive CTE exactly once.",
+      "source": "ticket description",
+      "decision": "implement",
+      "reason": "One reference to billing_claim_events_v per statement. Repos keeps one reference to deduped. Pre-claim keeps the existing double reference to oc (hits prune). Do not add a second view scan so claims can both count failures and FROM deduped."
+    },
+    {
+      "item": "AC-5 Claims and Repos share one deduped CTE definition.",
+      "source": "ticket description",
+      "decision": "implement",
+      "reason": "One PHP definition of the triple (forwarder_org_id, agent_org_id, vin) and of the deduped CTE. Repos and the pre-claim path call the CTE. Claims window and monthlySeries keep uniqExactIf on that same triple inside the single SELECT, because all_claims and successful include rows the CTE filters out. uniqExact, never uniq. forwarder_org_id stays in the key."
+    },
+    {
+      "item": "AC-6 Pre-change Jul 2026 UTC reconciliation reproduces exactly: all 15128 / successful 14288 / deduped 11975. ls-claim excluded. Platform-wide.",
+      "source": "ticket description",
+      "decision": "prove_at_qa",
+      "reason": "Same target as okf/concepts/billing-events.md and comment 41325. Item 5 must not move deduped."
+    },
+    {
+      "item": "AC-7 Item 5 before/after delta, Eric confirm.",
+      "source": "ticket description, comment 41330",
+      "decision": "out_of_ship",
+      "reason": "Dalton 2026-09-23. Not an open question. Do not implement. Do not gate on a measurement."
+    },
+    {
+      "item": "AC-8 Sentinel guards on every consumed join key, with a fixture row at the sentinel.",
+      "source": "ticket description",
+      "decision": "implement",
+      "reason": "Keep h.id != 0 and d.agent_org_id != 0. Keep h.hotlist_id != 0 on the pre-claim join. org_id = 0 is the view's forwarder sentinel (comment 41325). Guard it if a later stage joins on it. Do not set join_use_nulls = 1. PG-030."
+    },
+    {
+      "item": "AC-9 Accepted type IN (1, 2) risk recorded in the query class docblock, with the deferred check described.",
+      "source": "ticket description",
+      "decision": "omit",
+      "reason": "No orgs path remains, so the type IN (1, 2) docblock is not added. The class docblock says exclusion is is_internal = 0 and this class does not read clarity.orgs. Comment 41325 already measured hazard 2 on the view; this run does not re-measure Cloud ClickHouse."
+    }
+  ],
+  "questions": [
+    {
+      "id": "Q1",
+      "question": "After is_internal = 0 deletes the needle LEFT JOINs, the orgs CTE in both funnel queries has no remaining reader. Does the clarity.orgs argMax CTE still ship inside those two queries?",
+      "answered": true,
+      "answer": "No. Delete the orgs CTE and the needle joins. Do not add a type IN (1, 2) docblock.",
+      "source": "Code UniqueLprCaseClaimsQuery.php:252-280 and LprRepossessionsQuery.php:167-196. Ticket scope item 2. Comment 41325. Steering 2026-09-24: if the orgs path is unused, plan the deletion.",
+      "impact": "Implement does not emit clarity.orgs SQL. AC-3 is absence. AC-9's hazard-2 paragraph is omitted."
+    }
+  ],
+  "locked_not_questions": [
+    {
+      "id": "item-5",
+      "decision": "out_of_ship",
+      "text": "Drop forwarder_org_id from the uniq key. AC-7 is not a done-gate.",
+      "source": "Description item 5, comment 41330, Dalton 2026-09-23."
+    }
+  ],
+  "resolved_without_a_question": [
+    {
+      "id": "read-surface",
+      "answer": "clarity.billing_claim_events_v. Not the raw table and not zod.public_billing_events.",
+      "source": "Comment 41325. Schema line 85."
+    },
+    {
+      "id": "single-pass-versus-cte-shape",
+      "answer": "One PHP definition of the deduped triple and CTE. Claims window and monthlySeries use uniqExactIf on that triple in the same SELECT that counts all_claims and successful. Repos materializes the CTE because the hotlist join needs min(claim_date). A second reference to the view is not added.",
+      "source": "AC-4, AC-5, and the measured 3.0x rule in okf/concepts/billing-events.md."
+    },
+    {
+      "id": "do-not-extend-clickhouse-query",
+      "answer": "Neither class extends ClickhouseQuery. Leave them off the base.",
+      "source": "Ticket non-negotiable. okf/concepts/clickhouse-query-patterns.md query() swallows Throwable."
+    },
+    {
+      "id": "settle-window",
+      "answer": "Already on this base in ResolvesDashboardCacheTtl. Do not re-implement it here.",
+      "source": "Comment 41325 pointed at DEV-2653. CLOSED_MONTH_SETTLE_FULL_SECONDS = 8 * 86400."
+    }
+  ],
+  "jira_drift": [
+    {
+      "item": "Comment 41179 First Glance still says Verdict Hold and that billing_claim objects are absent from platform main.",
+      "versus": "origin/main a4b50746 contains 25870f75 (#449) and is the DEV-2654 merge.",
+      "material": false,
+      "action": "Journal only. Description and comment 41330 are the scope lock."
+    },
+    {
+      "item": "Comment 41325 says drop the clarity.orgs swap. Comment 41330 keeps in-query clarity.orgs dedup and items 1-4.",
+      "versus": "Code shows zero orgs readers after the needle joins are deleted.",
+      "material": true,
+      "action": "Resolved. Code has no remaining reader. Steering says plan the deletion. Gate CLEAN."
+    }
+  ],
+  "okf": [
+    "okf/index.md",
+    "okf/concepts/data-architecture.md",
+    "okf/concepts/billing-events.md",
+    "okf/concepts/company-metrics-dashboard.md",
+    "okf/concepts/clickhouse-query-patterns.md",
+    "okf/concepts/platform-gotchas.md"
+  ],
+  "wiki_queue": [
+    "okf/concepts/billing-events.md still teaches zod.public_billing_events plus JSONExtract as Clarity's only claims read. After this ships, the funnel read is clarity.billing_claim_events_v. Do not edit the wiki in this run."
+  ]
+}

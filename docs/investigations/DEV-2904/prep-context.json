@@ -1,0 +1,258 @@
+{
+  "key": "DEV-2904",
+  "generated_at": "2026-10-02T17:39:45Z",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "confidence": 84,
+  "confidence_note": "The chart class, the db_repos predicate, the filter window, and the house CSV exporter are read from origin/main. Plate, case_number, and Claimed By name are cited columns that the aggregate SELECT does not project today. Repo Agent Name has no per-row source and stays blank. ClickHouse was not queried.",
+  "base": "main",
+  "base_sha": "b0c06779c6bcc19c78c804c628a183a012a1b701",
+  "branch_path": "main→main",
+  "first_glance": "42732",
+  "csv_locked": true,
+  "csv_lock_reason": "Acceptance criteria allow CSV or Excel. All five classes in app/Filament/Exports/ return only ExportFormat::Csv. First Glance 42732 prefers CSV. Not a question.",
+  "provisioned": false,
+  "cloud_touched": false,
+  "product_php": false,
+  "synthesis": "The LPR Repossessions bar chart has no export. LprRepossessionsQuery returns counts only. db_repos is uniqExactIf of (forwarder_org_id, agent_org_id, vin) where the status-3 hotlist's first_repossessed_at falls on or after claim_date minus 7 days. A new listing SELECT of that same set, for the active date toggle and auth()->user()->org_id, is the export. The existing aggregate SELECT stays. One file row per triple keeps the row count equal to db_repos. Plate comes from the hotlist row the funnel already joins. RDN case number is zod.hotlist_json_denormalized.case_number, blank when empty. Claimed By is the name of the claimed_by_org_id org. Repo Agent Name stays blank.",
+  "card": {
+    "ticket_name": "LPR Repossession bar chart",
+    "key": "lpr-repossessions",
+    "class": "App\\Filament\\Widgets\\Dashboard\\LprRepossessions",
+    "heading": "LPR Repossessions",
+    "heading_ref": "app/Filament/Widgets/Dashboard/LprRepossessions.php:163",
+    "parent": "DashboardWidget extends Filament\\Widgets\\ChartWidget",
+    "chart_type": "bar",
+    "chart_type_ref": "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php:225-227",
+    "registry": "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php:107",
+    "headline_stage": "db_repos",
+    "not_the_headline": [
+      "deduped, which UniqueLprCaseClaims reads from UniqueLprCaseClaimsQuery",
+      "the description line N scans per LPR repo from RatioAgainstUniqueScans"
+    ],
+    "export_today": false
+  },
+  "ui_path": {
+    "page_default_toggle": "this_month",
+    "page_default_ref": "app/Filament/Pages/Dashboard.php:288-304",
+    "date_toggles": ["today", "last_7d", "this_month", "last_month"],
+    "client_picker_on_this_card": false,
+    "client_note": "The acceptance criteria say the export respects current filters including client. This card has no client control. Org scope is auth()->user()->org_id. Do not add a client filter.",
+    "org_binding": "auth()->user()->org_id. Either forwarder org_id or agent_org_id. Impersonation changes the authenticated user.",
+    "org_binding_ref": "app/Filament/Widgets/Dashboard/LprRepossessions.php:233",
+    "compact_path": "CompanyMetricsOverview constructs the class and calls toStat(). Livewire does not mount the compact card.",
+    "compact_ref": "app/Filament/Widgets/Dashboard/LprRepossessions.php:429-435",
+    "expanded_path": "Dashboard::expandedCardComponents() mounts the same class with expanded=true when the card key is lpr-repossessions. That mounted bar chart is where the export button goes.",
+    "expanded_ref": "app/Filament/Pages/Dashboard.php:163-176",
+    "headline_total": "getCardTotal(): today and last_7d use currentPeriodTotal() which is window() db_repos. this_month is the last bucket of getMonthlyData(). last_month is the previous bucket.",
+    "headline_total_ref": "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php:356-367",
+    "bars": "getMonthlyData() always paints 13 UTC month buckets of db_repos. The date toggle highlights a month or replaces the description with the today/last_7d window. The export set is the headline window, not the sum of the 13 bars.",
+    "bars_ref": "app/Filament/Widgets/Dashboard/LprRepossessions.php:225-260",
+    "chart_widget_actions": "Filament ChartWidget does not implement HasActions. The chart view's afterHeader slot is the filter dropdown only. TableWidget is what implements HasActions, and that is where ExportAction is used today.",
+    "chart_widget_actions_ref": "vendor/filament/widgets/src/ChartWidget.php"
+  },
+  "query_path": {
+    "class": "App\\Clickhouse\\Queries\\LprRepossessionsQuery",
+    "connection": "clarity_clickhouse",
+    "methods": ["window", "monthlySeries"],
+    "row_listing": false,
+    "row_listing_note": "window() and monthlySeries() normalize to {deduped, db_repos} integers. No method returns VIN rows.",
+    "extends_clickhouse_query": false,
+    "billing_from": "{clarity_db}.billing_claim_events_v",
+    "billing_from_ref": "app/Clickhouse/Queries/LprRepossessionsQuery.php:193",
+    "predicates": [
+      "is_internal = 0",
+      "event_type = case-claim (BillingEventType::CASE_CLAIM)",
+      "ts BETWEEN utc start epoch AND utc end epoch",
+      "event_date BETWEEN toDate(utc start) AND toDate(utc end)",
+      "({org} = 0 OR org_id = {org} OR agent_org_id = {org})",
+      "deduped keeps success AND vin != ''",
+      "deduped groups by bucket, forwarder_org_id, agent_org_id, vin and takes min(claim_date)"
+    ],
+    "predicate_ref": "app/Clickhouse/Queries/LprRepossessionsQuery.php:184-201",
+    "dedup_ref": "app/Clickhouse/Queries/BillingClaimDedup.php:22-24",
+    "db_repos": "uniqExactIf((forwarder_org_id, agent_org_id, vin), toDate(ch.first_repossessed_at, 'UTC') >= d.claim_date - 7)",
+    "db_repos_ref": "app/Clickhouse/Queries/LprRepossessionsQuery.php:178-179",
+    "deduped_aggregate": "uniqExact((forwarder_org_id, agent_org_id, vin)). Same statement. Not the export stage.",
+    "hotlist_join": "LEFT JOIN {zod}.public_hotlist FINAL WHERE _peerdb_is_deleted = 0 AND status = 3 ON org_id = agent_org_id AND vin, guarded by agent_org_id != 0. SELECT list is id, org_id, vin. plate exists on the table and is not projected.",
+    "hotlist_join_ref": "app/Clickhouse/Queries/LprRepossessionsQuery.php:205-208",
+    "recoveries_join": "LEFT JOIN {clarity_db}.hotlist WHERE _peerdb_is_deleted = 0 AND toDate(first_repossessed_at, 'UTC') >= {floor}. No FINAL. ON ch.id = h.id AND h.id != 0. SELECT list is id, first_repossessed_at.",
+    "recoveries_join_ref": "app/Clickhouse/Queries/LprRepossessionsQuery.php:214-218",
+    "do_not_change": "The chart's aggregate SELECT, the uniqExactIf predicate, the dedup triple, the backyard -7 window, and the either-side org predicate."
+  },
+  "export_mapping": {
+    "grain": "(forwarder_org_id, agent_org_id, vin) that passes the db_repos predicate for the headline window",
+    "why_not_distinct_vin": "db_repos counts the triple. A second agent org on the same VIN increments the chart. Distinct VIN would make the file shorter than the chart.",
+    "window": {
+      "this_month": "UTC month bucket of the last series point. Headline getCardTotal().",
+      "last_month": "UTC month bucket of the previous series point.",
+      "today": "viewer-local day, converted to UTC, via window().",
+      "last_7d": "viewer-local last 7 days, converted to UTC, via window()."
+    },
+    "parity": "COUNT of export rows for that window and org equals the chart db_repos for the same window and org. The 13-month bar series is not the export set.",
+    "implementation_shape": "Add a listing query that reuses the claims and deduped CTE text and the same joins, then filters to the backyard predicate. Do not replace uniqExactIf in the chart statement with a row dump. Do not store row payloads in the shared monthly-series or window cache keys; those keys have a payload contract of counts only.",
+    "cache_keys": [
+      "lpr-repossessions-funnel:monthly-series-v1 — array of {deduped, db_repos}",
+      "lpr-repossessions-funnel:window-v1 — int db_repos"
+    ],
+    "cache_ref": "app/Clickhouse/Queries/LprRepossessionsQuery.php:251-285"
+  },
+  "field_sources": {
+    "vin": {
+      "disposition": "cited",
+      "source": "deduped.vin from clarity.billing_claim_events_v.vin",
+      "proof": "The materialized view writes upper(trimBoth(JSONExtractString(additional, 'vin'))). The dedup CTE drops vin = ''.",
+      "refs": [
+        "app/Clickhouse/Queries/LprRepossessionsQuery.php:189",
+        "database/schema/clickhouse-schema.sql:102",
+        "okf/concepts/billing-events.md"
+      ]
+    },
+    "plate": {
+      "disposition": "cited",
+      "source": "zod.public_hotlist.plate on the status-3 row the funnel already joins (alias h). Empty string stays blank.",
+      "not_a_source": "billing_claim_events_v has no plate column. Documented case-claim additional keys are claimed_by_org_id, vin, and hotlist_id.",
+      "also_on_table": "clarity.hotlist.plate is the same order, already joined as ch for first_repossessed_at, and is not in that subquery's SELECT list. Prefer h.plate so the plan does not invent a second plate read.",
+      "refs": [
+        "database/schema/clickhouse-schema.sql:59",
+        "app/Clickhouse/Queries/LprRepossessionsQuery.php:205-208",
+        "okf/models/hotlist.md"
+      ]
+    },
+    "rdn_case_number": {
+      "disposition": "cited_blank_when_empty",
+      "source": "zod.hotlist_json_denormalized.case_number, JSONExtractString(json, 'case_number'), joined on hotlist_id = h.id. Nullable. Blank or omitted when null or empty.",
+      "not_a_source": "clarity.hotlist does not project case_number. remote_order_id is the external order id (HotlistExporter labels it Order ID). Do not substitute remote_order_id. Otto's investigation payload maps a display key named case_number onto hotlist_remote_order_id; that is a different surface.",
+      "join_note": "This join is not in LprRepossessionsQuery today. Adding it for a column must not change which triples pass uniqExactIf. PG-030 sentinels stay.",
+      "refs": [
+        "database/schema/clickhouse-schema.sql:48",
+        "database/schema/clickhouse-schema.sql:105"
+      ]
+    },
+    "claimed_by": {
+      "disposition": "cited",
+      "source": "zod.public_orgs.name for agent_org_id. The billing materialized view sets agent_org_id from JSONExtractInt(additional, 'claimed_by_org_id'), documented as the claiming agency. Blank when agent_org_id is 0 or the name is missing.",
+      "not_a_source": "The case-claim additional payload has no person name. Do not invent a user column. The forwarder org (API key owner) is not Claimed By.",
+      "refs": [
+        "okf/concepts/billing-events.md",
+        "database/schema/clickhouse-schema.sql:102",
+        "okf/models/orgs.md"
+      ]
+    },
+    "repo_agent_name": {
+      "disposition": "blank_until_cited",
+      "source": null,
+      "why": "No per-row repo-agent name column on billing_claim_events_v, public_hotlist, clarity.hotlist, hotlist_json_denormalized, or the documented case-claim additional keys. org_meta.properties.rdn_agents is the org-level GetOrgAgents SOAP cache, not a name for one VIN. Leave the column blank. Do not join rdn_agents.",
+      "refs": [
+        "okf/concepts/rdn.md",
+        "okf/concepts/billing-events.md"
+      ]
+    }
+  },
+  "exporter_pattern": {
+    "classes": [
+      "app/Filament/Exports/RecoveryLeaderboardExporter.php",
+      "app/Filament/Exports/HotlistExporter.php",
+      "app/Filament/Exports/ScanReportExporter.php",
+      "app/Filament/Exports/ScanPercentageExporter.php",
+      "app/Filament/Exports/AffiliateStatsExporter.php"
+    ],
+    "format": "ExportFormat::Csv only",
+    "disk": "s3",
+    "queue": "{high}",
+    "nearest_call_site": "app/Filament/Widgets/KitUserRecoveries/LeaderboardTableWidget.php:68-77",
+    "call_site_shape": "ExportAction on a table headerActions list, exporter class, hidden when the table is empty, modal false, chunkSize 250, fileName from the export key.",
+    "filename": "lpr-repossession-export-YYYY-MM-DD.csv",
+    "filename_note": "Acceptance criteria name the date. The leaderboard exporter puts the export key in the filename instead. Follow the acceptance criteria for this file.",
+    "do_not_sync_block": "The VIN listing runs on the existing exporter job. It does not run inside getData() or toStat().",
+    "chart_gap": "ChartWidget has no ExportAction hook. Plan adds the action on the expanded chart without turning this card into a table and without exporting any other card."
+  },
+  "acs": [
+    {
+      "id": "AC-1",
+      "text": "An export button (CSV or Excel) appears on the LPR Repossession bar chart view.",
+      "prep": "CSV locked. Button target is the expanded LprRepossessions chart. No button exists today."
+    },
+    {
+      "id": "AC-2",
+      "text": "Exported file contains one row per VIN that makes up the chart data.",
+      "prep": "One row per db_repos triple for the headline window. Row count parity with db_repos. Distinct VIN would break parity."
+    },
+    {
+      "id": "AC-3",
+      "text": "Columns when available: VIN, Plate, RDN Case Number, Claimed By, Repo Agent Name.",
+      "prep": "VIN, Plate, case_number, and Claimed By org name are cited. Repo Agent Name stays blank."
+    },
+    {
+      "id": "AC-4",
+      "text": "Export respects the current chart filters (date range, client, etc.).",
+      "prep": "Date toggle plus auth()->user()->org_id. No client picker on this card."
+    },
+    {
+      "id": "AC-5",
+      "text": "File is named descriptively (e.g. lpr-repossession-export-YYYY-MM-DD.csv).",
+      "prep": "Use that shape. House exporters use the export key today; this ticket follows the acceptance criteria."
+    }
+  ],
+  "forecast_gates": [
+    {
+      "id": "parity",
+      "text": "VIN export row count equals chart db_repos for the same filters."
+    },
+    {
+      "id": "field_sources",
+      "text": "Plan cites proven sources for optional columns and blanks them when absent."
+    },
+    {
+      "id": "filament_csv",
+      "text": "Filament Exporter plus ExportFormat::Csv."
+    },
+    {
+      "id": "preflight_27",
+      "text": "Screenshots of the export control and a sample file, later, on the PR."
+    },
+    {
+      "id": "preflight_18",
+      "text": "Agent QA and Verify on a real fleet Docker ClickHouse. Not this phase."
+    },
+    {
+      "id": "queue",
+      "text": "Large sets use the existing exporter job on {high}. Do not sync-block the dashboard render."
+    }
+  ],
+  "questions": [],
+  "out_of_scope": [
+    "Product PHP in Ultra-Prep.",
+    "Changing uniqExactIf, the dedup triple, or the backyard window.",
+    "Exporting UniqueLprCaseClaims or any other dashboard card.",
+    "Client Analytics drill-downs.",
+    "Substituting remote_order_id for RDN case number.",
+    "Joining org_meta.rdn_agents to invent a repo agent name.",
+    "A client picker that this card does not have.",
+    "Cloud ClickHouse reads or writes.",
+    "Fleet, Herd, or local database mutation.",
+    "A scout holding branch.",
+    "okf/ edits during this run."
+  ],
+  "wiki_queue": [
+    "okf/concepts/billing-events.md still teaches zod.public_billing_events as the Clarity billing read.",
+    "okf/concepts/dto-and-enums.md says HotlistJsonData carries case_number. The PHP class only has branch_id.",
+    "LprRepossessions docblock still says every source is ORDER BY id."
+  ],
+  "okf_read": [
+    "okf/index.md",
+    "okf/concepts/data-architecture.md",
+    "okf/concepts/company-metrics-dashboard.md",
+    "okf/concepts/billing-events.md",
+    "okf/concepts/hotlist.md",
+    "okf/models/hotlist.md",
+    "okf/models/clickhouse/hotlist.md",
+    "okf/models/orgs.md",
+    "okf/concepts/rdn.md",
+    "okf/concepts/platform-gotchas.md"
+  ],
+  "tests_already_on_the_aggregate": [
+    "tests/Filament/Widgets/Dashboard/LprRepossessionsTest.php",
+    "tests/Feature/Clickhouse/LprRepossessionsQueryTest.php"
+  ]
+}

@@ -1,0 +1,115 @@
+{
+  "key": "DEV-2923",
+  "summary": "ClickHouse timeouts \u2014 log SQL / caller context so TIMEOUT_EXCEEDED is actionable",
+  "app": "clarity",
+  "type": "Bug",
+  "priority": "Medium",
+  "sprint": "Sprint 42",
+  "jira_status": "To Do",
+  "labels": [
+    "NonUser_Reported"
+  ],
+  "assignee": "Dalton McCleery",
+  "github_assignee": "DaltonMcCleery",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "branch_path": "main\u2192main",
+  "branch": "cursor/dev-2923-ch-timeout-log-context-4838",
+  "diff_base": "1eaf006989221ec50e29d1ef9b4956299fe50600",
+  "phase": "implemented",
+  "gate": "CLEAN",
+  "question_gate": "CLEAN",
+  "next": "Review",
+  "product_php": true,
+  "package_pr": false,
+  "platform_vs_package": "platform-only",
+  "escalate_before_implement": false,
+  "first_glance_comment_id": "43033",
+  "first_glance_verdict": "Ready",
+  "first_glance_at": "2026-10-05T09:02:53-04:00",
+  "cloud_clickhouse": {
+    "reads": 0,
+    "writes": 0,
+    "note": "Implement did not query Cloud ClickHouse. AC-1 ran on local Docker ClickHouse 127.0.0.1:8123."
+  },
+  "hard_stops": [
+    "Do not change timeout budgets",
+    "Do not rewrite product queries",
+    "Logging / observability only",
+    "Cloud ClickHouse read-only; this phase did not query it",
+    "Do not retune LprRepossessions or HeldFlexibleCache",
+    "Do not touch the DEV-2904 Path A twin",
+    "Do not open a laravel-clickhouse pull request",
+    "Pull request base is main"
+  ],
+  "forecast_gates": {
+    "forced_docker_timeout": "recipe sealed in plan \u2014 Implement / Verify",
+    "before_after_sample": "shape sealed; real sample waits for Implement",
+    "truncation_redaction": "locked 4096 head-biased",
+    "successful_queries_unchanged": "design sealed; proof waits for Implement",
+    "platform_vs_package": "cited \u2014 platform-only"
+  },
+  "pr": {
+    "number": 502,
+    "url": "https://github.com/insight-lpr/platform/pull/502",
+    "draft": true,
+    "base": "main"
+  },
+  "github_assignee_result": "denied: Resource not accessible by integration (replaceActorsForAssignable)",
+  "okf_write": "queued, not done",
+  "ultra_plan": {
+    "verdict": "APPROVE-with-adopted-changes",
+    "cloud_agent": "bc-9dd40489",
+    "draft": "claude-plan-draft.md",
+    "review": "cloud-plan-review.md",
+    "reconcile": "claude-plan-reconcile.md",
+    "plan_json": "plan.json",
+    "plan_md": "plan.md",
+    "changes_adopted": 1,
+    "nits_adopted": 10,
+    "nits_rejected": 0,
+    "open_questions": []
+  },
+  "next_detail": "Review the draft PR. Logging is installed. AC-1 proved code 159 on local Docker ClickHouse.",
+  "provisioned": true,
+  "flags": {
+    "provision": true,
+    "implement": true,
+    "stop_at": "implemented",
+    "product_php": true
+  },
+  "provision": {
+    "at": "2026-10-05T08:40:00-05:00",
+    "ledger": "/workspace/docs/investigations/DEV-2923/qa-prep-ledger.json",
+    "prove_passed": true,
+    "site": "http://127.0.0.1:18091",
+    "pg": "127.0.0.1:15443",
+    "ch": "127.0.0.1:18134",
+    "driver": "clickhouse",
+    "mac_herd_refused": true,
+    "cloud_touched": false,
+    "parallel_2904_untouched": true
+  },
+  "implement": {
+    "sha": "42389469eb9d1044c925d021eb98f1efce363ff1",
+    "code_diff": true,
+    "tests_diff": true,
+    "install": "AppServiceProvider::booted() re-extends clickhouse with LoggingClickhouseConnection::createWithClient",
+    "tests": {
+      "command": "php artisan test --compact tests/Unit/Clickhouse/ClickhouseLogRedactionTest.php tests/Feature/Clickhouse/ClickhouseFailureLoggingTest.php tests/Feature/Clickhouse/ClickhouseTimeoutLoggingTest.php",
+      "passed": 11,
+      "assertions": 96,
+      "duration_s": 8.09
+    },
+    "ac1": {
+      "ch_code": 159,
+      "message_contains": "TIMEOUT_EXCEEDED",
+      "proof": "127.0.0.1:8123",
+      "server": "ClickHouse 26.2.19.43",
+      "ledger_port_18134": "connection refused; not used",
+      "wait_end_of_query": 1,
+      "org_469_query_run": false
+    }
+  }
+}

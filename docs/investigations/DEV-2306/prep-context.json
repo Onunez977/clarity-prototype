@@ -1,0 +1,100 @@
+{
+  "key": "DEV-2306",
+  "mode": "normal",
+  "route": "bug",
+  "synthesis": "The Scout Admin app (Bird's Eye, adminMode) and the Scout User app (driver PWA) render their date-range filter pills from two different arrays in resources/js/clarity-scout/lib/formatters.js. Admin uses rangeOptions = [Today, 7d, 15d, 30d, 60d]; the driver uses driverRangeOptions = [Today, Yesterday, 7d]. The ticket standardizes BOTH to the identical set in order: Today (default), Yesterday, 7d, 15d, 30d — removing 60d from Admin and adding 15d/30d to the driver. Today stays the default/live selection. The backend range->window mapping already supports every target value (today, yesterday, last_7, last_15, last_30) on all surfaces, so the change is primarily the frontend option arrays plus aligned prefetch defaults; no backend behavior change is required for correctness.",
+  "scope": {
+    "summary": "Standardize the two frontend date-range option arrays (and the aligned admin prefetch default) so Admin and Scout User apps show Today/Yesterday/7d/15d/30d, default Today. Backend already supports all values.",
+    "proposed_changes": [
+      {"file": "resources/js/clarity-scout/lib/formatters.js", "change": "Set rangeOptions to [Today, Yesterday, 7d, 15d, 30d] (remove 60d, insert Yesterday at position 2). Extend driverRangeOptions to the same 5 entries. Update the stale docblock (currently explains the intentional decoupling) to note DEV-2306 standardization.", "reason": "Core requirement — both apps' filter pills come from these arrays.", "ref": "formatters.js:1-18"},
+      {"file": "resources/js/clarity-scout/stores/dashboard.js", "change": "prefetchAllRanges default allRanges: ['today','last_7','last_15','last_30','last_60'] -> ['today','yesterday','last_7','last_15','last_30'] (drop last_60, add yesterday) to match the standardized admin set.", "reason": "Admin prefetch-warm set must match the new pill set so switching stays instant and no longer warms the removed 60d window.", "ref": "dashboard.js:93"},
+      {"file": "resources/js/clarity-scout/components/DateRangeControl.vue", "change": "Zoom-snap list ['last_15','last_30','last_60'] -> ['last_15','last_30'] (last_60 is no longer selectable). Confirm the adminMode ternary still resolves correctly (both arrays now identical -> effectively a no-op; leave or unify per DECISION Q1).", "reason": "last_60 removed from UI; keep the heavy-window zoom-snap list accurate.", "ref": "DateRangeControl.vue:43,73"},
+      {"file": "resources/js/clarity-scout/composables/usePrefetch.js", "change": "Driver prefetch must STAY light (today/yesterday/7d) even though driverRangeOptions now has 5 entries. Stop deriving the driver warm-set from driverRangeOptions (that would warm 15/30); use a dedicated light list instead — a new named export driverPrefetchRanges = ['today','yesterday','last_7'] in formatters.js.", "reason": "Dalton's decision: keep driver mobile-light (DEV-2186); 15/30 fetch on-demand when tapped. Decouples 'pills shown' from 'windows warmed'.", "ref": "usePrefetch.js:17-20"}
+    ],
+    "target_files": [
+      "resources/js/clarity-scout/lib/formatters.js",
+      "resources/js/clarity-scout/stores/dashboard.js",
+      "resources/js/clarity-scout/components/DateRangeControl.vue",
+      "resources/js/clarity-scout/composables/usePrefetch.js"
+    ],
+    "out_of_scope": [
+      "resources/js/clarity-scout/components/DashboardOverlay.vue:310,325 — 'Today + last 7 days' (teammate overlay legend) and '60d' (scan-path fade gradient legend) describe map visuals, NOT the date-range filter pills. Do not touch.",
+      "Backend last_60 allow-lists/maps (BirdsEyeController, ClarityScoutDashboardController, ScoutMapHelpers, ClarityScoutMapController) — graceful/defensive; leaving them tolerant of an unreachable last_60 is harmless. Optional cleanliness removal only; default = leave.",
+      "Filament table DateTogglesFilter and other Filament resource date filters — separate feature, not the Scout dashboard stats."
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "Admin app date filter shows: Today (default), Yesterday, 7d, 15d, 30d", "source": "ticket", "decision": "implement", "reason": "rangeOptions edit"},
+    {"item": "Scout User app date filter shows: Today (default), Yesterday, 7d, 15d, 30d", "source": "ticket", "decision": "implement", "reason": "driverRangeOptions edit"},
+    {"item": "Both apps default to Today on page load", "source": "ticket", "decision": "implement", "reason": "existing default/live behavior — verify unchanged"},
+    {"item": "Scan counts, Direct Live Hits, and Staging Live Hits all update correctly when each filter is selected on both apps", "source": "ticket", "decision": "implement", "reason": "backend range->window mapping already supports today/yesterday/last_7/last_15/last_30; verify via feature test + agent/human QA"},
+    {"item": "Filter selection is visually consistent between both apps", "source": "ticket", "decision": "implement", "reason": "both render from the now-identical option set via the shared DateRangeControl"}
+  ],
+  "questions": [
+    {"q": "After standardization the Admin and Scout User pill sets are identical (Today/Yesterday/7d/15d/30d). (a) Should the driver PWA now BACKGROUND-PREFETCH the newly-added 15d/30d stat windows (reversing DEV-2186's deliberate mobile-lightness), or keep prefetch light and fetch 15/30 on-demand when tapped? (b) Structure: unify into one shared array, or keep two now-identical named exports? These are coupled via usePrefetch.js's use of driverRangeOptions.", "answered": true, "answer": "(a) Keep driver prefetch LIGHT — driver shows all 5 pills but background-warms only today/yesterday/7d; 15/30 fetch on-demand when tapped (preserves DEV-2186). (b) Keep two named exports rangeOptions + driverRangeOptions, both set to the identical standardized 5-entry set. Consequence: usePrefetch uses a dedicated light list (new driverPrefetchRanges), NOT driverRangeOptions.", "source": "human:Dalton 2026-08-06"}
+  ],
+  "blockers": [],
+  "notes": [
+    "Bird's Eye admin reuses the real Scout App.vue + DateRangeControl via adminMode (DEV-2116), so 'Admin app' filter == rangeOptions; 'Scout User app' == driverRangeOptions. Single frontend surface, two arrays.",
+    "Knowledge card clarity/scout.md warns driver+admin share dashboard.js + DashboardOverlay — 'driver unchanged' assumptions are fragile; verify the driver view after the shared-code edit.",
+    "Platform has no JS test runner (built assets are committed). The testable seam is a PHPUnit feature test on the Scout stat endpoints asserting the standardized range set maps to correct windows; frontend pills verified in browser QA.",
+    "Scout dashboard scan/hit stats read ClickHouse (stats endpoints) -> AC4 verification is CH-backed; QA should provision CH (QA_PROVISION_CH=yes). The code change itself does NOT modify any CH query."
+  ],
+  "tests": [
+    {"file": "tests/Feature/ClarityScout/ScoutDateRangeStandardizationTest.php (new)", "what_it_pins": "Scout dashboard + Bird's Eye stat endpoints accept each standardized range (today,yesterday,last_7,last_15,last_30) and resolve the expected date-window boundaries; unknown/removed last_60 collapses gracefully to today."}
+  ],
+  "grounding": {
+    "key_files": [
+      "resources/js/clarity-scout/lib/formatters.js:1",
+      "resources/js/clarity-scout/components/DateRangeControl.vue:43",
+      "resources/js/clarity-scout/components/DateRangeControl.vue:73",
+      "resources/js/clarity-scout/composables/usePrefetch.js:17",
+      "resources/js/clarity-scout/stores/dashboard.js:93",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:69",
+      "app/Http/Controllers/Api/ClarityScoutDashboardController.php:284",
+      "app/Http/Controllers/Api/Concerns/ScoutMapHelpers.php:34"
+    ],
+    "code_flow": "DateRangeControl renders visibleRangeOptions (rangeOptions if adminMode else driverRangeOptions). Tapping a pill -> dashboard.setRange(value) -> fetchStats(range)/fetchRecentHits(range) -> Scout API controllers map range->[start,end] window (ScoutMapHelpers::rangeWindow / DashboardController) -> stat/hit queries. Backend allow-lists already include yesterday/last_15/last_30/last_60.",
+    "tables": ["zod.scans (pg)", "ClickHouse scan/hit stat tables (read-only, via existing stat endpoints)"],
+    "related_components": ["DashboardOverlay.vue (legends — out of scope)", "ScannerMap.vue (zoom-gated scan-path layers, DEV-2185)"]
+  },
+  "exhaustiveness": {
+    "grep_patterns": ["driverRangeOptions|rangeOptions", "last_60", "yesterday"],
+    "sites": [
+      {"site": "resources/js/clarity-scout/lib/formatters.js:1-18", "verdict": "buggy", "reason": "the two divergent arrays to standardize"},
+      {"site": "resources/js/clarity-scout/stores/dashboard.js:93", "verdict": "buggy", "reason": "admin prefetch default still lists last_60 and omits yesterday"},
+      {"site": "resources/js/clarity-scout/components/DateRangeControl.vue:73", "verdict": "buggy", "reason": "zoom-snap list references now-unreachable last_60 (cleanup)"},
+      {"site": "resources/js/clarity-scout/components/DateRangeControl.vue:43", "verdict": "safe", "reason": "adminMode ternary; becomes a no-op after standardization (or unify per Q1)"},
+      {"site": "resources/js/clarity-scout/composables/usePrefetch.js:19", "verdict": "buggy", "reason": "driver prefetch scope changes with driverRangeOptions — decision Q1"},
+      {"site": "resources/js/clarity-scout/components/DashboardOverlay.vue:310,325", "verdict": "safe", "reason": "teammate-overlay + scan-path-fade legends, NOT filter pills — out of scope"},
+      {"site": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:69,341", "verdict": "safe", "reason": "range allow-list already includes yesterday/last_15/last_30; last_60 tolerated harmlessly"},
+      {"site": "app/Http/Controllers/Api/ClarityScoutDashboardController.php:41,246,284,288", "verdict": "safe", "reason": "range->window map already handles yesterday + last_15/30; last_60 entry unreachable but harmless"},
+      {"site": "app/Http/Controllers/Api/Concerns/ScoutMapHelpers.php:34,38,54", "verdict": "safe", "reason": "same window map; already supports the standardized set"},
+      {"site": "app/Http/Controllers/Api/ClarityScoutMapController.php:81", "verdict": "safe", "reason": "cache-TTL map keyed by range; last_60 entry unreachable but harmless"}
+    ]
+  },
+  "data_impact": {
+    "pg_tables": ["zod.scans"],
+    "ch_tables": ["Scout scan/hit stat tables (read-only via existing stat endpoints)"],
+    "mv_or_cdc_implications": "none — no query or schema change",
+    "indexes_relied_on": "none new"
+  },
+  "derivation_log": [
+    {"query_shape": "git grep -nE 'driverRangeOptions|rangeOptions|last_60|yesterday' over resources/js and app/", "param_classes": "static string literals", "aggregate_result": "10 referencing sites enumerated (see exhaustiveness); all callers accounted for", "why": "full caller sweep for the date-range option surface"}
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "Admin pills = Today/Yesterday/7d/15d/30d, default Today", "kind": "human", "intent": "load Bird's Eye, confirm pill set + order + default"},
+      {"ac": "Scout User pills = Today/Yesterday/7d/15d/30d, default Today", "kind": "human", "intent": "load driver PWA, confirm pill set + order + default"},
+      {"ac": "counts update per filter (both apps)", "kind": "agent", "intent": "select each range, assert stat endpoints return per-window Scan/Direct-Live/Staging-Live counts"}
+    ],
+    "seed_scenario": "One org with a kit that has scans across today/yesterday/last-30-days plus a few open hits (direct + staging), so each date-range pill produces a distinct, non-zero, verifiable count on both the driver and Bird's Eye dashboards.",
+    "personas": ["Scout driver (kit user) — driver PWA", "admin/impersonator — Bird's Eye adminMode"],
+    "pg_tables": ["zod.scans"],
+    "ch_tables": ["Scout scan/hit stat tables"]
+  },
+  "confidence": 88,
+  "escalate": {"recommend": false, "reason": "Small, well-scoped frontend change; backend pre-supports all values; single real design fork (driver prefetch/array structure) surfaced as an open question."},
+  "missed_caller_candidates": [],
+  "gate": "CLEAN"
+}

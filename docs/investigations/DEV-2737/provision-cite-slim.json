@@ -1,0 +1,63 @@
+{
+  "key": "DEV-2737",
+  "status": "live",
+  "phase": "provision_env",
+  "phase_detail": "provisioned_fleet",
+  "site": {
+    "local_url": "http://127.0.0.1:18087",
+    "fleet_reachable_url": "http://127.0.0.1:18087",
+    "http_probe": "GET /app/login -> 200",
+    "probe_passed": true,
+    "checkout": "/workspace/dev-2737-wt",
+    "checkout_sha": "084969eaf4f9fbeed26f1fd93e36d356e438e2f6",
+    "publish": "0.0.0.0:18087->80"
+  },
+  "postgres": {
+    "host_from_box": "127.0.0.1",
+    "port": 15439,
+    "dev_db": "zod_dev_2737",
+    "testing_db": "zod_testing_dev_2737",
+    "publish": "0.0.0.0:15439->5432",
+    "dsn_summary": "postgresql://clarity@127.0.0.1:15439/zod_dev_2737 (password via password_ref)"
+  },
+  "clickhouse": {
+    "strategy": "docker",
+    "host": "0.0.0.0",
+    "http_port": 18130,
+    "database": "clarity_dev_2737",
+    "database_clarity": "clarity_dev_2737",
+    "database_clarity_testing": "clarity_testing_dev_2737",
+    "publish": "0.0.0.0:18130->8123",
+    "CLICKHOUSE_DRIVER": "clickhouse"
+  },
+  "mac_herd_refused": true,
+  "cloud_touched": false,
+  "prove_passed": true,
+  "aragorn_prove": {
+    "at": "2026-09-28T10:22:00-05:00",
+    "site_http": "GET /app/login -> 200",
+    "ch_billing_claim_tables": [
+      "billing_claim_events",
+      "billing_claim_events_mv",
+      "billing_claim_events_v"
+    ],
+    "ch_recovery_scans_and_billing_count": 2,
+    "pg_tcp": "127.0.0.1:15439 open",
+    "ledger_prove_public_base_tables": 139,
+    "ledger_prove_platform_base_tables": 41
+  },
+  "path_a": {
+    "note": "Path A live for DEV-2737 only after peers torn on QA Ready.",
+    "soft_ok_vs": "schema-drift peer / torn peer fleets (prior LPR Repossessions coverage, status-log retirement, and other Path A peers)",
+    "live_ledger_count": 1,
+    "live_keys": [
+      "DEV-2737"
+    ],
+    "no_global_current_env": true,
+    "mac_herd_refused": true,
+    "cloud_ch_writes": false
+  },
+  "ledger_path": "docs/investigations/DEV-2737/qa-prep-ledger.json",
+  "pr": 472,
+  "head": "084969eaf4f9fbeed26f1fd93e36d356e438e2f6"
+}

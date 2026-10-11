@@ -1,0 +1,72 @@
+{
+  "run": "DEV-2253",
+  "measured_at": "2026-08-04T13:58:00Z",
+  "environment": "production ClickHouse Cloud, READ-ONLY (readonly_user). Runtime overrides CLICKHOUSE_DATABASE_CLARITY=clarity / CLICKHOUSE_DATABASE_ZOD=zod were passed per-invocation because the worktree .env had both repointed to the branch Postgres DB name (a known local-provisioning mis-set). No .env file was modified.",
+  "disclosure_policy": "Query SHAPES, parameter CLASSES and AGGREGATE results only. No raw rows, plates, kit_mappings, GL device ids, or user identifiers are recorded here or anywhere in the repo/Jira, per /ticket non-negotiable 3. Org ids/names are recorded because the ticket itself names the two affected accounts.",
+  "entries": [
+    {
+      "id": "d1",
+      "why": "The prep fast pass's primary hypothesis was that clarity.sc_positions carries (0,0) 'no GPS fix' sentinel rows, that OrgLivePositionsQuery's argMax therefore returns an invalid latest row, and that ClarityScoutBirdsEyeController::driverPositions() then discards it. That hypothesis had to be confirmed before any code was written against it.",
+      "query_shape": "SELECT count(), countIf(tupleElement(geo,1)=0 AND tupleElement(geo,2)=0), countIf(tupleElement(geo,1)=0 OR tupleElement(geo,2)=0), uniqExact(kit_mapping), min(timestamp_utc), max(timestamp_utc) FROM clarity.sc_positions WHERE timestamp_utc >= now() - INTERVAL <N> DAY",
+      "param_classes": [
+        "bounded time window (7 days, then 60 days)"
+      ],
+      "aggregate_result": "7-day window: 29,585,175 points across 435 distinct kit_mappings — 0 rows with geo=(0,0). 60-day window: 172,667,380 points across 585 kit_mappings — 0 rows with geo=(0,0); exactly 2 rows with EITHER coordinate zero (negligible, 1.2e-8 of the corpus).",
+      "decision_it_grounded": "HYPOTHESIS REJECTED. The (0,0) sentinel mechanism does not fire in production. The missing geo!=(0,0) filter in OrgLivePositionsQuery / OrgLivePathsQuery / KitHistoricPositionsQuery is a real defensive inconsistency against the sibling convention, but it is NOT the cause of DEV-2253 and must not be shipped as though it were. This single check prevented building a fix for a mechanism that never fires."
+    },
+    {
+      "id": "d2",
+      "why": "Establish the true population: kits that demonstrably scanned (so the driver was working, per the DEV-2038 proof technique) but have no GPS position at all.",
+      "query_shape": "WITH kits AS (SELECT id, lower(argMax(kit_mapping,_peerdb_version)) FROM zod.public_kits GROUP BY id HAVING argMax(_peerdb_is_deleted,_peerdb_version)=0), scanned AS (SELECT kit_id, max(last_scan) FROM zod.kit_last_scan JOIN kits ... HAVING last_scan >= now() - INTERVAL 24 HOUR), pos AS (SELECT lower(kit_mapping), max(timestamp_utc) FROM clarity.sc_positions WHERE timestamp_utc >= now() - INTERVAL 48 HOUR GROUP BY 1) SELECT count(), countIf(no position), countIf(position within 24h), countIf(position older than 24h) FROM scanned LEFT JOIN pos",
+      "param_classes": [
+        "bounded scan-recency window (24h)",
+        "bounded position window (48h)",
+        "PeerDB soft-delete dedup via argMax(_peerdb_version)"
+      ],
+      "aggregate_result": "Fleet-wide: 1,524 kits scanned within 24h. 333 (21.9%) have a position within 24h; 6 have one only older than 24h; 1,185 (77.8%) have no position in 48h at all.",
+      "decision_it_grounded": "Confirmed that scanning-without-GPS-reporting is widespread fleet-wide, consistent with DEV-2228's note that Product confirmed some kits are not reporting GPS. Fleet-wide rate is however dominated by orgs not granted Scout at all, so it over-states the impact for the two named accounts — motivating the per-org measurement in d3."
+    },
+    {
+      "id": "d3",
+      "why": "Scope the symptom to the two accounts the ticket names, and evaluate it against the org map's OWN live window (ClarityScoutBirdsEyeController::LIVE_CUTOFF_HOURS = 24) rather than an arbitrary one.",
+      "query_shape": "Same kits/scanned/pos CTE shape as d2, restricted to org_id IN (<two org ids>), bucketed: count(), countIf(scanned<=24h), countIf(pos<=24h), countIf(scanned<=24h AND pos<=24h), countIf(scanned<=24h AND NOT pos<=24h), countIf(no position in 30d)",
+      "param_classes": [
+        "two org_id literals (the accounts named in the ticket)",
+        "org-map live window (24h) taken from the controller constant",
+        "30-day never-reported window"
+      ],
+      "aggregate_result": "Premier Adjusters, Inc (org 14): 178 kits known; 34 scanned within 24h; 30 with a position within 24h; 4 scanned but NO position within 24h; 141 with no position in 30 days. Accurate Adjustments Inc (org 2575): 26 kits; 7 scanned within 24h; 5 with a position; 2 scanned but NO position within 24h; 19 with no position in 30 days. (A 7-day framing gives Premier 37 scanning / 33 reporting and Accurate 7 / 6.)",
+      "decision_it_grounded": "Quantified the actual user-visible impact: a small, specific set of kits per account (4 and 2 at time of measurement) scan all day yet never appear on the org map. This matches the reporter's 'several known-active drivers' precisely, and rules out an org-wide gate (permission, roster, feature flag) as the cause — most kits in the same orgs render fine."
+    },
+    {
+      "id": "d4",
+      "why": "THE decisive query. The single-driver map (ClarityScoutMapController::kitPosition) degrades through clarity.kit_scan_paths then clarity.kit_trips when sc_positions has no recent row — its own comment states the fallback exists 'for kits not reporting to sc_positions'. The org map has no such fallback. Ask whether those fallback sources actually hold data for the affected kits, i.e. whether the missing drivers are recoverable from data we already have.",
+      "query_shape": "Same kits/scanned/pos CTEs, LEFT JOIN paths AS (SELECT org_id, kit_id, max(timestamp) FROM clarity.kit_scan_paths WHERE timestamp >= now() - INTERVAL 24 HOUR GROUP BY 1,2) ON kit_id+org_id, LEFT JOIN trips AS (SELECT org_id, kit_id, max(trip_end) FROM clarity.kit_trips WHERE trip_end >= now() - INTERVAL 24 HOUR GROUP BY 1,2) ON kit_id+org_id; then countIf per tier: tier1 ok / tier1 missing / rescued by tier2 / rescued by tier3 / unrescuable",
+      "param_classes": [
+        "two org_id literals",
+        "24h window on all three sources",
+        "kit_scan_paths and kit_trips keyed by (org_id, kit_id); sc_positions keyed by lower(kit_mapping)"
+      ],
+      "aggregate_result": "Premier Adjusters (org 14): 34 scanned in 24h → 30 tier-1 GPS ok, 4 tier-1 missing, 4 of 4 rescued by tier-2 kit_scan_paths, 0 needed tier-3, 0 unrescuable. Accurate Adjustments (org 2575): 7 scanned → 5 tier-1 ok, 2 missing, 2 of 2 rescued by tier-2, 0 tier-3, 0 unrescuable. Combined: 6 of 6 affected kits (100%) have usable scan-derived location in clarity.kit_scan_paths within the org map's own 24h window.",
+      "decision_it_grounded": "ROOT CAUSE CONFIRMED and localized to this repo. Every driver reported missing from the org map has recent, usable location data in clarity.kit_scan_paths that ClarityScoutBirdsEyeController::driverPositions() simply never reads — while the sibling single-driver endpoint reads it by design. The upstream trigger (kits not reporting GPS) is real and out-of-repo, but the user-visible symptom is a platform display gap that is fixable here, with a 100% recovery rate on the currently-affected population. Note kit_trips rescued 0 additional kits, which is expected: kit_trips is itself derived from sc_positions, so it is empty for exactly the kits that do not report GPS — tier 2 (scan-derived) is the tier that matters for this symptom."
+    },
+    {
+      "id": "d5",
+      "why": "RN2 lane 2 raised that derivation-log d4's '6 of 6 rescued' was measured with max(timestamp) only — with NO zero-geo predicate — so the SHIPPED query (which added one in F1) was not the query that produced that number, and it had not been re-measured. That is a fair challenge to the fix's own evidence, so it was re-measured.",
+      "query_shape": "Same kits/scanned/pos CTEs as d4, but with TWO parallel kit_scan_paths CTEs: paths_old (any bucket in the 24h window, i.e. what d4 measured) and paths_new (adding `length(path_points) >= 1 AND tupleElement(arrayElement(path_points, length(path_points)), 1) != 0 AND ... 2) != 0`, i.e. the shipped predicate). Then countIf per shape. Plus a fleet-wide prevalence count over clarity.kit_scan_paths in the last 24h: total buckets, empty arrays, both-zero tails, either-zero tails.",
+      "param_classes": [
+        "two org_id literals",
+        "24h windows on all sources",
+        "the shipped zero-geo predicate vs none"
+      ],
+      "aggregate_result": "Rescue rate is IDENTICAL under both shapes. Premier Adjusters: 35 scanned in 24h, 3 tier-1-missing, 3 rescued OLD shape, 3 rescued SHIPPED shape. Accurate Adjustments: 7 scanned, 2 missing, 2 rescued OLD, 2 rescued SHIPPED. (The affected count drifted from d4's 4 to 3 at Premier simply because this is a live fleet measured ~1h later.) Fleet-wide prevalence over 23,690 kit_scan_paths buckets in 24h: 0 empty path_points arrays, 0 both-zero tails, 0 either-zero tails.",
+      "decision_it_grounded": "The shipped zero-geo predicate removes NO rescue — the fix still delivers 100% of the affected population, so d4's conclusion stands for the code that actually ships. It also settles the RN1/RN2 disagreement about whether the guard is load-bearing: at current prevalence it filters nothing, so it is cheap insurance against a producer-side regression (scans_hot.lat/lng are Float64 DEFAULT 0) rather than a live filter. Both facts were folded into the wiki so the next reader gets the number rather than the argument."
+    }
+  ],
+  "verdict_on_the_three_candidate_causes": {
+    "display_bug": "CONFIRMED — and it is the actionable one. driverPositions() is single-source (sc_positions) with no fallback; the sibling kitPosition() has a documented 3-tier degrade for precisely this case. 6/6 affected kits are renderable from clarity.kit_scan_paths today.",
+    "kit_update_rollout_gap": "CONFIRMED as the upstream trigger, but OUT OF THIS REPO. The affected kits genuinely do not report GPS to clarity.sc_positions (fleet-wide 77.8% of scanning kits report none), consistent with DEV-2228's record that Product confirmed some kits are not reporting GPS and work is underway. Platform cannot fix the kits; it can stop their absence from blanking the org map.",
+    "sync_delay": "RULED OUT as a sufficient cause. The org map's LIVE_CUTOFF_HOURS = 24 is far more generous than DEV-2048's measured 7-56 minute ingestion lag, so a merely-late-but-present row still renders. Separately, the (0,0) sentinel variant of this theory is dead (d1: 0 rows in 172.7M)."
+  },
+  "shared_root_cause_with_dev_2228": "Partially shared, and worth linking. Both tickets bottom out in the same upstream fact — a subset of kits do not report GPS to clarity.sc_positions. DEV-2228's Premier Adjusters case ('live-hit icon appeared but the route/breadcrumb trail did not render at all') is the SAME mechanism seen on the trail surface: the hit icon comes from hit data while the trail comes from position data, so a non-reporting kit shows one and not the other. DEV-2253's fix (a scan-path fallback for the live dot) does not fix DEV-2228's trail rendering, but the diagnosis transfers directly and the two should be cross-linked."
+}

@@ -1,0 +1,245 @@
+{
+  "ticket": "DEV-2595",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "confidence": 88,
+  "escalate": {
+    "recommend": true,
+    "reason": "resource_envelope scale_relevant with only PG total (wrong grain) + material fix-shape choice (uncap vs paginate) on org-wide admin surface"
+  },
+  "synthesis": {
+    "problem": "On the Scout admin org map, choosing the 7 Days date filter makes the Live Hits Pending Repossession list look like it only covers today. Scrolling the list never reaches a row dated before today. Yesterday works. The control is not resetting \u2014 the result set is truncated.",
+    "outcome": "Selecting 7 / 15 / 30 / 60 Days returns pending hits across the full window (newest first). Scrolling can reach pre-today rows when they exist. Same behavior on admin org map and Scout driver map. Root cause named and pinned by a regression test."
+  },
+  "scope": {
+    "summary": "BirdsEye recentHits still has the old hard \u2192limit(20) the driver already removed (95da4d7f). For a busy org, the newest 20 open plates are all from today, so a multi-day range looks like 'today only' with no pagination to go further.",
+    "proposed_changes": [
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+        "change": "Remove \u2192limit(20) on recentHits() to match ClarityScoutDashboardController (driver). Keep limitBy(1,'ocr'), open-hotlist filter, actionableDisposition, cache key.",
+        "reason": "Driver already shipped uncapped pending list; admin org map still caps at 20 newest \u2014 fills with today on high-volume orgs.",
+        "ref": "ClarityScoutBirdsEyeController::recentHits L999-1000 vs DashboardController L135 + commit 95da4d7f"
+      },
+      {
+        "file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php",
+        "change": "Add regression: seed >20 open actionable hits spanning today + prior days under range=last_7; assert response includes a pre-today hit_time (and similarly last_15/last_30 smoke).",
+        "reason": "AC requires full window + scroll past today; pins the cap regression.",
+        "ref": "mirrors DashboardControllerTest::test_recent_hits_returns_all_pending_hits"
+      }
+    ],
+    "target_files": [
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php"
+    ],
+    "out_of_scope": [
+      "Map marker cap MAX_MAP_HITS=100 on hits() \u2014 separate map-marker budget; ticket describes the scrollable Live Hits list",
+      "Adding infinite-scroll UI (not needed if list returns full pending set like driver)",
+      "Changing getDateRange ladder math (last_7 already spans subDays(7)..endOfDay)",
+      "Filament dashboard last_7d widgets"
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Reproduced on the admin org map with the 7 Days filter",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Repro via test seeding >20 today-dated pending hits + older hits under last_7"
+    },
+    {
+      "item": "Selecting 7 Days returns records for the full seven-day window, not just today",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Remove admin recentHits cap"
+    },
+    {
+      "item": "Scrolling the list reaches records dated before today",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Full payload in scrollable DashboardOverlay list"
+    },
+    {
+      "item": "Every other range option returns its full window; 15 and 30 days explicitly checked",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Same endpoint+cap; cover last_15/last_30 in test"
+    },
+    {
+      "item": "Root cause identified \u2014 query bound, pagination cursor, or result set filter",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Result-set hard limit(20), not a wrong date bound"
+    },
+    {
+      "item": "Regression checked on both the admin org map and the Scout user map",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Driver already uncapped; add admin test; smoke that driver tests still pass"
+    }
+  ],
+  "questions": [
+    {
+      "q": "Fix shape for admin recentHits: (A) remove limit(20) to match the driver (95da4d7f), or (B) keep a cap and add load-more/pagination?",
+      "answered": true,
+      "answer": "Remove admin recentHits limit(20) to match the driver (95da4d7f); no pagination.",
+      "source": "human:Dalton 2026-09-21"
+    },
+    {
+      "q": "Approve proceeding without a production count of open pending hits per org for last_60 (CH filtered grain)? Driver already ships uncapped single-kit; admin is multi-kit so larger.",
+      "answered": true,
+      "answer": "Approve proceeding without prod CH pending-hits-per-org count for last_60; ship driver-parity uncap.",
+      "source": "human:Dalton 2026-09-21"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "DashboardOverlay comment claims Live Hits is 'Driver app only' / hidden on admin, but the Live Hits pill/card has no v-if=!adminMode \u2014 so it can render on org map (matches ticket).",
+    "getDateRange('last_7') is correct; yesterday working proves the range param is honored \u2014 only the newest-20 slice hides older days.",
+    "Knowledge card clarity/scout.md: admin+driver share dashboard.js \u2014 range wiring already correct; bug is server-side admin-only cap.",
+    "Gate answers 2026-09-21: 1A remove limit; 2 Yes proceed without CH cardinality."
+  ],
+  "tests": [
+    {
+      "file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php",
+      "what_it_pins": "last_7 (and 15/30) recent-hits includes pre-today rows when >20 today-dated pending exist"
+    },
+    {
+      "file": "tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php",
+      "what_it_pins": "driver already asserts uncapped pending list (test_recent_hits_returns_all_pending_hits)"
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:941-1001",
+      "app/Http/Controllers/Api/ClarityScoutDashboardController.php:114-162",
+      "app/Http/Controllers/Api/Concerns/ScoutMapHelpers.php:29-40",
+      "resources/js/clarity-scout/stores/dashboard.js:28-41",
+      "resources/js/clarity-scout/components/DashboardOverlay.vue:88-99",
+      "resources/js/clarity-scout/lib/formatters.js:1-16"
+    ],
+    "code_flow": "DateRangeControl \u2192 dashboard.setRange(last_7) \u2192 fetch /dashboard/recent-hits?range=last_7 (admin BASE_URL /scout/org-map/api) \u2192 BirdsEyeController::recentHits \u2192 getDateRange \u2192 CH query orderByDesc limitBy(ocr) limit(20) \u2192 DashboardOverlay scrolls recentHits",
+    "tables": [
+      "clarity hits (ClickHouse)",
+      "clarity hotlists (ClickHouse)"
+    ],
+    "related_components": [
+      "ClarityScoutBirdsEyeController",
+      "ClarityScoutDashboardController",
+      "ScoutMapHelpers",
+      "useDashboardStore",
+      "DashboardOverlay",
+      "DateRangeControl"
+    ]
+  },
+  "exhaustiveness": {
+    "patterns": [
+      "->limit(20)",
+      "Remove 20 limit on hits pending",
+      "recentHits",
+      "birds-eye-recent-hits"
+    ],
+    "sites": [
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+        "verdict": "buggy",
+        "reason": "recentHits still has limit(20)"
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutDashboardController.php",
+        "verdict": "safe",
+        "reason": "cap already removed 95da4d7f; comment documents it"
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php::hits",
+        "verdict": "safe",
+        "reason": "MAX_MAP_HITS=100 is map-marker budget with capped flag \u2014 out of ticket list scope"
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutMapController.php::hits",
+        "verdict": "safe",
+        "reason": "same map-marker cap \u2014 driver map markers, not Live Hits list"
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [],
+    "ch_tables": [
+      "hits",
+      "hotlists"
+    ],
+    "mv_or_cdc_implications": "none \u2014 read path only",
+    "indexes_relied_on": [
+      "CH hits by kit_org_id/kit_id/hit_created_at; hotlist status FINAL semi-join"
+    ]
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "recentHits query iterates open actionable Live/Staging hits for in-scope kits over the selected range; removing limit(20) grows the JSON payload",
+    "driving_tables": [
+      {
+        "table": "hits",
+        "source": "zod.public_hits (CDC mirror \u2014 wrong grain for this CH filtered read)",
+        "prod_rows": 319882882,
+        "group_by": null,
+        "largest_group_rows": null
+      }
+    ],
+    "growth": "payload grows with distinct open OCR plates in-window; driver already uncapped per kit; admin is multi-kit so worst-case larger",
+    "schedule": {
+      "expression": "n/a (request/response)",
+      "interval_seconds": null,
+      "without_overlapping_minutes": null
+    },
+    "allocation_sketch": "One CH query + hotlist id lookup per poll (~10s cache). Uncapped list of plate-deduped open hits for selected kits. Memory \u2248 O(pending plates) per response.",
+    "oracle_status": "partial-approved",
+    "unresolved": [],
+    "human_override": "Dalton approved proceeding without CH pending-per-org count (2026-09-21)"
+  },
+  "derivation_log": [
+    {
+      "query_shape": "prod-cardinality.sh --app clarity --table hits \u2192 COUNT(*) on zod.public_hits",
+      "param_classes": [
+        "table=hits"
+      ],
+      "aggregate_result": {
+        "total_rows": 319882882
+      },
+      "why": "required envelope probe; noted as wrong grain for CH pending-hits filter"
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "7 Days shows pre-today pending hits",
+        "kind": "agent",
+        "intent": "API test last_7 with >20 today + older seeds"
+      },
+      {
+        "ac": "15 and 30 day same",
+        "kind": "agent",
+        "intent": "same test matrix"
+      },
+      {
+        "ac": "admin org map scroll + driver map",
+        "kind": "human",
+        "intent": "browser check Premier-like org on /scout/org-map and driver Scout"
+      }
+    ],
+    "seed_scenario": "Org with 25+ open actionable Live hits created today and several open hits 2\u20136 days ago; select 7 Days on org map Live Hits list.",
+    "personas": [
+      {
+        "role": "org admin on Bird's Eye",
+        "why": "ticket surface"
+      },
+      {
+        "role": "Scout driver",
+        "why": "regression AC"
+      }
+    ],
+    "pg_tables": [],
+    "ch_tables": [
+      "hits",
+      "hotlists"
+    ]
+  },
+  "missed_caller_candidates": []
+}

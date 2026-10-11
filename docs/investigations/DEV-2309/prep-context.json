@@ -1,0 +1,155 @@
+{
+  "gate": "CLEAN",
+  "mode": "normal",
+  "round": 3,
+  "best_of_n": false,
+  "escalated": false,
+  "escalation_triggers": [],
+  "missed_caller_candidates": [],
+  "synthesis": "CloseInactiveShiftsCommand sweeps open kit_shifts every 30 minutes to close shifts inactive ≥180 min, but max(scanned_at) on ~4.6B unbounded scans times out on every run, and the unguarded foreach aborts the entire command when shift #1 fails — so only kit 10224 appears in logs, masking the true scope. Round 1 (PR #309) removed the ScanTimezoneScope spatial join and shipped; the join is gone but the timeout persists. Dalton ruled: zod-owned tables OUT OF SCOPE; bound BOTH activity lookups by shift.started_at; try/catch the whole per-shift body; Log:: with closed/skipped/failed counts; command exits SUCCESS; CH sourcing = evaluate and defer. AC-3 and AC-5 are post-deploy verification, not merge gates.",
+  "scope": {
+    "summary": "Guard per-shift loop with try/catch; add Log:: with closed/skipped/failed counts; bound latestActivityFor (Scan max scanned_at) and latestGpsFor (CH max timestamp_utc) by shift.started_at; preserve round-1 withoutGlobalScope(ScanTimezoneScope).",
+    "proposed_changes": [
+      {
+        "file": "app/Console/Commands/CloseInactiveShiftsCommand.php",
+        "change": "Wrap the per-shift body (latestActivityFor + close transaction + SendEndOfShiftSummary dispatch) in try/catch; log failure, increment failed count, continue. Exit SUCCESS.",
+        "reason": "Unguarded loop aborts the entire command on first failure; 100% failure rate, only kit 10224 visible.",
+        "ref": "app/Console/Commands/CloseInactiveShiftsCommand.php:55-93"
+      },
+      {
+        "file": "app/Console/Commands/CloseInactiveShiftsCommand.php",
+        "change": "Pass shift.started_at into latestActivityFor/latestGpsFor and filter scanned_at >= since / timestamp_utc >= since. Keep withoutGlobalScope(ScanTimezoneScope).",
+        "reason": "Unbounded max on a 4.6B-row table times out; the lower bound enables monthly partition pruning onto existing (kit_id, scanned_at DESC) indexes. Semantics: last activity during the shift; null still falls back to started_at.",
+        "ref": "app/Console/Commands/CloseInactiveShiftsCommand.php:110-154"
+      },
+      {
+        "file": "app/Console/Commands/CloseInactiveShiftsCommand.php",
+        "change": "Replace console-only $this->info() summary with Log::info('scout:close-inactive-shifts: completed', {closed, skipped, failed, duration_ms}) plus Log::warning on per-shift failure, mirroring ScoutRecordCheckIns.",
+        "reason": "runInBackground() sends console output nowhere; AC-2 requires a laravel.log line.",
+        "ref": "app/Console/Commands/ScoutRecordCheckIns.php:114-122"
+      },
+      {
+        "file": "tests/Feature/Console/Commands/CloseInactiveShiftsCommandTest.php",
+        "change": "Add pins: activity query carries scanned_at >= started_at; pre-shift scan ignored; a throwing shift is skipped while later shifts still close; summary Log:: reports failed count. Keep latest_activity_lookup_does_not_join_timezones.",
+        "reason": "Behavioral tests would not catch the abort or the query-shape regression.",
+        "ref": "tests/Feature/Console/Commands/CloseInactiveShiftsCommandTest.php"
+      }
+    ],
+    "target_files": [
+      "app/Console/Commands/CloseInactiveShiftsCommand.php",
+      "tests/Feature/Console/Commands/CloseInactiveShiftsCommandTest.php"
+    ],
+    "out_of_scope": [
+      "Any zod-owned schema change (no index/DDL/migration on public.scans in any repo)",
+      "ClickHouse cutover for the scan max (evaluated; deferred unless AC-3 fails post-deploy)",
+      "Re-parent to DEV-2202 (stays DEV-177)",
+      "AC-3 / AC-5 proof (post-deploy)",
+      "onOneServer duplicate 06:00:32 glance (minor, after the guard lands)",
+      "DEV-2325 SendEndOfShiftSummary (Done; dispatch stays inside the new try/catch)",
+      "Raising statement_timeout",
+      "Removing ShowVisibleScan / changing is_visible semantics",
+      "Broad ScanTimezoneScope refactor"
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "A single failing kit no longer aborts the command; other shifts still evaluated", "source": "ticket", "decision": "implement", "reason": "try/catch per shift with continue"},
+    {"item": "Command emits a Log:: line per run with shifts closed / skipped / failed", "source": "ticket", "decision": "implement", "reason": "Log::info with counts, pattern from ScoutRecordCheckIns"},
+    {"item": "SQLSTATE[57014] no longer appears for this command in a full day of production logs", "source": "ticket", "decision": "defer", "reason": "Post-deploy verification; started_at bound is the lever but cannot be proven locally against 4.6B rows"},
+    {"item": "The number of shifts genuinely affected is stated (currently masked by the abort)", "source": "ticket", "decision": "implement", "reason": "Satisfied by Log:: closed/skipped/failed once the guard ships and one scheduled run completes"},
+    {"item": "Kit 10224's stuck-open shift is closed, or an explicit decision is recorded not to", "source": "ticket", "decision": "defer", "reason": "Post-deploy verification; cannot be confirmed without prod access"},
+    {"item": "Preserve round-1: latestActivityFor does not join timezones", "source": "ticket", "decision": "implement", "reason": "Already shipped; keep the query-shape pin"},
+    {"item": "A scan recorded before shift.started_at is ignored; close stamps started_at when there is no in-shift activity", "source": "derived", "decision": "implement", "reason": "Accepted semantic of the started_at bound"},
+    {"item": "A failed lookup must not be treated as no activity (failing shift stays open)", "source": "derived", "decision": "implement", "reason": "Safety: avoid false assumed-close"}
+  ],
+  "questions": [
+    {"q": "Can platform add an index to public.scans?", "answered": true, "answer": "No — zod-owned tables OUT OF SCOPE. No index, no DDL, no migration on public.scans in any repo.", "source": "human:Dalton 2026-08-12"},
+    {"q": "Should we re-parent from DEV-177 to DEV-2202?", "answered": true, "answer": "No — stays DEV-177.", "source": "human:Dalton 2026-08-12"},
+    {"q": "How to bound the activity lookups without an index?", "answered": true, "answer": "Bound both activity lookups by shift.started_at (Postgres scanned_at >= started_at for partition pruning onto existing per-partition (kit_id, scanned_at DESC) indexes; ClickHouse timestamp_utc similarly). Semantics: last activity = activity during the shift; null falls back to started_at.", "source": "human:Dalton 2026-08-12"},
+    {"q": "Should we switch to ClickHouse sourcing for the scan max?", "answered": true, "answer": "Evaluate and defer unless the eval shows it is required for AC-3. Do not implement a CH cutover in this PR.", "source": "human:Dalton 2026-08-13"},
+    {"q": "What should the try/catch wrap?", "answered": true, "answer": "The WHOLE per-shift body (lookup + close transaction + SendEndOfShiftSummary dispatch). Log, count, continue. Command exits SUCCESS with failure count.", "source": "human:Dalton 2026-08-12"},
+    {"q": "Are AC-3 (no 57014 for a day) and AC-5 (kit 10224 closes) merge gates or post-deploy verification?", "answered": true, "answer": "Post-deploy verification, not merge gates. The started_at bound is the in-repo performance lever; it cannot be proven locally against 4.9B rows.", "source": "human:Dalton 2026-08-13"}
+  ],
+  "blockers": [],
+  "notes": [
+    "Round 1 (PR #309) shipped withoutGlobalScope(ScanTimezoneScope) on latestActivityFor + EnsureOpenShift siblings. KEEP it.",
+    "CH evaluation: app/Clickhouse/Models/Scan.php can query scans_hot/scans_cold. Feasible with FINAL + started_at bound, but Dalton said evaluate-and-defer. Revisit only if AC-3 fails post-deploy.",
+    "Sibling pattern: ScoutRecordCheckIns.php per-item try/catch + Log::warning + Log::info completed with counts + report($e).",
+    "Schedule: everyThirtyMinutes, withoutOverlapping (no expiry), runInBackground, onOneServer, gated on app.experimental.clarity_scout.",
+    "Backstop: latestActivityFor/latestGpsFor/max(scanned_at) have no extra callers. CloseInactiveShiftsCommand name hits in SendEndOfShiftSummary (docblock dispatch source) and ShiftSummaryDto (comment-only abs() note) are not missed callers.",
+    "kit_shifts has no CH CDC replica (oracle unavailable for that table — expected, not a gate failure).",
+    "Do not write to okf/ until after merge/QA (wiki WRITE rule)."
+  ],
+  "tests": [
+    {"file": "tests/Feature/Console/Commands/CloseInactiveShiftsCommandTest.php", "what_it_pins": "Existing suite remains green, including latest_activity_lookup_does_not_join_timezones."},
+    {"file": "tests/Feature/Console/Commands/CloseInactiveShiftsCommandTest.php", "what_it_pins": "Activity lookup SQL carries scanned_at >= shift.started_at and still has no timezones/ST_Within."},
+    {"file": "tests/Feature/Console/Commands/CloseInactiveShiftsCommandTest.php", "what_it_pins": "A scan recorded before started_at is ignored; close stamps started_at."},
+    {"file": "tests/Feature/Console/Commands/CloseInactiveShiftsCommandTest.php", "what_it_pins": "A shift whose activity lookup throws is skipped, later shifts still close, command exits SUCCESS, failing shift stays open."},
+    {"file": "tests/Feature/Console/Commands/CloseInactiveShiftsCommandTest.php", "what_it_pins": "Log::info completed line includes closed/skipped/failed counts."}
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Console/Commands/CloseInactiveShiftsCommand.php:47",
+      "app/Console/Commands/CloseInactiveShiftsCommand.php:55-93",
+      "app/Console/Commands/CloseInactiveShiftsCommand.php:110-154",
+      "app/Console/Commands/ScoutRecordCheckIns.php:67-121",
+      "routes/console.php:52-57",
+      "tests/Feature/Console/Commands/CloseInactiveShiftsCommandTest.php"
+    ],
+    "code_flow": "Schedule everyThirtyMinutes → handle() loads open KitShift rows → unguarded foreach → latestActivityFor (unbounded Scan max on zod) + latestGpsFor (CH, already try/caught) → maybe close + dispatch SendEndOfShiftSummary → console-only summary.",
+    "tables": ["public.scans (zod, partitioned)", "platform.kit_shifts", "clarity.sc_positions"],
+    "related_components": ["EnsureOpenShift (already bounded + withoutGlobalScope)", "ScoutRecordCheckIns (logging/isolation pattern)", "SendEndOfShiftSummary (DEV-2325 Done)"]
+  },
+  "exhaustiveness": {
+    "grep_patterns": ["latestActivityFor|latestGpsFor|CloseInactiveShiftsCommand", "max('scanned_at')", "whereNull('ended_at')", "withoutGlobalScope(ScanTimezoneScope)"],
+    "sites": [
+      {"site": "app/Console/Commands/CloseInactiveShiftsCommand.php:47,55-56,110-115", "verdict": "buggy", "reason": "Unbounded PG max(scanned_at) inside an unguarded multi-shift loop; one timeout aborts every remaining shift; console-only summary."},
+      {"site": "app/Console/Commands/CloseInactiveShiftsCommand.php:137-153", "verdict": "buggy", "reason": "latestGpsFor is already try/caught but still unbounded; include the started_at bound for consistency."},
+      {"site": "app/Services/Scout/EnsureOpenShift.php:132-137", "verdict": "safe", "reason": "exists() with two timestamp lower bounds; request-local."},
+      {"site": "app/Services/Scout/EnsureOpenShift.php:152-159", "verdict": "safe", "reason": "24h window + limit(5000); request-local."},
+      {"site": "app/Console/Commands/ScoutRecordCheckIns.php:67-121", "verdict": "safe", "reason": "Sibling already isolates per-item failures and Log::s counts — the pattern to copy, not a second bug."},
+      {"site": "app/Jobs/Scout/SendEndOfShiftSummary.php", "verdict": "safe", "reason": "Dispatch target; DEV-2325 already shipped; keep inside the new try/catch."},
+      {"site": "app/Dto/Scout/ShiftSummaryDto.php:52", "verdict": "safe", "reason": "Comment-only name mention (abs() duration guard), not a caller of the activity lookup."}
+    ]
+  },
+  "data_impact": {
+    "pg_tables": ["public.scans (zod, read)", "platform.kit_shifts (read open, write close)"],
+    "ch_tables": ["clarity.sc_positions (read max timestamp_utc; adding a since bound)"],
+    "mv_or_cdc_implications": "None. No CH writes. kit_shifts has no CDC replica.",
+    "indexes_relied_on": ["kit_id_scanned_at_new_scans (kit_id, scanned_at DESC) per monthly partition — exists in zod schema dump; the started_at bound is what makes partition pruning possible"]
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "Scheduled command iterating open kit_shifts and querying scans + sc_positions per shift",
+    "driving_tables": [
+      {"table": "zod.scans", "source": "zod.public_scans CDC", "prod_rows": 4589949512, "group_by": "kit_id", "largest_group_rows": 19936578},
+      {"table": "platform.kit_shifts", "source": "platform schema — no CH replica", "prod_rows": null, "group_by": "open shifts", "largest_group_rows": null}
+    ],
+    "growth": "Ticket measured 4.94B on 2026-08-13; probe 4.59B (CDC/ingest drift). Kit 10224 = 5.2M (187th). Largest kit 19.9M.",
+    "schedule": {"expression": "everyThirtyMinutes", "interval_seconds": 1800, "without_overlapping_minutes": null},
+    "allocation_sketch": "Stateless per-shift: one bounded PG max, one bounded CH max, one platform row update, one job dispatch. Timeout not allocation is the failure mode. withoutOverlapping with no expiry — one copy.",
+    "oracle_status": "ok",
+    "unresolved": []
+  },
+  "derivation_log": [
+    {"query_shape": "SELECT count() FROM zod.public_scans FINAL WHERE _peerdb_is_deleted = 0", "param_classes": ["none"], "aggregate_result": "4,589,949,512 rows", "why": "Production cardinality of the timing-out table"},
+    {"query_shape": "SELECT kit_id, count() AS n FROM zod.public_scans FINAL WHERE _peerdb_is_deleted = 0 GROUP BY kit_id ORDER BY n DESC LIMIT 10", "param_classes": ["none"], "aggregate_result": "largest kit 11310 = 19,936,578; top 10 are 13–20M", "why": "Per-kit group size for the activity lookup"},
+    {"query_shape": "count from zod.public_kit_shifts", "param_classes": ["none"], "aggregate_result": "UNKNOWN_TABLE — kit_shifts is platform-schema, no CDC mirror", "why": "Confirm open-shift cardinality is not probeable via the oracle; not a gate failure"},
+    {"query_shape": "git grep latestActivityFor|max('scanned_at')|CloseInactiveShiftsCommand", "param_classes": ["static"], "aggregate_result": "one unbounded PG max site; private helpers have no extra callers", "why": "Exhaustiveness + backstop"}
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "AC-1 single failing kit does not abort", "kind": "agent", "intent": "Two open stale shifts; force first lookup to throw; assert second closes, first stays open, exit SUCCESS."},
+      {"ac": "AC-2 Log:: per run", "kind": "agent", "intent": "Assert Log::info completed contains closed/skipped/failed."},
+      {"ac": "started_at bound on SQL", "kind": "agent", "intent": "Query log: scanned_at >= present, timezones/ST_Within absent."},
+      {"ac": "AC-3 no 57014 for a day", "kind": "human", "intent": "Post-deploy laravel.log watch."},
+      {"ac": "AC-4 affected count", "kind": "human", "intent": "Read the first post-deploy completed Log:: line."},
+      {"ac": "AC-5 kit 10224", "kind": "human", "intent": "Post-deploy: kit_shifts where kit_id=10224 and ended_at is null, or record a decision."}
+    ],
+    "seed_scenario": "Two kits with open shifts older than 3h. Force kit A's visible-scan lookup to throw; give kit B one stale visible scan after started_at. Assert A stays open, B closes as assumed, summary job queued, command SUCCESS with failed=1.",
+    "personas": [{"role": "scheduled command (no UI)", "why": "Console command; QA is artisan + Log:: + query-log, not browser."}],
+    "pg_tables": ["scans", "kit_shifts", "kits"],
+    "ch_tables": ["clarity.sc_positions"]
+  },
+  "confidence": 85,
+  "escalate": {"recommend": false, "reason": "All material questions answered by Dalton. Scope is try/catch + Log:: + started_at bound. CH deferred. Resource envelope measured. Backstop clean."}
+}

@@ -1,0 +1,22 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Author okf/concepts/rdn-provider-integration.md (RDN metrics provider spec)",
+      "approach": "Write a new provider-facing markdown doc from the verified prep-context (metric_catalog + envelope + delivery_model). Sections: overview + audience; delivery model (cadence, per-org/per-metric messaging, eligibility, at-most-once guarantee, transport); the shared SQS envelope table (metric_type, metric_range_start, metric_range_end, rdn_org_identifier, idempotency_key, data — each with type/units/nullability/example/semantics); one section per metric type (all 5) with what it counts + a full example payload; a dedicated rdn_org_identifier subsection; a dedicated metric_range_start/end semantics subsection (inclusive/exclusive, UTC, completed-hour). Document ONLY the 5 live hour-grain metrics — no Phase-2/day/month/agent mention (per Dalton). Add okf frontmatter + cross-link from okf/concepts/rdn.md and register in okf/index.md consistent with existing entries. Synthetic example values only.",
+      "target_files": ["okf/concepts/rdn-provider-integration.md", "okf/concepts/rdn.md", "okf/index.md"],
+      "intended_diffs": "New file rdn-provider-integration.md (main deliverable); a See-also cross-link line added to rdn.md; a one-row index entry added to okf/index.md matching the existing table format.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "day/month/agent/type-keyed metric variants", "reason": "not implemented in code; Dalton chose to document only the 5 live metrics with no forward mention"},
+    {"site": "enum/publisher/job/query code", "reason": "documentation-only ticket; no code changes"}
+  ],
+  "notes": "No tests: the deliverable is a markdown documentation artifact with no programmatic surface. Perf gate N/A (no new query). QA verify N/A (docs-only, no runtime/DB). Adversarial review (Phase 5) is the quality gate — it must check every documented fact against the source files listed in prep-context.grounding.key_files."
+}

@@ -1,0 +1,53 @@
+{
+  "key": "DEV-2113",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "scanner-app",
+  "base_branch_reason": "Scout ticket; scanner-app actively carries Scout work (DEV-2111 live-hit map labels, ahead=190 behind=0); recorded convention that Scout PRs stack on scanner-app, not main",
+  "branch": "claude/DEV-2113",
+  "phase": "done",
+  "models": {"base": "haiku", "recall": "haiku", "prep": "sonnet", "plan": "opus", "implement": "opus", "implement_simple": "sonnet", "offload": "sonnet", "review": "opus"},
+  "flags": {"companion": false, "review_policy": "functional", "jira_mirror": true, "start_at": null, "stop_at": null, "only": null, "skip": [], "force": false},
+  "knowledge_cards_loaded": [],
+  "escalated": true,
+  "escalation_triggers": ["answered:false questions present", "prep escalate.recommend=true", "AC-2 ambiguity"],
+  "missed_caller_candidates": [],
+  "diff_base": "c97715479fb810d5f215e0923fdd69a80ad89f60",
+  "subtasks": [{"id": "t1", "status": "merged", "worktree_path": "REPO_PATH (single-node fast path)", "branch": "claude/DEV-2113", "complexity": "complex", "model": "opus (driver-implemented; full context already held, no fresh-context worker)"}],
+  "review_number": 2,
+  "pr": {"number": 234, "url": "https://github.com/insight-lpr/platform/pull/234", "draft": true},
+  "pr_urls": {},
+  "jira_in_progress_by": "dalton.mccleery@insightlpr.com @ 2026-06-26T19:35:00Z",
+  "jira_transitioned_by": "manual-dalton.mccleery@insightlpr.com",
+  "assumed": [],
+  "comment_ids": {"status": "32485", "build_record": "32551"},
+  "qa": {"ledger": ".context/qa-prep-ledger.json", "agent_report": ".context/qa-plan-agent.md (endpoint-verified) + .context/qa-endpoint-check.tinker.php", "ac_results": "verified via 51 real-CH tests + controller endpoint check (4 OPEN-* markers, 0 REPO-*)", "human_guide": ".context/qa-human-guide.html", "torn_down": true, "torn_down_note": "clickhouse-qa down.sh: dropped prefixed clarity_/zod_ runtime+testing DBs, removed container clarity-qa-clickhouse (took the literal clarity/zod seed DBs with it), restored .env/.env.testing from backups (+ reverted leftover CLICKHOUSE_DATABASE=zod). Worktree Postgres branch DBs + Herd site left to the worktree lifecycle (pre-existing, not QA-provisioned).",
+         "provisioning": {"bootstrap": "pre-existing (worktree already had vendor/.env/.env.testing/node_modules)", "deps": "pre-existing", "migrations": "zod_testing (shared) pre-migrated", "docker_daemon": "running", "ch_container": "clarity-qa-clickhouse (clickhouse-qa up --also-testing)", "frontend_build": "n/a (no JS change)", "postgres_db": "zod_testing (shared; CH side isolated)", "ch_strategy": "docker (clickhouse-qa) + literal clarity/zod DBs created for hardcoded-prefix queries; .env.testing repointed", "herd_site": "n/a (no browser UAT needed for backend filter)"}},
+  "qa_teardown_notes": "Provisioned via clickhouse-qa up.sh --also-testing (NOT qa-prep, so no ledger). Teardown at handoff: clickhouse-qa down.sh (restores .env/.env.testing from .env.ch-qa-backup/.env.testing.ch-qa-backup, drops prefixed DBs, removes container if last) AND manually DROP DATABASE clarity, zod (literal DBs created for hardcoded-prefix queries).",
+  "record": {
+    "tests": [{"cmd": "php artisan test --compact tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php (real local ClickHouse)", "passed": 50, "failed": 0}],
+    "deviations": [],
+    "review": {
+      "lanes": ["RN1: claude1,claude2,claude3 (3-lane)", "RN2: claude1 (1-lane re-review)"],
+      "scores": ["RN1 min=72 (72/72/82)", "RN2=83"],
+      "gate": "fail (83 < 90) — held down SOLELY by deliberately-deferred siblings; RN2 lane states the marker code itself is correct",
+      "findings_fixed": [
+        "H2 (marker status label): now sourced from the current-open fact (HotlistStatusEnum::Open->title()) instead of the frozen per-row hotlist_status",
+        "H3 (perf): candidate pluck made distinct() to bound transfer (double-scan inherent to cap-after-filter; bounded to one kit + cached)",
+        "Test-adequacy gap: added test_map_hits_resolves_latest_hotlist_version_on_status_transition — pins the fix's reliance on Hotlist ApplyFinal/FINAL via a 2-CDC-version (Open->Repossessed) hotlist"
+      ],
+      "findings_residual": [
+        "H1 (recentHits left pane still frozen-status) -> DEFERRED to DEV-2117 per human decision (map-only scope)",
+        "H2-heatmap (HitDirectHotspotQuery frozen-status) -> DEFERRED to DEV-2117",
+        "M2 (repos_affected stat frozen-status undercount) -> DEFERRED to DEV-2117",
+        "M3 (candidate scan cost) -> acknowledged; distinct() added; bounded to one kit + cached endpoint"
+      ]
+    },
+    "ac": [
+      {"item": "On any historical range, map hit icons show OPEN hits only — repossessed/closed absent.", "status": "SATISFIED", "evidence": "ClarityScoutMapControllerTest on real local ClickHouse: test_map_hits_only_returns_open_status_hits (Direct, stale-Open rows excluded by current hotlist status), test_map_hits_excludes_repossessed_staging_live_hits (Staging), test_map_hits_resolves_latest_hotlist_version_on_status_transition (Open->Repossessed FINAL). 51/51 pass."},
+      {"item": "Map icon set matches the left 'Hits Pending' list for the same range.", "status": "SATISFIED", "evidence": "Per human AC-2 = same open-only RULE (not record parity). The map now applies the currently-open rule (clarity.hotlist.status). Full record parity with the left pane (which still uses frozen status) is tracked in DEV-2117 per the map-only scope decision."},
+      {"item": "Regression test covering historical markers excluding repossessed hits.", "status": "SATISFIED", "evidence": "Direct + Staging current-status exclusion tests + multi-CDC-version transition test added; all on real ClickHouse."}
+    ]
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Missed-Op Invalid disposition removes its row (null-guarded rowKey on changeDisposition)",
+      "approach": "In resources/views/components/scans/disposition-popup.blade.php, changeDisposition(value): the non-reason branch currently calls window.updateScanDisposition(this.modelId, value) with no rowKey (line ~90). Change that single call to pass reason 'other' in the 3rd slot and a rowKey in the 4th slot ONLY when (this.missedOpportunity === true && value === DispositionEnum::INVALID->value ('Invalid')); otherwise pass null. rowKey = 'scan-' + (this.rowLoop?.index ?? this.modelId), null-guarded to mirror the server-side anchor id ($rowLoop?->index ?? $model_id) and avoid a TypeError in cluster-group views that pass no rowLoop. This reuses the existing app.js `if (rowKey)` removal branch — no app.js change. Because the gate is missedOpportunity+INVALID, Scans/Hits dropdown picks and the INVALID_SCAN reason-button path (line 215) are entirely unaffected.",
+      "target_files": ["resources/views/components/scans/disposition-popup.blade.php"],
+      "intended_diffs": "changeDisposition(value): replace `window.updateScanDisposition(this.modelId, value);` with:\n  window.updateScanDisposition(\n      this.modelId,\n      value,\n      'other',\n      (this.missedOpportunity && value === '{{ \\App\\Enums\\DispositionEnum::INVALID->value }}')\n          ? 'scan-' + (this.rowLoop?.index ?? this.modelId)\n          : null\n  );\nLeave the INVALID_SCAN branch (showReasons / advance-close) and the reason-button call at line ~215 untouched.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "MissedOpportunityResourceTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "simple"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "disposition-popup.blade.php:90 for Scans/Hits (non-missed-op) and Valid/Reviewed picks", "reason": "DECISION (Dalton): scope Missed-Op-only + Invalid-only. Leaving these on today's no-removal behavior is intentional — matches the backend default filters (Hits has none; Scans excludes only Invalid Scan; MO excludes only Invalid)."},
+    {"site": "disposition-popup.blade.php:215 unguarded rowLoop.index in cluster-group views", "reason": "Pre-existing latent bug (throws when rowLoop is null in map cluster popups). Predates this ticket and is out of scope; not touched. Flagged in prep-context out_of_scope."},
+    {"site": "resources/js/app.js:111-113 4x-.parentElement removal", "reason": "Not changed. Robustness note: MissedOpportunityResource is the only grouped/collapsible dispositionable table, so QA (Phase 6, AC-1) must empirically confirm the 4-hop climb still lands on the <tr> for the grouped DOM. If it does not, the follow-up is element.closest('tr') in app.js — but that touches the shared removal used by the working Scans path (AC-3) and would need its own regression pass, so it is deliberately deferred to a QA-driven decision, not pre-emptively changed."}
+  ],
+  "notes": [
+    "Single file, no migrations, no CH writes, no auth/billing. blast_radius empty; complexity simple.",
+    "No JS test runner in repo. Pinning: attempt a PHPUnit markup assertion that the rendered disposition-popup carries the missedOpportunity+INVALID rowKey expression in changeDisposition (regression guard against reverting to the no-rowKey call). The real AC-1 verification is agent/manual browser QA against the GROUPED Missed Opportunities table.",
+    "MissedOpportunityResourceTest is RequiresClickhouse (memory: running it wipes the local CH seed) — CH must be up for that test; the lazy-CH gate provisions it (ch_tables non-empty).",
+    "AC-3 (Scans Invalid Scan removal) is preserved by construction: that flow is line 215 + the INVALID_SCAN branch, both untouched."
+  ]
+}

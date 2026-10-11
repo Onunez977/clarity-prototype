@@ -1,0 +1,109 @@
+{
+  "mode": "normal",
+  "gate": "CLEAN",
+  "synthesis": "The Scout Org Bird's-Eye map currently shows a kit only if it has a platform.kit_settings row — the same row used for driver scout-login enrollment. Because unassigning a scout user leaves a stale kit_settings row (or someone inserted one for a test kit like John Moole/DFW3/ATX7), the map both hides legit kits with no settings row and shows residual test kits. The fix decouples 'appears on the org map' from 'has scout login access': org bird's-eye lists every non-soft-deleted org kit (the Kit::getKits-style exclusion via kit_metadata.deleted_at) and renders each with an OPTIONAL kit_settings row for the icon/vehicle-type label, no user_id required. Introducing a distinct 'inactive kit' concept and moving user_id onto kit/kit_meta are explicitly OUT of scope (ticket-deferred follow-ups).",
+  "scope": {
+    "summary": "Change the single choke-point method ClarityScoutBirdsEyeController::orgScoutKits() so it returns all of the org's non-soft-deleted kits (mirroring Kit::getKits(withDeleted:false): leftJoin kit_metadata + whereNull deleted_at) instead of filtering to kits that have a kit_settings row. Keep attaching kit_settings when present (null-safe) for icon/driver labelling. All endpoints that consume orgScoutKits/scopedKits inherit the fix.",
+    "proposed_changes": [
+      {"file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php", "change": "Rewrite orgScoutKits(int $orgId): (1) Kit::query()->forOrg($orgId) with leftJoin('kit_metadata', kits.id=kit_metadata.kit_id)->whereNull('kit_metadata.deleted_at')->select('kits.*') mirroring Kit::getKits() exclusion; (2) DROP the ->filter(fn ($kit) => $settings->has($kit->id)) line; (3) still setRelation('settings', $settings->get($kit->id)) when present (null when absent — consumers null-coalesce).", "reason": "Sole place the 'must have a kit_settings row' filter is applied; every other endpoint funnels through it via scopedKits().", "ref": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:658"},
+      {"file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php", "change": "Update the drivers() (l.50-54) and orgScoutKits() (l.648-657) docblocks to describe 'all non-deleted org kits' rather than 'Scout-enrolled kits (those with a kit_settings row)'.", "reason": "Stale docblocks would misdescribe the new behavior.", "ref": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:50,648"},
+      {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php", "change": "Rewrite the test currently pinning the OLD settings-required exclusion so it asserts: a non-enrolled kit (no settings row) DOES appear with null driver_name/vehicle_type; a soft-deleted kit (kit_metadata.deleted_at set) does NOT appear; cross-org kits never leak.", "reason": "That test directly pins the behavior the ticket calls wrong — leaving it would be a green-but-wrong test.", "ref": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php:135"}
+    ],
+    "target_files": [
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php"
+    ],
+    "out_of_scope": [
+      "Introducing a distinct 'inactive kit' concept separate from deactivating a kit user (ticket-deferred)",
+      "Moving user_id off kit_settings onto kit/kit_meta (ticket-deferred)",
+      "Driver-side single-kit map/login (ClarityScoutMapController) — kit_settings still legitimately gates scout login there, unaffected",
+      "Data cleanup of stale test kit_settings rows (John Moole/DFW3/ATX7) — data hygiene, not code",
+      "Changing Kit::getKits() itself (reused only as a pattern reference)"
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "Org bird's-eye lists all org kits via a getKits-style query (excludes deactivated/deleted kits)", "source": "ticket", "decision": "implement", "reason": "orgScoutKits() replicates the kit_metadata.deleted_at exclusion instead of filtering on kit_settings existence."},
+    {"item": "A kit renders on the map without requiring a user_id (needs only a hit setting for icon/vehicle type)", "source": "ticket", "decision": "implement", "reason": "True once the settings-row filter is dropped: user_id nullable, all consumers null-coalesce ->settings?->user?->name and ->settings?->vehicle_type?->value; a kit with NO settings row renders with default icon (null vehicle_type) and kit-name label (null driver_name)."},
+    {"item": "No reliance on manual kit_settings inserts to make kits appear", "source": "ticket", "decision": "implement", "reason": "Direct consequence of removing the filter."}
+  ],
+  "questions": [
+    {"q": "Must a kit with NO kit_settings row at all render on the org map?", "answered": true, "answer": "Yes — the AC wording ('show ALL org kits', 'no reliance on manual kit_settings inserts') requires it, and the frontend already handles null gracefully (DriverSelector.vue label() falls back to kit.name; vehicleIcons.js renders a default icon for null vehicle_type; ScannerMap.vue/stores/map.js null-coalesce). No frontend change needed.", "source": "code"},
+    {"q": "What counts as 'deactivated/deleted' for this ticket?", "answered": true, "answer": "The existing kit_metadata.deleted_at soft-delete that Kit::getKits(withDeleted:false) already excludes. kit_metadata has no separate active/deactivated flag today, confirming the ticket's note that a distinct inactive-kit concept is a follow-up, not this fix.", "source": "code"},
+    {"q": "Does decoupling from user_id require any change beyond removing the settings-row filter?", "answered": true, "answer": "No. KitSettings.user_id is nullable and every read site already uses null-safe access.", "source": "code"},
+    {"q": "Kits with no kit_mapping won't get a live dot (kitsByMapping skips them) — acceptable?", "answered": true, "answer": "Yes — scanPaths/hits/stats/recentHits key on kit_id via whereIntegerInRaw, not kit_mapping; only the live-position dot/trail is naturally absent for a mapping-less kit, matching existing single-driver behavior. Not something this ticket changes.", "source": "code"},
+    {"q": "Will widening from 'enrolled kits only' to 'all active org kits' cause a ClickHouse IN-list / perf regression on stats/hits/scanPaths?", "answered": true, "answer": "Accepted consequence, not a separate decision: the AC itself commits to querying every active org kit, so the wider kit_id IN-list is inherent to what the reporter asked for. Kit counts per org are bounded (tens); CH queries stay org-scoped + windowed, so a modestly larger integer IN-list is negligible. The only way it widens materially is stale non-soft-deleted kits — the exact data-hygiene case the ticket defers to the deactivated-filter follow-up. VERIFY as a perf observation on the largest kit during QA/verify rather than blocking.", "source": "ticket"}
+  ],
+  "blockers": [],
+  "notes": [
+    "Single choke point: orgScoutKits() is the only place the settings-row filter exists; scopedKits() (used by every other endpoint) always calls it first, so one method fixes drivers/driverPositions/driverPaths/scanPaths/hits/stats/recentHits together.",
+    "Cross-connection pattern MUST be preserved: Kit lives on zod, kit_settings on platform; a whereHas/join across connections silently returns []. Keep resolving settings via the separate keyed lookup; only drop the ->filter().",
+    "Do NOT call Kit::getKits() directly — it selects only ['id','name'] and is hourly-cached, but the controller needs kit_mapping + full Kit columns fresh; replicate its kit_metadata.deleted_at exclusion inline. Also note getKits caches org-kits for the hour — the controller must NOT cache (map must reflect kit changes live).",
+    "heatmapHits/heatmapOrders intentionally ignore the kit_ids selector (address-based, no kit dimension) — unaffected.",
+    "No existing factory helper creates a soft-deleted kit; the new test needs a raw DB::connection('zod')->table('kit_metadata')->insert(['kit_id'=>..,'deleted_at'=>now(),...]) following the getKits() column shape.",
+    "Reclassification (driver judgment, journaled): the sole prep answered:false (CH IN-list perf) was resolved to answered:true because the reporter's AC already commits to 'all active kits'; the perf effect is an accepted, bounded consequence, tracked as a verify-phase check — so the gate is CLEAN."
+  ],
+  "tests": [
+    {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php", "what_it_pins": "drivers() lists a kit with NO kit_settings row (null-safe driver_name/vehicle_type in payload), excludes a kit_metadata.deleted_at soft-deleted kit, and still excludes cross-org kits."},
+    {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php", "what_it_pins": "a non-enrolled kit (no settings) is eligible in scopedKits()-derived endpoints (its kit_id accepted by the kit_ids selector on hits/stats) without requiring a settings row."}
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:658",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:633",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:55",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:684",
+      "app/Models/Kit.php:222",
+      "app/Models/Kit.php:106",
+      "app/Models/KitSettings.php:1",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php:53",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php:135",
+      "resources/js/clarity-scout/components/DriverSelector.vue:127",
+      "resources/js/clarity-scout/lib/vehicleIcons.js"
+    ],
+    "code_flow": "GET /scout/org-map/api/* -> ClarityScoutBirdsEyeController::drivers()/scopedKits() -> orgScoutKits(orgId) [Kit::query()->forOrg + keyed KitSettings lookup on platform] -> JSON -> shared Pinia store (stores/map.js) -> DriverSelector.vue / ScannerMap.vue with null-safe fallbacks.",
+    "tables": ["zod.kits", "zod.kit_metadata", "platform.kit_settings"],
+    "related_components": ["Kit (zod)", "KitSettings (platform)", "shared driver/admin Pinia store", "DriverSelector.vue", "ScannerMap.vue", "birdseye.js / useBirdsEyePolling.js"]
+  },
+  "exhaustiveness": {
+    "grep_patterns": ["orgScoutKits|scopedKits", "KitSettings::query()|settings->has(|kit_settings", "getKits(", "vehicle_type|driver_name (frontend)"],
+    "sites": [
+      {"site": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:658 (orgScoutKits)", "verdict": "buggy", "reason": "The single site with the settings-row filter — fix target."},
+      {"site": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:59 (drivers)", "verdict": "safe", "reason": "Calls orgScoutKits() directly; fixed automatically, already null-safe."},
+      {"site": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:82,150 (driverPositions/driverPaths)", "verdict": "safe", "reason": "kitsByMapping only skips mapping-less kits; driven by scopedKits->orgScoutKits."},
+      {"site": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:225,276,453,516 (scanPaths/hits/stats/recentHits)", "verdict": "safe", "reason": "All key ClickHouse by kit_id via whereIntegerInRaw from scopedKits->orgScoutKits; no independent settings assumption."},
+      {"site": "app/Http/Controllers/Api/ClarityScoutMapController.php (driver single-kit map)", "verdict": "safe", "reason": "Separate concern — kit_settings legitimately gates scout LOGIN there; ticket does not touch it."},
+      {"site": "resources/js/clarity-scout DriverSelector.vue/ScannerMap.vue/stores/map.js/DashboardOverlay.vue", "verdict": "safe", "reason": "All already null-coalesce vehicle_type/driver_name — no frontend change required."},
+      {"site": "app/Models/Kit.php:222 getKits()", "verdict": "safe", "reason": "Not called by the controller; reference pattern only."}
+    ]
+  },
+  "data_impact": {
+    "pg_tables": ["zod.kits", "zod.kit_metadata", "platform.kit_settings"],
+    "ch_tables": [],
+    "mv_or_cdc_implications": "None — kit_metadata is a plain Postgres soft-delete column; this change only reads it in Postgres, no new ClickHouse surface. (Live-dot/path reads use existing OrgLivePositionsQuery/OrgLivePathsQuery unchanged.)",
+    "indexes_relied_on": ["kits.org_id (forOrg scope)", "kit_metadata.kit_id (join key, mirrors Kit::getKits usage)"]
+  },
+  "derivation_log": [],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "AC-1 (all org kits via getKits-style query)", "kind": "agent", "intent": "Seed 3 kits in one org: one with kit_settings+user, one with NO kit_settings row, one soft-deleted (kit_metadata.deleted_at). Hit /scout/org-map/api/drivers as org admin; assert the first two appear, the deleted one absent, no cross-org leak."},
+      {"ac": "AC-2 (renders without user_id)", "kind": "agent", "intent": "For the no-settings kit assert drivers payload has driver_name null + vehicle_type null, and scopedKits-derived endpoints (hits/stats) accept its kit_id in a kit_ids filter without error."},
+      {"ac": "AC-3 (no manual insert needed)", "kind": "human", "intent": "In QA UI verify a freshly-provisioned org kit with zero kit_settings shows on the Bird's Eye map (icon + label) with no DB insert."},
+      {"ac": "perf-observation", "kind": "human", "intent": "On the org with the most active kits, confirm stats/hits/scanPaths load without a perceptible regression vs the enrolled-only baseline."}
+    ],
+    "seed_scenario": "One org with an admin user and three zod kits: Kit A has a platform.kit_settings row with a user assigned (enrolled scout), Kit B has no kit_settings row (plain org kit / owner vehicle), Kit C has a kit_metadata row with deleted_at set (soft-deleted). Load Bird's Eye drivers as the org admin: Kit A + Kit B appear (B with null driver_name/vehicle_type), Kit C excluded, no other org's kits leak.",
+    "personas": ["Org admin (John Moole owner) — needs every org kit on the bird's-eye map regardless of scout enrollment"],
+    "pg_tables": ["zod.kits", "zod.kit_metadata", "platform.kit_settings"],
+    "ch_tables": []
+  },
+  "confidence": 88,
+  "escalate": {"recommend": false, "reason": "Single-file, single-choke-point fix; no schema change; no divergent sites (backend or shared frontend); frontend already null-safe; only open item was a bounded perf consequence inherent to the AC, resolved to a verify-phase check."},
+  "missed_caller_candidates": [
+    {"file": "app/Models/Org.php", "symbol": "getKits", "referenced_at": "app/Models/Org.php:182", "adjudication": "not-genuine — caller of Kit::getKits(), which this ticket does NOT modify (only its exclusion pattern is replicated inline)."},
+    {"file": "app/Models/Scan.php", "symbol": "getKits", "referenced_at": "app/Models/Scan.php:438", "adjudication": "not-genuine — Kit::getKits() caller, unchanged."},
+    {"file": "app/Models/User.php", "symbol": "getKits", "referenced_at": "app/Models/User.php:184", "adjudication": "not-genuine — Kit::getKits() caller, unchanged."},
+    {"file": "app/Services/Geospatial/Concerns/GeneratesPathData.php", "symbol": "getKits", "referenced_at": "app/Services/Geospatial/Concerns/GeneratesPathData.php:95", "adjudication": "not-genuine — calls GeospatialGenerator::getKits() (a different, unrelated method), not Kit::getKits()."},
+    {"file": "app/Services/Geospatial/GeospatialGenerator.php", "symbol": "getKits", "referenced_at": "app/Services/Geospatial/GeospatialGenerator.php:91", "adjudication": "not-genuine — unrelated instance method of the same name."},
+    {"file": "tests/Filament/Resources/ScoutUsersResourceTest.php", "symbol": "kit_settings", "referenced_at": "tests/Filament/Resources/ScoutUsersResourceTest.php:76", "adjudication": "not-genuine — tests kit_settings/scout-user enrollment; this ticket does not change kit_settings semantics (still labels + still gates driver login)."},
+    {"file": "tests/Models/KitSettingsTest.php", "symbol": "kit_settings", "referenced_at": "tests/Models/KitSettingsTest.php:19", "adjudication": "not-genuine — KitSettings model test, unaffected."}
+  ]
+}

@@ -1,0 +1,87 @@
+{
+  "key": "DEV-2292",
+  "mode": "normal",
+  "route": "bug",
+  "gate": "CLEAN",
+  "gate_reason": "Both design questions answered by Dalton in the Phase 2 interview (2026-08-03): keep the centered card + add a ✕ (dismiss hides both surfaces); dismissal persists the whole SPA session (no re-arm on state change; page reload clears it). No blockers, no blast-radius.",
+  "missed_caller_candidates": [],
+  "synthesis": "The admin-only Bird's Eye Org Map (App.vue) shows a client-side notice when an org is active today (has scans) but no kit is reporting a live GPS position (DEV-2197). It renders as TWO sibling surfaces gated by the same `noKitsReporting` computed: a CENTERED card (pointer-events-none, no close) and a BOTTOM amber pill (pointer-events-auto, already non-blocking). The customer complaint targets the centered card — it reads as an undismissable modal obstructing the map center even though it doesn't block drags. Desired outcome: the admin can dismiss the notice; the map reads fully unobstructed after dismissal; the notice returns on a fresh occurrence of the condition or a new SPA session. No backend/data work — the trigger is already fully reactive client-side state.",
+  "scope": {
+    "summary": "Add a dismiss affordance to the 'No kits reporting GPS' notice and reconcile the two render sites (centered card + bottom pill) so the notice is dismissible, non-obstructive after dismissal, and reappears only on a fresh occurrence of the condition or a new SPA session. Single file: resources/js/clarity-scout/App.vue. No backend/data changes.",
+    "proposed_changes": [
+      {"file": "resources/js/clarity-scout/App.vue", "change": "Add a plain in-memory `noticeDismissed` ref (default false, component-scoped, NO persistence, NO watcher). Gate BOTH notice surfaces on `noKitsReporting && !noticeDismissed`.", "reason": "Dalton (Phase 2): dismissal persists the whole SPA session — do NOT re-arm on state change. In-memory ref gives 'clears on next session' for free (App.vue remounts on page load). No watcher needed. AC1/AC2/AC4.", "ref": "App.vue:37 & 81 (v-if sites), App.vue:330-336 (noKitsReporting computed unchanged)"},
+      {"file": "resources/js/clarity-scout/App.vue", "change": "Add a close ✕ button to the CENTERED card (37-48), mirroring Toast.vue's dismiss convention (aria-label=\"Dismiss\", X SVG). Give the button `pointer-events-auto` (the card container stays pointer-events-none so the map remains draggable around the button); `@click` sets `noticeDismissed = true`. Because both surfaces gate on `!noticeDismissed`, one click hides the card AND the bottom pill together.", "reason": "Dalton (Phase 2): keep the centered card, add a ✕; dismissing hides both surfaces. Preserves the DEV-2197 centered-explanation layout. Button-only pointer-events keeps AC2 (map interactive) maximal.", "ref": "App.vue:37-48 (card), Toast.vue:32-41 (✕ convention)"}
+    ],
+    "target_files": ["resources/js/clarity-scout/App.vue"],
+    "out_of_scope": [
+      "Any backend/API change — trigger condition is fully client-side reactive.",
+      "Fixing the underlying GPS-feed gap (DEV-2197 root cause / sc_positions late/dropped writes).",
+      "Partial-GPS-loss detection (explicit future work in the DEV-2197 commit).",
+      "Rebuilding npm assets is a required mechanical ship step (public/build committed), not a scope item."
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "User can dismiss the 'No kits reporting GPS' notice at any time", "source": "ticket", "decision": "implement", "reason": "Neither surface (App.vue:37-48 card, 81-90 pill) has a close control today; add an explicit dismiss to the surviving surface(s)."},
+    {"item": "After dismissal, the map is fully interactive with no obstruction", "source": "ticket", "decision": "implement", "reason": "Centered card is already pointer-events-none, but visually obstructs the center; dismissal must remove the visual obstruction."},
+    {"item": "If the state changes and kits begin reporting GPS, the notice disappears automatically", "source": "ticket", "decision": "verify", "reason": "Already satisfied by the reactive `noKitsReporting` computed (App.vue:330-336) driven by driverPositions via useBirdsEyePolling ~10s poll. Regression-guard: the new dismiss flag must not suppress the notice permanently."},
+    {"item": "The notice does not re-appear until the next session or a meaningful state change", "source": "ticket", "decision": "implement", "reason": "In-memory `noticeDismissed` ref, no watcher. Dalton chose session-scoped: once dismissed it stays hidden for the whole SPA session (does not re-arm even if kits report then go dark again). A page reload / new session resets it (fresh mount). Satisfies AC4's 'until the next session' branch."}
+  ],
+  "questions": [
+    {"q": "Which dismissal approach — (a) explicit close ✕, (b) auto-dismiss timeout (~10s), or (c) non-blocking banner/toast — or a combination?", "answered": true, "answer": "(a) explicit close ✕ on the centered card (keep the card). Dismissing hides both the card and the bottom pill together.", "source": "human:Dalton 2026-08-03"},
+    {"q": "Keep the centered card (37-48) with a new ✕, or remove it and rely on the existing non-blocking bottom pill (81-90)?", "answered": true, "answer": "Keep the centered card and add the ✕ to it (preserves the DEV-2197 centered-explanation layout). The bottom pill stays, gated on the same dismissed state.", "source": "human:Dalton 2026-08-03"},
+    {"q": "What counts as the AC4 'meaningful state change' that clears a prior dismissal?", "answered": true, "answer": "Dalton chose the session branch of AC4 instead of the state-change branch: dismissal persists for the whole SPA session and only a page reload / new session clears it. No re-arm on a noKitsReporting false→true transition. (Code could have re-armed on that transition, but Dalton opted for simpler session-scoped behavior.)", "source": "human:Dalton 2026-08-03"},
+    {"q": "Persistence scope of the dismissal — in-memory vs localStorage/sessionStorage?", "answered": true, "answer": "In-memory ref. sessionStorage is used nowhere in the repo; every localStorage dismiss (useInstallPrompt scanner_install_dismissed, useCollapsible) is a permanent cross-session preference — wrong shape for 'until next session'. In-memory ref reset on mount gives 'clears on next session' for free.", "source": "code"}
+  ],
+  "blockers": [],
+  "notes": [
+    "DEV-2197 origin commit (5b6a7acbb) scoped the notice as full-dark only; partial GPS loss not detected — not touched here.",
+    "Both render sites are adminMode-gated (noKitsReporting requires mapStore.adminMode) — drivers never see this; no driver-side impact.",
+    "No existing composable implements a session-scoped, auto-resetting dismiss — useInstallPrompt/useCollapsible are permanent-until-changed localStorage patterns. This introduces a small new in-memory pattern.",
+    "npm run build + commit public/build/ required before ship (platform-commits-built-assets); no JS test runner."
+  ],
+  "tests": [
+    {"file": "N/A — no JS test runner in this repo", "what_it_pins": "Vue SPA-only change (App.vue), no PHP logic touched. Verification is agent/human QA of the Org Map admin view with noKitsReporting seeded true: dismiss control appears + works, map unobstructed after dismissal, notice reappears after a position-arrive-then-drop cycle, fresh page load resets dismissal."}
+  ],
+  "grounding": {
+    "key_files": {
+      "resources/js/clarity-scout/App.vue:33-48": "Centered notice card — pointer-events-none fixed inset-0 z-30; the customer complaint; no close control.",
+      "resources/js/clarity-scout/App.vue:78-90": "Bottom amber pill — pointer-events-auto, same message, already non-blocking; no close control.",
+      "resources/js/clarity-scout/App.vue:324-336": "noKitsReporting computed — reactive on adminMode, liveMode, drivers.length, driverPositions.length, statsByRange.today.scans_today.",
+      "resources/js/clarity-scout/composables/useBirdsEyePolling.js:11,26-37": "~10s poll refreshing driverPositions/stats while adminMode+liveMode — makes AC3 auto-hide work today.",
+      "resources/js/clarity-scout/components/Toast.vue:32-41": "Existing ✕ dismiss-button convention (aria-label=Dismiss, X SVG) — pattern to reuse.",
+      "resources/js/clarity-scout/birdseye.js": "Mounts the same App.vue with adminMode on — fix covers Bird's Eye by construction."
+    },
+    "code_flow": "adminMode set from window config at store init → useBirdsEyePolling (self-gated) polls driverPositions/stats every ~10s → noKitsReporting recomputes on store mutation → both v-if sites re-render. Dismissal adds one reactive layer (noticeDismissed ref + watcher on noKitsReporting) inside App.vue script setup gating the same v-if expressions.",
+    "tables": [],
+    "related_components": ["stores/map.js (adminMode, liveMode, drivers, driverPositions)", "stores/dashboard.js (statsByRange.today.scans_today)", "composables/useBirdsEyePolling.js"]
+  },
+  "exhaustiveness": {
+    "grep_patterns_used": ["git grep -n noKitsReporting -- resources/js/**", "git grep -n 'reporting GPS|live locations aren' -- resources/js/**", "git grep -n 'clarity-scout/App' + App.vue mount refs", "repo-wide sessionStorage/localStorage grep"],
+    "sites": [
+      {"site": "App.vue:37 (v-if centered card)", "status": "buggy", "reason": "No dismiss control; the reported bug's source."},
+      {"site": "App.vue:45-46 (card text)", "status": "buggy", "reason": "Same site; message fine, missing close affordance is the defect."},
+      {"site": "App.vue:81 (v-if bottom pill)", "status": "safe", "reason": "Already non-obstructive (bottom-anchored); lacks a close control — needs one if it becomes the surviving surface."},
+      {"site": "App.vue:89 (pill text)", "status": "safe", "reason": "Duplicate message; not itself buggy."},
+      {"site": "App.vue:330-336 (computed)", "status": "safe", "reason": "Correctly reactive; add the dismissal-reset watcher alongside."}
+    ],
+    "confirmed": "noKitsReporting and the notice strings appear ONLY in App.vue (3 sites) — confirmed via git grep across resources/js. No external caller/mount references the notice.",
+    "existing_dismiss_patterns": "No sessionStorage anywhere in resources/js. localStorage dismiss patterns (useInstallPrompt scanner_install_dismissed, useCollapsible, DriverSelector scanner_org_map_drivers_expanded) are all permanent preferences — none fits the 'until next session' ask; a plain in-memory ref is the right shape."
+  },
+  "data_impact": {"pg_tables": [], "ch_tables": [], "mv_or_cdc_implications": "None — frontend-only; trigger condition driven entirely by existing client-side store state.", "indexes_relied_on": []},
+  "derivation_log": [],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "AC1 dismiss at any time", "kind": "agent", "intent": "Org Map admin with noKitsReporting seeded true; verify close control present and click hides the notice."},
+      {"ac": "AC2 map interactive after dismissal", "kind": "agent", "intent": "After dismiss, verify no overlay intercepts pointer events / covers map center; pan the map."},
+      {"ac": "AC3 auto-hide when kits report", "kind": "agent", "intent": "Transition driverPositions empty→non-empty; confirm notice hides without a dismiss click (regression of the reactive computed)."},
+      {"ac": "AC4 no reappear until next session / meaningful change", "kind": "human", "intent": "Dismiss, then simulate positions present→absent again → notice reappears; separately reload the page in the no-GPS state → fresh undismissed session."}
+    ],
+    "seed_scenario": "Admin Org Map (Bird's Eye) with adminMode true: org with >=1 non-deleted kit (drivers.length>0), zero clarity.sc_positions rows for the org's kits today (driverPositions empty), >=1 scan today (statsByRange.today.scans_today>0) → noKitsReporting true. Mirrors DEV-2197 QA seed (docker CH, dev-login into Bird's Eye).",
+    "personas": [{"role": "Org admin (Bird's Eye / Org Map viewer)", "why": "Only adminMode users ever see this notice."}],
+    "pg_tables": [],
+    "ch_tables": ["clarity.sc_positions", "clarity scans (scans_today stat)"]
+  },
+  "confidence": 82,
+  "escalate": {"recommend": true, "reason": "Design decisions open (dismissal mechanism, one vs two surfaces). Not blockers to coding, but they set the diff shape."},
+  "escalation_handling": "best-of-N skipped by driver judgment: scope is fully grounded (single non-exported component-local symbol in one file), so multi-candidate reconcile cannot add scope/root-cause information; the only open items are product decisions no prep candidate can resolve. Routed to the Phase 2 human interview instead. gate=BLOCKED enforces the interview regardless."
+}

@@ -1,0 +1,21 @@
+{
+  "recall_model": "haiku",
+  "recalled_at": "2026-09-09",
+  "knowledge_cards": [
+    {"path": "clarity/filament-tables.md", "why": "Filament widget/table traps: deferLoading hides rows from HTTP checks (verify card values in a browser or in-process, not curl); asserting a config is not asserting it renders."},
+    {"path": "clarity/testing.md", "why": "Local test-run traps: full suite needs php -d memory_limit=2G vendor/bin/phpunit (artisan test OOMs at exit 0); RequiresClickhouse truncates LITERAL clarity/zod, so local CH DBs must use those names; CLICKHOUSE_DRIVER=pgsql silently skips every CH test."},
+    {"path": "clickhouse/core.md", "why": "Cross-app CH rules: PG is source of truth and CH lags via CDC; bounded time ranges + indexed filters + deterministic ORDER BY; purge/cleanup classes are blast-radius."}
+  ],
+  "precedents": [
+    {"key": "DEV-2463", "status": "QA Complete / merged (#392, 012030f3)", "age": "1 day", "relevance": "Ships UniqueLprCaseClaimsQuery -- THIS ticket's denominator, to be reused not re-ported. Also the claim CTE, insightlpr exclusion and dedup triple.", "applicable": "yes -- direct dependency; its query class and card are the primary precedent"},
+    {"key": "DEV-2467", "status": "QA Complete / merged (#393, 00a89c51)", "age": "0-1 day", "relevance": "Unique Scan Counts card: uniqExact(ocr) unit, BatchMonthlySparklineData sparkline, toStat pattern, same epic and same grid.", "applicable": "yes -- closest structural sibling; also the source of Oscar's confirmed 'unique scans' = period-distinct uniqExact(ocr) unit"},
+    {"key": "DEV-2460", "status": "QA Complete", "age": "9 days", "relevance": "Company Metrics foundation: mockup grid order, the lockedStat() Pro-gate seam, canViewCardData() gating BEFORE toStat(), and the mockup slot confirmation that closes 'where does the card sit'.", "applicable": "yes -- defines the seams this card must plug into"},
+    {"key": "DEV-2409", "status": "merged (#394, 9569ae76)", "age": "hours", "relevance": "Parent epic; shipped the five stub cards INCLUDING UniqueScansToCaseClaims at row 2 col 3. This ticket replaces that stub body in place.", "applicable": "yes -- determines that no new cards() registration is needed"},
+    {"key": "DEV-2406", "status": "Done", "age": "~5 days", "relevance": "Plate-level dedup metrics: uniqExact over bare count() on hits_cold, FINAL overhead, and the trait-static memo trap that multiplied CH scans across hit widgets.", "applicable": "yes -- the uniqExact/count and FINAL reasoning transfers directly to the 1.54x duplicate hazard called out in the ticket"},
+    {"key": "DEV-2423", "status": "Done", "age": "~5 days", "relevance": "Four plate-level unique-scan cards; multi-card series + BatchMonthlySparklineData pattern.", "applicable": "yes -- sparkline batching precedent"}
+  ],
+  "notes": [
+    "DEV-2463 and DEV-2460 were recovered from git log, not the JQL window -- their resolution timestamps sit outside the 180d resolution-changed filter used.",
+    "precedents are INPUT for prep candidates, never copied as decisions."
+  ]
+}

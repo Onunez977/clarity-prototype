@@ -1,0 +1,250 @@
+{
+  "generated_at": "2026-09-16T17:45:00Z",
+  "key": "DEV-2586",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "synthesis": "The Company Metrics 'LPR Recovery Leaderboard' collapsed card (RecoveryLeader::toStat()) headlines the leader's recovery-share count and a sparkline but never names the leading kit. The name is already computed and available -- leaderboardForSelectedRange() returns ['leader']['name'] and toStat() simply discards it. So this is a pure presentation gap, not a query gap. The complication: those name lines were REMOVED on purpose (commit 304d3c77e, 'Per Oscar, the Recovery Leaderboard card drops its leader/runner-up lines'), and a regression test pins that removal. The newer sibling card UniqueScansLeaderboard (DEV-2468) nonetheless ships a single-line ->description('Top Kit: ...'), so the grid is already inconsistent. Reversing Oscar's call is a product decision, not a code decision.",
+  "scope": {
+    "summary": "Add the leading kit's name as a single ->description('Top Kit: ...') line to the collapsed Stat of BOTH RecoveryLeader and StagingLiveHitLeader, mirroring UniqueScansLeaderboard, and update the RecoveryLeader tests that currently pin the no-names behaviour.",
+    "proposed_changes": [
+      {
+        "file": "app/Filament/Widgets/Dashboard/RecoveryLeader.php",
+        "change": "In toStat(), capture leaderboardForSelectedRange() once and add ->description('Top Kit: '.($leader['name'] ?? 'N/A')); update the toStat() docblock, which currently documents the opposite ('no names ... dropped so this card is the same height as its siblings').",
+        "reason": "toStat() builds Stat::make(...)->chart(...)->color('info') with no ->description() while ['leader']['name'] is already computed and unused.",
+        "ref": "app/Filament/Widgets/Dashboard/RecoveryLeader.php:234-244"
+      },
+      {
+        "file": "tests/Filament/Widgets/Dashboard/RecoveryLeaderTest.php",
+        "change": "Rework assertNoLeaderboardCardNames() and its 6 call sites to assert the LEADER name is present in the Stat description while the runner-up remains absent; rename/rewrite test_collapsed_card_headlines_the_leader_count_without_the_names and re-evaluate test_collapsed_card_never_carries_long_kit_names.",
+        "reason": "These tests deliberately encode the removal and will fail unmodified.",
+        "ref": "tests/Filament/Widgets/Dashboard/RecoveryLeaderTest.php:171,219,287,292,297,302,308,335,479"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/StagingLiveHitLeader.php",
+        "change": "In toStat(), replace the bare collect(...)->max('total') with sortByDesc('total')->first() so the count and the name come from the SAME row, then add ->description('Top Kit: '.($leader['name'] ?? 'N/A')). Keep the headline value numerically identical to today's max('total').",
+        "reason": "Identical no-name gap; scope widened by operator decision 2026-09-16. max('total') returns only a scalar, so a name cannot be derived from it without a second pass that could disagree with the displayed total.",
+        "ref": "app/Filament/Widgets/Dashboard/StagingLiveHitLeader.php:234-244"
+      },
+      {
+        "file": "tests/Filament/Widgets/Dashboard/StagingLiveHitLeaderTest.php",
+        "change": "Add a test asserting the collapsed Stat description names the leading kit, and that the headline value is unchanged from the max('total') behaviour.",
+        "reason": "No existing test pins name presence/absence on this card, so the coverage is additive rather than an inversion.",
+        "ref": "tests/Filament/Widgets/Dashboard/StagingLiveHitLeaderTest.php"
+      }
+    ],
+    "target_files": [
+      "app/Filament/Widgets/Dashboard/RecoveryLeader.php",
+      "app/Filament/Widgets/Dashboard/StagingLiveHitLeader.php",
+      "tests/Filament/Widgets/Dashboard/RecoveryLeaderTest.php",
+      "tests/Filament/Widgets/Dashboard/StagingLiveHitLeaderTest.php"
+    ],
+    "out_of_scope": [
+      "app/Clickhouse/Queries/RecoveryLeaderQuery.php and KitUserRecoveryLeaderboardQuery.php -- no query change needed, the name is already selected.",
+      "app/Filament/Widgets/KitUserRecoveries/LeaderboardTableWidget.php -- the full leaderboard table already shows kit names.",
+      "The runner-up name on either collapsed card -- the ticket asks only for the leader, and the sibling convention shows only the leader. Oscar released both names; only one is being restored.",
+      "Card height / grid CSS -- no CSS change. theme.css:171 already reserves description space on every card (min-h-47 = 188px).",
+      "UniqueScansLeaderboard -- already correct; it is the reference pattern."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "The collapsed LPR Recovery Leaderboard card displays the leading kit's name alongside its recovery count",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Directly requested; the name is already returned by the query, so this is a view-layer addition."
+    },
+    {
+      "item": "The name tracks the selected date filter (today / last_7d / last_month / this_month)",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "leaderboardForSelectedRange() threads all four arms into one leader pair; the description must read that same call, not a second query."
+    },
+    {
+      "item": "The expanded chart view (getDescription()) keeps naming leader + runner-up, unchanged",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Not touched by this fix; it already shows both names and is where Oscar wanted them."
+    },
+    {
+      "item": "Card height parity with its row siblings is preserved",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Height parity is the exact reason the names were removed (commit 304d3c77e). A single description line matches UniqueScansLeaderboard, which already ships one in the same grid."
+    },
+    {
+      "item": "The collapsed Staging Live Hit Leader card also displays its leading kit's name, and its headline value is unchanged",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Operator widened scope on 2026-09-16 so all three leaderboard cards are consistent. The headline must not shift: today it is max('total'), and the fix must keep that exact number while sourcing the name from the same row."
+    }
+  ],
+  "questions": [
+    {
+      "q": "This reverses an explicit product decision: commit 304d3c77e says 'Per Oscar, the Recovery Leaderboard card drops its leader/runner-up lines -- the names still render on the expanded chart's getDescription(), which is where he wanted them', and test_collapsed_card_headlines_the_leader_count_without_the_names pins it. The newer sibling UniqueScansLeaderboard (DEV-2468) does show 'Top Kit: {name}' on its collapsed stat. Add the leader name back to this card (one line, sibling style), or close the ticket as working-as-designed and point QA at the expanded chart?",
+      "answered": true,
+      "answer": "Add the leader name back. PROVENANCE RESOLVED: the decision is DEV-2324 comments 38495/38497/38501 (2026-08-20). Oscar asked only for HEIGHT ('same hight as the metrics at the top of the dashboard... minimize the amount of scrolling'); the names were the price Dalton offered in 38497, and Oscar accepted with 'we can lose those 2 names from the card. we can always display those on the expanded view.' That price no longer exists: resources/css/filament/app/theme.css:171 documents min-h-47 = 188px and states 'Every card is the same height whether or not it has a description'. Description space is reserved on every card, so one line costs 0px and Oscar's height constraint stays satisfied. He also released TWO names; this restores only the leader.",
+      "source": "human:Dalton 2026-09-16 (grounded in Jira DEV-2324 comments 38495/38497/38501 + theme.css:171)"
+    },
+    {
+      "q": "StagingLiveHitLeader has the identical gap. Fix only the ticketed card, or both leaderboards so all three are consistent?",
+      "answered": true,
+      "answer": "Fix BOTH leaderboards. RecoveryLeader and StagingLiveHitLeader both get the leader name, so all three leaderboard cards read consistently with UniqueScansLeaderboard.",
+      "source": "human:Dalton 2026-09-16"
+    },
+    {
+      "q": "Copy for the new line: 'Top Kit: {name}' (matches the sibling card verbatim) or wording using the ticket's 'Kit User' phrasing? Note okf/concepts/kit.md records that the value is the KIT's name and that the 'Kit User' framing survives only in the KitUserPath / KitUserRecoveries pages.",
+      "answered": true,
+      "answer": "'Top Kit: {name}' \u2014 byte-identical to UniqueScansLeaderboard. Confirmed appropriate for StagingLiveHitLeader too: its leaderboard rows are ['id','name','total'] keyed on kits, same as the sibling.",
+      "source": "human:Dalton 2026-09-16"
+    },
+    {
+      "q": "Does the underlying ClickHouse query already return the kit name, or must it be resolved separately?",
+      "answered": true,
+      "answer": "Already returned. RecoveryLeaderQuery joins clarity.kits and selects k.name; summarizeMonth() normalizes it into ['leader']['name']. No query, join, or cross-connection lookup is needed -- this is presentation only.",
+      "source": "code"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "Verified by the driver, not just reported by prep: commit 304d3c77e's message, RecoveryLeader::toStat() (no ->description()), UniqueScansLeaderboard::toStat() (:234 has ->description('Top Kit: ')), and the 9 pinning-test sites.",
+    "Driver-run exhaustiveness sweep over every app/Filament/Widgets/Dashboard/*.php card that defines toStat(): KitUsers HAS-DESC (unrelated content), UniqueScansLeaderboard HAS-DESC ('Top Kit: '), RecoveryLeader NO-DESC (this ticket), StagingLiveHitLeader NO-DESC (same gap, unticketed), UniqueScansToCaseClaims / UniqueScansToLprRepossession / UniqueScansToRepo NO-DESC (ratio cards, no leader to name -- safe).",
+    "Keep the docblock edit short -- the user's standing preference is sparse comments.",
+    "Run `composer format` (Pint) before finishing, per CLAUDE.md.",
+    "Q1 provenance resolved from the primary source, not the commit message: Jira DEV-2324 comments 38495 (Oscar asks for height), 38497 (Dalton offers the names as the cost), 38501 (Oscar: 'we can lose those 2 names from the card'). The height cost was later removed by theme.css:171 (min-h-47 = 188px, description space reserved on every card).",
+    "StagingLiveHitLeader has NO existing assertion about name presence, so unlike RecoveryLeader its test work is additive, not an inversion of a deliberate pin."
+  ],
+  "tests": [
+    {
+      "file": "tests/Filament/Widgets/Dashboard/RecoveryLeaderTest.php",
+      "what_it_pins": "Currently pins the ABSENCE of names on the collapsed stat across all four date arms plus a long-name guard. Must be inverted for the leader while keeping the runner-up absent."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Filament/Widgets/Dashboard/RecoveryLeader.php:225-244",
+      "app/Filament/Widgets/Dashboard/RecoveryLeader.php:184-226",
+      "app/Filament/Widgets/Dashboard/UniqueScansLeaderboard.php:228-239",
+      "app/Filament/Widgets/Dashboard/StagingLiveHitLeader.php:234-244",
+      "app/Clickhouse/Queries/RecoveryLeaderQuery.php:9-47",
+      "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php:26-70",
+      "tests/Filament/Widgets/Dashboard/RecoveryLeaderTest.php:171,219,287,292,297,302,308,335,479"
+    ],
+    "code_flow": "CompanyMetricsOverview::getStats() -> RecoveryLeader::toStat() -> leaderboardForSelectedRange() -> queryClickhouse()/getMonthlyData() -> RecoveryLeaderQuery (ClickHouse, cached) returns [kit name => share] -> summarizeMonth() picks leader/runner_up -> Stat::make(count) currently discards leader['name']. The expanded chart's getDescription() already uses both names.",
+    "tables": [
+      "clarity.recovery_scans",
+      "clarity.recoveries",
+      "clarity.kits"
+    ],
+    "related_components": [
+      "CompanyMetricsOverview",
+      "RendersDashboardStat",
+      "UniqueScansLeaderboard",
+      "StagingLiveHitLeader"
+    ]
+  },
+  "exhaustiveness": {
+    "grep_patterns": [
+      "for f in app/Filament/Widgets/Dashboard/*.php: awk '/function toStat/,/^    }/' | grep -- '->description('",
+      "grep -ril 'recovery leaderboard' app resources",
+      "grep -rn 'assertNoLeaderboardCardNames|without_the_names|never_carries_long_kit_names' tests/"
+    ],
+    "sites": [
+      {
+        "file": "app/Filament/Widgets/Dashboard/RecoveryLeader.php",
+        "verdict": "buggy",
+        "reason": "The ticketed card: toStat() has no ->description() though the leader name is computed."
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/StagingLiveHitLeader.php",
+        "verdict": "buggy",
+        "reason": "Identical omission on a leaderboard card. Surfaced as Q2; operator chose to fix it in this ticket, so it is now IN scope."
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueScansLeaderboard.php",
+        "verdict": "safe",
+        "reason": "Already renders ->description('Top Kit: ...'); it is the reference pattern."
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php",
+        "verdict": "safe",
+        "reason": "Ratio card, no leader entity to name."
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueScansToLprRepossession.php",
+        "verdict": "safe",
+        "reason": "Ratio card, no leader entity to name."
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueScansToRepo.php",
+        "verdict": "safe",
+        "reason": "Ratio card, no leader entity to name."
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/KitUsers.php",
+        "verdict": "safe",
+        "reason": "Has a ->description() already; content is an inactive-kit count, unrelated to leader naming."
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [],
+    "ch_tables": [
+      "clarity.recovery_scans",
+      "clarity.recoveries",
+      "clarity.kits"
+    ],
+    "mv_or_cdc_implications": "None. No query, schema, MV or CDC change -- the value is already fetched and cached; only its rendering changes.",
+    "indexes_relied_on": []
+  },
+  "resource_envelope": {
+    "scale_relevant": false,
+    "trigger": "Presentation-only change to an already-computed, already-cached value inside a Filament dashboard card. No command, job, query class or migration; no new per-row lookup; no change to the ClickHouse query, its LIMIT, or its cache TTL.",
+    "driving_tables": [],
+    "growth": "",
+    "schedule": null,
+    "allocation_sketch": "",
+    "oracle_status": "n/a -- not scale_relevant, no probe run",
+    "unresolved": []
+  },
+  "derivation_log": [],
+  "missed_caller_candidates": [],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC-1",
+        "kind": "agent",
+        "intent": "Seed a RecoveryLeaderQuery bucket with a known leader/runner-up, load Company Metrics, assert the collapsed LPR Recovery Leaderboard Stat description names the leader."
+      },
+      {
+        "ac": "AC-2",
+        "kind": "agent",
+        "intent": "Switch each date filter and assert the shown name tracks that window's leader."
+      },
+      {
+        "ac": "AC-3",
+        "kind": "agent",
+        "intent": "Expand the card and assert getDescription() still names leader and runner-up."
+      },
+      {
+        "ac": "AC-4",
+        "kind": "human",
+        "intent": "Visually confirm the card's height still matches its row siblings at lg/md/default breakpoints."
+      }
+    ],
+    "seed_scenario": "One org with a cached RecoveryLeaderQuery bucket for this_month (e.g. two kits with distinct shares) and a second bucket for last_month, so the collapsed card and the expanded chart can be checked against the same known leader.",
+    "personas": [
+      "ADMIN or USER role -- RecoveryLeader::canView() requires RoleEnum::ADMIN or RoleEnum::USER"
+    ],
+    "pg_tables": [],
+    "ch_tables": [
+      "clarity.recovery_scans",
+      "clarity.recoveries",
+      "clarity.kits"
+    ]
+  },
+  "confidence": 94,
+  "escalate": {
+    "recommend": true,
+    "reason": "Prep reported confidence 78 with a product-decision conflict. The driver resolved every CODE claim by direct verification (commit message, both toStat bodies, the pinning tests, a full sweep of all 7 dashboard toStat cards) rather than dispatching 3 blind best-of-N candidates, because the residual open questions are product decisions that no additional code-reading pass can settle. Confidence raised to 88 on the code facts; the gate is BLOCKED on the product questions."
+  }
+}

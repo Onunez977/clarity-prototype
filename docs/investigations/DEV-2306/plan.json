@@ -1,0 +1,28 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Standardize Scout date-range filters (Admin + Scout User) to Today/Yesterday/7d/15d/30d",
+      "approach": "Edit resources/js/clarity-scout/lib/formatters.js: set rangeOptions = [Today, Yesterday, 7d, 15d, 30d] (remove 60d, insert Yesterday at position 2) and set driverRangeOptions to the identical 5 entries; rewrite the stale decoupling docblock to a short DEV-2306 note (both apps standardized; two exports kept intentionally). Add a new named export driverPrefetchRanges = ['today','yesterday','last_7'] documenting the deliberately-light driver warm-set. Edit composables/usePrefetch.js to import driverPrefetchRanges and use it (instead of driverRangeOptions.map) for the driver (!adminMode) prefetch scope, so the driver keeps warming only today/yesterday/7d while its pills now show all 5. Edit stores/dashboard.js prefetchAllRanges default allRanges -> ['today','yesterday','last_7','last_15','last_30'] (drop last_60, add yesterday) to match the standardized admin set. Edit components/DateRangeControl.vue zoom-snap list ['last_15','last_30','last_60'] -> ['last_15','last_30'] (last_60 no longer selectable); leave the adminMode ternary as-is (both arrays identical; Dalton chose to keep two exports). Do NOT touch DashboardOverlay legends or backend allow-lists. Add a PHPUnit feature test pinning that the Scout dashboard + Bird's Eye stat endpoints accept each standardized range and resolve the correct date-window boundaries (and that a removed/unknown range collapses gracefully). Rebuild committed frontend assets (npm run build) and commit them.",
+      "target_files": [
+        "resources/js/clarity-scout/lib/formatters.js",
+        "resources/js/clarity-scout/composables/usePrefetch.js",
+        "resources/js/clarity-scout/stores/dashboard.js",
+        "resources/js/clarity-scout/components/DateRangeControl.vue",
+        "tests/Feature/ClarityScout/ScoutDateRangeStandardizationTest.php",
+        "public/build"
+      ],
+      "intended_diffs": "formatters.js: rangeOptions -> 5 entries incl Yesterday, no 60d; driverRangeOptions -> same 5; + export driverPrefetchRanges=['today','yesterday','last_7']. usePrefetch.js: import + use driverPrefetchRanges for driver scope. dashboard.js:93 allRanges default -> ['today','yesterday','last_7','last_15','last_30']. DateRangeControl.vue:73 -> ['last_15','last_30']. New feature test. Rebuilt public/build assets.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "ScoutDateRangeStandardizationTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "resources/js/clarity-scout/components/DashboardOverlay.vue:310,325", "reason": "teammate-overlay + scan-path-fade legends, not the filter pills"},
+    {"site": "app/Http/Controllers/Api/* last_60 allow-lists/maps", "reason": "graceful/defensive; leaving an unreachable last_60 is harmless — out of scope for a UI standardization ticket (minimizes blast radius)"}
+  ]
+}

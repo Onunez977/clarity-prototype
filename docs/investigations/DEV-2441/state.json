@@ -1,0 +1,655 @@
+{
+  "key": "DEV-2441",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "deploy",
+  "base_branch_reason": "Operator instruction 2026-08-27: the PR targets deploy. Route detection had chosen main (bug route). main and deploy have genuinely diverged (deploy +4, main +83), so retargeting the existing main-based branch would have shown a 43-file diff carrying 83 unrelated commits. Instead cut claude/DEV-2441-deploy from origin/deploy and applied only the 6 touched files \u2014 safe because all 6 are byte-identical between main and deploy and DEV-2177's sc_positions rework is already on deploy (verified). Dual-PR: #373 -> deploy (primary), #372 -> main (companion, so the fix is not lost at the next release).",
+  "branch": "claude/DEV-2441-deploy (primary) / claude/DEV-2441 (main companion)",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 1100
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 642
+    },
+    {
+      "slot": "review-rn2",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 631
+    },
+    {
+      "slot": "review-rn3",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 541
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "clickhouse/core.md"
+  ],
+  "escalated": false,
+  "escalation_triggers": [
+    "5 answered:false questions",
+    "3 blockers",
+    "confidence 55 < 80",
+    "escalate.recommend=true",
+    "competing hypotheses in the ticket (3 suspected root causes)",
+    "unmerged-branch dependency: DEV-2222 / PR #320 carries the fix for the same defect"
+  ],
+  "best_of_n": false,
+  "needs_human_interview": false,
+  "missed_caller_candidates": [
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+      "symbol": "KitRangePathsQuery",
+      "referenced_at": "historicalContinuousPaths() \u2014 shares the defect and the blast radius of any shared-query-class change"
+    },
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutMapController.php",
+      "symbol": "KitScanPathsQuery",
+      "referenced_at": "kitPosition() tier-2 \u2014 shared query class"
+    },
+    {
+      "file": "resources/js/clarity-scout/stores/map.js",
+      "symbol": "KitRangePathsQuery",
+      "referenced_at": "frontend consumer of the Bird's Eye endpoint backed by the same query"
+    }
+  ],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [
+      "clarity.sc_positions",
+      "clarity.kit_scan_paths"
+    ],
+    "approach": "per-(kit, local day) kit_scan_paths fallback tier",
+    "measurement": "sc_positions 331,106,659 rows; kit_scan_paths 1,680,578 rows \u2014 neither >1B, so no deferred-perf gate applies",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "bea2f0590d579152b76928d94cb724e1b706adfe",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "claude/DEV-2441 (single-node fast path, on-branch)",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 3,
+  "pr": {
+    "number": 373,
+    "url": "https://github.com/insight-lpr/platform/pull/373",
+    "draft": true
+  },
+  "pr_urls": {
+    "deploy": "https://github.com/insight-lpr/platform/pull/373",
+    "main": "https://github.com/insight-lpr/platform/pull/372"
+  },
+  "jira_in_progress_by": "pipeline-mcp @ 2026-08-27T16:20:00Z",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "Transitioned To Do -> In Progress at Phase 4 and In Progress -> In Code Review at handoff, both via the Atlassian MCP. The DEV board has no draft-aware GH Action, and its transitions are all isGlobal:true so \"offered means not there yet\" does not hold \u2014 decided from the fetched status each time. This is the designed pipeline fallback working, NOT a manual human intervention.",
+  "assumed": [],
+  "comment_ids": {
+    "status": "38628",
+    "build_record": "38636"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "resource_envelope": {
+      "path": ".context/qa-resource-envelope.json",
+      "verdict": "PASS",
+      "basis": "measured",
+      "scoped_org": 469,
+      "peak_rss_bytes": 165036032,
+      "php_payload_peak_mb": 37.1,
+      "bytes_per_point": 92,
+      "wall_clock_seconds": 0.047,
+      "projected_web_peak_mb": 116.1,
+      "web_limit_mb": 256,
+      "headroom_fraction_used": 0.45,
+      "extrapolation_factor": 1.0,
+      "seeded_points": 423375,
+      "production_points": 424929,
+      "note": "Direct measurement at org 469's exact 30-day production volume for its 8 reported kits \u2014 factor 1.00, not an extrapolation. Budget ceiling (1.5M pts) now projects ~217 MB vs ~567 MB before the ClickHouse pre-encoding, which is what closes the RN3 HIGH."
+    },
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "n/a",
+      "ch_container": "reused",
+      "frontend_build": "n/a",
+      "postgres_db": "zod_claude_dev_2441_6805e6 (+ testing zod_testing_claude_dev_2441_6805e6)",
+      "ch_strategy": "docker (literal clarity/zod on 127.0.0.1:18123)",
+      "herd_site": "clarity-claude_dev_2441_6805e6 \u2014 SERVING (outage root-caused and repaired)",
+      "plans_written": true,
+      "provision_mode": "full",
+      "seed_method": "tinker"
+    },
+    "provisioned_early": true,
+    "human_guide": ".context/qa-human-guide.html",
+    "human_guide_revision": 3,
+    "human_qa": {
+      "completed_by": "human:Dalton 2026-08-28",
+      "result": "clean \u2014 nothing to report",
+      "judgement_calls": {
+        "hp-4 sparse kit renders only its GPS day": "ACCEPTABLE to ship (ratified 2026-08-28); recorded as a known limitation, DEV-2341 stays open",
+        "hp-6 visual coherence of mixed tier-1/tier-2 routes": "no issue reported"
+      }
+    },
+    "teardown_note": "MANUAL, surgical teardown \u2014 deliberately NOT qa-complete's down.sh drop path. This worktree used the SHARED LITERAL clarity/zod ClickHouse databases (the repo hardcodes those names in ~15 query classes), and the same container also hosts clarity_claude_dev_2409 and clarity_claude_dev_2426. Dropping the databases or stopping the container would have broken two other worktrees. Done: deleted only the seeded rows (org 5 from kit_scan_paths, qa-* mappings from sc_positions \u2014 both verified 0 remaining); dropped the two provably per-worktree Postgres DBs behind a name guard (shared zod/zod_testing verified intact); restored MAIL_MAILER=smtp; unlinked the per-worktree Herd site (6 other worktree sites verified still linked); deleted the ledger. NOT restored: CLICKHOUSE_HOST to Cloud \u2014 the original readonly_user password was replaced in Phase 4 and is not recoverable from the ledger, so restoring the host alone would leave a broken half-config; and the pipeline's own rule is never to wire Cloud into a worktree. Left pointing at the local container, which is both safe and the documented preference."
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact tests/Feature/Http/Controllers/KitUserPathControllerTest.php tests/Unit/Clickhouse/Queries/KitScanPathsQueryTest.php tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php",
+        "passed": 143,
+        "failed": 0,
+        "note": "driver-verified independently of the worker's report; 0 skipped, so ClickHouse genuinely exercised. Per-file: KitUserPathControllerTest 21, KitScanPathsQueryTest 6, ClarityScoutBirdsEyeControllerTest 51, ClarityScoutMapControllerTest 65."
+      },
+      {
+        "cmd": "vendor/bin/pint --dirty --format agent",
+        "passed": 1,
+        "failed": 0,
+        "note": "passed"
+      }
+    ],
+    "deviations": [
+      {
+        "source": "implement",
+        "edit": "kitsByMapping() kept its original signature and its own Kit::query()->whereIn() rather than sharing one query with the new kitsById()",
+        "ac_ref": null,
+        "ac_delta": null,
+        "why": "Minimal-risk: two cheap single-request Kit queries vs. changing a shared helper's contract. Same query shape as the pre-existing method, so no new tenancy pattern was introduced."
+      }
+    ],
+    "review": {
+      "lanes": [
+        "claude1",
+        "claude2",
+        "claude3"
+      ],
+      "scores": [
+        72,
+        78,
+        62
+      ],
+      "gate": "FAIL \u2014 MIN 62 < 90 (gate is MIN across lanes, never average)",
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "harness-claude-p"
+        },
+        {
+          "lane": "claude2",
+          "source": "harness-claude-p"
+        },
+        {
+          "lane": "claude3",
+          "source": "harness-claude-p"
+        }
+      ],
+      "lane_selection_reason": "3 lanes: semantic-correctness territory (date-boundary logic + counting/dedup) AND resource_envelope.scale_relevant true (ClickHouse query classes).",
+      "findings_confirmed_by_driver": [
+        {
+          "id": "F1",
+          "severity": "HIGH",
+          "lanes": [
+            "claude1",
+            "claude2",
+            "claude3"
+          ],
+          "finding": "Tier-2 kit_scan_paths read is unbounded/unbudgeted, materializes points in PHP, is cached, AND fires for effectively every kit on every multi-day window.",
+          "driver_verification": "CONFIRMED EMPIRICALLY. Measured windowDayCount per toggle: yesterday=1, 7_days=8, 15_days=16, 30_days=31. A kit is skipped only with tier-1 segments on EVERY window day including today (in progress), so essentially none qualify. The window-day skip was inert and the read fired for all selected kits \u2014 strictly worse than PR #320, which only read for zero-coverage kits. This was the DRIVER'S design error: the worker was told the design 'preserves PR #320's allocation property'; it did not.",
+          "resolution": "Operator chose to REVERT R3 to PR #320's per-kit-whole-window eligibility rather than add a tier-2 budget."
+        },
+        {
+          "id": "F2",
+          "severity": "MEDIUM",
+          "lanes": [
+            "claude1",
+            "claude2",
+            "claude3"
+          ],
+          "finding": "The 'a GPS-healthy org issues no tier-2 read at all' invariant is false for every toggle except 'yesterday', and the test certifying it uses only 'yesterday'.",
+          "driver_verification": "CONFIRMED \u2014 the test sets date_toggles='yesterday' (windowDayCount=1, the only value where it can hold).",
+          "resolution": "Comment rewritten to the true property; test rewritten against a multi-day toggle."
+        },
+        {
+          "id": "F3",
+          "severity": "MEDIUM",
+          "lanes": [
+            "claude2",
+            "claude3"
+          ],
+          "finding": "KitScanPathsQuery::handle() filters the window with the RAW timezone but labels trip_date with the WHITELISTED one; for a legacy/aliased identifier they diverge and the R7 fix silently does nothing.",
+          "driver_verification": "CONFIRMED from source. The driver had noticed this asymmetry during its own diff review and wrongly dismissed it as defensive depth. The lanes were right.",
+          "resolution": "Use $safeTimezone for both the bounds and the label."
+        },
+        {
+          "id": "F4",
+          "severity": "MEDIUM",
+          "lanes": [
+            "claude2"
+          ],
+          "finding": "New kit_scan_paths fixtures use hardcoded absolute dates under the table's 90-day DELETE TTL \u2014 they go red on a date certain, undiagnosably.",
+          "driver_verification": "CONFIRMED. Fixtures use 2026-07-14/16/18/20 and 2026-08-27/28; the TTL is `toDateTime(timestamp) + toIntervalDay(90)` (verified on the local container). Notably the ClarityScoutBirdsEyeControllerTest added in the SAME diff does it correctly via Carbon::today('UTC') \u2014 the diff is internally inconsistent, and it ignored an explicit instruction to anchor to now().",
+          "resolution": "Re-anchor every CH fixture to a now()-relative base, following the existing frozenNow() pattern."
+        },
+        {
+          "id": "F5",
+          "severity": "MEDIUM",
+          "lanes": [
+            "claude1"
+          ],
+          "finding": "Newly-exposed tier-2 polylines have no zero-geo (0,0) guard, unlike other scan-derived readers in the repo.",
+          "driver_verification": "Accepted as plausible; single-lane finding, and the zero-tolerance floor says never drop one.",
+          "resolution": "Match the repo's existing null-island idiom rather than inventing a filter; add a test."
+        },
+        {
+          "id": "F6",
+          "severity": "LOW",
+          "lanes": [
+            "claude2"
+          ],
+          "finding": "test_a_tier_one_throw_returns_503_and_does_not_fire_tier_two never asserts the second half of its name.",
+          "driver_verification": "CONFIRMED.",
+          "resolution": "Add the assertion."
+        }
+      ],
+      "findings_rejected_with_evidence": [
+        {
+          "id": "claude3-M2",
+          "finding": "countPoints failure reclassified from an actionable 422 to a retry-inviting 503, discarding the over-sized-selection signal.",
+          "verdict": "REJECTED \u2014 misread. The code returns 422 for a SUCCESSFUL over-budget count and 503 only on a THROW (KitUserPathController.php:105-125). The over-sized signal is intact."
+        }
+      ],
+      "findings_ratified_out_of_scope": [
+        {
+          "id": "claude1-H2 / claude3",
+          "finding": "ClarityScoutBirdsEyeController::historicalContinuousPaths() still has the identical sc_positions-only gap and query()-swallow.",
+          "verdict": "RATIFIED OUT OF SCOPE by the operator 2026-08-27; tracked on DEV-2228. An in-code note explains the boundary. This was also the top repeat scorer on DEV-2222, so expect lanes to keep raising it."
+        }
+      ],
+      "findings_residual": [],
+      "rerun_required": false,
+      "reviewed_sha": "6046b5be5ecd92db681b4445eaee6f7d2c75a654",
+      "rework_pivot": false,
+      "known_residual_risk": "Option C (revert R3) mitigates the unbounded-read finding for GPS-HEALTHY orgs but NOT for scan-only orgs: eligibility becomes 'zero tier-1 coverage', which for org 469 is most of its 151 kits. A scan-only org selecting All Kits over 30 days still issues a large unbounded tier-2 read. This is the same exposure PR #320 carried into five failed gates, so RN2 may score it again. Surfaced to the operator BEFORE the fix cycle was spent; the operator reaffirmed the revert.",
+      "rn2": {
+        "lanes": [
+          "claude1",
+          "claude2",
+          "claude3"
+        ],
+        "scores": [
+          62,
+          70,
+          68
+        ],
+        "gate": "FAIL \u2014 MIN 62 < 90",
+        "lane_sources": [
+          {
+            "lane": "claude1",
+            "source": "harness-claude-p"
+          },
+          {
+            "lane": "claude2",
+            "source": "harness-claude-p"
+          },
+          {
+            "lane": "claude3",
+            "source": "harness-claude-p"
+          }
+        ],
+        "outcome": "FIX CYCLE EXHAUSTED (flow allows max 1). Run PARKED non-blocking; no further looping without operator direction.",
+        "h1_recurred": {
+          "finding": "Tier-2 kit_scan_paths read remains unbounded/unbudgeted/PHP-materialized/cached \u2014 all 3 lanes, HIGH, again.",
+          "note": "PREDICTED AND SURFACED TO THE OPERATOR BEFORE the fix cycle was spent; the operator reaffirmed the revert-R3 choice. claude1 now quantifies it: All Kits + 30_days at org 469 = 151 kits x 31 days x up to 96 buckets ~= 449k rows; at PG-022's measured 1.5 KB/point that is ~1.3 GB at 2 points/bucket, ~6.7 GB at 10, against a 256M web memory_limit. PG-022 class."
+        },
+        "regressions_introduced_by_the_fix_cycle": [
+          {
+            "id": "F3-REGRESSION",
+            "severity": "HIGH",
+            "lanes": [
+              "claude1",
+              "claude2",
+              "claude3"
+            ],
+            "finding": "Using $safeTimezone for the WINDOW BOUNDS (not just the SQL label) shifts the query window for any valid-but-non-canonical IANA identifier, across THREE already-shipped production callers (ClarityScoutMapController::todayScanPaths + ::teammatePaths, ClarityScoutBirdsEyeController::todayScanPaths).",
+            "driver_verification": "CONFIRMED EMPIRICALLY. timezone_identifiers_list() returns only canonical zones (419), so US/Central, US/Eastern, US/Pacific and Asia/Calcutta all FAIL the whitelist and fall back to UTC \u2014 a 5-6 hour window shift. Before F3, Carbon::parse($start,'US/Central') handled the alias correctly. So F3 as implemented is a NET REGRESSION versus not having touched the bounds at all.",
+            "root_cause": "THE DRIVER'S F3 INSTRUCTION was wrong in its detail: it said 'use $safeTimezone for both' without accounting for the whitelist rejecting legacy aliases. The correct shape is to CANONICALIZE the alias, not fall back to UTC.",
+            "aggravating": "The worker's new test test_window_bounds_and_trip_date_label_use_the_same_safe_timezone uses the US/Central alias and asserts the unified-to-UTC behaviour \u2014 i.e. it CERTIFIES the defect as correct (claude2 M4).",
+            "verified_minimal_fix": "Whitelist against timezone_identifiers_list(DateTimeZone::ALL_WITH_BC) (598 zones) instead of the canonical-only list. Driver-verified against the live ClickHouse container: toDate(..., 'US/Central'), 'US/Eastern' and 'Asia/Calcutta' all resolve correctly, so SQL stays valid AND injection-safe (still a whitelist) AND the window stops shifting. NOT APPLIED \u2014 the fix cycle is exhausted and applying it unreviewed would trip the rework gate."
+          },
+          {
+            "id": "F5-INCOMPLETE",
+            "severity": "MEDIUM",
+            "lanes": [
+              "claude1",
+              "claude2",
+              "claude3"
+            ],
+            "finding": "The zero-geo guard is (a) an unannounced behaviour change to three untouched production callers with zero test coverage for them, (b) incomplete \u2014 a sibling path_points reader in ClarityScoutMapController:564-589 still renders a null-island dot, and (c) internally inconsistent \u2014 the bbox predicate still tests the UNFILTERED path_points while the length guard three lines above tests the filtered array. Plus the zero-geo test cannot fail for the reason it claims (test integrity)."
+          }
+        ],
+        "residual_scoring_findings": [
+          "H1 \u2014 unbounded/unbudgeted tier-2 read (all 3 lanes, HIGH, both rounds).",
+          "F3-REGRESSION \u2014 window shift for legacy tz aliases across 3 shipped endpoints (all 3 lanes).",
+          "F5-INCOMPLETE \u2014 zero-geo guard incomplete + silent change to 3 callers + bbox inconsistency + vacuous test.",
+          "claude2 M1 \u2014 a tier-2 failure returns HTTP 200 with a silently empty map while a tier-1 failure returns 503; for a scan-only org tier 2 IS the whole response."
+        ]
+      },
+      "scores_history": [
+        {
+          "rn": 1,
+          "scores": [
+            72,
+            78,
+            62
+          ],
+          "min": 62
+        },
+        {
+          "rn": 2,
+          "scores": [
+            62,
+            70,
+            68
+          ],
+          "min": 62
+        },
+        {
+          "rn": 4,
+          "scores": [
+            94,
+            93,
+            82
+          ],
+          "min": 82,
+          "scoped": true
+        }
+      ],
+      "merge_recommendation": "DO NOT MERGE. The diff currently contains a verified production regression (F3) affecting three shipped endpoints beyond this ticket's page, and the HIGH that motivated the fix cycle is unresolved. PR stays DRAFT.",
+      "rn3": {
+        "lanes": [
+          "claude1",
+          "claude2",
+          "claude3"
+        ],
+        "scores": [
+          68,
+          62,
+          66
+        ],
+        "gate": "FAIL \u2014 MIN 62 < 90",
+        "lane_sources": [
+          {
+            "lane": "claude1",
+            "source": "harness-claude-p"
+          },
+          {
+            "lane": "claude2",
+            "source": "harness-claude-p"
+          },
+          {
+            "lane": "claude3",
+            "source": "harness-claude-p"
+          }
+        ],
+        "h1_all_three_lanes": {
+          "claim": "The tier-2 point budget is far too large to prevent the OOM it was added to prevent; the guard admits selections that will fatal.",
+          "lane_evidence": "okf/concepts/platform-gotchas.md:166 (PG-022) ~1.5 KB/point vs a 256M web memory_limit; docs/investigations/DEV-2177/state.json measured 1,509 bytes/point and set MAX_RENDER_POINTS ~= 120K for 'exactly this shape'. Lanes concluded the budget is ~12x too large.",
+          "driver_verdict": "CONCLUSION CONFIRMED, MAGNITUDE WRONG \u2014 and the driver's own earlier figure was also wrong.",
+          "driver_measurement": "Measured through the ACTUAL KitScanPathsQuery + real ClickHouse driver by seeding local CH (not a synthetic benchmark, and not an extrapolation from either side): 120K pts -> 34.8 MB, 255K -> 76.3 MB, 502.5K -> 156.2 MB, 630K -> 195.4 MB. Linear at ~325 bytes/point. Laravel baseline peak is 79 MB, so usable payload headroom under a 256M limit is ~177 MB => a hard ceiling of ~545K points.",
+          "why_the_lane_number_is_wrong": "PG-022's ~1.5 KB/point is explicitly the cost of 'inflating each GPS point into a keyed PHP array FOR HistoricPathBuilder'. Tier 2 never touches HistoricPathBuilder \u2014 kit_scan_paths returns pre-bucketed path_points tuple arrays that are json_encode'd directly. The lanes applied a constant measured on a different code shape.",
+          "why_the_driver_number_was_also_wrong": "An earlier synthetic PHP benchmark gave ~258 bytes/point because it never modelled the ClickHouse driver, which buffers the whole response as a string and then json_decode()s it. That was proven when a 500K-point run OOM'd at 128M INSIDE the driver's json_decode, before any row-building code ran. Measuring the real path was the only way to settle it.",
+          "consequences": {
+            "budget_as_set_1_500_000": "1.5M x 325 B = ~488 MB + 79 MB baseline = ~567 MB => ~2.2x over a 256M limit. The lanes are right that it admits fatal selections. Root cause of the driver's error: MAX_RENDER_POINTS was RAISED to 1.5M precisely BECAUSE tier 1 stopped materializing points (its docblock says so); reusing it for the tier that still does materialize them inverts the reason it was raised.",
+            "org_469_8_kits_30d_423375_pts": "~138 MB + 79 = ~217 MB \u2014 fits under 256M but with only ~39 MB headroom.",
+            "org_469_all_kits_30d_1_638_210_pts": "~533 MB \u2014 must be refused.",
+            "worst_org_1271_3_659_502_pts": "~1.19 GB \u2014 must be refused."
+          },
+          "options": {
+            "A_tier2_specific_budget": "~500K points. Passes org 469's reported case at every date range, refuses All Kits and the worst org. Small diff. Cost: only ~39 MB headroom on the passing case \u2014 'thinner than comfortable', the same words DEV-2177's own note used about its budget.",
+            "B_preencode_in_clickhouse": "What PG-022 actually prescribes: 'take PHP out of the per-point path entirely: segment inside ClickHouse and return each path pre-encoded (toJSONString), so cost becomes O(segments)'. KitRangePathsQuery is the worked example \u2014 7 days x all kits for a 200-kit org went from ~1 GB (refused) to ~20 MB / 3,491 segments. Removes the ceiling instead of drawing a tight line under it."
+          }
+        },
+        "other_confirmed_findings": [
+          {
+            "id": "trip_date-two-definitions",
+            "severity": "HIGH/MEDIUM",
+            "lanes": [
+              "claude1",
+              "claude2",
+              "claude3"
+            ],
+            "finding": "One merged payload labels trip_date with two definitions of 'day': tier 1 viewer-local, tier 2 UTC.",
+            "driver_verdict": "CONFIRMED and fairly attributed. claude3 makes the sharp point that the journal itself quotes R7's surviving rationale ('one response must not label tier-1 and tier-2 rows with two different definitions of day') \u2014 and reverting R7 wholesale is what re-created it. Classified LATENT: resources/js/components/kit-user-path.js renders only path/color and ignores trip_date today, so the payload contract is wrong but nothing renders wrong yet."
+          },
+          {
+            "id": "tests-exercise-the-wrong-catch",
+            "severity": "MEDIUM",
+            "lanes": [
+              "claude1",
+              "claude2",
+              "claude3"
+            ],
+            "finding": "Both tier-2 failure tests exercise the countPoints() catch, not the handle() read catch they are named for; the read catch has zero coverage.",
+            "driver_verdict": "CONFIRMED. Introducing the countPoints pre-flight moved the throw point ahead of the read: the failing test client throws on any SQL containing 'kit_scan_paths', which countPoints' SQL does. The driver introduced this gap in the same change that added the budget."
+          },
+          {
+            "id": "independent-budgets",
+            "severity": "MEDIUM",
+            "lanes": [
+              "claude1",
+              "claude3"
+            ],
+            "finding": "Tier-1 and tier-2 budgets are evaluated independently, so one response can admit 2x MAX_RENDER_POINTS."
+          },
+          {
+            "id": "class-not-instance",
+            "severity": "MEDIUM",
+            "lanes": [
+              "claude2"
+            ],
+            "finding": "ClarityScoutMapController::teammatePaths() calls the same query class on the same unbounded per-point path and did not adopt countPoints()."
+          },
+          {
+            "id": "double-scan",
+            "severity": "MEDIUM",
+            "lanes": [
+              "claude3"
+            ],
+            "finding": "Tier 2 is now uncached AND double-scanned (count + read) for exactly the population the ticket serves."
+          }
+        ],
+        "scores_history_note": "MIN 62 for three consecutive rounds across three materially different diffs (RN1 72/78/62, RN2 62/70/68, RN3 68/62/66). DEV-2222 showed the same pattern over five rounds. Worth treating as a signal about this surface, not only about each diff."
+      },
+      "review_number": 4,
+      "rn4": {
+        "lanes": [
+          "claude1",
+          "claude2",
+          "claude3"
+        ],
+        "scores": [
+          94,
+          93,
+          82
+        ],
+        "gate": "FAIL \u2014 MIN 82 < 90",
+        "lane_sources": [
+          {
+            "lane": "claude1",
+            "source": "in-session-agent"
+          },
+          {
+            "lane": "claude2",
+            "source": "in-session-agent"
+          },
+          {
+            "lane": "claude3",
+            "source": "in-session-agent"
+          }
+        ],
+        "provenance": "Lanes run IN-SESSION via insightlpr:adversarial-reviewer, not review.sh's claude -p, because review.sh has no scope passthrough and the operator narrowed scope to Kit User Path + directly touched code. Recorded honestly: NOT comparable to RN1-RN3 (different mechanism AND narrower scope). Every lane was invited to file a SCOPE CHALLENGE; none did \u2014 each re-derived the out-of-scope items and agreed.",
+        "scoping_effect": "Worked as intended. Bird's Eye's pre-existing gap drew ZERO score deductions (it drew 9-14 mentions per round in RN1-RN3). Two lanes landed at 93-94.",
+        "converged_finding_fixed": {
+          "id": "422-regression",
+          "severity": "HIGH (claude3) / MEDIUM (claude1)",
+          "lanes": [
+            "claude3",
+            "claude1"
+          ],
+          "finding": "The over-budget path returned 422 and DISCARDED already-assembled tier-1 rows that had already been proved under the ceiling. Org 469 'All Kits' + 30d = 1,638,423 tier-2 points > 1.5M, so a selection that previously returned 200 with kit 15349's route returned 422 with an empty map. 'All Kits' is one click. claude3 further found this contradicts okf/log.md:272-274, which records that removing exactly that 'Selection too large to render' message for KUP All-Kits selections was the point of DEV-2177 \u2014 so the diff partially undid a shipped fix.",
+          "lane_disagreement": "claude2 saw the same code and called it 'consistent with pre-diff behaviour' in its non-scoring section. It was wrong: pre-diff there was no tier-2 count to push the sum over. A case where the MIN gate earned its keep.",
+          "resolution": "FIXED (operator decision): over-budget now degrades to tier-1-only with 200 and a logged warning; 422 is reserved for when tier 1 has nothing to show either. Restructured the shared-budget test to assert 200 + tier-1-only (it still pins sharedness \u2014 a per-tier budget would have admitted the scan-only kit) and added test_over_budget_with_no_tier_one_rows_still_returns_422. Mutation-verified: restoring the unconditional 422 fails exactly the new test."
+        },
+        "recorded_not_fixed": [
+          {
+            "id": "bucket-count-unbounded",
+            "severity": "resource (claude3)",
+            "operator_decision": "record, do not guard now",
+            "finding": "The budget bounds POINTS but tier 2 allocates per BUCKET. At 2 points/bucket, 1.5M points would admit 750,000 rows at ~350-400 B each plus path_json plus the row string, roughly 400-500 MB \u2014 about 2x the limit \u2014 while the counter reads only 1.5M. Does not materialise today: the fleet's largest per-org bucket count is 55,447 (~55 MB of row overhead vs a 256 MB limit, ~10x margin) and org 469 runs ~68 points/bucket. claude3's framing is fair and worth preserving: the envelope is safe by an accident of current bucket density, not by construction. Cheap hardening if it ever matters: also refuse on bucket count, or divide the point budget by an assumed minimum points-per-bucket."
+          },
+          {
+            "id": "birdseye-driverPositions-swallow",
+            "severity": "MEDIUM (claude1)",
+            "operator_decision": "out of scope; note it",
+            "finding": "ClarityScoutBirdsEyeController::driverPositions() (:177 -> :214-221) still fires its kit_scan_paths tier org-wide when a swallowed ClickHouse throw returns []. claude1 argues correctly that this is NOT what DEV-2228 tracks: DEV-2228 is 'this surface lacks a fallback', whereas this is 'this surface's fallback misfires on an outage' \u2014 the class THIS diff set out to close, and our own new comment cites driverPositions() as the model we mirrored. Real, pre-existing, on the page the operator ruled out of scope, and neither introduced nor worsened here. Recorded as distinct from DEV-2228 so it is not lost or mislabelled. No ticket created, per standing instruction."
+          }
+        ],
+        "residual_not_actioned": [
+          "Timezone whitelist half-done: KitRangePathsQuery::safeTimezone() still canonical-only (419 zones), so tier 1 falls back to UTC for legacy aliases while tier 2 dates locally \u2014 all three lanes flagged it (Medium/Low). trip_date has no consumer on this surface, so no visible symptom; the docblock claiming parity is however now inaccurate.",
+          "cachedHandle() has no direct test and the tier-1 READ catch is unreachable in the suite (both tier-1 catches return identical bodies).",
+          "COORDINATE_DECIMALS duplicated across two classes with a parity docblock and no cross-checking test.",
+          "Zero-geo (0,0) guard absent on the new tier-2 surface (KB divergence #3); measured prevalence 0.",
+          "Two Log::spy() calls set up and never asserted, leaving two 503 tests assertion-identical."
+        ],
+        "fair_criticisms_of_the_drivers_own_reporting": [
+          "claude2: the 217 MB projection was presented alongside a 157.4 MB peak RSS figure, mixing PHP-allocator and RSS units. memory_limit governs only the former; the projection is internally consistent but should not have been shown next to RSS as if comparable.",
+          "claude3: the measurement likely EXCLUDES Cache::remember's serialisation copy, because phpunit forces the array store (by reference) while file/redis serialise. Pre-existing and unchanged, but it makes the stated margin optimistic."
+        ]
+      },
+      "gate_override": {
+        "accepted_by": "human:Dalton 2026-08-28",
+        "gate_result": "FAIL \u2014 best MIN 82 across 4 rounds, threshold 90",
+        "scores_by_round": [
+          {
+            "rn": 1,
+            "min": 62
+          },
+          {
+            "rn": 2,
+            "min": 62
+          },
+          {
+            "rn": 3,
+            "min": 62
+          },
+          {
+            "rn": 4,
+            "min": 82,
+            "scoped": true
+          }
+        ],
+        "why_this_is_an_override_not_a_pass": "The review gate never passed. reviewed_sha and rerun_required were set by an EXPLICIT operator decision on 2026-08-28, not by a passing round. Recorded here so the override is visible in the audit trail rather than silently encoded as a green gate.",
+        "residuals_knowingly_accepted": [
+          "KitRangePathsQuery::safeTimezone() still whitelists canonical zones only (419), so tier 1 falls back to UTC for legacy aliases (US/Central) while tier 2 dates locally. All 3 lanes flagged it. No consumer of trip_date on this surface, so no visible symptom; the docblock claiming cross-tier parity is inaccurate.",
+          "KitRangePathsQuery::cachedHandle() has no direct test, and the tier-1 READ catch is unreachable in the suite because both tier-1 catches return identical bodies. Reverting to query(cache:true) would keep the suite green while restoring the silent-fallback bug.",
+          "The render budget bounds POINTS while tier 2 allocates per BUCKET. Safe today at ~10x margin (fleet's largest per-org bucket count 55,447; org 469 ~68 points/bucket) but, per lane 3, 'safe by an accident of current bucket density, not by construction'.",
+          "No zero-geo (0,0) guard on the new tier-2 surface \u2014 KB divergence #3. Measured prevalence 0 in 23,690 rows.",
+          "ClarityScoutBirdsEyeController::driverPositions() has the same swallowed-throw-fires-the-fallback bug this change closes. Pre-existing, on a page ratified out of scope, and DISTINCT from DEV-2228 (which tracks the missing-fallback gap, not this)."
+        ],
+        "countervailing_evidence": [
+          "Agent QA 19/19 PASS against a seeded org-469-shaped scenario on real local ClickHouse; Laravel log clean.",
+          "Human QA completed by the operator with nothing to report.",
+          "Cardinality pass 2: all 8 reported kits render; 610 continuous-GPS kits unchanged; 494 scan-only kits fleet-wide newly render; no DEV-2177 regression.",
+          "Resource envelope measured at org 469's exact production volume (factor 1.00): ~116 MB of a 256 MB limit, down from ~217 MB.",
+          "Every load-bearing guard mutation-verified \u2014 reverted individually to confirm the intended test, and only that test, fails.",
+          "Laravel-conventions audit: no MUST FIX; all 5 idiom findings applied.",
+          "4 real defects found and fixed across the rounds \u2014 3 of them the driver's own errors."
+        ]
+      }
+    },
+    "ac": [
+      {
+        "item": "Confirm whether Don Snyder's user account has the Analytics_Geospatial_Kit_User_Path permission",
+        "status": "N/A",
+        "evidence": "Production account state; ratified as a Backyard-console confirmation. Answered by behaviour: Don reaches the page and sees a blank map, so canAccess() passes and the permission is granted."
+      },
+      {
+        "item": "Check kit_metadata for the 8 kit IDs for deleted_at values",
+        "status": "N/A",
+        "evidence": "kit_metadata is not in the read-only CDC mirror and has no admin UI here; ratified as Backyard ops. Disproven as a root cause: agent QA A1 shows the dropdown lists all 9 seeded kits and B6 shows Kit::getKits(withDeleted:false) returns 9."
+      },
+      {
+        "item": "Root cause identified and resolved \u2014 Kit User Path dropdown shows all 8 kits for org 469 users",
+        "status": "SATISFIED",
+        "evidence": "Root cause: paths() read only clarity.sc_positions. Fixed by the tier-2 kit_scan_paths fallback. Cardinality pass 2 confirms all 8 reported kits now have a source (6 via tier 2, previously blank; 2 via unchanged tier-1 GPS). Verified live in a browser, not only by tests."
+      },
+      {
+        "item": "Francisco Garza's kit created at org 469 if needed (confirm with customer)",
+        "status": "N/A",
+        "evidence": "Gated on customer confirmation by the AC's own wording; Backyard ops. Nothing in this build blocks it."
+      },
+      {
+        "item": "Customer (Don Snyder) can view path data for their kit users",
+        "status": "SATISFIED",
+        "evidence": "7 of 8 kits fully; kit 10588 (Ron Johnson) partially \u2014 it has GPS on one day of a 30-day window and renders only that day. The operator ratified that as acceptable to ship on 2026-08-28; per-day top-up remains tracked on DEV-2341. Human QA completed with nothing to report."
+      }
+    ]
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "key": "DEV-2597",
+  "summary": "Scout org map \u2014 hit list slow on wide date ranges and row limit is undocumented",
+  "type": "Bug",
+  "status": "To Do",
+  "labels": [
+    "User_Reported"
+  ],
+  "app": "Clarity",
+  "parent": "Clarity Scout Beta Feedback Improvements (epic)",
+  "companion": "companion-admin-list-cap",
+  "description_path": "/tmp/dev-2597-desc.md",
+  "acceptance_criteria": [
+    "The actual row limits, both query-side and render-side, are determined and documented",
+    "Where a cap exists, the UI indicates that results are truncated",
+    "Load time for 7, 15 and 30 day ranges is measured on a high-volume account against an agreed target",
+    "A loading indicator is shown while a range is being fetched"
+  ],
+  "intake_findings": {
+    "map_hits_cap": "ClarityScoutBirdsEyeController::MAX_MAP_HITS = 100; hits() returns capped bool",
+    "recent_hits_cap": "recentHits() uses limitBy(1,ocr)->limit(20); no capped flag in JSON",
+    "frontend": "map.js mentions rangeHitsCapped for map hits; DashboardOverlay Live Hits list uses recentHits (20) \u2014 verify truncation UI"
+  }
+}

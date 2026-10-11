@@ -1,0 +1,161 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Rename the dashboard page to \"Company Metrics\" (header + sidebar)",
+      "approach": "Both rename code paths, per prep decisions. app/Filament/Pages/Dashboard.php:33-36 hardcodes getTitle() = 'Dashboard' (the only hardcoded 'Dashboard' literal in app/resources/tests) and the subclass never overrides the static nav label, so vendor/filament/filament/src/Pages/Dashboard.php:25-30 falls through `static::$navigationLabel ?? static::$title ?? __('filament-panels::pages/dashboard.title')` and the sidebar keeps saying 'Dashboard'. Fix both: getTitle() returns 'Company Metrics' AND add a static $navigationLabel, matching sibling convention (Profile.php:24, ClientAnalytics.php:26, RecentChanges.php:18). Do NOT edit lang/vendor/filament-panels/en/pages/dashboard.php (shared vendor fallback). No route/redirect risk: all 25 external references use Dashboard::getUrl() (CustomLoginPage.php:6,29, ClientAuthenticate.php:5,14, ClientMiddleware.php:5, LoginResponse.php:6) and FilamentRouteRedirect matches other labels only.",
+      "target_files": [
+        "app/Filament/Pages/Dashboard.php",
+        "tests/Filament/Pages/DashboardTest.php"
+      ],
+      "intended_diffs": "app/Filament/Pages/Dashboard.php: add `protected static ?string $navigationLabel = 'Company Metrics';` near the top of the class; change getTitle() body (line 35) from `return 'Dashboard';` to `return 'Company Metrics';`. Touch nothing else in this file in this subtask (t4 owns the structural rewrite).\ntests/Filament/Pages/DashboardTest.php: add `test_page_and_navigation_are_labelled_company_metrics()` asserting BOTH paths -- `$this->get(route('filament.app.pages.dashboard'))->assertSee('Company Metrics')` for the header and `$this->assertSame('Company Metrics', Dashboard::getNavigationLabel())` for the sidebar (the static path), plus `assertDontSee('>Dashboard<')`-style negative on the nav label. Keep the five existing access/redirect tests untouched.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "DashboardTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t2",
+      "title": "Compact-card contract for the six metric widgets (data helpers + shared Blade kit)",
+      "approach": "One coherent node because the pieces are mutually dependent: the card data helpers, the `expanded` flag/view swap, and the Blade kit must land together or the widgets point at a view that does not exist. Build the helpers ON TOP of getMonthlyData()/getGraphLabels() in DashboardWidget.php:161-238 without touching their month arithmetic -- that code carries the DEV-1927 fix pinned by tests/Filament/Widgets/Dashboard/DashboardMonthLabelsTest.php, which must keep passing UNMODIFIED. Current-period total costs ZERO new queries: it is already cached under the existing keys ('today'/'last_7d' as in getDescription(), 'this_month' = the last getMonthlyData() bucket, 'last_month' = the 'Y-m' bucket). Only the prior-equivalent-period value is new (one bounded query per metric, per the pct_change decision), and for date='last_month' even that is free because the preceding month's 'Y-m' bucket is already cached. Route the prior-period read through a new `getRangeTotal()` seam that defaults to the existing abstract getModelQueryForDates() (DashboardWidget.php:260) and is OVERRIDDEN in SharedHitStatsData to use getSharedHitStatsForRange() -- mandatory, because the four hit widgets stub getModelQueryForDates() to `return 0` (LiveHits.php:31-34) and their real data comes from the single batched HitStatsBatchQuery (FINAL, bounded, org-scoped). This keeps the 4-hits-in-one-query property and all FINAL / _peerdb_is_deleted hygiene, since no new SQL is written at all. Covers the six 'buggy' metric-widget sites: ScanCount, LiveHits, StagingLiveHits and StagingHistoricalHits should need NO per-file edit (the card path is inherited); RecoveryCounts and HistoricalHits are relabelled in t3.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+        "app/Filament/Widgets/Dashboard/Concerns/SharedHitStatsData.php",
+        "app/Filament/Widgets/Dashboard/ScanCount.php",
+        "app/Filament/Widgets/Dashboard/LiveHits.php",
+        "app/Filament/Widgets/Dashboard/StagingLiveHits.php",
+        "app/Filament/Widgets/Dashboard/StagingHistoricalHits.php",
+        "resources/views/filament/widgets/dashboard/partials/card-shell.blade.php",
+        "resources/views/filament/widgets/dashboard/partials/sparkline.blade.php",
+        "resources/views/filament/widgets/dashboard/metric-card.blade.php",
+        "tests/Filament/Widgets/Dashboard/Concerns/DashboardWidgetTest.php",
+        "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardMetricsTest.php"
+      ],
+      "intended_diffs": "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php:\n  - line 23-26: columnSpan becomes ['default' => 1, 'lg' => 1] (quarter-row; the page grid is already 1/2/4).\n  - add `public bool $expanded = false;` and `protected string $cardView = 'filament.widgets.dashboard.metric-card';`.\n  - mount() (line 82-89): keep `abort_unless(static::canView(), 403)` and the existing $date/tooltip lines FIRST, then `if (! $this->expanded) { $this->view = $this->cardView; }`. Leave the inherited 'filament-widgets::chart-widget' view in place for the expanded mount. Do NOT start calling parent::mount() (ChartWidget::mount() computes a data checksum, which would run getData() and defeat the lazy load).\n  - add `public function getCardKey(): string` = Str::of(class_basename(static::class))->snake('-') -- same convention as buildWidgetCacheKey (line 251-258), so keys are 'scan-count', 'live-hits', ...\n  - add `public function getCardLabel(): string` = $this->getHeading() ?? class basename.\n  - add `protected function resolveCardRange(): array` returning [start, end] Carbon for $this->date, copying the EXACT expressions already used in getDescription()/getMonthlyData (today: startOfDay..endOfDay; last_7d: subDays(7)->startOfDay..endOfDay; this_month: startOfMonth()->startOfDay..endOfDay; last_month: now(tz)->startOfMonth()->subMonth()->startOfDay .. ->endOfMonth()->endOfDay()). Always normalize with startOfMonth() BEFORE subMonth()/subMonths() (DEV-1927).\n  - add `protected function resolvePriorCardRange(): array` -- this_month: prior month start = now(tz)->startOfMonth()->subMonth(); prior end = min(priorStart->clone()->addDays(now(tz)->day - 1)->endOfDay(), priorStart->clone()->endOfMonth()->endOfDay()) so Mar 31 -> Feb 28 clamps instead of overflowing; last_month: the full month before it; today: yesterday; last_7d: the 7 days preceding the window.\n  - add `public function getCardTotal(): int` -- 'today'/'last_7d' reuse cache()->remember(buildWidgetCacheKey($this->date, $orgId), getCacheTTL(), fn () => $this->getRangeTotal(...)) exactly as getDescription() does; 'this_month' returns the LAST getMonthlyData() bucket; 'last_month' returns the second-to-last bucket. Zero new queries.\n  - add `public function getCardPriorTotal(): int` -- 'last_month' short-circuits to the third-to-last getMonthlyData() bucket (already cached, no query); otherwise cache()->remember(buildWidgetCacheKey('prior-'.$this->date, $orgId), getCacheTTL(), fn () => $this->getRangeTotal($priorStart, $priorEnd)). The 'prior-*' dateType cannot collide with existing keys ('today'|'last_7d'|'this_month'|'Y-m').\n  - add `protected function getRangeTotal(string $start, string $end): int` = (int) $this->getModelQueryForDates($start, $end).\n  - add `public function getCardPercentChange(): ?float` -- returns null when the prior total is 0 (the card renders an em dash / 'n/a' rather than a fake +100%); otherwise round(($current - $prior) / $prior * 100, 1).\n  - add `public function getSparklinePoints(): string` -- normalize getMonthlyData() (13 monthly buckets, per the sparkline decision: no new queries) into an SVG polyline string over viewBox '0 0 100 24' using the Backyard idiom (min/range, y = 23 - (($v-$min)/$range)*22, range 0 -> 1); return '' when fewer than 2 points so the blade omits the <svg>.\n  - DO NOT modify getGraphLabels(), getMonthlyData(), getHighlightedMonthsFromFilter(), getCacheTTL() or buildWidgetCacheKey().\napp/Filament/Widgets/Dashboard/Concerns/SharedHitStatsData.php: add ONLY an override `protected function getRangeTotal(string $start, string $end): int { return (int) ($this->getSharedHitStatsForRange($start, $end)[$this->getHitStatsColumn()] ?? 0); }`. Leave getMonthlyData/resolvePastMonths/resolveCurrentMonth/getDescription untouched.\nScanCount.php / LiveHits.php / StagingLiveHits.php / StagingHistoricalHits.php: expected to need NO edit (claimed here only to keep file ownership unambiguous and to cover their exhaustiveness sites). Their sparkline accent colour already comes from the existing getRgbColor().\nresources/views/filament/widgets/dashboard/partials/card-shell.blade.php (new): <x-filament-widgets::widget> wrapping a <button type=\"button\"> whose click does BOTH `wire:click=\"$parent.toggleCard('{{ $key }}')\"` (authoritative server state on the page, per the binding architecture) and `x-on:click=\"open = (open === '{{ $key }}') ? null : '{{ $key }}'\"` (instant visual affordance). Chevron via <x-heroicon-m-chevron-down x-bind:class=\"{ 'rotate-180': open === '...' }\"> and a ring highlight via x-bind:class, mirroring Backyard insight-pulse.blade.php:39-47 and partials/pulse-tile.blade.php:4-12. `open` is read from an ANCESTOR x-data scope that t4 puts on the page's card-grid wrapper -- note this dependency in a Blade comment. Body via a slot/$slot so the leaderboard and kit-users cards can reuse the shell.\nresources/views/filament/widgets/dashboard/partials/sparkline.blade.php (new): the inline <svg viewBox=\"0 0 100 24\"><polyline points=\"{{ $points }}\" .../></svg> from pulse-tile.blade.php:23-27, rendered only when $points !== '' (no JS chart library).\nresources/views/filament/widgets/dashboard/metric-card.blade.php (new): includes card-shell with $key = $this->getCardKey(); body = label, number_format($this->getCardTotal()), the %-change chip (success/danger/gray by sign, em dash when getCardPercentChange() is null) and the sparkline partial. It must NOT call getData()/getCachedData() -- that is what keeps the expensive chart query off the collapsed page.\ntests/Filament/Widgets/Dashboard/Concerns/DashboardCardMetricsTest.php (new): follow the existing anonymous-subclass pattern from DashboardWidgetTest.php:21-35 plus cache pre-seeding (as DashboardMonthLabelsTest.php:85-91 does) so no ClickHouse is needed. Pin: (a) date='this_month' card total == the seeded current-month bucket; (b) %-change = current vs same-day-range last month, e.g. Carbon::setTestNow('2026-08-12') with 100 seeded for Aug 1-12 and 80 for Jul 1-12 -> +25.0; (c) the prior range END clamps on month-end (setTestNow('2026-03-31') -> prior range ends 2026-02-28 23:59:59, never 'Feb 31'); (d) getCardPercentChange() returns null (not 100.0/INF) when the prior total is 0; (e) date='last_month' issues NO new query (assert the prior value comes from the pre-seeded 'Y-m' cache key); (f) getSparklinePoints() yields 13 comma-separated coordinate pairs and '' for a flat/empty series.\ntests/Filament/Widgets/Dashboard/Concerns/DashboardWidgetTest.php: extend only -- assert the collapsed view is the card view and $expanded=true keeps the vendor chart view; do not weaken the existing getGraphLabels/getDescription/getCacheTTL assertions.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "DashboardCardMetricsTest|DashboardWidgetTest|DashboardMonthLabelsTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t3",
+      "title": "Relabel Repossessions and Direct Historical Hits",
+      "approach": "The binding layout names the cards 'Repossessions' and 'Direct Historical Hits' while the widgets are headed 'Recoveries' (RecoveryCounts.php:12) and 'Historical Hits' (HistoricalHits.php:14). Q10 settles that these are RELABELS of existing widgets, not new metrics, so change the headings only -- no query, model or cache change (buildWidgetCacheKey uses class_basename, so cache keys are unaffected). Keep getDatasetLabel() as-is so the expanded chart tooltip and dataset legend stay stable.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/RecoveryCounts.php",
+        "app/Filament/Widgets/Dashboard/HistoricalHits.php",
+        "tests/Filament/Widgets/Dashboard/RecoveryCountsTest.php",
+        "tests/Filament/Widgets/Dashboard/HistoricalHitsTest.php"
+      ],
+      "intended_diffs": "app/Filament/Widgets/Dashboard/RecoveryCounts.php:12: $heading 'Recoveries' -> 'Repossessions'.\napp/Filament/Widgets/Dashboard/HistoricalHits.php:14: $heading 'Historical Hits' -> 'Direct Historical Hits'.\ntests/Filament/Widgets/Dashboard/RecoveryCountsTest.php:27,41: update assertSeeText('Recoveries')/assertDontSeeText('Recoveries') to 'Repossessions'.\ntests/Filament/Widgets/Dashboard/HistoricalHitsTest.php:27: tighten assertSeeText('Historical Hits') to 'Direct Historical Hits' (the loose assertion would otherwise pass against both the direct and staging headings).",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "RecoveryCountsTest|HistoricalHitsTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t4",
+      "title": "Dashboard page: single expanded-card key, 2x4 grid, one shared detail region",
+      "approach": "Implements the binding architecture (Q8 option b): the expanded key is a scalar property on the PAGE, so 'only one open, opening a new one replaces the old' is structural rather than enforced by logic, and the expensive chart widget is not mounted at all until a card is clicked (Filament widgets are lazy, and DashboardWidget::mount() deliberately skips ChartWidget::mount()'s data checksum, so the collapsed grid runs no chart queries). Restructure the widget registration: today the eight cards would arrive via getFooterWidgets() (Dashboard.php:69-83), which the page layout renders AFTER content() -- that would place the shared detail region above the grid. Move the cards into getWidgets() and compose content() = filters form, card grid, detail region, so the region sits BELOW the whole grid as decided. Also drops KitStatusGraph from the registration list (t7 deletes the class afterwards, so the page is never registered-but-missing). Do NOT touch filtersForm()/updatedFilters() or the 'refresh-dashboard' dispatch at line 107 -- that event is shared with ClientAnalytics.php:166, IndividualClientAnalytics.php:55,191 and Client/ClientTable.php:46, and it is also what already makes the cards follow the page date filter (DashboardWidget::refreshData). Do not touch canAccess()/mount(): access control is out of scope, which is why this node carries no auth blast-radius tag.",
+      "target_files": [
+        "app/Filament/Pages/Dashboard.php",
+        "tests/Filament/Pages/DashboardCardExpansionTest.php"
+      ],
+      "intended_diffs": "app/Filament/Pages/Dashboard.php:\n  - add `public ?string $expandedCard = null;` and `public function toggleCard(string $key): void { $this->expandedCard = ($this->expandedCard === $key) ? null : $key; }` (one scalar => at most one open region; toggling the open card closes it).\n  - add `protected function cardWidgets(): array` mapping card key => widget class in the binding order: row 1 'scan-count' => ScanCount, 'recovery-counts' => RecoveryCounts, 'recovery-leader' => RecoveryLeader, 'kit-users' => KitUsers; row 2 'live-hits' => LiveHits, 'staging-live-hits' => StagingLiveHits, 'historical-hits' => HistoricalHits, 'staging-historical-hits' => StagingHistoricalHits. Keys must equal DashboardWidget::getCardKey() (class_basename snake-cased), and all four hit cards must stay contiguous (hard constraint).\n  - getWidgets() (line 59-62): return array_values($this->cardWidgets()).\n  - getFooterWidgets() (line 69-83): return [] (or delete it together with getFooterWidgetsColumns()). KitStatusGraph::class and the commented MissedOpportunityClientGraph line go away here.\n  - getHeaderWidgets() ([HotlistCount]) and getColumns() (1/2/4) stay exactly as they are -- HotlistCount remains the untouched full-width row above the grid.\n  - override `content(Schema $schema): Schema` = [$this->getFiltersFormContentComponent(), <wrapper>], where <wrapper> is a Grid::make(1) carrying ->extraAttributes(['x-data' => '{ open: '.json_encode($this->expandedCard).' }']) (the ancestor Alpine scope the card shells from t2 read) and ->schema(fn () => [$this->getWidgetsContentComponent(), ...$this->expandedCardComponents()]). The schema callback MUST be a closure: Filament caches page schemas, and a static array would freeze the detail region at its first-render state.\n  - add `protected function expandedCardComponents(): array` -- returns [] when $this->expandedCard is null; otherwise `$this->getWidgetsSchemaComponents([$class], ['expanded' => true])` for the mapped class, which reuses Filament's own widget wiring (it already merges getWidgetData()/pageFilters) and keys the child by class name so switching cards remounts a different component. Verify the mounted child actually re-resolves after toggleCard(); if Filament's schema cache pins it, fall back to Livewire::make($class, fn () => [...])->key('expanded-'.$this->expandedCard).\n  - the card shells call `$parent.toggleCard(...)`; confirm the Livewire v4 `$parent` magic resolves through Filament's schema-rendered nested widget (it exists in vendor/livewire/livewire/dist/livewire.js). If it does not, the ONLY sanctioned fallback is a NEW event name (e.g. 'dashboard-card-toggled') -- never overload 'refresh-dashboard'.\ntests/Filament/Pages/DashboardCardExpansionTest.php (new): Livewire::test(Dashboard::class)->assertSet('expandedCard', null)->call('toggleCard', 'scan-count')->assertSet('expandedCard', 'scan-count')->call('toggleCard', 'live-hits')->assertSet('expandedCard', 'live-hits')  <-- the no-compounding pin, opening B replaces A ->call('toggleCard', 'live-hits')->assertSet('expandedCard', null). Add a guard that every cardWidgets() key equals (new $class)->getCardKey() and that the four hit keys are contiguous in the ordered list. Pre-seed the widget caches (or rely on lazy widgets rendering placeholders) so the page test needs no ClickHouse, following the KitUsersTest.php:27 pattern.",
+      "depends_on": [
+        "t1",
+        "t2"
+      ],
+      "parallelizable": true,
+      "test_filter": "DashboardCardExpansionTest|DashboardTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t5",
+      "title": "Recovery Leaderboard collapsed two-month summary card",
+      "approach": "Collapsed state shows this month's and last month's leader + runner-up simultaneously and is FIXED to this-month/last-month regardless of the page date filter (the deliberate Q4 exception, because a Today/Last-7d filter cannot express two months side by side). Zero new queries: getMonthlyData(formatted: false) (RecoveryLeader.php:217-236) already caches one RecoveryLeaderQuery result per month and that query is ORDER BY total DESC LIMIT 10 with _peerdb_is_deleted = 0, so leader and runner-up are just the first two entries of the last and second-to-last buckets. getData()/getOptions()/getDescription() stay untouched so the expanded stacked chart is byte-identical to today's. RecoveryLeader extends ChartWidget directly (not DashboardWidget), so it needs its own $expanded flag and view swap; it reuses the t2 card-shell and sparkline partials by inclusion only. Also add the missing regression test for commit b2f0f7ea2's getData() positional alignment, which prep flagged as untested.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/RecoveryLeader.php",
+        "resources/views/filament/widgets/dashboard/leaderboard-card.blade.php",
+        "tests/Filament/Widgets/Dashboard/RecoveryLeaderTest.php"
+      ],
+      "intended_diffs": "app/Filament/Widgets/Dashboard/RecoveryLeader.php:\n  - line 27: columnSpan 'full' -> ['default' => 1, 'lg' => 1].\n  - add `public bool $expanded = false;` and `protected string $cardView = 'filament.widgets.dashboard.leaderboard-card';`; in mount() (line 98-104), after the existing abort_unless/$date lines, `if (! $this->expanded) { $this->view = $this->cardView; }`.\n  - add `public function getCardKey(): string` returning 'recovery-leader' (must match the t4 map key).\n  - add `public function getCardSummary(): array` -> ['this_month' => ['leader' => ['name' => ..., 'count' => ...], 'runner_up' => [...]], 'last_month' => [...]] built from getMonthlyData(formatted: false): last bucket = this month, second-to-last = last month; per bucket use collect($bucket)->keys()->first(default: 'N/A') / ->skip(1)->first() exactly as getDescription() (line 208-214) does. Ignore $this->date here -- fixed two-month semantics. Escape names with e() when rendering, as the existing HtmlString path does.\n  - leave getData(), getOptions(), getDescription(), getMonthlyData(), queryClickhouse(), getGraphLabels(), formatMonthlyData() unchanged.\nresources/views/filament/widgets/dashboard/leaderboard-card.blade.php (new): includes the t2 card-shell with $key = 'recovery-leader'; body renders two compact rows ('This Month' / 'Last Month'), each with leader name + count and runner-up name + count from getCardSummary(). No sparkline (the decision specifies the four name+count pairs; a totals sparkline via formatMonthlyData() is optional and explicitly NOT required).\ntests/Filament/Widgets/Dashboard/RecoveryLeaderTest.php: extend only. (a) Seed the per-month RecoveryLeaderQuery cache (reuse the existing recoveryLeaderCacheKey() helper used at line 26-35) with a DIFFERENT leader for this month than for last month, then assert the collapsed card shows all four name+count pairs against the right month -- a range mix-up must fail. (b) Assert the collapsed card is fixed when the filter changes: dispatch('refresh-dashboard', 'today') and assert the same two-month summary still renders. (c) New getData() month-alignment regression (commit b2f0f7ea2): seed a distinct per-kit map per month, then assert each dataset's positional array lines up with getGraphLabels() so a kit's value cannot render under the wrong month.",
+      "depends_on": [
+        "t2"
+      ],
+      "parallelizable": true,
+      "test_filter": "RecoveryLeaderTest|DashboardMonthLabelsTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t6",
+      "title": "Kit Users card (Camera Kits + Kit Users) and remove the Active/Inactive filter",
+      "approach": "Per Q5, do not redefine Kit Users: Camera Kits = total org kit count, Kit Users = the ACTIVE kit-user count the donut already computed. Take the active number from the EXISTING cachedActiveKitIds() list (KitUsers.php:35-54) rather than porting KitStatusGraph::active() -- same population (DISTINCT kit_id over the same 3-day ClickHouse scan window), one fewer ClickHouse round trip, and it guarantees the headline number always equals the number of rows in the expanded list. No cross-connection query at all, so the Kit(zod)/KitSettings(platform) hazard is avoided entirely. Per Q6 (an approved AC change) the Active/Inactive SelectFilter is removed; because that filter's default was what restricted the table to active kits, the base query must now scope to the active ids itself or the panel would silently start listing every kit under the heading 'Active Kit Users'. This node must land BEFORE the donut is deleted (t7) so the replacement always exists. Card counts are fixed (not filter-driven): they are point-in-time kit counts, not a date-ranged metric.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/KitUsers.php",
+        "resources/views/filament/widgets/dashboard/kit-users-card.blade.php",
+        "tests/Filament/Widgets/Dashboard/KitUsersTest.php"
+      ],
+      "intended_diffs": "app/Filament/Widgets/Dashboard/KitUsers.php:\n  - line 18-21: columnSpan -> ['default' => 1, 'lg' => 1].\n  - add `public bool $expanded = false;` and `protected string $cardView = 'filament.widgets.dashboard.kit-users-card';`; in boot() (line 30-33), after the abort_unless, `if (! $this->expanded) { $this->view = $this->cardView; }` (TableWidget has no custom mount(); its default view is 'filament-widgets::table-widget', which the expanded mount keeps).\n  - add `public function getCardKey(): string` returning 'kit-users' (matches the t4 map key).\n  - add `public function cameraKitsCount(): int` = cache()->remember('kit-status:total:org='.$orgId, now()->endOfDay(), fn () => (int) ClickhouseKit::query()->forOrg($orgId)->count()) -- the same total KitStatusGraph::inactive() (KitStatusGraph.php:78-82) derived inline before subtracting active.\n  - add `public function activeKitUsersCount(): int` = count($this->cachedActiveKitIds()).\n  - table(): DELETE the ->filters([...SelectFilter::make('type')...], layout: FiltersLayout::AboveContent) block (line 63-79) plus ->filtersFormColumns(1) and ->deferFilters(false), and drop the now-unused FiltersLayout/Tables\\Filters imports. IMPORTANT: move the active-kit restriction into the base query -- ->query(ClickhouseKit::query()->forOrg($orgId)->select(['id','name'])->whereIn('id', $this->cachedActiveKitIds())). With no active kits this now yields the 'No Kit Users' empty state instead of silently flipping to inactive kits, which is the correct post-Q6 semantics. Keep the Kit Name column, defaultSort('name'), paginationPageOptions([10,'all']) and emptyStateHeading exactly as they are.\nresources/views/filament/widgets/dashboard/kit-users-card.blade.php (new): includes the t2 card-shell with $key = 'kit-users'; body shows two labelled numbers -- 'Camera Kits' = number_format(cameraKitsCount()) and 'Kit Users' = number_format(activeKitUsersCount()). No sparkline, no %-change (these are point-in-time counts).\ntests/Filament/Widgets/Dashboard/KitUsersTest.php: keep test_can_render, test_cannot_render_without_permission, test_can_render_stat_table (mount with ['expanded' => true]) and test_can_render_empty_stat_table. REPURPOSE test_can_filter_by_active_and_inactive (line 76-106) into test_expanded_panel_lists_only_active_kits_and_has_no_filter -- assert inactive kits are NOT listed and that no 'type' filter exists (e.g. assertTableFilterDoesNotExist or asserting the filter form is absent). This is a method rewrite, NOT a test-file deletion, and it is entailed by the Q6-approved AC change; call it out in the subtask summary. ADD test_card_shows_camera_kit_and_kit_user_counts: seed several ClickhouseKit rows, pre-seed 'kit-status:active-ids:org=' with a strict subset, and assert Camera Kits = total while Kit Users = the subset size (so the two numbers must differ).",
+      "depends_on": [
+        "t2"
+      ],
+      "parallelizable": true,
+      "test_filter": "KitUsersTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t7",
+      "title": "Delete the KitStatusGraph donut widget and its test",
+      "approach": "Terminal removal, explicitly approved in Q9. Sequenced last among the code nodes so the dashboard is never broken: t4 has already dropped KitStatusGraph::class from the page registration (so no registered-but-missing widget) and t6 has already shipped the replacement Camera Kits / Kit Users card (so no gap in coverage of the numbers). This is the only doughnut widget in the repo and its heading is literally 'Kit Users', which is what the new card replaces. Verify with `grep -rn KitStatusGraph app tests resources` returning nothing before finishing, and confirm the two cached kit counts it owned ('kit-status:active:org=', 'kit-status:inactive:org=') are not read anywhere else.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/KitStatusGraph.php",
+        "tests/Filament/Widgets/Dashboard/KitStatusGraphTest.php"
+      ],
+      "intended_diffs": "Delete app/Filament/Widgets/Dashboard/KitStatusGraph.php (121 lines) and tests/Filament/Widgets/Dashboard/KitStatusGraphTest.php in the same change (Q9 approval). No other edits: the registration reference at the old Dashboard.php:80 is already gone via t4. The now-orphaned 'kit-status:active:org=' / 'kit-status:inactive:org=' cache keys need no cleanup (they expire at end of day); 'kit-status:active-ids:org=' is still owned and used by KitUsers.",
+      "depends_on": [
+        "t4",
+        "t6"
+      ],
+      "parallelizable": false,
+      "test_filter": "Dashboard",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t8",
+      "title": "Rebuild frontend assets and commit public/build",
+      "approach": "Single terminal build node depending on every UI node, so the compiled CSS is produced once against the final Blade set. public/build is tracked in this repo and Tailwind v4 content-scans via @source globs over app/Filament and resources/views/filament (resources/css/filament/app/theme.css:5-6), so the new utility classes in the card Blade views do not exist in the compiled CSS until this runs. No new Vite entrypoint and no new JS dependency: Alpine's x-collapse already ships inside vendor/filament/filament/dist/index.js. KNOWN SIDE EFFECT of `npm run build` (which is `vite build && node scripts/version-sw.mjs && php artisan filament:assets`): it rewrites CLAUDE.md, AGENTS.md and .junie/guidelines.md and deletes ./boost.json -- revert all four, never commit them.",
+      "target_files": [
+        "public/build/**"
+      ],
+      "intended_diffs": "Run `npm run build` at the repo root, then stage ONLY public/build/**. Immediately `git checkout -- CLAUDE.md AGENTS.md .junie/guidelines.md boost.json` (boost.json is deleted by the build and must be restored) and confirm `git status` shows nothing but public/build changes plus the intended source diff. No source edits in this node.",
+      "depends_on": [
+        "t3",
+        "t4",
+        "t5",
+        "t6",
+        "t7"
+      ],
+      "parallelizable": false,
+      "test_filter": "Dashboard",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "simple"
+    }
+  ],
+  "excluded_sites": []
+}

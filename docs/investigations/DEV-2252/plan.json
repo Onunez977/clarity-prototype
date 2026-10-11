@@ -1,0 +1,136 @@
+{
+  "key": "DEV-2252",
+  "route": "bug",
+  "base_branch": "main",
+  "authored_by": "driver-inline (opus, TICKET_PLAN_ARBITER_MODEL tier)",
+  "authored_at": "2026-09-16T18:05:00Z",
+  "sizing_gate": {
+    "target_files": 6,
+    "threshold": 6,
+    "tripped": false,
+    "note": "6 files, at the threshold and not over it. The one arguably separable concern (Materializer.php, a different table on the same idiom) is in scope by an explicit operator override of the driver's own follow-up-ticket recommendation (Q5). Re-recommending a split here would re-litigate a decision the operator already made. No split recommended."
+  },
+  "blast_radius_summary": {
+    "tagged_nodes": [],
+    "note": "No target file matches the sensitive globs (database/migrations/**, billing jobs/resources, Shield/Policies/auth config, Clickhouse*Purge|Cleanup, PruneScans). No pre-approval line required."
+  },
+  "parallelism_note": "t1 and t3 both exercise the shared branch test database via RefreshDatabase, so they are serialized (t3 depends_on t1) rather than fanned out into per-node worktrees: CLARITY_BOOTSTRAP_CMD is unset, so per-node worktrees would not get their own re-keyed DBs and concurrent migrate:fresh/transactions on one database is the exact contention the flow warns about. t2 is client-side only, touches no database, and is genuinely parallel-safe. All nodes run in REPO_PATH against the standing Phase 3.5 isolated env.",
+  "test_policy_note": "CLAUDE.md forbids running the full suite automatically; the repo's own boost guidelines require every change to be programmatically tested with the minimum filtered run. Both are satisfied by running FILTERED tests per node (--filter on the touched test class) and never the full suite unless the operator asks.",
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "D1/D2 — guard ManageZones::save() against an empty rebuilt geometry, and un-pin the bug from the test suite",
+      "approach": "Inside the existing DB::connection('platform')->transaction() in save(), immediately after $zone->rebuildGeometryFromDefinition(), re-read the row and check (geom IS NULL OR public.ST_IsEmpty(geom)) using the SAME rawValue idiom ZoneKmlImporter.php:64-72 already uses. When empty, resolve which of definition.zip_codes matched no tiger_data.zcta5_all row so the message can name them, then throw to roll the transaction back (no invisible zone row, and on the edit path the prior good geometry survives). Catch outside the transaction and re-surface as ValidationException::withMessages(['data.definition' => <actionable message>]) — the repo's existing Filament error idiom (app/Filament/Auth/CustomLoginPage.php:78), which lands on the same 'definition' form key the existing empty-definition rule uses, so test_empty_geometry_is_rejected's assertion style keeps working. Do NOT touch Zone::rebuildGeometryFromDefinition()'s never-throw contract — KmlZoneParser and ZoneKmlImporter depend on it, and the precedent puts the guard in the caller.",
+      "intended_diffs": {
+        "app/Filament/Pages/ManageZones.php": "save(): wrap the existing transaction call in try/catch for the new guard exception; add the post-rebuild emptiness check + unresolvable-zip resolution inside the transaction; on failure throw ValidationException on data.definition instead of falling through to the unconditional 'Zone saved' success notification at :325. Analytics/broadcast/notification must not fire on the failure path.",
+        "tests/Filament/Pages/ManageZonesTest.php": "Fix test_saves_a_zip_only_zone to seed tiger_data.zcta5_all for 75201 and assert geom is non-null and non-empty (it currently asserts neither, which is what pinned the bug). Add a sibling test that an UNRESOLVABLE zip is rejected with a form error on definition and persists no zone. Add a private seedTigerZip helper.",
+        "tests/Models/ZoneTest.php": "Pin the never-throw contract: an unmatched zip_codes entry leaves geom NULL and does not throw."
+      },
+      "target_files": [
+        "app/Filament/Pages/ManageZones.php",
+        "tests/Filament/Pages/ManageZonesTest.php",
+        "tests/Models/ZoneTest.php"
+      ],
+      "implementation_notes": [
+        "CROSS-CONNECTION TRAP (will silently break the test if missed): config/database.php gives `zod` and `platform` the same database but different search_path, and they are SEPARATE PDO connections. tests/TestCase.php::connectionsToTransact() wraps both, so a row inserted on `zod` inside its own transaction is INVISIBLE to `platform`. rebuildGeometryFromDefinition() reads tiger_data.zcta5_all on the PLATFORM connection, so the tiger seed in ManageZonesTest MUST be inserted via DB::connection('platform'), NOT via 'zod' as ZoneZipSearchControllerTest does (that test reads back on 'zod' too, so it never hit this).",
+        "From the platform connection the search_path is `platform`, so spatial_ref_sys must be written schema-qualified as public.spatial_ref_sys; tiger_data.zcta5_all is already schema-qualified.",
+        "The SRID 4269 spatial_ref_sys insert is required — the test DB's spatial_ref_sys is pruned (see tests/Support/HasZodDatabase.php) and ST_Transform from 4269 needs the projection row. Copy the ON CONFLICT DO NOTHING insert from ZoneZipSearchControllerTest::seedTigerZip.",
+        "The seedTigerZip helper is duplicated into ManageZonesTest rather than extracted to a shared trait. Deliberate: extracting would mean editing ZoneZipSearchControllerTest, an unrelated currently-passing file outside this ticket's scope. Flagged here so review reads it as a trade-off, not an oversight.",
+        "Cover BOTH empty causes in the message: unresolvable zips (name them) and the polygons-only degenerate case (generic message). Do not assume zip_codes is non-empty."
+      ],
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "ManageZonesTest|ZoneTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t2",
+      "title": "D3/D4 — stop the client accepting truncated ZIPs and silently substituting an unrelated ZIP's polygon",
+      "approach": "Two surgical edits in commitZipInput()/addZip(), then rebuild the tracked bundle. D3: the commit-time token filter runs on a COMMITTED token (Enter/comma/paste), not on progressive typing, so it must require a complete 5-digit ZIP — change /^\\d{3,5}$/ to /^\\d{5}$/ in both the validTokens and malformed expressions. D4: drop the `|| rows[0]` fallback so a non-exact match is reported as not_found, making addZip() exact-match-only exactly like its sibling hydrateZips():425. Leave the endpoint's prefix-LIKE contract alone — it is intentional and test-pinned for autocomplete (ZoneZipSearchControllerTest q=303).",
+      "intended_diffs": {
+        "resources/js/components/zone-manager.js": ":599-600 regex /^\\d{3,5}$/ -> /^\\d{5}$/ (both occurrences); :634 `const exact = rows.find(r => r.zip === token) || rows[0];` -> exact-match only, returning 'not_found' when absent.",
+        "public/build/**": "Regenerated by `npm run build` and committed — public/build is tracked in this repo, so an unrebuilt JS change ships nothing."
+      },
+      "target_files": [
+        "resources/js/components/zone-manager.js",
+        "public/build"
+      ],
+      "implementation_notes": [
+        "After the rows[0] removal, `exact` can be undefined — return 'not_found' BEFORE dereferencing exact.zip/exact.geojson, or the change trades a wrong-area bug for a TypeError.",
+        "The existing caller already maps 'not_found' into the visible 'No boundary found for: <token>' message, so no message plumbing is needed for D4.",
+        "`npm run build` also runs scripts/version-sw.mjs, which rewrites the APP_VERSION stamp in public/clarity-scout-sw.js. That file is registered generated-noise (CLARITY_GENERATED_NOISE) and checkpoint.sh reverts it when the version stamp is the only change — do not hand-edit or fight it.",
+        "No JS unit-test runner exists in this repo (Playwright e2e only) and the Livewire tests set data.definition directly, bypassing this file. D3/D4 therefore CANNOT be pinned by the PHP suite and must be verified by browser QA in Phase 6."
+      ],
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t3",
+      "title": "Q5 — same missing empty-geometry guard in RunArea Materializer, on a different table",
+      "approach": "Materializer::materialize() builds pieces from recognized inputs, unions them, and writes geometry + source_vintage + materialized_at = NOW() in one raw UPDATE. When a recognized entry resolves to NOTHING (a state/msa reference matching no tiger row), the subquery yields NULL, geometry is written NULL, and the metadata is still stamped — so the row claims to be materialized while carrying no boundary, and a previously-good geometry is overwritten with NULL. Wrap the UPDATE in a platform transaction, re-read (geometry IS NULL OR public.ST_IsEmpty(geometry)) with the same rawValue idiom, and throw RuntimeException when empty so the transaction rolls back: the stamp is not applied and any prior good geometry survives. The only production caller is the queued MaterializeOrgRunArea job, so the throw surfaces as a visible failed job — the loud signal this path currently lacks.",
+      "intended_diffs": {
+        "app/Services/RunArea/Materializer.php": "Wrap the existing UPDATE in DB::connection('platform')->transaction(); add the post-update emptiness check; throw RuntimeException naming the unresolved inputs on empty.",
+        "tests/Services/RunArea/MaterializerTest.php": "Add: a recognized entry that resolves to nothing (e.g. kind=state reference=ZZ) throws, leaves geometry NULL and does NOT stamp source_vintage/materialized_at; and a re-materialize that would resolve to nothing preserves the previously-materialized geometry instead of nulling it."
+      },
+      "target_files": [
+        "app/Services/RunArea/Materializer.php",
+        "tests/Services/RunArea/MaterializerTest.php"
+      ],
+      "implementation_notes": [
+        "Preserve the EXISTING contract the current tests pin: empty inputs (MaterializerTest:82) and unrecognized-kind-only inputs (:96) must still return early, leave geometry NULL, and NOT throw. The new throw applies only when pieces were actually built and the union still resolved to nothing — do not collapse these two cases.",
+        "Consumers degrade safely on a NULL geometry (ScoutMapHelpers::loadRunAreaForClip:146 falls back to the viewport bbox), so the user-visible harm here is silent non-clipping plus false materialized_at metadata plus the destructive overwrite — not a crash. Grade the severity accordingly; do not overstate it in the Build Record.",
+        "Throwing from a queued job means a retry/failed_jobs entry. That is the intended loud signal for a backend path with no UI, and mirrors ZoneKmlImporter's RuntimeException precedent."
+      ],
+      "depends_on": ["t1"],
+      "parallelizable": false,
+      "test_filter": "MaterializerTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {
+      "site": "app/Services/Zones/KmlZoneParser.php:182 (second caller of rebuildGeometryFromDefinition)",
+      "reason": "Its geometry is written through ZoneKmlImporter, which ALREADY carries the guard being added here (ZoneKmlImporter.php:64-72). Nothing to add."
+    },
+    {
+      "site": "origin/otto PersistZone::persist() (DEV-2320)",
+      "reason": "Same missing guard, but the file does not exist on main. Q3 answered: land on main now; DEV-2320 rebases and picks the guard up. Noted on the PR for whoever merges second."
+    },
+    {
+      "site": "Zone::searchZipCodes() prefix-LIKE matching",
+      "reason": "Intentional autocomplete behavior, pinned by ZoneZipSearchControllerTest (q=303). The fix for truncated input belongs client-side (t2), not here."
+    },
+    {
+      "site": "Geocoding fallback for ZIPs with no Census ZCTA boundary (D5)",
+      "reason": "Q2 answered: clear error + draw manually. Geocoding fallback explicitly DECLINED by the operator. D5 already fails correctly and visibly ('No boundary found for: <zip>')."
+    },
+    {
+      "site": "app/Filament/Forms/Components/ZoneMapDisplay.php, ClarityScoutZonesController, ClarityScoutBirdsEyeController, BuildShiftSummary, ZoneQuickEditAction",
+      "reason": "Read-only consumers of zones.geom surfaced by the grep backstop. They consume geometry, they do not create it, so the write-side guard is the correct and sufficient fix. A NULL geom stops being creatable once t1 lands."
+    },
+    {
+      "site": "app/Jobs/Rdn/GetOrgBranchZips.php, UpdateUsPostalCodesWithGeocodioAndTigerJob",
+      "reason": "Operate on tiger.us_zipcodes (RDN branch metadata) — a different table from tiger_data.zcta5_all despite both matching a 'zip' grep."
+    }
+  ],
+  "unresolved_premises": [
+    {
+      "claim": "The defect the reporter actually hit is one of D1-D5.",
+      "premise": "Q1 (which ZIP codes failed for the reporter) was never answered.",
+      "verify_by": "Ask the reporter for the failing ZIP codes. Not blocking: all four code defects are fixed regardless. The Build Record must state that we could not confirm which defect produced the reported symptom."
+    }
+  ],
+  "wiki_updates_queued": [
+    "okf/concepts/zone.md — 'Geometry is derived, not authored directly' business rule should note that creation callers must check the rebuilt geometry is non-empty (the rebuild is never-throw by contract).",
+    "okf/concepts/run-area.md — the Materialization section should note that a recognized input resolving to nothing now fails loudly rather than stamping materialized_at over a NULL geometry.",
+    "Per CLAUDE.md these land ONLY after approval/merge, not during this run."
+  ]
+}

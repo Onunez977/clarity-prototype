@@ -1,0 +1,32 @@
+{
+  "_meta": {"role": "fast-pass (non-blind; produced before escalation)", "model": "sonnet", "confidence": 78},
+  "synthesis": "DEV-2460 is the scaffolding ticket for the 9-card Company Metrics Dashboard epic (DEV-2409): before any sibling card can be built, CompanyMetricsOverview::cards() must hold its current 7 real cards in mockup-relative (not append) order with the 9 future slots documented as load-bearing gaps; two labels change; Active Kit Users stops being a grid card and becomes the 5th-of-6 stat in HotlistCount's header row; and a Pro-gate visibility seam (canViewCardData()/lockedStat()/expandableCards()) must exist so a future gated card keeps its grid slot but renders locked and is excluded from the toggle set -- even though no real card in this ticket is actually gated yet.",
+  "key_findings": [
+    "canViewCardData()/lockedStat()/expandableCards() DO NOT EXIST today -- this ticket introduces all three.",
+    "RecoveryLeader overrides toStat() directly and carries a SECOND hardcoded label at RecoveryLeader.php:234 ('Recovery Leaderboard') separate from $heading at :25. Changing only $heading leaves collapsed and expanded views disagreeing. THIS IS THE MISSED-SIBLING CLASS THE EPIC WARNS ABOUT.",
+    "Every DashboardMetricCard implementer uses the RendersDashboardStat trait, so interface additions with trait defaults are compile-safe for all 8 implementers with zero per-card edits.",
+    "KitUsers has its own standalone Livewire test suite (KitUsersTest.php) exercising it as a TableWidget with expand-to-table; it should be UNREGISTERED from cards(), not deleted.",
+    "Dashboard::cardWidgets() at Dashboard.php:84 currently returns cards(); it must return expandableCards() so a locked key structurally cannot be toggled (a no-op lookup, not a 403).",
+    "HotlistCount::getColumns() is a plain int 5 and must become 6.",
+    "HotlistCount can reuse KitUsers' EXISTING cache keys ('kit-status:active-ids:org=', 'kit-status:total:org='), introducing zero new ClickHouse call sites -- which is how AC-7 is satisfied.",
+    "tests/Filament/Widgets/Dashboard/RecoveryCountsTest.php:27 uses assertSeeText('Repossessions') -- a SUBSTRING check, so it stays green under 'Total Repossessions'.",
+    "tests/Filament/Widgets/Dashboard/RecoveryLeaderTest.php:214 uses assertSame('Recovery Leaderboard', ...) -- an EXACT check, so it breaks and must be updated.",
+    "app/Filament/Widgets/Client/ClientTable.php:202 and app/Filament/Pages/Concerns/HasStatDrillDown.php:253 also say 'Repossessions'/'Total Repossessions' but belong to the separate /client panel -- out of scope."
+  ],
+  "target_files": [
+    "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php",
+    "app/Filament/Widgets/Dashboard/RecoveryCounts.php",
+    "app/Filament/Widgets/Dashboard/RecoveryLeader.php",
+    "app/Filament/Widgets/Dashboard/HotlistCount.php",
+    "app/Filament/Widgets/Dashboard/Concerns/DashboardMetricCard.php",
+    "app/Filament/Widgets/Dashboard/Concerns/RendersDashboardStat.php",
+    "app/Filament/Pages/Dashboard.php",
+    "tests/Filament/Pages/DashboardCardExpansionTest.php",
+    "tests/Filament/Widgets/Dashboard/HotlistCountTest.php",
+    "tests/Filament/Widgets/Dashboard/RecoveryLeaderTest.php",
+    "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php"
+  ],
+  "open_question": "Should CompanyMetricsOverview::getColumns() 'lg'=>4 or HotlistCount::getColumns() become responsive arrays rather than a plain int bumped 5->6, to avoid an awkward 6th-stat wrap on narrower viewports? (needs-human)",
+  "resource_envelope": {"scale_relevant": false, "trigger": "Filament widget layout/label/visibility change -- not a command, job, migration, or data-iterating loop; no new query path introduced.", "oracle_status": "not-configured"},
+  "escalate": {"recommend": true, "reasons": ["Pro-gate seam is billing/auth-adjacent blast radius", "epic's prior full-build attempt took 8 review rounds and never cleared >=90, always via a missed sibling call site (this pass already found one: RecoveryLeader:234)", "interface change touches 8 implementers' contract at once", "one design question left open (getColumns int vs responsive)"]}
+}

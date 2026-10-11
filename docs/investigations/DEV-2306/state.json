@@ -1,0 +1,198 @@
+{
+  "key": "DEV-2306",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2306",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 261
+    },
+    {
+      "slot": "review",
+      "model": "claude-p-inession",
+      "effort": "opus",
+      "phase": "review",
+      "dur_s": 322
+    },
+    {
+      "slot": "agent-qa",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "verify",
+      "dur_s": 486
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "knowledge/clarity/scout.md"
+  ],
+  "escalated": false,
+  "escalation_triggers": [],
+  "best_of_n": false,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "20ffb79fc0ceb8b205bfd00222f8d3d61d8eedff",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 1,
+  "pr": {
+    "number": 310,
+    "url": "https://github.com/insight-lpr/platform/pull/310",
+    "draft": true
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": "already In Progress at intake (no transition needed)",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "undraft did not auto-transition (no draft-aware action on clarity); pipeline transitioned via Atlassian MCP",
+  "assumed": [],
+  "comment_ids": {
+    "status": "38091",
+    "build_record": "38092"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "already-running",
+      "ch_container": "created",
+      "frontend_build": "ran",
+      "postgres_db": "zod_claude_dev_2306_6b8225",
+      "ch_strategy": "docker",
+      "herd_site": "clarity-claude_dev_2306_6b8225.test"
+    },
+    "provisioned_early": true,
+    "human_guide": ".context/qa-human-guide.html"
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact --filter=ScoutDateRangeStandardizationTest",
+        "passed": 12,
+        "failed": 0
+      }
+    ],
+    "deviations": [
+      {
+        "source": "implement",
+        "edit": "Test uses PHPUnit #[DataProvider] attribute (not @dataProvider docblock) to avoid a PHPUnit-12 deprecation.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "implement",
+        "edit": "Full local suite NOT run: platform CLAUDE.md forbids auto-running tests + the local full suite OOMs (128M). PR is off main so GitHub Actions runs the suite on push. Focused feature test (12) green locally; pint clean.",
+        "ac_ref": null,
+        "ac_delta": null
+      }
+    ],
+    "review": {
+      "lanes": 1,
+      "scores": [
+        100
+      ],
+      "findings_fixed": [
+        "DateRangeControl.vue stale 7d-60d / driver-Today+7d comments (non-scoring, doc drift caused by this change)"
+      ],
+      "findings_residual": [
+        "Test does not pin frontend pill arrays (no JS runner in-repo) \u2014 covered by agent/human QA"
+      ],
+      "lane_sources": [
+        {
+          "lane": "lane1",
+          "source": "in-session-agent"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "8ef44120287bdaea5e1c810db9410e6a05876414",
+      "rework_pivot": false
+    },
+    "ac": [
+      {
+        "item": "AC-1: Admin pills = Today/Yesterday/7d/15d/30d",
+        "status": "SATISFIED",
+        "evidence": "Admin Bird's Eye (Org Map) shows exactly Today/Yesterday/7d/15d/30d in order, no 60d (A4)."
+      },
+      {
+        "item": "AC-2: Scout User pills = Today/Yesterday/7d/15d/30d",
+        "status": "SATISFIED",
+        "evidence": "Driver PWA shows exactly Today/Yesterday/7d/15d/30d in order, no 60d (A1)."
+      },
+      {
+        "item": "AC-3: Both default to Today",
+        "status": "SATISFIED",
+        "evidence": "Both apps load with Today active/selected by default (A1 driver, A4 admin)."
+      },
+      {
+        "item": "AC-4: Counts (Scans/Direct-Live/Staging-Live) update per filter on both apps",
+        "status": "SATISFIED",
+        "evidence": "Scans/Direct-Live/Staging-Live update per pill on both apps and match expected monotonic counts exactly (Today 2/1/1 -> 30d 20/5/5): driver A2, admin A5. New driver 15d/30d and new admin Yesterday all correct, no errors."
+      },
+      {
+        "item": "AC-5: Filter selection visually consistent",
+        "status": "SATISFIED",
+        "evidence": "Pill control renders identically on both apps (same 5 labels, order, default) \u2014 A1 vs A4."
+      }
+    ]
+  }
+}

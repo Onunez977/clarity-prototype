@@ -1,0 +1,75 @@
+{
+  "key": "DEV-2738",
+  "generated_at": "2026-09-25T15:30:00Z",
+  "input": "docs/investigations/DEV-2738/prep-context.json",
+  "gate": "CLEAN",
+  "phase": "plan",
+  "base": "main",
+  "base_sha": "b999329615174f5e3c6bfe7f77e5c592f01c021a",
+  "branch_path": "main→main",
+  "first_glance": "41854",
+  "summary": "Replace four rendered Unique literals with Scan Counts and LPR Case Claims. Update the tests and two e2e heading constants that pin them. No query, key, class, or cache change.",
+  "preflight": {
+    "24": "simple_win_copy_literals",
+    "18": "N/A",
+    "25": "N/A",
+    "25_proof": "No label string is bound into a query. app/Clickhouse hit is UniqueLprCaseClaimsQuery.php:12 docblock only."
+  },
+  "wording": {
+    "scan_counts": "Scan Counts",
+    "lpr_case_claims": "LPR Case Claims",
+    "source": "Ticket ACs and First Glance 41854. No open synonym question."
+  },
+  "sizing": {
+    "files": 7,
+    "split": false,
+    "reason": "One copy concern. A helper would be new architecture for four literals."
+  },
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Drop Unique from the two card titles and their dataset labels",
+      "complexity": "simple",
+      "approach": "Edit the four string literals. getCardLabel() already reads $heading, so the Stat title follows. getData() already reads getDatasetLabel(), so the legend follows. Do not add a method, trait, or constant shared across cards. Do not rename classes or card keys.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/UniqueScanCounts.php",
+        "app/Filament/Widgets/Dashboard/UniqueLprCaseClaims.php",
+        "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php",
+        "tests/Filament/Widgets/Dashboard/UniqueScanCountsTest.php",
+        "tests/Filament/Widgets/Dashboard/UniqueLprCaseClaimsTest.php",
+        "tests/Filament/Pages/DashboardCardExpansionTest.php",
+        "tests/e2e/helpers/company-metrics.ts"
+      ],
+      "intended_diffs": "UniqueScanCounts.php:53 heading 'Scan Counts'. UniqueScanCounts.php:114 return 'Scan Counts'. UniqueLprCaseClaims.php:96 heading 'LPR Case Claims'. UniqueLprCaseClaims.php:108 return 'LPR Case Claims'. CompanyMetricsOverview.php:68 row-1 comment uses the new titles; keys at :105-106 unchanged; historical absorption sentences unchanged. UniqueScanCountsTest.php:73 and :86 assert 'Scan Counts'. UniqueScanCountsTest.php:568 assertSame 'Scan Counts'. UniqueLprCaseClaimsTest keeps getCardKey() 'unique-lpr-case-claims' and asserts getCardLabel() and getDatasetLabel() are 'LPR Case Claims', mirroring RecoveryCountsTest.php:38-39. DashboardCardExpansionTest.php:155 comment uses the new titles. company-metrics.ts:23 'LPR Case Claims'. company-metrics.ts:29 'Scan Counts'. Do not edit company-metrics.ts:30.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "UniqueScanCountsTest|UniqueLprCaseClaimsTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "do_not_touch": [
+        "app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php",
+        "app/Filament/Resources/AffiliateStatsResource.php",
+        "app/Filament/Exports/AffiliateStatsExporter.php",
+        "app/Filament/Widgets/Dashboard/UniqueScansLeaderboard.php",
+        "okf/"
+      ]
+    }
+  ],
+  "verification": [
+    "php artisan test --compact tests/Filament/Widgets/Dashboard/UniqueScanCountsTest.php",
+    "php artisan test --compact tests/Filament/Widgets/Dashboard/UniqueLprCaseClaimsTest.php"
+  ],
+  "verification_note": "Run only when implementing. Playwright is not in CI. This plan phase does not run tests and does not provision.",
+  "excluded": [
+    "Query SQL and UniqueLprCaseClaimsQuery.php docblock",
+    "Card keys unique-scan-counts and unique-lpr-case-claims",
+    "Class names and cache namespaces",
+    "Axis title Case Claims, ratio series Scans per Case Claim, second series Total Scans",
+    "Affiliate Stats Unique Scans column",
+    "Scans Leaderboard heading and its stale e2e constant",
+    "DEV-2736 files",
+    "okf/ until after approval",
+    "Reopening DEV-2651"
+  ],
+  "next": "Provision"
+}

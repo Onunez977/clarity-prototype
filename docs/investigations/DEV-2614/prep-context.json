@@ -1,0 +1,859 @@
+{
+  "key": "DEV-2614",
+  "app": "clarity",
+  "repo_path": "/Users/daltonmccleery/Herd/platform/.claude/worktrees/DEV-2614",
+  "mode": "normal",
+  "escalated": true,
+  "candidates_merged": 4,
+  "synthesis": "Two coupled defects in the single shared builder app/Support/Hits/HitsListQuery.php, used by ListHits, the HasHitMetricCards cards, Otto HitSearchTool and Otto InvestigationDataController hydration. The grep backstop found 0 missed consumers. (1) shouldUseClickhouse() (:19-23) checks Feature::active('clickhouse:hits'), a name Pennant never defines (it defines 'clickhouse-hits'), so the CH path runs only for admin_impersonator. (2) buildClickhouseQuery() (:36-75) filters only notNicb()+forKits(), never the sort-key-leading hotlist_org_id. All 4 candidates converge on one design. Route by config('app.experimental.clickhouse.hits', false) || admin_impersonator (the DEV-2591 idiom, ListScans.php:306-309). Add Hit::scopeForHotlistOrgs (mirroring Scan::scopeForOrgs, Scan.php:53-62) with hotlist_org_id IN ({user org} ∪ approval_list staging orgs ∪ silent_hit_generation orgs), ANDed with the kept kit_id IN. That set comes from the trigger rule (zod-schema.sql:2041, :1989), so it can only narrow the row set, never widen it, and Staging Live/Historical (S/Z) rows survive. No FINAL. Prod config('app.experimental.clickhouse.hits') was recorded TRUE on 2026-09-15 (docs/investigations/DEV-2546/prod-measurement-results.md:107), so the fix flips every org and Otto onto CH at deploy. Routing and prune therefore must ship together (hard stop). Open items need a human: the AC-6 prod value and rollout, the staging-org source/cache, acceptance of moved-kit/revoked-approval under-inclusion, AC-4 fix-vs-document, and measuring the prune benefit before enabling.",
+  "scope": {
+    "summary": "Change HitsListQuery only. Use config-based routing plus a sort-key-leading hotlist_org_id IN prune derived from PG (user org ∪ approved staging orgs ∪ silent-generation orgs), ANDed with kit_id IN. Add a Hit::scopeForHotlistOrgs scope, pin it with CH-free routing/shape tests and one RequiresClickhouse row-set class, and document every PG-vs-CH difference (AC-4). ListHits, the metric cards and both Otto consumers inherit the fix; none of them is edited.",
+    "proposed_changes": [
+      {
+        "file": "app/Support/Hits/HitsListQuery.php",
+        "change": "shouldUseClickhouse() returns config('app.experimental.clickhouse.hits', false) || session()->has('admin_impersonator'). Keep the Pennant import, which the PG path still needs for HIT_ADDRESS_DISTANCE.",
+        "reason": "AC-1. The literal can never match; this is the DEV-2591 precedent.",
+        "ref": "app/Support/Hits/HitsListQuery.php:19-23; app/Filament/Resources/ScansResource/Pages/ListScans.php:306-309"
+      },
+      {
+        "file": "app/Support/Hits/HitsListQuery.php",
+        "change": "In buildClickhouseQuery(), call $kits = $user->getUserKits() once and chain ->forHotlistOrgs(self::hotlistOrgIds($user)) BEFORE ->forKits($kitIds). The set is the unique positive ints of {user org_id} ∪ staging orgs for that agent org (source per Q2) ∪ ids of orgs with silent_hit_generation=true. Keep forKits(), notNicb() and the hit_type clauses unchanged. Empty sets render '0 = 1'. Never fall back to a wider set, and never use forOrg() or kit_org_id.",
+        "reason": "AC-2/AC-3. hotlist_org_id leads ORDER BY (hotlist_org_id, toYYYYMM(hit_created_at), hit_created_at, id). S/Z hits carry the staging org, created only via an approval_list row OR a silent org.",
+        "ref": "app/Support/Hits/HitsListQuery.php:36-46; vendor/insight-lpr/laravel-zod-migrations/database/schema/zod-schema.sql:1989,2041; database/schema/clickhouse-schema.sql:22-23"
+      },
+      {
+        "file": "app/Clickhouse/Models/Hit.php",
+        "change": "Add scopeForHotlistOrgs($query, array $orgIds): array_values(array_unique(array_map(intval(...), ...))). An empty set gives whereRaw('0 = 1'); otherwise whereIntegerInRaw('hotlist_org_id', $orgIds). Use a bare column (PG-024). Keep the docblock sparse: it is a prune, not a tenancy boundary, and it is not forOrg/forKitOrg. Leave forOrg/forKitOrg untouched.",
+        "reason": "A reusable, empty-safe, int-cast scope that mirrors DEV-2615.",
+        "ref": "app/Clickhouse/Models/Hit.php:31-59; app/Clickhouse/Models/Scan.php:53-62"
+      },
+      {
+        "file": "app/Models/Org.php",
+        "change": "CONDITIONAL on Q2. Add a small cached helper for the silent_hit_generation org id set, and possibly an uncached/short-TTL staging lookup, only if Q2 picks a model-level helper. Otherwise keep the lookup as a private static in HitsListQuery. Leave stagingOrgIds() itself unchanged: 6 other callers rely on it.",
+        "reason": "stagingOrgIds() (Org.php:384-393) reads approval_list only and is cached 2h, so it omits silent orgs.",
+        "ref": "app/Models/Org.php:384-393"
+      },
+      {
+        "file": "tests/Filament/Resources/ClickhouseRoutingTest.php",
+        "change": "Extend the existing CH-free class with a HitsListQuery::shouldUseClickhouse() suite. Cover config on/off, Pro-tier independence, the impersonator with config off, and a deactivated 'clickhouse-hits' Pennant row not mattering. Assert 'clickhouse:hits' is not in FeatureEnum::slugs(). Remove the docblock paragraph at :20 saying ListHits is deliberately not covered.",
+        "reason": "AC-1 pin.",
+        "ref": "tests/Filament/Resources/ClickhouseRoutingTest.php:20-24"
+      },
+      {
+        "file": "tests/Filament/Resources/ClickhouseHitQueryShapeTest.php",
+        "change": "NEW, CH-free (no RequiresClickhouse), modelled on ClickhouseScanQueryShapeTest. Build the real HitsListQuery::baseQuery with config on, for both hot (<=90d) and cold windows. Assert: 'hotlist_org_id in' contains the user org, an approved staging org and a silent org; 'kit_id in' is retained; no 'final'; _peerdb_is_deleted is filtered; empty kits or an empty org set give '0 = 1' (never 'in (0)'); the PG SQL is unchanged (no hotlist_org_id). Call Kit::forgetCachedKits and flush the staging cache in setUp.",
+        "reason": "AC-2/AC-5 and the no-widen guarantee, runnable in CI without CH.",
+        "ref": "tests/Filament/Resources/ClickhouseScanQueryShapeTest.php"
+      },
+      {
+        "file": "tests/Filament/Resources/HitsResourceClickhouseRowSetTest.php",
+        "change": "NEW RequiresClickhouse class, the only live-CH class. Seed hits_hot anchored to now(), with: L (hotlist org = user org); S and Z (hotlist org = approved staging org, kit_org = user org); S from a silent org; a hit on a foreign org's kit; a hit on the user's kit whose hotlist org is outside the set (documents the accepted gap); O and NICB rows. Assert ListHits/baseQuery ids equal the expected set with Staging Live present, and that the metric cards count the S/Z rows.",
+        "reason": "AC-3/AC-4. Existing CH fixtures seed only hotlist_org_id = user org (HitsResourceMetricCardsClickhouseTest seedHit), so they never exercise the staging axis.",
+        "ref": "tests/Filament/Resources/HitsResourceMetricCardsClickhouseTest.php:37-50,180-258"
+      },
+      {
+        "file": "tests/Feature/Otto/OttoSearchToolsTest.php",
+        "change": "Add a config-on sibling of test_hits_list_query_is_kit_scoped asserting the CH SQL carries both hotlist_org_id in and kit_id in. The existing PG assertion (config default false) stays.",
+        "reason": "Covers the two Otto consumers of the shared builder.",
+        "ref": "tests/Feature/Otto/OttoSearchToolsTest.php:393-408"
+      }
+    ],
+    "target_files": [
+      "app/Support/Hits/HitsListQuery.php",
+      "app/Clickhouse/Models/Hit.php",
+      "app/Models/Org.php (conditional on Q2)",
+      "tests/Filament/Resources/ClickhouseRoutingTest.php",
+      "tests/Filament/Resources/ClickhouseHitQueryShapeTest.php (new, CH-free)",
+      "tests/Filament/Resources/HitsResourceClickhouseRowSetTest.php (new, RequiresClickhouse)",
+      "tests/Feature/Otto/OttoSearchToolsTest.php"
+    ],
+    "out_of_scope": [
+      "ProTierEnum CLICKHOUSE_SCANS/HITS entries (ProTierEnum.php:58-59,73-74), Feature::define lines (PennantServiceProvider.php:30-32) and FeatureEnum cases. DEV-2591 left them deliberately; they gate nothing after this fix.",
+      "Any okf/ or docs/plans edit while in flight. Queue feature-flags.md:36-37, hit-address-distance.md:52,98, hit.md:66 (frozen hotlist_status), otto.md and docs/plans/otto.md:160 for the post-approval pass.",
+      "FINAL on hits_cold (AC-5 revised 2026-09-29: FINAL on hits_hot only — cold FINAL costs ~3.1x memory, 1.1→3.6 GB per list query)",
+      "Fixing PG-vs-CH semantic differences (hit types, 'New Hit' literal, status source, distance columns); document only, unless Q4 says otherwise.",
+      "Historical kit-owner widening for moved kits (kit_last_scan); deferred as in DEV-2615.",
+      "chlocal DDL/MV changes (hits_cold_mv INNER JOINs, DEV-2189 late-scan drop).",
+      "Flipping CLICKHOUSE_HITS_ENABLED in prod (ops), and adding it to .env.example (the checkpoint PII scan blocks that file).",
+      "HitsListQuery::buildPostgresQuery, shared-kit support on Hits, HasHitMetricCards, ListHits, and TableMapComponent id lookup.",
+      "Adding a hit_created_at bound to Otto HitSearchTool (it filters scanned_at only); note it, do not change it."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "AC-1 routing reads a defined name or config('app.experimental.clickhouse.hits')",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Use config + admin_impersonator (the DEV-2591 idiom). Pennant/tier are out of routing. All 4 candidates agree."
+    },
+    {
+      "item": "AC-2 CH Hits query filters hotlist_org_id (sort-key-leading)",
+      "source": "ticket",
+      "decision": "withdrawn",
+      "reason": "WITHDRAWN by Dalton 2026-09-29 after QA: the hotlist_org_id prune (forHotlistOrgs + hotlistOrgIds + silentOrgIds) was built, reviewed and QA'd, then removed. The CH query is scoped by kit_id only, like Postgres. Reasons: the one prod silent org owns only NICB orders (0 CH hits), and the prune dropped 0.09% of rows vs PG for a modest PK win (30d cold -10..14% PK granules, Today unchanged)."
+    },
+    {
+      "item": "AC-3 Staging Live verified present after the predicate",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "With the prune removed, Staging Live is present by construction (kit_id IN only, same as PG). Pinned by the RequiresClickhouse row-set test (own-kit hits listed whatever their hotlist org)."
+    },
+    {
+      "item": "AC-4 CH/PG same rows for a representative org, or every difference documented",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Exact parity is impossible by MV construction. Deliver the difference matrix (notes) in the PR/build record. Whether any difference gets FIXED is open (Q4)."
+    },
+    {
+      "item": "AC-5 (revised) FINAL on clarity.hits_hot only; no FINAL on hits_cold",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Dalton 2026-09-29 after the prod benchmark: FINAL is ~free on hot windows (Today +2–4 ms, 30d +30–50 ms) and fixes stale-status/duplicate rows there; hits_cold FINAL costs ~3.1x memory (1.1→3.6 GB list) so cold stays without it (documented as a known difference)."
+    },
+    {
+      "item": "AC-6 confirm prod CLICKHOUSE_HITS_ENABLED before shipping the routing fix",
+      "source": "ticket",
+      "decision": "defer",
+      "reason": "Ship gate, not code. Last recorded TRUE on 2026-09-15 (DEV-2546 prod-measurement-results.md:107). Needs a fresh human confirmation plus a rollout decision (Q1)."
+    },
+    {
+      "item": "Derived: the prune never widens the row set beyond PG (hits.kit_id IN getUserKits())",
+      "source": "derived",
+      "decision": "withdrawn",
+      "reason": "Moot: the prune was removed with AC-2."
+    },
+    {
+      "item": "Derived: Otto HitSearchTool and InvestigationDataController hydration work on the CH branch",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "They call HitsListQuery::baseQuery (HitSearchTool.php:142, InvestigationDataController.php:133). OttoSearchToolsTest CH-mode case."
+    },
+    {
+      "item": "Derived AC-7: CH 'New Hit' disposition filter returns NULL OR literal 'New Hit' like Postgres, on the Hits list and Otto hit search (Scout scopeValidDisposition unchanged)",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Dalton 2026-09-29, Q4.2"
+    },
+    {
+      "item": "Derived AC-8 (ship gate, revised 2026-09-30): ship in the same release as DEV-2739's fix (#469) or later, never ahead of it",
+      "source": "derived",
+      "decision": "defer",
+      "reason": "Dalton 2026-09-29 Q4.5, revised 2026-09-30: #469 merged to main 2026-09-29 and routes NearestGivenAddressController to Postgres hotlist_address ⋈ address (same Given source as the PG path); releases go main → deploy, so merging #485 now ships it with #469"
+    }
+  ],
+  "questions": [
+    {
+      "id": "Q1",
+      "q": "AC-6: what is prod CLICKHOUSE_HITS_ENABLED right now, and how should the routing fix roll out given it flips every org and Otto to CH at deploy?",
+      "answered": true,
+      "answer": "Prod CLICKHOUSE_HITS_ENABLED = true. Leave it on: the deploy of this change flips every org + Otto to the ClickHouse Hits path (no staged rollout).",
+      "source": "human:Dalton McCleery 2026-09-29",
+      "options": [
+        "A: confirm the value; hold prod at false through deploy; validate the row set (AC-3/AC-4) and the prune (Q5) read-only; then flip",
+        "B: confirm the value and ship as-is, so the flip happens at deploy with the prune in the same commit"
+      ],
+      "recommendation": "A: decouple the flip from the deploy. PG-path timeouts and the 2026-09-11 CH Cloud 57.6 GiB ceiling breach are both live risks."
+    },
+    {
+      "id": "Q2",
+      "q": "Staging-org source for the prune set: reuse Org::stagingOrgIds() (2h cache, approval_list only), or read approval_list directly (short/no cache) plus the silent orgs?",
+      "answered": true,
+      "answer": "[SUPERSEDED — AC-2 withdrawn 2026-09-29, prune removed] Reuse Org::stagingOrgIds() unchanged (do not alter how the Hits page works); add the silent_hit_generation org ids on top so the one silent org's Staging Live hits stay (PG shows them today). Accept stagingOrgIds' 2h cache lag for new approvals.",
+      "source": "human:Dalton McCleery 2026-09-29",
+      "options": [
+        "A: direct ApprovalList read (uncached or ≤10 min) + briefly cached silent-org ids",
+        "B: reuse Org::stagingOrgIds() (2h) + silent-org ids, accepting up to 2h lag for new approvals"
+      ],
+      "recommendation": "A: it matches PG immediacy, costs one indexed lookup per render, and leaves the 6 existing stagingOrgIds() callers untouched."
+    },
+    {
+      "id": "Q3",
+      "q": "Accept that the current-value prune drops historical hits for kits that moved orgs, revoked approval_list rows (hard delete) or de-flagged silent orgs, while PG still lists them?",
+      "answered": true,
+      "answer": "[SUPERSEDED — AC-2 withdrawn 2026-09-29, prune removed] Accepted: current-value prune (moved kits / revoked approvals / de-flagged silent orgs) is accepted, like DEV-2615; measure the drop read-only for one org over 30d during QA before enabling.",
+      "source": "human:Dalton McCleery 2026-09-29",
+      "options": [
+        "A: accept and document it, as DEV-2615 did",
+        "B: measure first with a read-only aggregate for one representative org over 30d (hit ids on its kits whose hotlist_org_id is outside the set), and accept only below a threshold"
+      ],
+      "recommendation": "B before the flag is enabled; the code is the same either way, so it does not block the build."
+    },
+    {
+      "id": "Q4",
+      "q": "AC-4: fix any PG-vs-CH differences in this ticket, or document only? The main ones: the CH default disposition filter drops the literal 'New Hit'; unmerged duplicates list twice and can crowd Otto's limit(count($hitIds)) hydration; hit types F/M/A/P/W (G) exist only on PG.",
+      "answered": true,
+      "answer": "4.1 accept+document (other hit types not wanted); 4.2 FIX: CH 'New Hit' filter = NULL OR literal 'New Hit' (Hits list + Otto only; Scout scopeValidDisposition unchanged); 4.3 REVISED 2026-09-29 after the prod benchmark: FINAL on hits_hot only (collapses stale status versions + duplicate rows on ≤90d windows), hits_cold stays without FINAL; 4.4 accept; 4.5 distance columns move to Path B on the flip -> ship DEV-2614 only after DEV-2739's Path B fix is live; 4.6 measured tiny (PG-only 0.009%, CH-only 0.11%), document.",
+      "source": "human:Dalton McCleery 2026-09-29",
+      "options": [
+        "A: document all of them in the PR/build record; change no row semantics",
+        "B: document all, plus a minimal fix for the Otto hydration crowding (dedupe by id in PHP)"
+      ],
+      "recommendation": "A, but get an explicit human call on the hydration crowding, since the flip newly activates it for Otto."
+    },
+    {
+      "id": "Q5",
+      "q": "Measure the prune benefit (EXPLAIN indexes=1 / read_rows on prod hits_cold, read-only, before vs after) before enabling the flag?",
+      "answered": true,
+      "answer": "[Done; measured the withdrawn prune] Yes: read-only EXPLAIN indexes=1 on prod hits_cold before vs after, during QA, interleaved (also confirms the prod sort key).",
+      "source": "human:Dalton McCleery 2026-09-29",
+      "options": [
+        "A: measure during QA, read-only and interleaved (not sequential batches), before the flip",
+        "B: ship on design reasoning and measure after enabling"
+      ],
+      "recommendation": "A. Measurement also confirms the prod sort key, which the scans schema dump once misstated."
+    },
+    {
+      "id": "Q6",
+      "q": "Route by config or fix the Pennant slug?",
+      "answered": true,
+      "answer": "Config + admin_impersonator, as DEV-2591 did (ListScans.php:306-309). The ticket names it as the AC-1 alternative, and all candidates agree.",
+      "source": "ticket"
+    },
+    {
+      "id": "Q7",
+      "q": "Which sort-key-leading predicate keeps Staging Live?",
+      "answered": true,
+      "answer": "[SUPERSEDED — AC-2 withdrawn 2026-09-29, prune removed] hotlist_org_id IN ({user org} ∪ approval_list staging orgs ∪ silent_hit_generation orgs), ANDed with kit_id IN. L/H hits carry the kit's org; S/Z hits carry the staging org and exist only where approval_list(staging=hotlist org, agent=kit org) exists OR the hotlist org is silent (zod-schema.sql:2041, :1989). forOrg() and kit_org_id are both wrong axes.",
+      "source": "code"
+    },
+    {
+      "id": "Q8",
+      "q": "Derive the kit-org part from the user's org or from the kits' org_ids?",
+      "answered": true,
+      "answer": "[SUPERSEDED — AC-2 withdrawn 2026-09-29, prune removed] Equivalent. Kit::getKits filters where org_id = user org with withShared=false on the Hits path (Kit.php:252-266, User.php:183-186), so kits->pluck('org_id') ⊆ {user org}. Use the user org, with empty kits still giving 0 = 1 via forKits.",
+      "source": "code"
+    },
+    {
+      "id": "Q9",
+      "q": "Include silent_hit_generation staging hits in the CH list?",
+      "answered": true,
+      "answer": "[SUPERSEDED — AC-2 withdrawn 2026-09-29, prune removed] Yes, for AC-4 parity. The PG list has no approval/silent filter (HitsListQuery.php:77-146), and the trigger generates these hits (zod-schema.sql:2041). Hit::getHits()'s silent exclusion (app/Models/Hit.php:250) is a different surface; prod has 1 silent org.",
+      "source": "code"
+    },
+    {
+      "id": "Q10",
+      "q": "Can the new predicate widen the row set for admin/CLIENT/impersonated users?",
+      "answered": true,
+      "answer": "[SUPERSEDED — AC-2 withdrawn 2026-09-29, prune removed] No. getUserKits() has no role branching; impersonation logs in as the target user, and CLIENT/zero-kit orgs give 0 = 1 on both paths. The predicate is AND-only, so its failure mode is under-inclusion, never a cross-tenant leak.",
+      "source": "code"
+    },
+    {
+      "id": "Q11",
+      "q": "Is hotlist_status on hits_cold frozen at write (okf) or re-emitted by the MV?",
+      "answered": true,
+      "answer": "The chlocal MV re-emits existing hits_cold rows for any changed hotlist, with no age bound (hits_cold_mv.sql:111-125), so status is near-live with ~1-min lag. okf/concepts/hit.md:66 ('never back-updated') conflicts. The prod MV definition is not verified. This is design-neutral because HitsListQuery does not filter status, so it is a doc conflict queued post-approval.",
+      "source": "code"
+    },
+    {
+      "id": "Q12",
+      "q": "Who consumes the CH Hits query?",
+      "answered": true,
+      "answer": "HitsListQuery::baseQuery has 3 callers: ListHits (plus the metric cards via getFilteredTableQuery), HitSearchTool.php:142 and InvestigationDataController.php:133. The grep backstop found 0 missed consumers.",
+      "source": "code"
+    },
+    {
+      "id": "Q13",
+      "q": "Is ProTierEnum / Pennant define / okf feature-flags cleanup in scope?",
+      "answered": true,
+      "answer": "No. DEV-2591 left it deliberately, and okf edits happen post-approval only.",
+      "source": "ticket"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "HARD STOP: never ship routing without the prune; never use forOrg() (hotlist_org_id = user org, which drops S/Z) or kit_org_id (not in the sort key, and it is the scan's org at write time); no FINAL.",
+    "Prod flag evidence: config('app.experimental.clickhouse.hits') = true on 2026-09-15 (docs/investigations/DEV-2546/prod-measurement-results.md:107, verified). Candidate 2's claim that no recorded prod value exists is contradicted by that file.",
+    "Org::stagingOrgIds() (Org.php:384-393) is approval_list-only with a 2h cache and 6 existing callers (incl. InvestigationDataController.php:182). Do not modify it.",
+    "Cache interplay: getUserKits is cached to end of hour (Kit::kitsCacheKey). Tests must call Kit::forgetCachedKits and clear any staging/silent cache. Otto search and hydration run the same builder, so a TTL boundary between them could, in theory, drop a found hit at hydration.",
+    "Prune benefit is unmeasured. Candidates: 'modest' (c1, idx_kit_id skip index already prunes, CH-visible L/H/S/Z ≈ 22.0M rows), 'unproven' (c2), 'matters most for Otto' (fast; HitSearchTool bounds scanned_at, not hit_created_at).",
+    "AC-4 matrix (1/3). Hit types: CH MV keeps only L/H/Z/S (hits_cold_mv.sql:83); PG excludes only O, so F 622,410 / M 55,854 / A 24,752 / P 21,602 / W 164 rows appear only on PG under Type=All. Joins: PG INNER-joins scans_metadata, client_orgs and lienholder_orgs (a NULL client/lienholder drops the row); the CH MV INNER-joins scans_cold and hotlist FINAL (org_id != 0), with watermark late-scan drops (DEV-2189).",
+    "AC-4 matrix (2/3). Status: PG reads live hotlist.status; CH reads the denormalised hotlist_status, re-emitted with lag. PG adds kits.org_id = user org for L/H with a Status filter (HitsResource.php:395-402). Disposition: PG reads scans_metadata.meta, CH reads scans_cold.disposition, and the CH default filter drops the literal 'New Hit' (Hit.php:82-91).",
+    "AC-4 matrix (3/3). Duplicates: no FINAL, and hit_created_at (mutable) is in the sort key, so a hit id can list twice (cards use uniqExact(id), so list rows ≠ card totals). kit_org_id is scan-time on CH vs current on PG (the dispositionable === check differs for moved kits). CH lacks distance_from_given_miles/nearest_given_address, so Pro HIT_ADDRESS_DISTANCE orgs move to async Path B (recovery_address type_id=2). The prune drops rows whose derivation changed (Q3). NICB: both drop NULL integration_id.",
+    "The metric cards (HasHitMetricCards) fold getFilteredTableQuery(), so they inherit the prune; their cache key derives from SQL+bindings and changes automatically.",
+    "Otto hydration: InvestigationDataController.php:133-139 uses whereIn('id')->limit(count($hitIds)). Unmerged duplicates can crowd out distinct ids (Q4).",
+    "Rejected alternatives: a per-request CH SELECT DISTINCT hotlist_org_id WHERE kit_id IN (...) (scans the table it means to prune); 'hotlist_org_id IN (...) OR hit_type IN (S,Z)' (cannot prune); a NOT IN of other orgs (fragile).",
+    "Conventions: mirror Scan::scopeForOrgs and the ListScans DEV-2615 org fallback (ListScans.php:311-331); config() not env(); PHP 8.3-safe; sparse docblocks (user preference); Pint (composer format); okf/concepts/laravel-boost-guidelines.md is the standard.",
+    "Tests: do not run automatically. RequiresClickhouse skips locally unless CLICKHOUSE_DRIVER=clickhouse, so keep routing/shape/tenancy guarantees in CH-free classes. Anchor hits_hot fixtures to now() (90d TTL). There is no ApprovalListFactory; seed via the model on the zod connection.",
+    "Local CH QA: follow the current memory guidance on CH DB naming (never-use-literal-ch-dbs-for-local-qa supersedes older literal-DB notes); seed CH last and re-seed after any suite run.",
+    "Doc conflicts to queue post-approval: okf/concepts/hit.md:66 (frozen hotlist_status vs MV re-emit), feature-flags.md:36-37, hit-address-distance.md:52,98, docs/plans/otto.md:160, and the stale 'clickhouse:hits' wording in the HitsResourceMetricCardsClickhouseTest.php:22 docblock.",
+    "The prod sort key is taken from the chlocal DDL + schema dump (they agree). A prod SHOW CREATE/EXPLAIN was not run; the scans dump once misstated its key (memory), so confirm it during the Q5 measurement."
+  ],
+  "tests": [
+    {
+      "file": "tests/Filament/Resources/ClickhouseRoutingTest.php",
+      "kind": "CH-free",
+      "what_it_pins": "HitsListQuery::shouldUseClickhouse() follows config on/off, ignores Pro tier and Pennant state, and is true under admin_impersonator; 'clickhouse:hits' is not a defined slug."
+    },
+    {
+      "file": "tests/Filament/Resources/ClickhouseHitQueryShapeTest.php",
+      "kind": "CH-free",
+      "what_it_pins": "The real baseQuery CH SQL (hot and cold) has hotlist_org_id IN (user org + approved staging + silent) AND kit_id IN, no FINAL, the _peerdb_is_deleted filter, and 0 = 1 on empty sets, and never widens; the PG SQL is unchanged."
+    },
+    {
+      "file": "tests/Filament/Resources/HitsResourceClickhouseRowSetTest.php",
+      "kind": "RequiresClickhouse",
+      "what_it_pins": "L/S/Z and silent-org S rows on the user's kits are present (Staging Live verified); foreign-kit, out-of-set hotlist org (documented gap), O and NICB rows are absent; the cards count S/Z."
+    },
+    {
+      "file": "tests/Feature/Otto/OttoSearchToolsTest.php",
+      "kind": "CH-free",
+      "what_it_pins": "The Otto path under CH routing is kit-scoped and hotlist-org-pruned; the existing PG assertion is unchanged."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Support/Hits/HitsListQuery.php:19-23",
+      "app/Support/Hits/HitsListQuery.php:36-75",
+      "app/Support/Hits/HitsListQuery.php:77-150",
+      "app/Filament/Resources/HitsResource/Pages/ListHits.php:112-125",
+      "app/Filament/Resources/HitsResource.php:386-402",
+      "app/Clickhouse/Models/Hit.php:31-59",
+      "app/Filament/Resources/ScansResource/Pages/ListScans.php:306-309",
+      "app/Filament/Resources/ScansResource/Pages/ListScans.php:311-341",
+      "app/Clickhouse/Models/Scan.php (scopeForOrgs, DEV-2615)",
+      "app/Models/User.php:183-186",
+      "app/Models/Kit.php:252-277",
+      "app/Models/Org.php:384-393",
+      "app/Ai/Tools/HitSearchTool.php:142-158",
+      "app/Http/Controllers/Otto/InvestigationDataController.php:133-139",
+      "app/Filament/Concerns/HasHitMetricCards.php (aggregateHitMetricCounts docblock)",
+      "app/Providers/PennantServiceProvider.php:30-32",
+      "config/app.php:173-177",
+      "database/schema/clickhouse-schema.sql:22-23",
+      "~/Herd/chlocal/database/schemas/clickhouse/clarity/materialized_views/hits_cold_mv.sql",
+      "vendor/insight-lpr/laravel-zod-migrations/database/schema/zod-schema.sql:1957-2045",
+      "app/Models/Org.php:384-393 (verified: approval_list only, 2h cache)",
+      "app/Clickhouse/Models/Scan.php:53-62 (scopeForOrgs, verified)",
+      "~/Herd/chlocal/.../hits_cold_mv.sql:83 (L/H/Z/S), :111-125 (re-emit on hotlist change)",
+      "zod-schema.sql:30364 unq_agent_staging_orgs",
+      "docs/investigations/DEV-2546/prod-measurement-results.md:107"
+    ],
+    "code_flow": "Hits page: ListHits::getTableQuery() -> HitsListQuery::baseQuery(user, hit_created_at start, status) -> shouldUseClickhouse() -> buildClickhouseQuery() (ClickhouseHit hot/cold chosen by window <= 90d; notNicb; forKits(user kits); select list; hit_type exclusion) or buildPostgresQuery() (hits JOIN hotlist, scans, kits, scans_metadata, two orgs aliases; hits.kit_id IN user kits). Table filters (status/type/plate/date) are then applied by HitsResource. HitMetricCards aggregate the same filtered builder. Otto: HitSearchTool::handle() and InvestigationDataController hydration call baseQuery() with scanned_at/id constraints. Side effects: none write-side. CH data comes from chlocal hits_cold_mv (1-min refresh, L/H/Z/S only), which is fed by PG hits via PeerDB CDC.",
+    "tables": [
+      "PG zod.public: hits, hotlist, scans, scans_metadata, kits, orgs (silent_hit_generation), approval_list",
+      "PG platform: features (Pennant, no longer consulted for routing)",
+      "CH clarity.hits_cold, clarity.hits_hot, zod.public_hits (CDC), clarity.hotlist, clarity.scans_cold"
+    ],
+    "related_components": [
+      "HitsListQuery consumers: ListHits, HitSearchTool, InvestigationDataController",
+      "HasHitMetricCards / HitMetricCards widget",
+      "Otto ApplyHitSearchFiltersTool / OttoPageSearchAdapter",
+      "BulkDispositionAction (CH-record branch)",
+      "TableMapComponent (ClickhouseModel branch)",
+      "PlateFilter and AddressFilter CH branches",
+      "PennantServiceProvider CLICKHOUSE_HITS definition (becomes dead)",
+      "DEV-2591, DEV-2615, DEV-2546, DEV-2461, DEV-2318 precedents"
+    ],
+    "kb": {
+      "dir": "okf",
+      "pages_consulted": [
+        "okf/concepts/hit.md",
+        "okf/concepts/feature-flags.md",
+        "okf/concepts/hotlist.md",
+        "okf/concepts/multi-tenancy.md",
+        "okf/concepts/kit.md",
+        "okf/concepts/platform-gotchas.md (PG-002, PG-018, PG-024, PG-034)",
+        "okf/concepts/otto.md",
+        "okf/concepts/hit-address-distance.md",
+        "okf/models/hits.md",
+        "okf/models/clickhouse/hits_cold.md"
+      ],
+      "docblocks_read": [
+        "app/Filament/Concerns/HasHitMetricCards.php (class + aggregateHitMetricCounts)",
+        "app/Clickhouse/Queries/StagingLiveHitLeaderQuery.php:11-38",
+        "app/Clickhouse/Queries/HitPlateStatsBatchQuery.php:8-27,48-52",
+        "app/Clickhouse/Queries/HitStatsBatchQuery.php:28-34",
+        "app/Http/Controllers/Otto/InvestigationDataController.php:254-263",
+        "app/Services/Scout/BuildShiftSummary.php:185-199",
+        "app/Clickhouse/Models/Hit.php (scope docblocks)",
+        "app/Filament/Resources/ScansResource/Pages/ListScans.php:311-321 (DEV-2615 comment)"
+      ],
+      "names_searched": [
+        "HitsListQuery",
+        "ListHits",
+        "hits_cold",
+        "hits_hot",
+        "hotlist_org_id",
+        "kit_org_id",
+        "Staging_Live",
+        "FeatureEnum",
+        "CLICKHOUSE_HITS",
+        "clickhouse:hits",
+        "stagingOrgIds",
+        "silent_hit_generation",
+        "approval_list"
+      ],
+      "no_match": [
+        "silent_hit_generation (no okf page beyond hit.md/trigger text)",
+        "HitsListQuery has no dedicated okf page (only otto.md and platform-gotchas PG-034)"
+      ]
+    }
+  },
+  "exhaustiveness": {
+    "patterns": [
+      "'clickhouse:hits'",
+      "'clickhouse:scans'",
+      "CLICKHOUSE_HITS",
+      "CLICKHOUSE_SCANS",
+      "clickhouse-hits",
+      "clickhouse-scans",
+      "clickhouse\\.hits",
+      "clickhouse\\.scans",
+      "Feature::active\\('clickhouse",
+      "shouldUseClickhouse",
+      "HitsListQuery",
+      "CLICKHOUSE_(SCANS|HITS)_ENABLED"
+    ],
+    "sites": [
+      {
+        "file_line": "app/Support/Hits/HitsListQuery.php:21",
+        "verdict": "buggy",
+        "reason": "The only live 'clickhouse:hits' routing literal. It is unreachable and must move to config."
+      },
+      {
+        "file_line": "app/Support/Hits/HitsListQuery.php:45",
+        "verdict": "buggy",
+        "reason": "CH query has no sort-key-leading predicate (forKits only)."
+      },
+      {
+        "file_line": "app/Filament/Resources/HitsResource/Pages/ListHits.php:122-125",
+        "verdict": "safe",
+        "reason": "Pure delegate to HitsListQuery::shouldUseClickhouse()."
+      },
+      {
+        "file_line": "app/Ai/Tools/HitSearchTool.php:142",
+        "verdict": "safe",
+        "reason": "Consumer of baseQuery(); inherits the fix. Its scanned_at-only window makes the prune most valuable here."
+      },
+      {
+        "file_line": "app/Http/Controllers/Otto/InvestigationDataController.php:133",
+        "verdict": "safe",
+        "reason": "Consumer of baseQuery(); inherits the fix. Its window handling is already correct (PG-034)."
+      },
+      {
+        "file_line": "app/Filament/Concerns/HasHitMetricCards.php:206",
+        "verdict": "safe",
+        "reason": "Branches on the builder's model type and reuses getFilteredTableQuery(), so the cards inherit the prune."
+      },
+      {
+        "file_line": "app/Providers/PennantServiceProvider.php:30-32",
+        "verdict": "safe",
+        "reason": "Feature definitions remain but gate nothing once routing is config-only. Deliberately left (DEV-2591). This is cleanup candidate territory, not a bug."
+      },
+      {
+        "file_line": "app/Filament/Resources/ScansResource/Pages/ListScans.php:308",
+        "verdict": "safe",
+        "reason": "Already config-based (DEV-2591)."
+      },
+      {
+        "file_line": "app/Http/Controllers/ScanVehicleController.php:36",
+        "verdict": "safe",
+        "reason": "Already config-based (DEV-2591); it is a scans consumer."
+      },
+      {
+        "file_line": "app/Enums/ProTierEnum.php:58-59,73-74",
+        "verdict": "safe",
+        "reason": "Tier lists a flag that gates nothing post DEV-2591. Left alone by decision."
+      },
+      {
+        "file_line": "tests/TestCase.php:136,156",
+        "verdict": "safe",
+        "reason": "makeOrgPro/makeUserPro exclude CLICKHOUSE_SCANS only; inert once routing is config-only."
+      },
+      {
+        "file_line": "tests/Filament/Resources/HitsResourceMetricCardsClickhouseTest.php:22",
+        "verdict": "safe",
+        "reason": "Docblock still says 'clickhouse:hits flag'. Stale wording only; the test forces CH via admin_impersonator."
+      },
+      {
+        "file_line": "okf/concepts/hit-address-distance.md:52; okf/concepts/feature-flags.md:36; docs/plans/otto.md:160",
+        "verdict": "safe",
+        "reason": "Docs describing the old gate; queue a post-approval refresh."
+      }
+    ],
+    "backstop": {
+      "raw_candidates": 40,
+      "hitslistquery_consumers_missed": 0,
+      "note": "remaining 37 are other CH models' scopeForOrg/scopeForKits and stagingOrgIds consumers unrelated to the Hits list"
+    }
+  },
+  "data_impact": {
+    "pg_tables": [
+      "zod.public.hits",
+      "hotlist",
+      "scans",
+      "scans_metadata",
+      "kits",
+      "orgs",
+      "approval_list",
+      "platform.features (no longer read for routing)"
+    ],
+    "ch_tables": [
+      "clarity.hits_cold",
+      "clarity.hits_hot",
+      "zod.public_hits (CDC, cardinality probe only)"
+    ],
+    "mv_or_cdc_implications": "hits_cold/hits_hot are written by chlocal's refreshable hits_cold_mv (1-minute APPEND, L/H/Z/S only, INNER JOINs, hotlist org_id != 0, watermark gaps per DEV-2189). hotlist_status refreshes only for hits under 8 days old. The list is read-only and platform issues SELECTs only; no DDL, projections or MV changes here (chlocal-owned).",
+    "indexes_relied_on": "Primary key ORDER BY (hotlist_org_id, toYYYYMM(hit_created_at), hit_created_at, id); partitions toYYYYMM (cold) / toYYYYMMDD with 90d TTL (hot); skip indexes idx_kit_id set(1000) g4, idx_hit_type set(10), idx_integration_id set(100), idx_scanned_at minmax, idx_status set(10). Filter hit_created_at directly, never wrapped in a function, or pruning is lost (PG-024). PG path relies on kit_id_created_at_idx."
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "app/Support/Hits/HitsListQuery.php (query class) + app/Clickhouse/Models/Hit.php. A request-time CH query serving the Hits page (10s poll), the metric-card aggregate and Otto search/hydration. After the routing fix (prod flag recorded true) it serves every org.",
+    "driving_tables": [
+      {
+        "table": "hits",
+        "source": "zod.public_hits",
+        "prod_rows": 321371500,
+        "group_by": "kit_id",
+        "largest_group_rows": 7854675
+      },
+      {
+        "table": "hits (all types)",
+        "source": "zod.public_hits",
+        "prod_rows": 321371719,
+        "group_by": "hit_type",
+        "largest_group_rows": 298648498,
+        "note": "largest group = O, excluded from CH"
+      },
+      {
+        "table": "hits (CH-visible L+H+S+Z)",
+        "source": "zod.public_hits",
+        "prod_rows": 21998424,
+        "group_by": "hit_type",
+        "largest_group_rows": 13272663
+      },
+      {
+        "table": "hotlist",
+        "source": "zod.public_hotlist",
+        "prod_rows": 137468772,
+        "group_by": "org_id",
+        "largest_group_rows": 17324556
+      },
+      {
+        "table": "kits",
+        "source": "zod.public_kits",
+        "prod_rows": 5669,
+        "group_by": "org_id",
+        "largest_group_rows": 283
+      },
+      {
+        "table": "approval_list",
+        "source": "zod.public_approval_list",
+        "prod_rows": 3085,
+        "group_by": "agent_org_id",
+        "largest_group_rows": 12
+      },
+      {
+        "table": "orgs",
+        "source": "zod.public_orgs",
+        "prod_rows": 728940,
+        "group_by": "silent_hit_generation",
+        "largest_group_rows": 728939,
+        "note": "1 org has silent_hit_generation=true"
+      }
+    ],
+    "growth": "Kits went from 4,755 (2026-08-31) to 5,669 (2026-09-29), about +19% in 4 weeks. The IN lists stay bounded by the largest org: at most 283 kit ids and about 14 hotlist org ids (1 + ≤12 staging + 1 silent). The all-type hits total is dominated by type O (298.6M), which is not in CH.",
+    "schedule": {
+      "expression": "request-time (Livewire table + 10s poll; cards cached 3-10s; Otto per tool call)",
+      "interval_seconds": null,
+      "without_overlapping_minutes": null
+    },
+    "allocation_sketch": "PHP holds ≤283 kit ints and ~14 org ints, plus one simplePaginate page; the org lookup is 1-2 tiny indexed PG queries per render. CH work is bounded by the hit_created_at partitions for the page. Otto's scanned_at-only window has no partition pruning, so the prune bounds it to ~14 sort-key ranges. The card aggregate reads the full filtered window. There are no accumulators or loops.",
+    "oracle_status": "ok",
+    "unresolved": [],
+    "deferred_to_qa": [
+      "hits_cold/hits_hot rows per hotlist_org_id and Staging Live rows per representative org (not in the zod.public_* probe).",
+      "Prod EXPLAIN indexes=1 / read_rows before vs after the prune, which also confirms the prod sort key (Q5).",
+      "Moved-kit / revoked-approval / de-flagged-silent drift size for hits (Q3).",
+      "Prod CLICKHOUSE_HITS_ENABLED re-verified today (Q1)."
+    ],
+    "deferral_approval": "human:Dalton McCleery 2026-09-29 — Q3 (drift measured in QA before enable) and Q5 (prod EXPLAIN in QA) approved; prod flag value confirmed true (Q1)"
+  },
+  "derivation_log": [
+    {
+      "query_shape": "prod-cardinality.sh --app clarity --table hits:kit_id",
+      "param_classes": "identifiers only (table, group column); read-only against the zod.public_* CDC mirror",
+      "aggregate_result": "321,370,152 rows; largest kit group 7,854,645 rows",
+      "why": "Sizes the hits driving table and the largest single group."
+    },
+    {
+      "query_shape": "prod-cardinality.sh --app clarity --table hotlist:org_id",
+      "param_classes": "identifiers only",
+      "aggregate_result": "137,468,663 rows; largest org group 17,324,556 rows",
+      "why": "Bounds the hotlist side that determines hotlist_org_id spread."
+    },
+    {
+      "query_shape": "prod-cardinality.sh --app clarity --table kits:org_id",
+      "param_classes": "identifiers only",
+      "aggregate_result": "5,669 kits; largest org 283 kits",
+      "why": "Bounds the kit_id IN list length in the CH query."
+    },
+    {
+      "query_shape": "prod-cardinality.sh --app clarity --table approval_list:agent_org_id",
+      "param_classes": "identifiers only",
+      "aggregate_result": "3,085 rows; at most 12 staging orgs per agent org",
+      "why": "Bounds the staging-org part of the hotlist_org_id IN set."
+    },
+    {
+      "query_shape": "prod-cardinality.sh --app clarity --table hits:hit_type",
+      "param_classes": "identifiers only",
+      "aggregate_result": "321.37M rows; O 298.6M, Z 13.27M, H 4.70M, S 3.07M, L 0.95M, F 0.62M, M 55.9k, A 24.8k, P 21.6k, W 164",
+      "why": "Sizes CH-visible types and the AC-4 hit-type gap."
+    },
+    {
+      "query_shape": "prod-cardinality.sh --app clarity --table orgs:silent_hit_generation",
+      "param_classes": "identifiers only",
+      "aggregate_result": "728,940 orgs; 1 with silent_hit_generation=true",
+      "why": "Bounds the silent part of the prune set."
+    },
+    {
+      "query_shape": "zod.public_hits FINAL (7d, L/H/S/Z, non-deleted, created < now-2h) ⋈ zod.public_hotlist FINAL (integration_id != 5); PG-only drops = NULL lienholder / missing client or lienholder org / no scans_metadata; CH-only drops = id absent from clarity.hits_cold (hit_created_at >= now-9d)",
+      "param_classes": "time window + hit_type constants; aggregates only",
+      "aggregate_result": "184,433 hits in window. PG path drops 16 (0.009%, all NULL lienholder_org_id; 0 missing orgs, 0 missing scans_metadata). CH path missing 208 (0.11%: H 54/54,038, Z 154/107,238, L 0/9,041, S 0/14,109).",
+      "why": "AC-4 / Q4.6: size the join-driven row-set differences between the PG and CH Hits paths"
+    },
+    {
+      "query_shape": "clarity.hits_cold (non-deleted) countIf by disposition IS NULL / = 'New Hit' / 'New Hit' in last 90d",
+      "param_classes": "disposition constant + 90d window; aggregates only",
+      "aggregate_result": "25,518,016 rows: NULL 25,333,927; literal 'New Hit' 5,262 (0.02%), 1,912 in last 90d",
+      "why": "Q4.2: size of the CH 'New Hit' filter gap vs PG; scopeForDispositions is also used by Scout's scopeValidDisposition (Hit.php:66-69), so the fix is scoped to the Hits list / Otto filter paths and Scout's rule stays unchanged"
+    },
+    {
+      "query_shape": "clarity.hits_cold countIf(integration_id IS NULL / = 5) for hit_type IN ('S','Z'), last 30d",
+      "param_classes": "hit_type constants + 30d window; aggregates only",
+      "aggregate_result": "S 95,904 rows / Z 990,137 rows — 0 NULL integration_id, 0 NICB",
+      "why": "Review RN1 premise (lane2 M4): refuted — notNicb() does not drop real Staging rows; the row-set test fixture shape matches prod"
+    },
+    {
+      "query_shape": "zod.public_hits FINAL (30d, L/H/S/Z) ⋈ public_kits ⋈ public_hotlist (integration_id != 5) — count where hotlist org ∉ {kit org} ∪ approval_list staging ∪ silent orgs",
+      "param_classes": "30d window + hit_type constants; aggregates only",
+      "aggregate_result": "892,313 non-NICB hits; dropped by the prune 834 (0.09%): S 101 / 61,399, Z 733 / 544,648, L 0 / 38,048, H 0 / 248,218",
+      "why": "Q3 drift measurement (accepted trade-off) + refuted lane3 premise that H hits carry a foreign non-staged hotlist org"
+    },
+    {
+      "query_shape": "SHOW CREATE TABLE + EXPLAIN indexes=1 SELECT id FROM clarity.hits_hot|hits_cold WHERE <list predicates> with vs without hotlist_org_id IN (...), interleaved",
+      "param_classes": "two orgs (top / rank-41 by 7d volume), Today and 30d windows; plan output only",
+      "aggregate_result": "sort key leads hotlist_org_id; Today 4/4 granules unchanged; 30d cold PK granules -10% / -14%, final -4% / -9%",
+      "why": "Q5 / AC-2: measure the prune's benefit in prod before merge"
+    },
+    {
+      "query_shape": "Hits page list (SELECT page columns … ORDER BY created_at DESC, id DESC LIMIT 51) and cards (uniqExact(ocr), uniqExact(id) GROUP BY hit_type) on clarity.hits_hot (Today, 30d) / hits_cold (120d), with vs without FINAL (+ do_not_merge_across_partitions_select_final=1); 5 interleaved reps; server metrics from X-ClickHouse-Summary",
+      "param_classes": "org 14 (209 kits, 10 hotlist orgs) and the top org by 30d volume (117 kits, 11 hotlist orgs); page-default filters (Open, New Hit/Accessible); readonly_user, use_query_cache=0",
+      "aggregate_result": "Today: FINAL +2–4 ms (list 46→50 ms, cards 33→35 ms), +4 MB. 30d: list +29–51 ms (100→129/98→149 ms), memory ~same (~0.67→0.70 GB); cards +8–14 ms. 120d cold: list ~2x (167→327 / 192→362 ms), memory 3.1x (1.14→3.60 GB); cards ~1.8x, 2.4x memory (0.4→1.0 GB). Partition-wise FINAL: same answers, no material saving.",
+      "why": "Dalton: measure FINAL vs no FINAL on the Hits page to settle AC-5"
+    },
+    {
+      "query_shape": "same filters: uniqExact(id)/count() with vs without FINAL; latest-version breakdown via argMax(hotlist_status/_peerdb_is_deleted/disposition, _version) per id; first page id sets",
+      "param_classes": "org 14 + top org; Today / 30d / 120d cold",
+      "aggregate_result": "No-FINAL answers are wrong: org 14 'Open' hits whose order is no longer Open = 6/885 (0.7%) Today, 599/13,419 (4.5%) 30d, 34,282/55,451 (62%) 120d cold; card totals 885→879, 13,419→12,820, 55,451→21,168; page 1 shows 46 distinct of 51 rows (5 duplicates) org 14, 39 of 51 (12 duplicates) top org. Cause: stale row versions (status re-emissions) not yet merged; no deletions.",
+      "why": "What FINAL actually buys on the Hits page (correctness), to weigh against its cost"
+    },
+    {
+      "query_shape": "clarity.analytics WHERE page='hits' AND created_at >= now()-60d: counts/uniqExact by feature, user buckets, org concentration, hour/weekday (America/Chicago), is_pro split, filter-applied events",
+      "param_classes": "60-day window; aggregates only (no user/org identities)",
+      "aggregate_result": "36,791 page views, 363 users, 198 orgs (613/day, weekly steady ~4.1–4.7k views / ~170–190 users). Heavy skew: 17 users with 500+ views = 56% of views; 148 users ≤5 views. Top 10 orgs = 58% of views. Pro users: 7,503 views / 159 users / 54 orgs (44% of viewing users hit the Distance From Given path). Weekday 83%, peak 9am–3pm CT. Org 14: 175 views / 9 users. filter-applied events on the Hits page: ZERO ever — HitsResource uses FiltersLayout::Hidden (custom sidebar), so the analytics hook on filtersApplyAction never fires (same for Scans).",
+      "why": "Dalton: understand real Hits-page usage and popular filters before shipping"
+    },
+    {
+      "query_shape": "count() vs uniqExact(id) on clarity.hits_hot FINAL with the page filters",
+      "param_classes": "org 14 + top org; Today, 30d",
+      "aggregate_result": "org14 today 922=922, 30d 12,844=12,844; top today 1,181=1,181, 30d 22,007=22,007 — FINAL leaves no residual duplicates on hot",
+      "why": "RN5 L1: can FINAL collapse the mutable-hit_created_at duplicate class on hits_hot? (refuted — it does in practice)"
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC-1",
+        "kind": "agent",
+        "intent": "With config on, HitsListQuery::baseQuery() returns a ClickhouseHit builder for a normal user (no impersonation); with it off, PG. Pro/non-Pro behave the same."
+      },
+      {
+        "ac": "AC-2",
+        "kind": "agent",
+        "intent": "Print the CH toSql() for cold and hot windows. Confirm it contains hotlist_org_id in (...) with the expected orgs, kit_id in, and no FINAL. Optionally EXPLAIN indexes=1 on a local CH."
+      },
+      {
+        "ac": "AC-3",
+        "kind": "agent",
+        "intent": "Seed L, S, Z and silent-org S hits plus a cross-tenant hit in local CH (literal clarity/zod DBs). Verify S/Z present and the cross-tenant hit absent through the Hits page and HitsListQuery."
+      },
+      {
+        "ac": "AC-4",
+        "kind": "human",
+        "intent": "For one representative org, compare distinct hit ids and per-hit-type counts in read-only prod CH against the PG list over a 30d window. Document each difference. Confirm the prune adds no divergence beyond the documented moved-kit residual."
+      },
+      {
+        "ac": "AC-5",
+        "kind": "agent",
+        "intent": "Assert no 'final' in generated hits_cold/hits_hot SQL."
+      },
+      {
+        "ac": "AC-6",
+        "kind": "human",
+        "intent": "Read the prod value of CLICKHOUSE_HITS_ENABLED (and SCANS). Decide the rollout sequence, e.g. hold false until AC-4 validation."
+      }
+    ],
+    "seed_scenario": "One repo org O with a kit K, one approved staging org S1 (approval_list agent=O, staging=S1), one silent_hit_generation staging org S2 (no approval row), and an unrelated org X with its own kit. Hits (hit_created_at within 90d in hits_hot): L on K (hotlist org O, kit_org O); S on K (hotlist org S1); S on K (hotlist org S2); Z on K (hotlist org S1); an L on X's kit (hotlist org X). Add one duplicate row for a hit id with a shifted hit_created_at to show the no-FINAL behaviour. Seed only VISIBLE scans and hotlist rows where PG parity is checked. Also add an O row and a NICB row (both must be absent), plus a hit on the user's kit whose hotlist org is outside the set (the documented gap).",
+    "personas": [
+      "Repo-org admin user (owns kits, sees own and staging hits)",
+      "Admin impersonator (staff, session admin_impersonator, routes to CH regardless of config)",
+      "CLIENT-role user (owns no kits, expects an empty list)",
+      "Otto-enabled user for hit search"
+    ],
+    "pg_tables": [
+      "hits",
+      "hotlist",
+      "scans",
+      "scans_metadata",
+      "kits",
+      "orgs",
+      "approval_list"
+    ],
+    "ch_tables": [
+      "clarity.hits_hot",
+      "clarity.hits_cold"
+    ]
+  },
+  "reuse_candidates": [
+    {
+      "existing": "App\\Clickhouse\\Models\\Scan::scopeForOrgs (DEV-2615)",
+      "provides": "empty-safe, int-cast whereIntegerInRaw prune scope",
+      "evidence": "app/Clickhouse/Models/Scan.php:53-62",
+      "recommendation": "Mirror it as Hit::scopeForHotlistOrgs."
+    },
+    {
+      "existing": "ListScans::shouldUseClickhouse (DEV-2591)",
+      "provides": "config + admin_impersonator routing",
+      "evidence": "app/Filament/Resources/ScansResource/Pages/ListScans.php:306-309; tests/Filament/Resources/ClickhouseRoutingTest.php",
+      "recommendation": "Copy the idiom and test style."
+    },
+    {
+      "existing": "App\\Models\\Org::stagingOrgIds / ApprovalList",
+      "provides": "approval_list staging-org lookup",
+      "evidence": "app/Models/Org.php:384-393",
+      "recommendation": "Reuse the ApprovalList query; the cache choice is open (Q2). It omits silent orgs."
+    },
+    {
+      "existing": "Clickhouse Hotlist::scopeVisibleToOrg / ScoutCheckInRollupQuery::hotlistOrgFilter",
+      "provides": "the (own org ∪ staging orgs) composition idiom",
+      "evidence": "app/Clickhouse/Models/Hotlist.php:120-129; ScoutCheckInRollupQuery.php:148-158",
+      "recommendation": "Follow it for consistency."
+    },
+    {
+      "existing": "App\\Support\\Hits\\HitsListQuery",
+      "provides": "single shared builder for page, cards and Otto",
+      "evidence": "app/Support/Hits/HitsListQuery.php",
+      "recommendation": "Fix once here, not per consumer."
+    }
+  ],
+  "blast_radius": [
+    "multi-tenancy: tenant-scoped hit query (kit_id + hotlist_org_id) on the Hits list, metric cards, Otto hit search and Otto hydration",
+    "prod-flag-flip: with prod config recorded true, deploy moves every org + Otto from PG to CH (user-visible row-set differences per AC-4)",
+    "user-visible: Pro HIT_ADDRESS_DISTANCE orgs move to async distance Path B on the CH path",
+    "clickhouse-query-class: app/Clickhouse/Models/Hit.php scope",
+    "none: migrations, billing, auth code, CH purge/prune, DDL"
+  ],
+  "confidence": 78,
+  "missed_caller_candidates": [
+    {
+      "file": "app/Clickhouse/Models/Hotlist.php",
+      "symbol": "stagingOrgIds",
+      "referenced_at": "app/Clickhouse/Models/Hotlist.php:120-129",
+      "triage": "idiom reference (own org ∪ staging orgs), not a HitsListQuery consumer"
+    },
+    {
+      "file": "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php",
+      "symbol": "stagingOrgIds",
+      "referenced_at": "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php:148-158",
+      "triage": "idiom reference, not a consumer"
+    },
+    {
+      "file": "app/Clickhouse/Queries/HotlistAddressGeohashQuery.php",
+      "symbol": "stagingOrgIds",
+      "referenced_at": "app/Clickhouse/Queries/HotlistAddressGeohashQuery.php:29,118",
+      "triage": "idiom reference, not a consumer"
+    }
+  ],
+  "disagreements": [
+    {
+      "topic": "Staging-org source",
+      "positions": "fast: reuse Org::stagingOrgIds() + silent; c1: direct ApprovalList read, not the 2h cache; c2: open needs-human; c3: direct ApprovalList + short TTL",
+      "resolution": "Open as Q2 (recommend A: direct read). Code settles that silent orgs must be added either way (Org.php:384-393 vs zod-schema.sql:2041)."
+    },
+    {
+      "topic": "Kit-org source (user org vs kits' org_ids)",
+      "positions": "c1 user org; fast/c2/c3 kits->pluck('org_id')",
+      "resolution": "Resolved from code as equivalent: Kit::getKits filters org_id = user org, withShared=false (Kit.php:252-266). Q8."
+    },
+    {
+      "topic": "AC-6 decision",
+      "positions": "fast/c1/c2 defer; c3 implement",
+      "resolution": "defer + needs-human Q1; it is a ship gate, not code."
+    },
+    {
+      "topic": "hotlist_status semantics",
+      "positions": "okf/fast: frozen (fast: refresh only <8d); c1: re-emitted by MV; c2: re-emitted with lag; c3: lagged/partly stale",
+      "resolution": "Code: the chlocal MV re-emits existing rows for any changed hotlist (hits_cold_mv.sql:111-125); the <8d bound applies only to the new_hits branch. Design-neutral, so recorded as a note/doc conflict (Q11), not a blocker."
+    },
+    {
+      "topic": "AC-4 fix vs document",
+      "positions": "all 4: document by default, but needs-human (c1 names 'New Hit' literal and Otto crowding; c2 dedup/hit_type guard; c3 F/M/A/P/W/G)",
+      "resolution": "Open as Q4, recommend document-only with an explicit call on the Otto hydration crowding."
+    },
+    {
+      "topic": "Prune benefit size",
+      "positions": "c1 modest (idx_kit_id prunes); c2 unproven; c3 unmeasured; fast unmeasured, biggest for Otto",
+      "resolution": "Unmeasured: Q5 + resource_envelope.unresolved. The Otto scanned_at-only window is grounded (HitSearchTool.php:142,156)."
+    },
+    {
+      "topic": "Silent-org inclusion",
+      "positions": "fast needs-human (Hit::getHits excludes silent); c1/c2/c3 include",
+      "resolution": "Resolved: include for AC-4 parity (PG path has no silent filter, HitsListQuery.php:77-146). Q9."
+    },
+    {
+      "topic": "Prod flag evidence",
+      "positions": "fast/c1/c3: TRUE per DEV-2546:107; c2: no recorded value",
+      "resolution": "Verified: prod-measurement-results.md:107 records true on 2026-09-15. Still needs re-confirmation (Q1)."
+    },
+    {
+      "topic": "Test layout",
+      "positions": "routing: extend ClickhouseRoutingTest (fast/c2/c3) vs new ClickhouseHitsRoutingTest (c1); shape: ClickhouseHitQueryShapeTest (c1/c2/c3) vs ClickhouseHitsQueryShapeTest (fast); row-set: new class (fast/c1/c3) vs extend MetricCards (c2)",
+      "resolution": "Extend ClickhouseRoutingTest; new CH-free ClickhouseHitQueryShapeTest; one new RequiresClickhouse HitsResourceClickhouseRowSetTest; extend OttoSearchToolsTest."
+    },
+    {
+      "topic": "oracle_status",
+      "positions": "fast partial; c1/c2/c3 ok",
+      "resolution": "ok (best status achieved); unresolved stays non-empty, so the envelope still gates."
+    },
+    {
+      "topic": "Org.php helper",
+      "positions": "fast: add a cached silent-org helper on Org; c1/c2/c3: private static in HitsListQuery",
+      "resolution": "Conditional target, tied to Q2."
+    }
+  ],
+  "gate": "CLEAN",
+  "gate_reasons": [],
+  "approvals": [
+    {
+      "what": "blast radius: tenant-scoped Hits CH query change + all-org ClickHouse routing (Hits page, metric cards, Otto)",
+      "by": "human:Dalton McCleery 2026-09-29"
+    },
+    {
+      "what": "AC-5 revised: FINAL on hits_hot only",
+      "by": "human:Dalton McCleery 2026-09-29"
+    }
+  ],
+  "q4_decisions": {
+    "4.1_missing_hit_types": "accept — F/M/A/P/W not wanted on the Hits list (document)",
+    "4.2_new_hit_filter": "FIX in this ticket — CH 'New Hit' disposition filter must match PG: NULL disposition OR literal 'New Hit'",
+    "4.3_duplicates": "REVISED: FINAL on hits_hot (fixes duplicates + stale status for ≤90d windows); hits_cold unchanged (no FINAL) — Dalton 2026-09-29",
+    "4.4_status_lag": "accept — document",
+    "4.5_distance_columns": "Ship gate: DEV-2614 merges only after DEV-2739's Path B (recovery_address) fix is live in prod (Dalton 2026-09-29). Path A 83% vs Path B 1.7% resolve rate (DEV-2739 measure-q3-contrast.md).",
+    "4.6_join_differences": "measured tiny (see derivation_log) — document"
+  },
+  "ship_gates": [
+    "AC-6 confirmed: prod CLICKHOUSE_HITS_ENABLED=true, left on (deploy flips all orgs + Otto)",
+    "AC-8: ship in the same release as DEV-2739's fix (insight-lpr/platform#469, merged to main 2026-09-29) or later; never hot-fix #485 to deploy alone"
+  ]
+}

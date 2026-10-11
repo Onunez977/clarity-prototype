@@ -1,0 +1,41 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Non-production OTP bypass in CustomLoginPage, with tests",
+      "approach": "Extract sendOtp()'s user-lookup+eligibility check into one private helper. In authenticate(), before the `if (! $this->otp_sent)` branch, add a non-production branch guarded by `! app()->isProduction()`: resolve the eligible user via the helper; if none, throw the same 'Account Not Found' ValidationException sendOtp() throws; otherwise Filament::auth()->login($user) and fall through to the existing shared tail (canAccessAnyPanel re-check, session regenerate, activity log, LoginResponse). Mark the bypass in the activity log instead of the implicit 'N/A'. otp_sent stays false so the OTP field stays hidden and unvalidated - no UI change needed.",
+      "target_files": [
+        "app/Filament/Auth/CustomLoginPage.php",
+        "tests/Filament/Auth/CustomLoginPageTest.php"
+      ],
+      "intended_diffs": "CustomLoginPage.php: (a) new private resolveEligibleUser(string $email): ?User holding the User::where('email')->first() + canAccessPanel(client)||canAccessPanel(app) check currently inlined in sendOtp(); (b) sendOtp() rewritten to call it; (c) new non-prod branch at the top of authenticate()'s post-rateLimit body; (d) a $bypassed flag threaded into the activity() properties so the log records BYPASSED_NON_PROD rather than relying on an undefined $otp_data. Test file: 3 new tests per the AC list.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "CustomLoginPageTest",
+      "ui_impact": false,
+      "blast_radius": [
+        "app/Filament/Auth/** (authentication)"
+      ],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {
+      "file": "app/Filament/Auth/OneTimePassword.php",
+      "reason": "production OTP path only; the bypass never calls it, so it needs no change"
+    },
+    {
+      "file": "routes/web.php:175-196",
+      "reason": "the separate, already-shipped __qa/login dev-login route; referenced as a guard-rigor template, not modified"
+    },
+    {
+      "file": "app/Support/Filament/PlatformPanelProvider.php:32",
+      "reason": "single wiring point for both panels; the change in CustomLoginPage covers both automatically"
+    }
+  ],
+  "notes": [
+    "Guard is environment-only per the Phase 2 interview: `! app()->isProduction()`. No new config flag, no deploy-workflow change.",
+    "$otp_data is currently only assigned inside authenticate()'s else-branch but read in the activity() call via `?? 'N/A'`. The bypass path must not rely on that implicit undefined-variable read - thread an explicit marker instead.",
+    "The OTP TextInput is ->required() but ->hidden() while otp_sent is false, and the existing first-submit already relies on hidden fields being skipped by validation - so leaving otp_sent false on the bypass path needs no form change."
+  ]
+}

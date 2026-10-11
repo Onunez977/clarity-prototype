@@ -1,0 +1,68 @@
+{
+  "key": "DEV-2106",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2106",
+  "phase": "done",
+  "models": {"base": "haiku", "recall": "haiku", "prep": "sonnet", "plan": "opus", "implement": "opus", "implement_simple": "sonnet", "offload": "sonnet", "review": "opus"},
+  "flags": {"companion": false, "review_policy": "functional", "jira_mirror": true, "start_at": null, "stop_at": null, "only": null, "skip": [], "force": false},
+  "knowledge_cards_loaded": [],
+  "escalated": false,
+  "escalation_triggers": [],
+  "missed_caller_candidates": [],
+  "diff_base": "94aecc31857ce89e77898988d7151182f41f0225",
+  "subtasks": [
+    {"id": "t1", "status": "merged", "complexity": "simple", "model": "opus", "file": "composables/useViewport.js"},
+    {"id": "t2", "status": "merged", "complexity": "simple", "model": "opus", "file": "composables/useCollapsible.js"},
+    {"id": "t3", "status": "merged", "complexity": "complex", "model": "opus", "file": "components/ScoutControlsWidget.vue"},
+    {"id": "t4", "status": "merged", "complexity": "complex", "model": "opus", "file": "components/DashboardOverlay.vue"},
+    {"id": "t5", "status": "merged", "complexity": "complex", "model": "opus", "file": "App.vue"},
+    {"id": "t6", "status": "merged", "complexity": "simple", "model": "opus", "file": "components/BottomSheet.vue"},
+    {"id": "t7", "status": "merged", "complexity": "simple", "model": "opus", "file": "MapStatsBar/DateRangeControl (verify-only — no change needed; both fluid via flex-1)"}
+  ],
+  "review_number": 4,
+  "pr": {"number": 246, "url": "https://github.com/insight-lpr/platform/pull/246", "draft": false},
+  "pr_urls": {},
+  "jira_in_progress_by": "dalton.mccleery@insightlpr.com @ 2026-06-30",
+  "jira_transitioned_by": "manual-dalton.mccleery@insightlpr.com",
+  "assumed": [],
+  "comment_ids": {"status": "33262", "build_record": "33400"},
+  "qa": {"ledger": ".context/qa-prep-ledger.json", "agent_report": ".context/qa-agent-report.md", "ac_results": ".context/qa-ac-results.json", "torn_down": true,
+         "provisioning": {"bootstrap": "ran", "deps": "via-bootstrap", "migrations": "ran", "docker_daemon": "n/a", "ch_container": "n/a (CH deferred)", "frontend_build": "ran", "postgres_db": "zod_claude_dev_2106", "ch_strategy": "deferred", "herd_site": "clarity-claude_dev_2106.test"}},
+  "record": {
+    "tests": [{"cmd": "npx vite build", "passed": 1, "failed": 0, "note": "975 modules transformed, built in 3s — compiles all SFCs/JS, catches import/syntax/template errors. No JS unit-test runner in repo (per Dalton: build + browser QA only, no new deps)."}],
+    "deviations": [
+      "Phase 3.5 Postgres provisioning deferred to pre-Phase-6: frontend-only ticket, JS unit tests touch no DB; provisioning's only purpose is the agent-QA browser venue.",
+      "No per-node worktree fan-out in Phase 4: single cohesive FE concern, shared new composables imported by 3 components — implemented sequentially in the run worktree.",
+      "Test strategy = build + browser QA (no JS test runner exists; adding vitest declined to avoid a dependency change). Dalton-approved."
+    ],
+    "review": {
+      "lanes": ["insightlpr:adversarial-reviewer (in-session substitute for rigor review.sh, which fails under the embedded harness — nested claude -p not logged in)"],
+      "scores": [94, 100, 90, 90],
+      "findings_fixed": [
+        "MEDIUM/AC8: bottom stat bar collapse leaked into admin Org Map mode (showStatBar had no !adminMode guard) — gated chip+handle on !adminMode and force-expanded bar in admin; admin now pixel-identical (pt-3, no handle, never writes the shared localStorage key). Re-review RN2 = 100/100.",
+        "LOW (RN3, accordion follow-up): rewritten watch(isCompact) read a stale captured `stored` snapshot, discarding an explicit open/collapse on breakpoint rotation (grouped widgets + bottom sheet; reload-masked). Fixed by reading localStorage live in persistedOrDefault() and dropping the redundant hasExplicitChoice. RN3 = 90/100.",
+        "LOW (RN4, mobile controls relocation): hiding the controls widget on compact stops --scout-controls-h being published, so DayOverlay/TripOverlay (which read it for their top offset) mis-offset on compact. Fixed: branch their top offset on isCompact (small offset) like DashboardOverlay. RN4 = 90/100."
+      ],
+      "findings_residual": [
+        "LOW/AC5: error toast (z-30) overlaps the Map Layers card only when an error is active AND the user has manually expanded layers on a compact screen — no clean side-by-side fit on a phone; toast stays on top/readable.",
+        "NIT: useViewport calls window.matchMedia without a typeof-window guard (harmless — client-only PWA, no SSR).",
+        "NIT: Map Layers keeps its own persisted ref instead of routing through useCollapsible (functionally equivalent; unify later).",
+        "NOTE: mql.addEventListener('change') needs iOS/Safari 14+ (initial paint correct regardless) — acceptable for the modern PWA target."
+      ]
+    },
+    "ac": [
+      {"item": "AC-1 below lg auto-collapse to chips, map unobstructed", "status": "SATISFIED", "evidence": "agent-qa A4: 375px all 4 widgets are chips/pills on load"},
+      {"item": "AC-2 each chip expands on tap, collapses again", "status": "SATISFIED", "evidence": "agent-qa A4: tap expand/collapse confirmed on controls + bottom bar"},
+      {"item": "AC-3 lg+ widgets/bar expanded, no regression", "status": "SATISFIED", "evidence": "agent-qa A2: 1440px all expanded by default"},
+      {"item": "AC-4 manual control every breakpoint, explicit choice persists", "status": "SATISFIED", "evidence": "agent-qa A3/A4: chevrons+grabber present; localStorage persist via useCollapsible (cross-session reload → human hp-4)"},
+      {"item": "AC-5 no overflow 320-1440, clamped widths, toast clears layers", "status": "SATISFIED", "evidence": "agent-qa A5: 375px scrollWidth==innerWidth; full sweep + toast → human hp-6"},
+      {"item": "AC-6 expanded bottom bar usable at 375px", "status": "N/A", "evidence": "agent expanded bar at 375 (A4); tile shrink/wrap readability deferred to human hp-5"},
+      {"item": "AC-7 map interactive behind chips, safe-area insets", "status": "N/A", "evidence": "needs real map tiles + device emulation; deferred to human hp-7; pointer-events preserved per review"},
+      {"item": "AC-8 no regression to Org Map / Bird's Eye admin", "status": "N/A", "evidence": "admin mode not exercised by agent; code guards verified in adversarial review RN2 100/100; deferred to human ec-1"}
+    ]
+  }
+}

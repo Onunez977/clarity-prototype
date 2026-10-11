@@ -1,0 +1,526 @@
+{
+  "generated_at": "2026-09-04",
+  "key": "DEV-2486",
+  "mode": "normal",
+  "route": "hotfix",
+  "gate": "CLEAN",
+  "synthesis": "The GL Kits admin page (/app/gl-kits, the prior GL Kits page) renders one row per Kit (a login identity for a person) instead of one row per physical GL camera. The fix re-keys the table to GL identity from the ClickHouse-only, MV-fed zod.aggregate_kit_camera_name, scoped by a PostgreSQL-derived kit_id list, rolling the two existing per-kit ClickHouse lookups (last scan, 14-day GPS reporting) up to the GL with max()/any() semantics; adds sortability to both computed columns; defaults to 100 rows/page. Because Eloquent cannot sort a getStateUsing column, row identity must move off getEloquentQuery() onto Filament's ->records() array-record API (in-repo precedent: app/Filament/Widgets/Client/ClientTable.php:138). Two consequences the ticket does not address, both surfaced by measurement: (1) the largest single group is NOT org 1143's 49 GLs but org_id=1 (InsightLPR) at 524 GLs from 239 kits, over 10x larger; and (2) moving row IDENTITY onto a ClickHouse read changes production failure behavior \u2014 today a ClickHouse outage still renders every row with 'Unknown' columns because rows come from PostgreSQL, whereas under the ticket's design a GL-discovery failure yields NO rows at all. That is a resilience regression on a HOTFIX, and the AC 'a GL whose ClickHouse lookup failed renders Unknown' presupposes a row exists to carry it.",
+  "scope": {
+    "summary": "Re-key GlKitsResource's table to GL identity via Filament ->records() array records, following ClientTable's precedent. Add one ClickhouseQuery class reading zod.aggregate_kit_camera_name for a PG-derived kit_id list, invert kit_id->camera_name to camera_name->kit_ids, roll the existing OrgKitLastScanQuery / OrgKitReportingStatusQuery maps up per GL (max last-scan, any-reporting), sort in PHP before pagination, default pagination to 100, drop the Kit column. Add the missing driving table to the CI ClickHouse schema dump with its Cloud-only engine translated to OSS.",
+    "proposed_changes": [
+      {
+        "file": "app/Filament/Resources/GlKitsResource.php",
+        "change": "Replace the Eloquent Kit-backed table with ->records() returning a LengthAwarePaginator of GL-keyed array rows (gl, company_owner, last_scan, reporting). Drop the Kit column and modifyQueryUsing(with('org')). Add a third once()-per-$orgId memo for the GL map. Keep reportClickhouseFailure() and the tri-state semantics. Loosen canEdit/canDelete Model type-hints (Filament's own getRecordKey is Model|array). Reporting sort rank: Reporting(0) < Not Reporting(1) < Unknown(2) ascending. Mixed kits with none reporting => Not Reporting. GL column stays searchable via the closure's search injection. A GL-discovery failure renders ZERO rows (accepted trade-off, Q1).",
+        "reason": "AC1/AC2/AC3/AC4; Eloquent cannot sort getStateUsing columns, and Table::getModel() resolves via getQuery()?->getModel() which is null once ->records() is set.",
+        "ref": "app/Filament/Resources/GlKitsResource.php:66-104"
+      },
+      {
+        "file": "app/Clickhouse/Queries/OrgKitCameraNamesQuery.php",
+        "change": "NEW. handle(['kit_ids' => list<int>]) -> array<string camera_name, list<int> kit_ids>, reading zod.aggregate_kit_camera_name with FINAL, WHERE kit_id IN (?). kit_ids come from PostgreSQL, never from a ClickHouse org_id.",
+        "reason": "The table has NO org_id column (measured: exactly 2 columns, kit_id Int32 + camera_name String), so tenancy can only be scoped from the PG side. Mirrors OrgKitLastScanQuery's documented idiom rather than the ticket's one-off evidence join against zod.public_kits.",
+        "ref": "app/Clickhouse/Queries/OrgKitLastScanQuery.php:14-19"
+      },
+      {
+        "file": "database/schema/clickhouse-schema.sql",
+        "change": "Add one line in zod alphabetical position (after zod.address_geo_wkt, before zod.aggregate_scan_count_h): CREATE TABLE zod.aggregate_kit_camera_name (`kit_id` Int32, `camera_name` String) ENGINE = ReplacingMergeTree() ORDER BY (kit_id, camera_name) SETTINGS index_granularity = 8192;",
+        "reason": "The table is absent from the dump CI and clickhouse-qa both replay, so every query against it fails until this exists. The engine MUST be translated: production is SharedReplacingMergeTree, which does not exist in the OSS clickhouse-server:26.2 CI image \u2014 a verbatim paste fails at dump load and takes the whole ClickHouse CI job down, not just this ticket's tests. The dump header states this translation rule and the body carries zero Shared* engines across 62 tables.",
+        "ref": "database/schema/clickhouse-schema.sql:1-5,44-47"
+      },
+      {
+        "file": "tests/Concerns/RequiresClickhouse.php",
+        "change": "Add zod.aggregate_kit_camera_name to the truncation list.",
+        "reason": "New tests INSERT fixture rows directly; every other CH table the suite writes to is already listed.",
+        "ref": "tests/Concerns/RequiresClickhouse.php"
+      },
+      {
+        "file": "tests/Filament/Resources/GlKitsResourceTest.php",
+        "change": "Rework: seed zod.aggregate_kit_camera_name to give kits GL identity; address rows by GL string (array records key by camera_name, not kit id); add tests for the many-to-many rollup, ascending+descending sort on both computed columns, the 100-row default, and the Never-vs-Unknown distinction at GL level.",
+        "reason": "AC3/AC4/AC5/AC6. assertTableColumnStateSet treats a non-Model, non-array record argument as a literal key string, so GL-keyed rows are addressable.",
+        "ref": "tests/Filament/Resources/GlKitsResourceTest.php"
+      },
+      {
+        "file": "tests/Filament/Resources/GlKitsResourceAccessTest.php",
+        "change": "Narrow to what needs no ClickHouse: assert tenancy/authorization on the PostgreSQL kit query that feeds ClickHouse (org scope, kit_type=1, excludingDeleted) plus the non-admin 403. Move the row-rendering assertions (kit_type filter, cross-org isolation, soft-delete exclusion as RENDERED rows) into GlKitsResourceTest. Keep the class docblock's stated property true: deleting canAccess() or the org_id scope must still fail here with ClickHouse down.",
+        "reason": "Q2 answer. There is no test-time PostgreSQL bridge to extend (zod.kit_last_scan has no PG migration; local-clickhouse-schema.sql defines only a clarity schema and is hand-applied; CI runs CLICKHOUSE_DRIVER=clickhouse).",
+        "ref": "tests/Filament/Resources/GlKitsResourceAccessTest.php:14-22"
+      },
+      {
+        "file": "tests/Unit/Clickhouse/Queries/OrgKitCameraNamesQueryTest.php",
+        "change": "NEW. Empty kit_ids, many-camera-names-per-kit, many-kits-per-camera-name, FINAL dedup of duplicate rows.",
+        "reason": "Matches the existing sibling convention (OrgKitLastScanQueryTest, OrgKitReportingStatusQueryTest both exist).",
+        "ref": "tests/Unit/Clickhouse/Queries/OrgKitLastScanQueryTest.php"
+      },
+      {
+        "file": "tests/e2e/helpers/gl-kits.ts",
+        "change": "COLUMN_HEADERS ['Kit','Company Owner','Last Scan Received','Reporting (14d)'] -> ['GL',...]. Verify 'GL Number' stays in KIT_USER_HEADERS (exact:true, so 'GL' does not collide).",
+        "reason": "GREP-BACKSTOP FIND, missed by the prep pass. This constant is asserted as the page's column contract.",
+        "ref": "tests/e2e/helpers/gl-kits.ts:5"
+      },
+      {
+        "file": "tests/e2e/gl-kits.spec.ts",
+        "change": "Update the UI-contract docblock (columns line) and the two assertions that hard-code the Kit column: the AC2 toEqual([...]) list and the AC1 getByRole('columnheader', {name:'Kit', exact:true}) visibility check.",
+        "reason": "GREP-BACKSTOP FIND, missed by the prep pass. Playwright is NOT wired into either CI workflow (no e2e/playwright match in .github/workflows), so this does not break CI \u2014 but leaving it asserts a column that no longer exists and documents the page wrongly.",
+        "ref": "tests/e2e/gl-kits.spec.ts:23,53-64,66-69"
+      }
+    ],
+    "target_files": [
+      "app/Filament/Resources/GlKitsResource.php",
+      "app/Clickhouse/Queries/OrgKitCameraNamesQuery.php",
+      "database/schema/clickhouse-schema.sql",
+      "tests/Concerns/RequiresClickhouse.php",
+      "tests/Filament/Resources/GlKitsResourceTest.php",
+      "tests/Filament/Resources/GlKitsResourceAccessTest.php",
+      "tests/Unit/Clickhouse/Queries/OrgKitCameraNamesQueryTest.php",
+      "tests/e2e/helpers/gl-kits.ts",
+      "tests/e2e/gl-kits.spec.ts"
+    ],
+    "out_of_scope": [
+      "the follow-up per-GL ClickHouse table; explicitly deferred by the ticket",
+      "Re-keying OrgKitReportingStatusQuery to sc_positions.gl (ticket forbids it here)",
+      "Changing OrgKitLastScanQuery / OrgKitReportingStatusQuery signatures \u2014 grep-confirmed GlKitsResource is their ONLY app consumer, so the rollup belongs in the resource",
+      "the Backyard counterpart, a different repo",
+      "A full CI dump regeneration \u2014 only the one missing table line is in scope",
+      "app/Filament/Resources/ScoutUsersResource.php \u2014 one row per kit is correct for driver management",
+      "app/Filament/Widgets/Dashboard/KitUsers.php \u2014 cameraKitsCount() counts kit rows and is labelled 'Active Kit Users'; confusing name, not a device-inventory bug",
+      "okf/ wiki pages naming GlKitsResource (okf/concepts/kit.md:87, okf/concepts/filament-conventions.md:27) \u2014 per CLAUDE.md, wiki edits land only AFTER approval",
+      "ListGlKits.php \u2014 no change needed; Analytics::track and the empty heading are unaffected",
+      "A PostgreSQL migration creating an aggregate_kit_camera_name shim \u2014 explicitly rejected at the Q2 re-ask (production migration on a hotfix, against the kit_last_scan precedent)",
+      "A table-level 'GL data unavailable' empty state \u2014 explicitly rejected at Q1; an outage renders zero rows"
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "One row per distinct GL for the viewing org; no Kit column present",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "->records() GL-keyed array rows, ClientTable pattern"
+    },
+    {
+      "item": "Org 1143 renders ~50 rows, not 272",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "measured 49 live (ticket said ~50 \u2014 drift, not a discrepancy). But org_id=1 at 524 GLs is the real worst case and needs its own QA coverage."
+    },
+    {
+      "item": "Last Scan Received and Reporting (14d) both sortable, ascending and descending",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "the ->records() closure receives sortColumn/sortDirection and owns sorting; tri-state rank order is Q3"
+    },
+    {
+      "item": "Table defaults to 100 rows per page",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "->paginated([...])->defaultPaginationPageOption(100)"
+    },
+    {
+      "item": "A GL used by multiple kits appears once, newest last scan across them, Reporting if any reports",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "max()/any() rollup over the GL's kit_ids; the all-Unknown/Not-Reporting tie-break is Q4"
+    },
+    {
+      "item": "A GL with no scans renders Never; a GL whose ClickHouse lookup failed renders Unknown \u2014 not collapsed",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "preserved per-lookup (map null -> Unknown, map empty/absent -> Never). Reachable because aggregate_kit_camera_name and kit_last_scan are fed by different MVs with different retention. Does NOT cover a GL-DISCOVERY failure, where no row exists to carry Unknown \u2014 that is Q1."
+    },
+    {
+      "item": "Access is still admin-only and scoped to the authenticated org",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "canAccess() unchanged; tenancy still enforced by the PG-derived kit_id list. How the CH-FREE access tests survive is Q2."
+    }
+  ],
+  "questions": [
+    {
+      "q": "When the ClickHouse read that discovers GL identity (zod.aggregate_kit_camera_name) fails, what should the page show? Today a ClickHouse outage still renders every row with 'Unknown' columns, because rows come from PostgreSQL. Under this design a discovery failure means no rows at all, which looks identical to an org that genuinely owns no GLs.",
+      "answered": true,
+      "answer": "Accept the empty table. Ship exactly as the ticket specifies: a GL-discovery failure renders zero rows. reportClickhouseFailure() still logs and calls report(), so the outage reaches error tracking even though the admin sees an empty table. ACCEPTED TRADE-OFF, recorded deliberately: this is a resilience regression versus today, where rows come from PostgreSQL and survive a ClickHouse outage with 'Unknown' columns. Must be stated in the PR body and the Build Record, not buried.",
+      "source": "human:Dalton McCleery 2026-09-04"
+    },
+    {
+      "q": "How should the 5 ClickHouse-free tests in GlKitsResourceAccessTest be preserved? They assert specific-row presence, which now needs a ClickHouse-only table with no pgsql-bridge equivalent (measured: no zod or clarity schema exists in the local test Postgres at all). Their docblock says the split exists so deleting canAccess() or the org scope cannot produce a green run.",
+      "answered": true,
+      "answer": "Split by what needs ClickHouse. GlKitsResourceAccessTest stays ClickHouse-free and asserts tenancy/authorization on the PostgreSQL kit query that feeds ClickHouse (org scope, kit_type=1, excludingDeleted) plus the non-admin 403 \u2014 so deleting canAccess() or the org_id scope still fails a test with ClickHouse down. The row-RENDERING assertions move into GlKitsResourceTest, which runs against real ClickHouse in CI. No new machinery and no migration. Re-asked and re-confirmed after the driver established there is NO test-time PostgreSQL bridge to extend: zod.kit_last_scan has no PostgreSQL migration, local-clickhouse-schema.sql defines only a clarity schema and is applied by hand rather than by the suite, and CI sets CLICKHOUSE_DRIVER=clickhouse. The rejected alternative would have required a real Laravel migration creating a ClickHouse shim table in production PostgreSQL, hand-applied, on a hotfix.",
+      "source": "human:Dalton McCleery 2026-09-04"
+    },
+    {
+      "q": "Sort rank order for the tri-state Reporting badge (Reporting / Not Reporting / Unknown). No existing precedent in this codebase orders a tri-state badge.",
+      "answered": true,
+      "answer": "Best-known first, and mixed renders Not Reporting. Ascending sort ranks Reporting, then Not Reporting, then Unknown. A GL whose kits are a mix of Not Reporting and Unknown with none Reporting renders 'Not Reporting', because at least one of its kits was actually checked and came back negative.",
+      "source": "human:Dalton McCleery 2026-09-04"
+    },
+    {
+      "q": "When a GL's kits are a mix of 'Not Reporting' and 'Unknown' with none Reporting, does the GL render Not Reporting or Unknown?",
+      "answered": true,
+      "answer": "Not Reporting. At least one of the GL's kits was actually checked and came back negative, so the page can honestly say 'Not Reporting'. Unknown is reserved for the cases where NOTHING was checked \u2014 the read failed, or no kit mapped to the GL has a scanner mapping at all.",
+      "source": "human:Dalton McCleery 2026-09-04"
+    },
+    {
+      "q": "Should the GL column stay searchable? 'name' is searchable() today; with ->records() the closure owns search via the search/columnSearches injection, so it is opt-in work rather than free.",
+      "answered": true,
+      "answer": "Yes, keep the GL column searchable, matching what the page does today. With ->records() the closure owns search via the search/columnSearches injection, so filter the resolved GL list by the search term there.",
+      "source": "human:Dalton McCleery 2026-09-04"
+    },
+    {
+      "q": "Should Company Owner stay as a column even though it is constant per page?",
+      "answered": true,
+      "answer": "Yes \u2014 ticket requirement #1 names it explicitly in the retained column set, and the prior GL Kits page docblock already treats it as deliberately the viewing org's own name (owned-only, not the Shared pivot).",
+      "source": "ticket"
+    },
+    {
+      "q": "Is appending one translated DDL line to the CI ClickHouse schema dump acceptable, or must the whole dump be regenerated?",
+      "answered": true,
+      "answer": "Append one line. The dump is a curated subset driven by a table list, not a snapshot: the 2026-09-01 full refresh (0746450c, already on deploy) verified against system.tables/system.columns and still did not include this table, and only one zod.aggregate_* table is present at all. The generator is the in-repo procedure .claude/commands/chlocal.md, which sources a sibling chlocal cloud export and performs the Shared*MergeTree -> OSS translation. So: append the translated line AND add the table to that generator's list, or the next refresh drops it again.",
+      "source": "code"
+    },
+    {
+      "q": "Do kit_type=1 kits that have never scanned disappear from the page entirely?",
+      "answered": true,
+      "answer": "Yes, and it is inherent to the specified data source, not an implementation gap: GL identity only exists once a scan has recorded that camera_name (the MV is fed from public_scans). Today such a kit shows a Never / Not Reporting placeholder row. This is a real behavior change and belongs in the PR description.",
+      "source": "ticket"
+    },
+    {
+      "q": "Should the production query use the ticket's literal join against zod.public_kits for org scoping?",
+      "answered": true,
+      "answer": "No. zod.aggregate_kit_camera_name has no org_id (measured: 2 columns only), and OrgKitLastScanQuery's docblock documents why kit ids must come from PostgreSQL rather than a ClickHouse org_id. The ticket's join was a one-off investigation query, not a production scoping mechanism. Scope from the PG-derived kit_id list; this is strictly safer and keeps tenancy in one place.",
+      "source": "code"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "PRIMARY RISK: this ticket moves row IDENTITY from PostgreSQL to ClickHouse. Every other Filament resource here keeps identity in PostgreSQL and degrades only computed COLUMNS on a CH failure. This is the first case where the row SET can vanish during an outage \u2014 a resilience regression relative to the current buggy-but-resilient page, shipped as a HOTFIX. Q1 exists to decide it deliberately rather than by omission.",
+    "ACCEPTED RISK (Q1, Dalton 2026-09-04): a ClickHouse GL-discovery failure renders an empty table, indistinguishable to the admin from an org that owns no GLs. Today's page survives an outage because rows come from PostgreSQL. The decision was made with that trade-off stated. reportClickhouseFailure() keeps the outage visible in error tracking. This MUST appear in the PR body and Build Record.",
+    "GREP-BACKSTOP: the prep pass missed tests/e2e/gl-kits.spec.ts and tests/e2e/helpers/gl-kits.ts, which assert COLUMN_HEADERS == ['Kit','Company Owner','Last Scan Received','Reporting (14d)'] and the Kit columnheader's visibility. Playwright is not wired into either CI workflow, so this is stale-contract risk, not a red build.",
+    "zod.aggregate_kit_camera_name is exactly 2 columns (kit_id Int32, camera_name String) \u2014 no org_id, no _peerdb_* columns. MV-fed (REFRESH EVERY 5 MINUTE, incremental from zod.public_scans), not a CDC mirror. Applying a CDC soft-delete predicate to it errors, as the ticket warns.",
+    "FINAL and SELECT DISTINCT collapse the table identically (raw 12,414 -> 10,600 both ways). The ticket's cited 10,598 is the deduped figure; the ~2-row drift is 3 days of MV growth, not a contradiction. FINAL matches this repo's stated ReplacingMergeTree convention.",
+    "Largest single group is org_id=1 (InsightLPR) at 524 distinct GLs from 239 kit_type=1 kits \u2014 10x the ticket's 49-GL anchor. Real all-time data (zod.public_kits FINAL and no-FINAL agree at 239, so not a stale-CDC artifact); the MV never expires rows, so treat 524 as a floor.",
+    "zod.public_kits IS well-merged and ORDER BY id, so it does not carry zod.kit_last_scan's stale-org-row risk \u2014 moot under the recommended design, which never queries it for scoping.",
+    "Array-record identity: build the underlying collection keyed by GL (->keyBy()) so Filament's mapWithKeys defaults __key to the GL string and tests can address rows by that string.",
+    "ClickhouseQuery::query() swallows Throwable in production|testing, so a failed read looks EMPTY rather than thrown. That is exactly why GlKitsResource catches locally to produce 'Unknown'. A new query class must preserve that distinction or the Unknown state dies silently.",
+    ".claude/commands/chlocal.md reads from a SIBLING path (../chlocal/...) which does not resolve from this nested worktree; ~/Herd/chlocal is a real sibling of the main checkout. Use an absolute path or run the procedure from the main checkout.",
+    "Local full-suite runs need php -d memory_limit=2G vendor/bin/phpunit (or PHPRC): php artisan test OOMs during DISCOVERY at 128M and still exits 0, a false green (the OOM-during-discovery test runner issue). Expect ~8 pre-existing failures.",
+    "RequiresClickhouse TRUNCATEs hardcoded clarity.* / zod.* literals, so local CH databases must be named literally clarity and zod, and teardown must never drop them.",
+    "Comments and docblocks in this repo stay minimal (user preference). The existing GlKitsResource docblocks are load-bearing 'why' notes \u2014 adapt them, do not multiply them."
+  ],
+  "tests": [
+    {
+      "file": "tests/Unit/Clickhouse/Queries/OrgKitCameraNamesQueryTest.php",
+      "what_it_pins": "empty kit_ids -> []; many-camera-names-per-kit and many-kits-per-camera-name inversion; FINAL dedup of duplicate rows"
+    },
+    {
+      "file": "tests/Filament/Resources/GlKitsResourceTest.php",
+      "what_it_pins": "many-to-many rollup (2 kits -> 1 GL, newest scan wins, any-reporting wins); ascending and descending sort on last_scan and reporting; 100-row pagination default; Never vs Unknown at GL level; per-org memo isolation extended to the GL map; whatever Q1 decides for GL-discovery failure"
+    },
+    {
+      "file": "tests/Filament/Resources/GlKitsResourceAccessTest.php",
+      "what_it_pins": "admin-only access, kit_type=1 filtering, cross-org isolation, soft-delete exclusion \u2014 shape depends on Q2"
+    },
+    {
+      "file": "tests/e2e/gl-kits.spec.ts",
+      "what_it_pins": "the observable column contract; must stop asserting a Kit column"
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Filament/Resources/GlKitsResource.php:66-104 (table), :108-113 (getEloquentQuery), :116-232 (memos + tri-state), :234-262 (glKits)",
+      "app/Clickhouse/Queries/OrgKitLastScanQuery.php:14-19 (PG-sourced kit_ids rationale), :31-66",
+      "app/Clickhouse/Queries/OrgKitReportingStatusQuery.php:1-70",
+      "app/Filament/Widgets/Client/ClientTable.php:138-141 (records/paginated/defaultPaginationPageOption), :253-273 (LengthAwarePaginator from a sorted, sliced Collection)",
+      "vendor/filament/tables/src/Table/Concerns/HasRecords.php:33 (records), :88 (hasQuery), :113 (getModel via getQuery)",
+      "vendor/filament/tables/src/Concerns/HasRecords.php:94-142 (data-source injections + array-record keying)",
+      "vendor/filament/tables/src/Testing/TestsColumns.php:203-227",
+      "database/schema/clickhouse-schema.sql:1-5 (engine-translation header), :44-47",
+      "tests/e2e/helpers/gl-kits.ts:5 (COLUMN_HEADERS)",
+      "tests/e2e/gl-kits.spec.ts:23,53-69",
+      ".claude/commands/chlocal.md (dump generator procedure)",
+      "docs/investigations/DEV-2486/driver-findings.md"
+    ],
+    "code_flow": "Admin loads /app/gl-kits -> ListGlKits (unchanged) renders GlKitsResource::table() -> ->records() closure gets page/recordsPerPage/sortColumn/sortDirection -> glKits($orgId) [PG, memoized: org_id + kit_type=1 + excludingDeleted] -> OrgKitCameraNamesQuery::handle(['kit_ids']) [NEW, CH] inverts to camera_name => kit_ids -> per GL, roll up lastScanMap($orgId) via max() and reportingMap($orgId) via any() -> sort -> slice -> LengthAwarePaginator of GL-keyed array rows -> columns render gl/company_owner/last_scan/reporting.",
+    "tables": [
+      "zod.public.kits (PostgreSQL)",
+      "platform.kit_metadata (soft-delete via excludingDeleted())",
+      "zod.aggregate_kit_camera_name (ClickHouse, MV-fed, NEW read)",
+      "zod.kit_last_scan (ClickHouse, existing)",
+      "clarity.sc_positions (ClickHouse, existing)"
+    ],
+    "related_components": [
+      "zod.aggregate_kit_camera_name_mv (REFRESH EVERY 5 MINUTE \u2014 not itself queried)",
+      "ClickhouseQuery base (Throwable-swallowing query())",
+      "RequiresClickhouse truncation list",
+      "Analytics::track page-view in ListGlKits (unaffected)"
+    ]
+  },
+  "exhaustiveness": {
+    "grep_patterns": [
+      "git grep -n 'OrgKitLastScanQuery|OrgKitReportingStatusQuery' -- ':!vendor'",
+      "git grep -n 'GlKitsResource' -- ':!vendor'",
+      "rg -n \"kit_type.*GENETEC|KitType::GENETEC\" --glob '!vendor'",
+      "rg -n 'camera_name' app/ --glob '!vendor'",
+      "rg -ni \"'GL'|GL Kit|gl-kits\" app/ --glob '!vendor'"
+    ],
+    "sites": [
+      {
+        "file": "app/Filament/Resources/GlKitsResource.php",
+        "verdict": "buggy",
+        "reason": "the ticket's target \u2014 kit-keyed where it must be GL-keyed"
+      },
+      {
+        "file": "tests/e2e/helpers/gl-kits.ts",
+        "verdict": "buggy",
+        "reason": "BACKSTOP: COLUMN_HEADERS asserts a Kit column that this change removes"
+      },
+      {
+        "file": "tests/e2e/gl-kits.spec.ts",
+        "verdict": "buggy",
+        "reason": "BACKSTOP: asserts the Kit columnheader and the 4-header toEqual list"
+      },
+      {
+        "file": "app/Filament/Resources/ScansResource/Pages/ListScans.php",
+        "verdict": "safe",
+        "reason": "camera_name shown per scan \u2014 one scan is one device at one moment, correct semantics"
+      },
+      {
+        "file": "app/Filament/Resources/HitsResource/Pages/ListHits.php",
+        "verdict": "safe",
+        "reason": "same per-scan camera_name display"
+      },
+      {
+        "file": "app/Filament/Resources/MissedOpportunityResource/Pages/ListMissedOpportunities.php",
+        "verdict": "safe",
+        "reason": "same per-scan camera_name display"
+      },
+      {
+        "file": "app/Dto/ScanViewDto.php",
+        "verdict": "safe",
+        "reason": "carries camera_name as a per-scan DTO field, not a listing"
+      },
+      {
+        "file": "app/Filament/Resources/ScoutUsersResource.php",
+        "verdict": "safe",
+        "reason": "one row per kit is correct for Scout driver management; kit_mapping labelled 'GL Number' is an attribute of the kit, not a device inventory"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/KitUsers.php",
+        "verdict": "safe",
+        "reason": "cameraKitsCount() counts kit rows and is labelled 'Active Kit Users' \u2014 confusing name, not a device-inventory claim; out of scope"
+      },
+      {
+        "file": "app/Filament/Client/Resources/ClientSearchScansResource.php",
+        "verdict": "safe",
+        "reason": "camera heroicon only"
+      },
+      {
+        "file": "app/Filament/Resources/ActivityResource.php",
+        "verdict": "safe",
+        "reason": "'Device Info' is browser/user-agent activity logging, unrelated to cameras"
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [
+      "zod.public.kits",
+      "platform.kit_metadata",
+      "zod.public.orgs"
+    ],
+    "ch_tables": [
+      "zod.aggregate_kit_camera_name (NEW read)",
+      "zod.kit_last_scan (existing, unchanged)",
+      "clarity.sc_positions (existing, unchanged)"
+    ],
+    "mv_or_cdc_implications": "zod.aggregate_kit_camera_name is fed by zod.aggregate_kit_camera_name_mv (REFRESH EVERY 5 MINUTE, incremental over recent zod.public_scans), NOT a PeerDB CDC mirror \u2014 measured to have no _peerdb_is_deleted/_peerdb_version and no org_id (2 columns total). Do NOT apply a CDC soft-delete predicate to it. Its production engine is SharedReplacingMergeTree, a Cloud-only engine absent from the OSS CI image, so the dump entry must be ReplacingMergeTree().",
+    "indexes_relied_on": [
+      "zod.aggregate_kit_camera_name ORDER BY (kit_id, camera_name) \u2014 prunes on a kit_id IN-list",
+      "zod.kit_last_scan ORDER BY (org_id, kit_id) \u2014 unchanged, still fronted by a PG-derived org_id + kit_id predicate",
+      "clarity.sc_positions proj_kit_mapping_lc (the lowercase kit_mapping projection) \u2014 engaged by OrgKitReportingStatusQuery's lower() shape; do not disturb it"
+    ]
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "adds app/Clickhouse/Queries/OrgKitCameraNamesQuery.php and builds a per-org GL=>kit_ids accumulator inside a ->records() closure",
+    "driving_tables": [
+      {
+        "table": "zod.aggregate_kit_camera_name",
+        "source": "ClickHouse Cloud zod (MV-fed, no CDC)",
+        "prod_rows": 12414,
+        "prod_rows_deduped": 10600,
+        "group_by": "kit_id, via a PG-derived kit_id IN-list",
+        "largest_group_rows": 524,
+        "largest_group_note": "org_id=1 (InsightLPR): 524 distinct GLs from 239 kit_type=1 kits \u2014 the true worst case, 10x the ticket's org-1143 anchor of 49"
+      },
+      {
+        "table": "zod.public_kits",
+        "source": "PeerDB CDC mirror",
+        "prod_rows": 3555,
+        "group_by": "org_id, kit_type=1 only",
+        "largest_group_rows": 272,
+        "largest_group_note": "org 1143 is largest by KIT count (272) while org 1 is largest by GL count (524) \u2014 two different worst cases"
+      },
+      {
+        "table": "zod.kit_last_scan",
+        "source": "ClickHouse Cloud zod (MV-fed, RMT, not reliably merged)",
+        "prod_rows": 7405,
+        "group_by": "(org_id, kit_id)",
+        "largest_group_rows": 272,
+        "largest_group_note": "bounded by the same PG-derived kit_id list"
+      },
+      {
+        "table": "clarity.sc_positions",
+        "source": "ClickHouse Cloud clarity",
+        "prod_rows": null,
+        "group_by": "lower(kit_mapping), 14-day window",
+        "largest_group_rows": 272,
+        "largest_group_note": "IN-list bounded by the org's kit count; query unchanged by this ticket"
+      }
+    ],
+    "growth": "zod.aggregate_kit_camera_name is monotonically append-only \u2014 the MV never expires rows \u2014 so a heavy org's GL count only grows, with no observed cap. Treat 524 as a floor. Fleet-growth precedent (an earlier fleet-growth investigation): kits 29->43 and orgs 11->12 in a single day.",
+    "schedule": {
+      "expression": "N/A \u2014 synchronous admin page load, not a scheduled command or queued job",
+      "interval_seconds": null,
+      "without_overlapping_minutes": null
+    },
+    "allocation_sketch": "Per request, single org: PG kit_id list <=272 ints -> one CH IN-list query returning <=524 (kit_id, camera_name) pairs -> PHP inversion to a <=524-key GL map -> two further CH IN-list lookups bounded by the same <=272 kit_ids -> rollup, sort, slice in PHP. All structures are hundreds of small scalars and short strings \u2014 kilobytes, not megabytes \u2014 even at the measured worst case. No array_chunk, no accumulator spanning multiple orgs; the once() memos are per-request and per-$orgId. The risk class here is query SHAPE (an unbounded IN-list if an org ever grows enormously), not allocation x concurrency. Concurrency is bounded by simultaneous admins of one large org, which is small. Contrast the rejected clarity.scans_hot alternative at 4.2 s / 412 MB per org page load.",
+    "oracle_status": "ok",
+    "unresolved": []
+  },
+  "derivation_log": [
+    {
+      "query_shape": "SHOW CREATE TABLE zod.aggregate_kit_camera_name",
+      "param_classes": "none",
+      "aggregate_result": "2 columns (kit_id Int32, camera_name String); ENGINE = SharedReplacingMergeTree(...); ORDER BY (kit_id, camera_name)",
+      "why": "supplies the DDL for the CI dump fix and proves the engine needs OSS translation"
+    },
+    {
+      "query_shape": "DESCRIBE TABLE zod.aggregate_kit_camera_name",
+      "param_classes": "none",
+      "aggregate_result": "exactly 2 columns; no org_id, no _peerdb_*",
+      "why": "confirms tenancy cannot be scoped on this table and no CDC predicate applies"
+    },
+    {
+      "query_shape": "SELECT count(), uniqExact(kit_id), uniqExact(camera_name) FROM zod.aggregate_kit_camera_name",
+      "param_classes": "none",
+      "aggregate_result": "12,414 raw rows / 4,810 distinct kits / 2,190 distinct camera names",
+      "why": "sizes the driving table"
+    },
+    {
+      "query_shape": "count() raw vs FINAL vs SELECT DISTINCT on zod.aggregate_kit_camera_name",
+      "param_classes": "none",
+      "aggregate_result": "raw 12,414; FINAL 10,600; DISTINCT 10,600",
+      "why": "shows FINAL and DISTINCT are equivalent here, and reconciles the ticket's 10,598 as the deduped figure"
+    },
+    {
+      "query_shape": "SELECT count() FROM zod.public_kits WHERE org_id = ? AND kit_type = 1, with and without _peerdb_is_deleted = 0",
+      "param_classes": "org_id (org already named on the ticket)",
+      "aggregate_result": "272 both ways",
+      "why": "verifies the ticket's kit count for org 1143"
+    },
+    {
+      "query_shape": "SELECT uniqExact(camera_name) FROM aggregate_kit_camera_name JOIN public_kits ON id = kit_id WHERE org_id = ? AND kit_type = 1",
+      "param_classes": "org_id (already named on the ticket)",
+      "aggregate_result": "49 distinct GLs, including exactly 2 non-GL#### tokens (both already named on the ticket)",
+      "why": "verifies the ~50-GL claim and the keep-non-pattern-tokens requirement"
+    },
+    {
+      "query_shape": "SELECT org_id, count() FROM zod.public_kits WHERE kit_type = 1 GROUP BY org_id ORDER BY n DESC LIMIT 5, plus global count and uniqExact(org_id)",
+      "param_classes": "aggregate only",
+      "aggregate_result": "largest org by kit count = 272; 3,555 kit_type=1 kits across 407 orgs",
+      "why": "confirms the ticket's anchor org is the largest by KIT count"
+    },
+    {
+      "query_shape": "SELECT k.org_id, uniqExact(akc.camera_name) FROM aggregate_kit_camera_name akc JOIN public_kits k ON k.id = akc.kit_id WHERE k.kit_type = 1 GROUP BY k.org_id ORDER BY n DESC LIMIT 5",
+      "param_classes": "aggregate only",
+      "aggregate_result": "largest single group = org_id 1 (InsightLPR) with 524 distinct GLs from 239 kits",
+      "why": "the largest-single-group figure the resource envelope requires; the total alone hid it"
+    },
+    {
+      "query_shape": "SELECT count() FROM zod.public_kits FINAL vs no-FINAL WHERE org_id = 1 AND kit_type = 1 AND _peerdb_is_deleted = 0",
+      "param_classes": "org_id 1",
+      "aggregate_result": "239 both ways",
+      "why": "rules out the 524-GL figure being a stale-CDC artifact"
+    },
+    {
+      "query_shape": "grep/engine census over database/schema/clickhouse-schema.sql (driver-side, not a data query)",
+      "param_classes": "none",
+      "aggregate_result": "62 CREATE TABLE lines; zero Shared* engines in the body; ReplacingMergeTree 49, MergeTree 7, AggregatingMergeTree 5, SummingMergeTree 2; only one zod.aggregate_* table present",
+      "why": "proves the dump translates Cloud-only engines and is a curated subset"
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC-1 one row per GL, no Kit column",
+        "kind": "agent",
+        "intent": "render for an org with a multi-kit-per-GL fixture; assert the Kit column is absent and the row count equals the distinct camera_name count"
+      },
+      {
+        "ac": "AC-2 scale",
+        "kind": "human",
+        "intent": "spot-check a large org; the ticket's 49-row anchor is not the worst case (org 1 = 524 GLs)"
+      },
+      {
+        "ac": "AC-3 sortability",
+        "kind": "agent",
+        "intent": "sort ascending and descending on both computed columns and assert row order, including where Never/Unknown land"
+      },
+      {
+        "ac": "AC-4 100-row default",
+        "kind": "agent",
+        "intent": "assert the default page size is 100, not the app-wide 50"
+      },
+      {
+        "ac": "AC-5 many-to-many rollup",
+        "kind": "agent",
+        "intent": "2 kits -> 1 GL with different last-scan times and reporting states; assert newest-wins and any-reporting-wins"
+      },
+      {
+        "ac": "AC-6 Never vs Unknown",
+        "kind": "agent",
+        "intent": "a GL whose kit has no kit_last_scan row (Never) vs a CH outage (Unknown); assert they render distinctly"
+      },
+      {
+        "ac": "AC-7 access and tenancy",
+        "kind": "human",
+        "intent": "non-admin 403 and cross-org isolation after the row source changes"
+      },
+      {
+        "ac": "Q1 GL-discovery failure",
+        "kind": "human",
+        "intent": "whatever Q1 decides \u2014 verify an outage does not read as 'this org owns no GLs'"
+      }
+    ],
+    "seed_scenario": "One org with: kits A and B both in zod.aggregate_kit_camera_name under camera_name GL9001 (many-to-many). Kit A has the newer zod.kit_last_scan row and a kit_mapping with no sc_positions hits; kit B has an older last-scan row and a kit_mapping WITH a recent sc_positions hit. GL9001 must render kit A's timestamp and 'Reporting'. Add GL9002 from a single kit with no kit_last_scan row (Never) and no kit_mapping (Unknown). Add a second org with its own GL to prove isolation. Add ~30 more (kit, camera_name) pairs to exercise sort and pagination without needing org 1's 524 rows.",
+    "personas": [
+      "org admin viewing their own fleet (primary)",
+      "org admin at org-1 scale (524 GLs) to stress sort and pagination",
+      "non-admin user (403)"
+    ],
+    "pg_tables": [
+      "zod.public.kits",
+      "platform.kit_metadata",
+      "zod.public.orgs"
+    ],
+    "ch_tables": [
+      "zod.aggregate_kit_camera_name",
+      "zod.kit_last_scan",
+      "clarity.sc_positions"
+    ]
+  },
+  "confidence": 62,
+  "escalate": {
+    "recommend": true,
+    "reason": "prep pass returned confidence 52 with escalate=true; the driver folded in the grep backstop (2 missed e2e files) and verified the CI-dump engine-translation constraint independently, raising confidence to 62. Best-of-N was deliberately NOT run: the residual uncertainty is 5 human-decidable design questions (Q1-Q5), not code the model could ground better with more blind passes. Non-negotiable 1 routes those to the Phase 2 interview."
+  },
+  "missed_caller_candidates": [
+    {
+      "file": "tests/e2e/gl-kits.spec.ts",
+      "symbol": "GlKitsResource column contract",
+      "referenced_at": "tests/e2e/gl-kits.spec.ts:23,53-69"
+    },
+    {
+      "file": "tests/e2e/helpers/gl-kits.ts",
+      "symbol": "COLUMN_HEADERS",
+      "referenced_at": "tests/e2e/helpers/gl-kits.ts:5"
+    }
+  ]
+}

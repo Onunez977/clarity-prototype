@@ -1,0 +1,49 @@
+{
+  "key": "DEV-2324",
+  "captured_at": "2026-08-12",
+  "source": "haiku recall offload (JQL summary~dashboard|leaderboard|kit users, resolution changed AFTER -180d, Application=Clarity) + git log over app/Filament, app/Livewire",
+  "precedents": [
+    {
+      "key": "DEV-1927",
+      "status": "Done",
+      "age": "~5 months",
+      "relevance": "Fixed duplicate/missing months on dashboard bar graphs — same dashboard metric-chart surface this ticket redesigns.",
+      "applicable": "applicable — the month-bucketing/label gotcha it fixed lives in the very charts being restructured; the redesign must not regress it."
+    },
+    {
+      "key": "DEV-2312",
+      "status": "Done",
+      "age": "~3 days",
+      "relevance": "Map cluster ClickHouse re-hydration; an undefined relation silently rendered an empty widget.",
+      "applicable": "partially applicable — not this surface, but the 'silent empty widget' failure mode is a real risk when metric cards change their data source."
+    },
+    {
+      "key": "DEV-2316",
+      "status": "To Do",
+      "age": "~2 days",
+      "relevance": "Clarity Otto MVP data-aggregation epic; may eventually feed dashboard metrics.",
+      "applicable": "not-applicable now — unshipped and out of scope for this redesign."
+    },
+    {
+      "key": "DEV-2313",
+      "status": "In Code Review",
+      "age": "~1 day",
+      "relevance": "Scout check-in recorder backend.",
+      "applicable": "not-applicable — Scout scope, not the Clarity dashboard."
+    }
+  ],
+  "git_signals": [
+    "commit 'Fix Recovery Leaderboard plotting months under wrong labels' — direct Recovery Leaderboard history; the collapsed/expanded split must preserve that fix.",
+    "DEV-1927 commit touching dashboard bar-graph month bucketing."
+  ],
+  "knowledge_cards_matched": [
+    {
+      "path": "knowledge/clickhouse/core.md",
+      "reason": "Dashboard metric widgets are ClickHouse-backed; bounded ranges + deterministic ORDER BY rules apply to any new sparkline/MTD queries."
+    },
+    {
+      "path": "knowledge/clarity/analytics.md",
+      "reason": "Marginal — matched on app only; its globs (app/Jobs/**, TrackAnalytics*) are not this surface. Not loaded."
+    }
+  ]
+}

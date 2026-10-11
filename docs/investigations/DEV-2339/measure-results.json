@@ -1,0 +1,52 @@
+{
+  "measured_at": "2026-08-12T15:49Z",
+  "org_id": 123,
+  "timeout_query_client_s": 20,
+  "shapes": {
+    "CURRENT": {
+      "elapsed_ms": 15404,
+      "row_count": 313653,
+      "ok": true
+    },
+    "A_JOIN_only": {
+      "elapsed_ms": 20143,
+      "ok": false,
+      "error": "TIMEOUT_EXCEEDED max=20000"
+    },
+    "B_prune_first": {
+      "elapsed_ms": 13351,
+      "row_count": 313655,
+      "ok": true
+    },
+    "stage_link_scan": {
+      "elapsed_ms": 1789,
+      "address_count": 372995
+    },
+    "stage_public_address_IN": {
+      "elapsed_ms": 3115,
+      "address_rows": 367514
+    }
+  },
+  "explain_public_address": {
+    "CURRENT_B": "PrimaryKey id in ~373k-set; granules ~14679/23936",
+    "A": "PrimaryKey Condition:true; granules 23937/23937 FULL SCAN"
+  },
+  "verdict": "Confirmed on Cloud org123: B ~10.3s with PK prune. Ship B.",
+  "followup": {
+    "note": "B count() is usually ~8-13s on org123 but high variance; one rerun hit 20s client ceiling. org422 (~10k open hotlists) B count=4.2s / 21k rows. Prod server ceiling is 30s (local client timeout_query=20). Full handle() returning ~313k rows also contended at 20s.",
+    "org422_B_count_ms": 4222,
+    "org422_rows": 21174
+  },
+  "cloud_confirm_2026_08_12": {
+    "org_id": 123,
+    "open_direct_hotlists": 118715,
+    "shape": "B_prune_first",
+    "explain_public_address": "PrimaryKey id in 372208-element set; granules 14678/23934",
+    "count_row_count": 312893,
+    "elapsed_s": 10.267,
+    "wall_s": 10.381,
+    "read_rows": 764653013,
+    "max_execution_time_s": 90,
+    "verdict": "PASS under 30s server ceiling; PK prune present"
+  }
+}

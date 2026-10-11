@@ -1,0 +1,241 @@
+{
+  "ticket": "DEV-2596",
+  "prepared_by": "prep-candidate-1",
+  "prepared_at": "2026-09-17T16:55:00Z",
+  "synthesis": {
+    "summary": "Admin 'Login as Scout user' (force-login to Scout PWA) intermittently fails silently. PR #410 merged 2026-09-15 fixed duplicate-GET token revocation; ticket filed next day during demo suggests NEW regression or uncovered failure mode. Three Scout users failed consecutively after initial success in same session.",
+    "user_impact": "Staff cannot reliably impersonate drivers to view Scout PWA, blocking admin support workflows and driver issue investigation. Silent 403 (no UI feedback) makes it appear as system hang rather than auth failure.",
+    "business_context": "Force-login is gate-bypassing admin tool for staff to view driver Scout PWA as that driver, essential for support and debugging. Unreliable access undermines support team efficiency and driver satisfaction.",
+    "affected_surfaces": [
+      "Admin panel Scout Users list action 'Login as Scout user'",
+      "/scout/force-login/{kit} route and ClarityScoutForceLoginController",
+      "ScoutForceTokens session-tracked token minting and revocation",
+      "ImpersonateController session lifecycle (admin_impersonator tracking)",
+      "Browser session state across multiple force-login tabs"
+    ]
+  },
+  "scope": {
+    "in_scope": [
+      "Reproduce intermittent force-login failure with consecutive attempts",
+      "Verify admin_impersonator session persistence across consecutive force-logins",
+      "Analyze session lifecycle during impersonation → force-login → impersonation transitions",
+      "Check session size constraints with accumulated force token IDs",
+      "Verify PR #410 changes (ScoutForceTokens, session tracking, client 401 surfacing) are deployed",
+      "Distinguish between 403 (missing admin_impersonator) vs 401 (expired token) vs 404 (no assigned user)",
+      "Test concurrent force-login requests from multiple tabs",
+      "Verify force-login works both via regular impersonation flow and __qa/login (local)",
+      "Check if regular impersonate() call during active force-login session breaks admin_impersonator",
+      "Add explicit error surfacing when admin_impersonator check fails"
+    ],
+    "out_of_scope": [
+      "Changing force-login authentication mechanism beyond session fixes",
+      "Removing admin_impersonator hardcoded ID list requirement",
+      "Modifying ScoutForceTokens token lifecycle beyond session fixes",
+      "Changes to regular impersonation flow unrelated to force-login",
+      "Browser prefetch or double-click issues (PR #410 addressed)",
+      "Service worker caching of force-login HTML (PR #410 addressed)"
+    ],
+    "dependencies": [
+      "PR #410 deployed to production (merged 2026-09-15)",
+      "Backyard-generated signed impersonation URLs",
+      "Session driver configuration (likely Redis cluster in prod)",
+      "admin_impersonator hardcoded ID list in ImpersonateController (lines 43-54)"
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC1",
+      "description": "Reproduce intermittent failure with consecutive force-logins in local/staging environment",
+      "verification": "Given admin with admin_impersonator session, when clicking 'Login as Scout user' for 5+ different kits consecutively, then all should succeed OR specific failure pattern is identified and reproducible",
+      "priority": "CRITICAL"
+    },
+    {
+      "id": "AC2",
+      "description": "Identify root cause of admin_impersonator session loss or failure mode",
+      "verification": "Root cause documented with proof (logs, debugger, test case) showing exact condition where admin_impersonator is missing/invalid when it should be present",
+      "priority": "CRITICAL"
+    },
+    {
+      "id": "AC3",
+      "description": "Consecutive force-logins succeed reliably without session invalidation",
+      "verification": "10 consecutive force-logins to different kits in same admin session all succeed, verified with automated test and manual QA",
+      "priority": "CRITICAL"
+    },
+    {
+      "id": "AC4",
+      "description": "Force-login failure shows explicit error to user instead of silent 403",
+      "verification": "When admin_impersonator missing, UI shows 'Access denied: admin session required' or similar before 403, not silent failure",
+      "priority": "HIGH"
+    },
+    {
+      "id": "AC5",
+      "description": "Session invalidation during regular impersonate() does not break active force-login sessions",
+      "verification": "Given admin viewing Scout PWA via force-login, when admin starts new regular impersonation (not force-login), then active Scout PWA continues working OR explicit revocation message shown",
+      "priority": "HIGH"
+    },
+    {
+      "id": "AC6",
+      "description": "Product confirms force-login should/should not kick real driver off",
+      "verification": "Product decision documented: when admin force-logins to active driver, does real driver get 401? Current: force tokens coexist with live tokens (test line 58-78 ClarityScoutForceLoginControllerTest)",
+      "priority": "MEDIUM"
+    }
+  ],
+  "questions": [
+    {
+      "id": "Q1",
+      "question": "Does the demo failure reproduce in local environment with __qa/login or only via real Backyard impersonation flow?",
+      "blocking": true,
+      "for_role": "implementation"
+    },
+    {
+      "id": "Q2",
+      "question": "What is the session driver configuration in production (file/database/redis/array)? Session size limits?",
+      "blocking": true,
+      "for_role": "implementation"
+    },
+    {
+      "id": "Q3",
+      "question": "Are the 3 failed Scout users all from same org or different orgs? Same admin or different admins?",
+      "blocking": false,
+      "for_role": "product"
+    },
+    {
+      "id": "Q4",
+      "question": "Was the admin using multiple browser tabs/windows during the demo? Could tab isolation affect session state?",
+      "blocking": false,
+      "for_role": "product"
+    },
+    {
+      "id": "Q5",
+      "question": "Does the failure happen immediately (instant 403) or after some delay (token expiry)?",
+      "blocking": false,
+      "for_role": "product"
+    },
+    {
+      "id": "Q6",
+      "question": "Can staff reproduce by rapidly clicking force-login on 5+ users in <30 seconds, or only over longer session?",
+      "blocking": false,
+      "for_role": "qa"
+    },
+    {
+      "id": "Q7",
+      "question": "Should force-login revoke previous force tokens from the same admin to prevent session array bloat, or keep all per PR #410?",
+      "blocking": false,
+      "for_role": "product"
+    }
+  ],
+  "blockers": [],
+  "notes": {
+    "pr_410_changes": "PR #410 (merged 2026-09-15) introduced ScoutForceTokens with session-tracked token IDs, keeping 3 most recent per driver to prevent duplicate-GET revocation. Tokens now tracked in impersonator's session via Session::push(clarity_scout_force_token_ids), revoked on leave()/exitAdminMode()/re-impersonation.",
+    "admin_impersonator_lifecycle": "admin_impersonator session set only when: (1) impersonating via /auth/impersonate AND impersonator ID in hardcoded admin list (lines 43-54 ImpersonateController), OR (2) using __qa/login route (local only, lines 188-191 web.php). Force-login REQUIRES admin_impersonator (line 16 ClarityScoutForceLoginController) or 403.",
+    "session_invalidation_risk": "ImpersonateController::impersonate() calls session()->invalidate() (line 35) when auth()->check() is true (starting new impersonation while authenticated), which clears ALL session including admin_impersonator. It then re-sets impersonator (line 41) and admin_impersonator (lines 56-58) based on request payload. If concurrent or overlapping impersonation calls occur, admin_impersonator could be transiently missing.",
+    "consecutive_force_login_flow": "Expected flow: Admin logs in → uses Backyard to /auth/impersonate (sets admin_impersonator) → clicks 'Login as Scout user' multiple times. Each force-login: (1) checks admin_impersonator, (2) mints token for driver, (3) pushes token ID to session array, (4) prunes driver's old tokens, (5) returns view with embedded token. No session invalidation between consecutive force-logins unless admin calls impersonate() again.",
+    "token_coexistence": "ClarityScoutForceLoginControllerTest line 58-78: test_mints_a_force_token_without_evicting_the_drivers_live_token proves force tokens (clarity-scout-force ability) coexist with driver's live tokens (clarity-scout-token). Force-login does NOT kick real driver off. Prune keeps 3 most recent per driver.",
+    "failure_modes": "Silent 403: admin_impersonator missing when expected. Silent 401: token revoked/expired, client handleUnauthorized() bounces to /scout/login with sessionStorage reason (PR #410). 404: kit has no assigned_user. Service worker cache: PR #410 excluded force-login HTML from SW cache.",
+    "related_tickets": "Prior work: guard shift end() for force-login impersonators; block lazy shift auto-start for force-login; force-login token lifecycle. All pre-PR-410."
+  },
+  "tests": {
+    "required_new_tests": [
+      "Feature test: consecutive force-logins (5+) in same session without session invalidation",
+      "Feature test: force-login after regular impersonate() preserves admin_impersonator",
+      "Feature test: concurrent force-login requests from same session (simulate multiple tabs)",
+      "Feature test: force-login with admin_impersonator missing returns 403 with error message",
+      "Feature test: session array clarity_scout_force_token_ids does not exceed reasonable size after 20+ force-logins"
+    ],
+    "existing_tests_to_verify": [
+      "ClarityScoutForceLoginControllerTest: all 8 tests passing post-PR-410",
+      "ImpersonateControllerTest::test_leaving_impersonation_revokes_the_drivers_force_token_but_keeps_normal_tokens",
+      "ImpersonateControllerTest::test_exiting_admin_mode_revokes_the_drivers_force_token"
+    ],
+    "manual_qa_scenarios": [
+      "Admin impersonates via Backyard, force-logins to 10 consecutive drivers in <2 minutes, verify all succeed",
+      "Admin force-logins to Driver A, opens Scout PWA in tab 1, then force-logins to Driver B in tab 2, verify both tabs functional",
+      "Admin force-logins to Driver A (tab 1 open), then uses Backyard to regular-impersonate different user, verify tab 1 gets explicit revocation message",
+      "Admin with ID NOT in hardcoded list attempts force-login, verify clear 403 error message"
+    ]
+  },
+  "grounding": {
+    "code_paths": [
+      "app/Http/Controllers/ClarityScoutForceLoginController.php (line 16: admin_impersonator check)",
+      "app/Http/Controllers/ImpersonateController.php (lines 31-37: session invalidation, 56-58: admin_impersonator set)",
+      "app/Support/Scout/ScoutForceTokens.php (mintFor, revokeTracked, prune logic)",
+      "routes/web.php (line 105: force-login route, 188-191: __qa/login admin_impersonator set)",
+      "resources/js/clarity-scout/lib/fetch.js (handleUnauthorized, recordSignedOutReason)",
+      "resources/js/clarity-scout/views/Login.vue (signedOut reason display)"
+    ],
+    "key_files": [
+      "tests/Feature/Http/Controllers/ClarityScoutForceLoginControllerTest.php",
+      "tests/Feature/Http/Controllers/ImpersonateControllerTest.php"
+    ],
+    "referenced_docs": [
+      "knowledge/clarity/scout.md (Scout prep gotchas, driver/admin shared store)",
+      "docs/investigations/DEV-2596/precedents.json (PR-410, force-login shift-end guard, lazy-shift auto-start block, token lifecycle)",
+      "okf/concepts/data-architecture.md (not directly relevant, multi-tenancy concepts)"
+    ]
+  },
+  "exhaustiveness": {
+    "breadth": "Covered force-login flow, ScoutForceTokens lifecycle, ImpersonateController session handling, consecutive impersonation scenarios, browser multi-tab concerns, error surfacing.",
+    "depth": "Line-by-line analysis of ImpersonateController session invalidation (line 35), admin_impersonator conditional set (lines 56-58), ScoutForceTokens session tracking (line 49), force-login abort_unless check (line 16).",
+    "edge_cases": [
+      "Admin not in hardcoded ID list attempts force-login",
+      "Session size limit with 20+ accumulated token IDs",
+      "Concurrent impersonate() call during active force-login session",
+      "Browser tab opened before impersonation tries to force-login later",
+      "Session cookie vs Redis session driver behavior differences",
+      "Force-login to kit with no assigned_user (404) vs missing admin_impersonator (403)"
+    ],
+    "gaps": "Production session driver config unknown (Q2). Demo repro steps incomplete (Q3-Q6). Product decision on force-login vs live driver conflict (Q6). Session size limits in prod Redis cluster (Q2)."
+  },
+  "data_impact": {
+    "reads": [
+      "personal_access_tokens (ScoutForceTokens prune, revokeTracked)",
+      "users (assigned_user lookup)",
+      "kits (route param binding)",
+      "activity_log (impersonation audit, force-login audit)"
+    ],
+    "writes": [
+      "personal_access_tokens (token minting, pruning, revocation)",
+      "activity_log (clarity-scout-force-login log, impersonation log)",
+      "sessions (admin_impersonator, impersonator, clarity_scout_force_token_ids)"
+    ],
+    "deletes": [
+      "personal_access_tokens (prune expired/old force tokens, revokeTracked)"
+    ],
+    "migrations": [],
+    "clickhouse": []
+  },
+  "resource_envelope": {
+    "estimated_complexity": "MEDIUM - session lifecycle bug, likely single-point fix in ImpersonateController or force-login controller, but requires repro and session state debugging",
+    "estimated_files_changed": "3-5 (ImpersonateController session handling, ClarityScoutForceLoginController error surfacing, ScoutForceTokens, new tests)",
+    "estimated_test_burden": "5 new feature tests + 2 existing test suites + 4 manual QA scenarios",
+    "risk_areas": [
+      "Session state management across impersonation transitions",
+      "Backward compatibility with existing force-login usage patterns",
+      "Admin users not in hardcoded ID list (lines 43-54) losing force-login access if guard tightened"
+    ]
+  },
+  "derivation_log": [
+    "Read knowledge/clarity/scout.md: Scout prep gotchas, admin/driver shared store, no direct force-login mentions",
+    "Read docs/investigations/DEV-2596/precedents.json: PR-410 applicable (silent bounce, token revocation), prior force-login shift guards partially applicable",
+    "Read docs/investigations/DEV-2596/journal.md: confirmed PR #410 merged 2026-09-15, ticket filed next day",
+    "Investigated force-login code: ClarityScoutForceLoginController, ScoutForceTokens, ImpersonateController",
+    "Analyzed PR #410 changes via git show 83fb68d24: ScoutForceTokens added, session tracking, client 401 surfacing, service worker fix",
+    "Read current code: ScoutForceTokens session array tracking (line 49), ImpersonateController session invalidation (line 35), admin_impersonator conditional set (lines 56-58)",
+    "Read tests: ClarityScoutForceLoginControllerTest (8 tests, token coexistence), ImpersonateControllerTest (force token revocation)",
+    "Read routes/web.php: force-login route (line 105), __qa/login admin_impersonator (lines 188-191)",
+    "Read client code: fetch.js handleUnauthorized, Login.vue signedOut display",
+    "Traced consecutive force-login flow: no session invalidation between force-logins unless impersonate() called again",
+    "Identified hypothesis: admin_impersonator session loss during impersonate() → force-login transition, or concurrent session writes, or tab isolation",
+    "Checked git log since 2026-09-01: PR #410, force-login shift-end guard, company metrics admin_impersonator usage (af9904e1b)",
+    "Synthesized root cause: admin_impersonator session variable cleared/missing during consecutive force-login attempts, causing silent 403"
+  ],
+  "qa_hint": "Focus on consecutive force-login clicks (5-10) in rapid succession, then with delays. Try multiple browser tabs. Verify admin_impersonator session present before each force-login attempt. Check browser network tab for 403 vs 401 vs 200. Test both __qa/login flow (local) and real Backyard impersonation flow (staging). Check Laravel log for 403 abort messages.",
+  "confidence": {
+    "score": 75,
+    "rationale": "Strong code reading and PR #410 analysis. Clear admin_impersonator lifecycle traced. Hypothesis (session loss) is plausible and testable. Medium confidence because: (1) cannot reproduce demo failure without prod session config (Q2), (2) demo circumstances unclear (Q3-Q6), (3) PR #410 changes are complex and may have subtle race conditions, (4) session driver (Redis cluster) behavior in prod unknown. Higher confidence once repro confirmed and session state debugged."
+  },
+  "escalate": {
+    "recommend": false,
+    "reason": "Hypothesis is testable with local reproduction and session state inspection. Code paths well-understood. If reproduction fails after 2 attempts with different session configs, escalate to someone with production session access or demo participant for exact repro steps."
+  }
+}

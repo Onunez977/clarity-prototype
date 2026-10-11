@@ -1,0 +1,390 @@
+{
+  "key": "DEV-2462",
+  "gate": "CLEAN",
+  "mode": "normal",
+  "route": "feature",
+  "base_branch": "main",
+  "_reconcile": {
+    "method": "insightlpr:multi-candidate-merge, performed IN-SESSION by the driver at opus (= TICKET_PLAN_MODEL default). Not delegated to a spawned reconciler: the driver held first-hand verified ground truth (driver-verified.json V1-V8 + two contested points settled by reading vendor/ and Dashboard.php), and 2 of 3 candidates had already reasoned wrongly about one of them. Delegating would have risked re-litigating settled facts. Same model tier, so no downgrade.",
+    "inputs": [
+      "prep-fastpass.json (confidence 62)",
+      "candidate 1 (confidence 78)",
+      "candidate 2 (confidence 74)",
+      "candidate 3 (confidence 68)",
+      "driver-verified.json",
+      "derivation-log-driver.json"
+    ],
+    "candidate_confidences": [
+      62,
+      78,
+      74,
+      68
+    ],
+    "reconciled_confidence": 88,
+    "why_higher_than_any_candidate": "The two things that suppressed every candidate's confidence were (a) a factual contradiction about Pennant guest behaviour and (b) an architectural uncertainty about the expanded-detail wiring. The driver settled (a) definitively from vendor source and settled the FACTS of (b) from Dashboard.php + the graph's own code -- leaving (b) as a clean product decision rather than an unknown. What remains open is a choice, not a missing fact."
+  },
+  "synthesis": "Add one compact 'Missed Opportunities' stat card to the Company Metrics dashboard at its mockup slot (row 3 col 3, which in the current 7-entry registry means between 'recovery-counts' and 'recovery-leader'), backed by the existing App\\Clickhouse\\Models\\MissedOpportunity Eloquent scopes (forOrg on hotlist_org_id, notNicb, between on scanned_at, selectTotal = countDistinct(hotlist_id)). It is the FIRST genuinely Pro-gated card on this grid, so it is the ticket that finally exercises the Company Metrics foundation's canViewCardData()/lockedStat() seam -- and trips three assertions in a test file the ticket never names. Separately in scope: MissedOpportunityClientGraph::clients() aggregates with a raw count() where the entire rest of the missed-opportunity family counts distinct hotlists; that is the ticket's 'grain fix', and it is measurably wrong by 3.68x fleet-wide / 4.32x in the largest org.",
+  "settled_by_agreement_and_verification": [
+    {
+      "id": "S1",
+      "fact": "Insertion point: 'missed-opportunities' => MissedOpportunities::class goes BETWEEN 'recovery-counts' and 'recovery-leader'.",
+      "agreement": "4/4 passes + driver-verified V1",
+      "note": "cards() docblock shouts that the array is NOT append-only and the 9 gaps are load-bearing. Appending is the obvious wrong move."
+    },
+    {
+      "id": "S2",
+      "fact": "The grain fix is one line: in MissedOpportunityClientGraph::clients(), selectRaw('client_org_name, count() as total') -> selectRaw('client_org_name, countDistinct(hotlist_id) as total').",
+      "agreement": "4/4 passes + driver measurement",
+      "note": "Confirmed at app/Filament/Widgets/Dashboard/MissedOpportunityClientGraph.php:79. It is the ONLY consumer of clarity.missed_opportunities on a row grain; all others use the model's countDistinct scopes or an explicit countDistinct(hotlist_id)."
+    },
+    {
+      "id": "S3",
+      "fact": "The graph's 15-minute cache key must be version-bumped ('missed-opportunity:client-graph:org=...:tz=...' -> add ':v2'), because the VALUE changes while the SHAPE does not.",
+      "agreement": "4/4 passes",
+      "note": "Without it, a warm cache serves plausible-but-wrong numbers for up to 15 minutes after deploy, with no error."
+    },
+    {
+      "id": "S4",
+      "fact": "No FINAL. countDistinct(hotlist_id) is provably immune to unmerged ReplacingMergeTree versions.",
+      "agreement": "4/4 passes, and MEASURED by the driver: 169,488 distinct with FINAL vs 169,488 without, delta exactly 0 at full production scale",
+      "note": "The immunity is specific to a DISTINCT aggregate. A raw count() would NOT be immune -- which is part of why the grain bug and the FINAL question are entangled."
+    },
+    {
+      "id": "S5",
+      "fact": "No new App\\Clickhouse\\Queries\\* class. Use the Eloquent model's existing scopes.",
+      "agreement": "4/4 passes",
+      "note": "This structurally sidesteps the hardcoded-'clarity.'-prefix bug class the ticket warns about: the model declares $table = 'missed_opportunities' with no database prefix and resolves its database via the connection. Verified. So the ticket's 'copy HitStatsBatchQuery / do not copy the other five' instruction is satisfied by not writing raw SQL at all."
+    },
+    {
+      "id": "S6",
+      "fact": "Do NOT use SharedHitStatsData and do NOT introduce any static memo array.",
+      "agreement": "4/4 passes",
+      "note": "The the dashboard card perf containment work trait-static defect needs sibling widget classes sharing one table to bite. This card has none. A plain DashboardWidget subclass modelled on RecoveryCounts (28 lines) is correct."
+    },
+    {
+      "id": "S7",
+      "fact": "Org axis is hotlist_org_id; event time is scanned_at. The table also carries kit_org_id, client_org_id and lienholder_org_id as separate axes.",
+      "agreement": "4/4 passes",
+      "note": "okf/concepts/missed-opportunity.md: 'getting this backwards is the classic missed-opportunity bug'. hotlist_org_id is also the FIRST sort-key column, so per-org scoping prunes."
+    },
+    {
+      "id": "S8",
+      "fact": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php must be updated even though the ticket does not name it. THREE assertions break.",
+      "agreement": "4/4 passes + driver-verified V3",
+      "note": "(a) :44-64 test_every_real_card_is_ungated_and_therefore_expandable() -- a tripwire the foundation PR left deliberately, whose own comment reads 'If this ever fails, a card was gated without the ticket that did it updating this expectation.' (b) :144 assertCount(7, cards()) -> 8. (c) :57-62 assertSame(cards(), expandableCards()). The prior ticket explicitly authorised this ticket to update them."
+    },
+    {
+      "id": "S9",
+      "fact": "tests/Filament/Pages/DashboardCardExpansionTest.php: bump the count 7->8 and insert the key into the exact-order assertSame array. test_all_four_hit_cards_are_contiguous() needs NO change.",
+      "agreement": "4/4 passes",
+      "note": "The hit block sits after the insertion point, so all four shift together and stay adjacent (indices 3-6 -> 4-7)."
+    },
+    {
+      "id": "S10",
+      "fact": "Both widgets need new test files. MissedOpportunityClientGraph has ZERO test coverage today, which is how the grain bug survived.",
+      "agreement": "4/4 passes + driver grep",
+      "note": "Also: nothing in the suite constrains getStatColor() at all (driver-verified V6), so the new test should pin the colour arm -- no existing test would catch a missing arm."
+    },
+    {
+      "id": "S11",
+      "fact": "AC-4 cannot be measured with a DB::listen query counter -- that never fires for the ClickHouse driver. Use the repo's own cache-sentinel idiom.",
+      "agreement": "4/4 passes",
+      "note": "Seed the real cache key with a sentinel and assert a second render returns the sentinel, proving it read cache rather than re-querying. Precedent: DashboardCardMetricsTest."
+    },
+    {
+      "id": "S12",
+      "fact": "getStatColor() arm should be 'primary'.",
+      "agreement": "candidates 1 and 2; candidate 3 declined to pick",
+      "note": "Driver-verified: existing arms are success / info / danger / warning, plus default => 'gray' (and lockedStat hardcodes gray). App.php registers NO custom palette, so only Filament stock names are available. 'primary' is the only unused one. CAVEAT worth one line to the operator: with no palette override, Filament's default primary is amber-ish, which sits close to 'warning'. Cosmetic only."
+    },
+    {
+      "id": "S13",
+      "fact": "Pennant's Feature::active() is GUEST-SAFE. It returns false for a guest; it does NOT throw.",
+      "agreement": "candidate 2 only -- the fast pass and candidate 1 both asserted a TypeError and were WRONG",
+      "note": "DRIVER-VERIFIED from vendor source, and this is the single best argument that running best-of-N was worth it. Decorator::define() wraps every resolver in a closure that, when the scope is null, calls canHandleNullScope(); for fn (User $user) -- one parameter, typed, not nullable -- that returns false, so Pennant dispatches UnexpectedNullScopeEncountered and resolves fn () => false. The raw resolver is never invoked. Candidate 1 traced ArrayDriver/DatabaseDriver::resolveValue() and stopped one layer too shallow: the driver only ever receives the Decorator's wrapping closure, never the bare resolver. Consequence: an auth()->check() guard is NOT required to avoid an error. Whether to include one is now purely a question of intended behaviour (see Q1)."
+    },
+    {
+      "id": "S14",
+      "fact": "The expanded view of a card IS THE SAME CLASS, re-rendered taller. DashboardWidget extends Filament's ChartWidget and switches height on $this->expanded ('600px' vs '12rem'); Dashboard::expandedCardComponents() resolves cardWidgets()[$key] -- strictly one class per key.",
+      "agreement": "candidate 2 + driver-verified; candidate 1's code_flow claimed the graph renders as the shared detail region, which is WRONG",
+      "note": "Dashboard.php's own docblock: 'the expanded ChartWidget / TableWidget is the same class the Stat was built from.' There is no mechanism by which a DIFFERENT class serves a key's expanded view."
+    },
+    {
+      "id": "S15",
+      "fact": "MissedOpportunityClientGraph is genuinely orphaned. It is reachable from nothing.",
+      "agreement": "4/4 passes + driver grep across app/ resources/ config/ routes/ database/ tests/",
+      "note": "The only references outside its own file are two prose mentions in RendersDashboardStat's docblock. Dashboard registers only HotlistCount (header) and CompanyMetricsOverview (body); getFooterWidgets is gone. IMPORTANT CONSEQUENCE: fixing its grain has NO user-visible effect today. The fix is latent -- it only pays off if the widget is ever wired up."
+    },
+    {
+      "id": "S16",
+      "fact": "The graph's window is HARDCODED year-to-date (startOfYear() to endOfMonth()->endOfDay()), not the page filter.",
+      "agreement": "driver-verified only -- no candidate surfaced this",
+      "note": "app/Filament/Widgets/Dashboard/MissedOpportunityClientGraph.php:71-72. This is why AC-3's literal wording ('the expanded detail agrees with the compact card FOR THE SAME WINDOW') is not achievable as written: a YTD-per-client bar chart can never agree with a card showing Today or Last 7d. It also means the graph is per-CLIENT-breakdown-shaped while the card is per-MONTH-trend-shaped. Two different questions, two different windows."
+    },
+    {
+      "id": "S17",
+      "fact": "Resource envelope is RESOLVED and comfortable. No perf gate required.",
+      "agreement": "4/4 passes + driver production probe",
+      "note": "Live figures (driver-measured, read-only): 624,070 rows total; largest hotlist_org_id group 413,790 rows (66.3%); 328 orgs carry live rows. The ticket's 595,113 / 394,082 / 66% figures are directionally correct and ~5% stale. Per-render cost is up to 13 single-org single-month queries on a cold cache, then cache-served. Not a batch job -- no accumulator, no schedule."
+    },
+    {
+      "id": "S18",
+      "fact": "MissedOpportunityClientGraph::canView() is currently an unguarded Feature::active() || admin_impersonator. Leave it alone.",
+      "agreement": "candidate 1 explicitly; consistent with S13",
+      "note": "Now proven safe by S13 (no throw). It is also only reachable via the widget's own mount(), which nothing reaches. Do not 'harmonise' it with the new card -- that is an unrelated, currently-correct path."
+    }
+  ],
+  "scope": {
+    "summary": "One new ~30-line DashboardWidget subclass, one registry insertion, one getStatColor() arm, one aggregate line + cache-key bump in the orphaned graph, two updated test files, two new test files.",
+    "target_files": [
+      "app/Filament/Widgets/Dashboard/MissedOpportunities.php",
+      "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php",
+      "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+      "app/Filament/Widgets/Dashboard/MissedOpportunityClientGraph.php",
+      "tests/Filament/Pages/DashboardCardExpansionTest.php",
+      "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php",
+      "tests/Filament/Widgets/Dashboard/MissedOpportunitiesTest.php",
+      "tests/Filament/Widgets/Dashboard/MissedOpportunityClientGraphTest.php"
+    ],
+    "target_files_agreement": "4/4 passes produced this identical 8-file list, independently.",
+    "out_of_scope": [
+      "The five pre-existing hardcoded-'clarity.'-prefix query classes named in the ticket, plus the further pre-existing sites candidates found (CohortClosedQuery, CohortDeclinedQuery, AffiliateStatsHourly, LprAssist, ScanVehicleController, NearestGivenAddressController). None touch missed_opportunities.",
+      "The other 8 sibling card slots.",
+      "Any new batched/raw ClickHouse query class.",
+      "Grid breakpoint / column / toggleCard changes from the reference mega-branch -- those belong to other tickets and appear only as noise in its diff.",
+      "The already-correct countDistinct consumers: ClientRankedMetricsBatch, BatchMonthlySparklineData, HasStatDrillDown, client MissedOpportunitiesWidget, LifetimeMissedOpportunitiesWidget, MissedOpportunityResource.",
+      "HasProFeature page-level gating -- RendersDashboardStat's docblock forbids it on this seam (it redirects the whole page).",
+      "MissedOpportunityClientGraph::canView() -- unrelated and currently correct (S18)."
+    ]
+  },
+  "questions": [
+    {
+      "id": "Q1",
+      "q": "What should MissedOpportunities::canViewCardData() return for an UNAUTHENTICATED caller -- true or false?",
+      "answered": true,
+      "answer": "Return FALSE for a guest. Implement canViewCardData() as auth()->check() && (Feature::active(FeatureEnum::MISSED_OPPORTUNITY->slug()) || session()->has('admin_impersonator')). This requires editing the Company Metrics foundation's guest-parity test test_can_view_card_data_is_total_with_no_authenticated_user(): keep its stated purpose (prove expandableCards() is callable with no authenticated user WITHOUT erroring) and relax the incidental cards()==expandableCards() key-equality assertion, which no longer holds now that a real gate drops the key via array_filter.",
+      "source": "human:Dalton 2026-09-03",
+      "materiality": "MATERIAL (auth/security posture)",
+      "why_it_is_not_code_derivable": "Both answers are safe and both are defensible; they differ in intended behaviour, not correctness. Pennant does not throw either way (S13). No guest ever renders the dashboard regardless -- Dashboard::mount() aborts unless the viewer holds ADMIN or USER. So this is about (a) which existing regression test changes and (b) whether expandableCards()'s array SHAPE should reveal Pro-gating to an unauthenticated caller.",
+      "options": [
+        {
+          "label": "Return true for a guest (guard with auth()->guest() first)",
+          "consequence": "the Company Metrics foundation's guest-parity test test_can_view_card_data_is_total_with_no_authenticated_user() stays green UNTOUCHED. Matches the DashboardMetricCard interface docblock's literal wording that the default 'MUST be total with NO authenticated user'. Slightly odd semantically: a guest nominally 'may see' a Pro metric.",
+          "changes": "2 assertions in DashboardCardVisibilityTest instead of 3."
+        },
+        {
+          "label": "Return false for a guest (auth()->check() && (Feature::active(...) || impersonator))",
+          "consequence": "Semantically cleaner and is what the closed reference implementation shipped. But it requires editing that guest-parity regression test, because expandableCards() is an array_filter that DROPS the gated key, so cards() and expandableCards() keys stop matching for a guest.",
+          "changes": "3 assertions in DashboardCardVisibilityTest."
+        }
+      ],
+      "driver_recommendation": "Option 2 (return false for a guest). The guest test's STATED purpose, in its own comment, is that 'the default must not dereference auth()->user()' -- i.e. it guards against ERRORING, and the key-equality assertion is merely the mechanism it used to prove callability. Option 2 preserves that purpose while relaxing an incidental assertion, and the Company Metrics foundation already explicitly authorised this ticket to update its gating expectations. Option 1 keeps the diff marginally smaller but encodes a claim ('a guest may view this Pro metric') that will read as wrong to the next person."
+    },
+    {
+      "id": "Q2",
+      "q": "Does this ticket wire MissedOpportunityClientGraph up as the card's expanded detail, or just fix its grain bug where it sits?",
+      "answered": true,
+      "answer": "FIX IN PLACE. Do NOT wire MissedOpportunityClientGraph into any page or into the card-expansion path. Do NOT touch app/Filament/Pages/Dashboard.php. Do NOT change the graph's hardcoded year-to-date window. Scope stays the 8 planned files. AC-3 is read as: the grain fix lands, and the CARD's compact and expanded views agree by construction (same class, same query). The graph remains orphaned and the grain fix is a latent correctness fix with no user-visible effect today -- this MUST be stated plainly in the Build Record so it is not mistaken for a shipped user-facing fix.",
+      "source": "human:Dalton 2026-09-03",
+      "materiality": "MATERIAL (scope, and an AC that is not achievable as literally written)",
+      "why_it_is_not_code_derivable": "The ticket asserts 'That chart is the expanded detail behind this card.' Three verified facts contradict that: (S15) the graph is wired to nothing at all; (S14) a card's expanded view is structurally THE SAME CLASS re-rendered at 600px, so no different class can serve a key's expanded view without changing Dashboard; and (S16) the graph's window is hardcoded year-to-date, not the page filter. So AC-3's 'agrees with the compact card for the same window' cannot hold literally.",
+      "options": [
+        {
+          "label": "Fix in place; leave it orphaned",
+          "consequence": "Matches the current architecture and what the reference implementation did (its own prep artifacts call the graph 'a query-logic reuse candidate, NOT a drop-in card and NOT something to wire in instead of the new card'). AC-3 is then satisfied by construction for the CARD (its compact and expanded views are the same class and query, so they cannot disagree), and the grain fix is banked as a latent correctness fix. HONEST COST: the grain fix has no user-visible effect, because nobody can reach the graph.",
+          "changes": "The 8 files above. Roughly a half-day."
+        },
+        {
+          "label": "Also wire the graph up so it is genuinely the expanded detail",
+          "consequence": "Delivers what the ticket's prose describes, and makes the grain fix actually visible to users. But it is materially more work and touches the Company Metrics foundation's shared expansion machinery: Dashboard would need to support a second class per key (or the per-client breakdown would need folding into MissedOpportunities' own expanded rendering), AND the graph would need to stop being hardcoded YTD and start honouring the page filter -- otherwise AC-3 still fails.",
+          "changes": "The 8 files PLUS app/Filament/Pages/Dashboard.php (shared, foundation-owned) and a rewrite of the graph's windowing. Meaningfully larger, and it re-opens a file nine sibling tickets depend on."
+        }
+      ],
+      "driver_recommendation": "Option 1 (fix in place). It is what the architecture supports, what the reference implementation concluded after nine review rounds, and it keeps the Company Metrics foundation's shared expansion code untouched for the eight sibling tickets still to come. If you want the per-client breakdown to be reachable, that is a cleaner separate ticket than a rider on this one. I would take Option 1 and note the orphan status explicitly in the Build Record so it is not forgotten."
+    },
+    {
+      "id": "Q3",
+      "q": "Confirm 'primary' for the new card's getStatColor() arm?",
+      "answered": true,
+      "answer": "'primary' -- the only unused stock Filament colour. Never 'gray' (lockedStat() hardcodes gray for the withheld state).",
+      "source": "human:Dalton 2026-09-03",
+      "materiality": "COSMETIC",
+      "options": [
+        {
+          "label": "'primary'",
+          "consequence": "The only unused stock Filament colour. But App.php registers no palette, so primary defaults to amber-ish -- close to 'warning', which the two staging-hit cards already use."
+        },
+        {
+          "label": "Reuse an existing colour",
+          "consequence": "e.g. 'info' -- but recovery-counts already uses info, and RecoveryLeader hardcodes ->color('info') too."
+        }
+      ],
+      "driver_recommendation": "'primary'. It is the only unused stock name and nothing in the suite constrains this. Say the word if you would rather it not sit next to the amber staging cards and I will use something else.",
+      "note": "Must NOT be 'gray' -- lockedStat() hardcodes gray for the withheld state, so an unlocked card in gray would look identical to a locked one."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "item": "Card present in its mockup slot with a trend sparkline matching existing card styling, and an explicit getStatColor() mapping.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "cards() insertion at the verified position (S1) + an explicit arm (S12). Sparkline is inherited from DashboardWidget/BuildsDateFilterChartSeries."
+    },
+    {
+      "item": "Respects the Today / Last 7d / This Month / Last Month filter.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Inherited from DashboardWidget; the only method the card implements is getModelQueryForDates(). Same as every sibling."
+    },
+    {
+      "item": "MissedOpportunityClientGraph renders at the corrected grain, and the expanded detail agrees with the compact card for the same window.",
+      "source": "ticket",
+      "decision": "implement (grain fix only, per Q2)",
+      "reason": "Operator decided FIX IN PLACE (Q2). The grain half lands (S2). The 'expanded detail agrees with the compact card for the same window' half is satisfied for the CARD by construction -- its compact Stat and its expanded 600px chart are literally the same class and query, so they cannot disagree (S14). The orphaned graph is NOT wired up and keeps its hardcoded YTD window (S15, S16); its grain fix is latent and has no user-visible effect today, which the Build Record must say plainly."
+    },
+    {
+      "item": "Per-render ClickHouse round-trip count does not regress (measure before/after, per the dashboard card perf containment work).",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "No cross-widget fanout is introduced (S6), so the dashboard card perf containment failure mode cannot occur. Before = 0 (no card). After = up to 13 cold-cache single-org monthly reads, then cache-served. Measured via the cache-sentinel idiom (S11), not DB::listen."
+    },
+    {
+      "item": "Non-Pro orgs do not see the value.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "canViewCardData() gates on FeatureEnum::MISSED_OPPORTUNITY (a CLARITY_PRO-tier feature -- driver-verified V5, absent from BASIC and PRO_LITE) with the admin_impersonator bypass. getStats() branches to lockedStat() BEFORE any query runs, so a gated org's value is never computed. Guest behaviour pending Q1."
+    },
+    {
+      "item": "Existing metrics and their values are unaffected.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Additive. buildWidgetCacheKey() derives from class_basename, independent of array position, so insertion cannot alias a sibling's cache key. The grain fix touches only an unreachable widget."
+    }
+  ],
+  "blockers": [],
+  "missed_caller_candidates": [
+    {
+      "file": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php",
+      "verdict": "REAL MISS relative to the ticket text -- 3 assertions, see S8"
+    }
+  ],
+  "data_impact": {
+    "pg_tables": [],
+    "ch_tables": [
+      "clarity.missed_opportunities (read-only; ReplacingMergeTree(_version, _peerdb_is_deleted); PARTITION BY toYYYYMM(scanned_at); ORDER BY (hotlist_org_id, toYYYYMM(scanned_at), scanned_at, id))"
+    ],
+    "mv_or_cdc_implications": "None. Read-only against an existing CDC-fed table. No MV, schema, or pipeline change. FiltersCdcDeletes already applies _peerdb_is_deleted = 0 to every Eloquent read.",
+    "indexes_relied_on": [
+      "sort key led by hotlist_org_id, so forOrg() + between(scanned_at) prune on the first two key columns"
+    ]
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "New ClickHouse-backed aggregate rendered per Filament widget request. Not a scheduled command, job, or migration.",
+    "driving_tables": [
+      {
+        "table": "clarity.missed_opportunities",
+        "source": "DRIVER-MEASURED, read-only ClickHouse Cloud probe 2026-09-03 (see derivation-log-driver.json); ticket's own figures corroborated and found ~5% stale",
+        "prod_rows": 624070,
+        "group_by": "hotlist_org_id",
+        "largest_group_rows": 413790,
+        "largest_group_share_pct": 66.3,
+        "orgs_with_rows": 328,
+        "ticket_stated_rows": 595113,
+        "ticket_stated_largest_group": 394082
+      },
+      {
+        "table": "clarity.missed_opportunities (grain-error magnitude)",
+        "source": "DRIVER-MEASURED",
+        "row_to_distinct_hotlist_ratio_fleet": 3.68,
+        "row_to_distinct_hotlist_ratio_largest_org": 4.32
+      }
+    ],
+    "growth": "Dominated by the single largest org, which is 66.3% of the table. Growth enlarges one org's partition-pruned scan; it does not compound, because there is no in-memory accumulator and no fleet-wide loop.",
+    "schedule": null,
+    "allocation_sketch": "Per cold-cache render: up to 13 independent single-org single-month countDistinct queries. The ticket's reference measurement for the LARGEST org is 44,642 read_rows / 1.6 MiB / 22.6 MiB peak / 12 ms server per bounded window. Warm cache: 0 round-trips. The concurrency axis is dashboard page-load fan-out, not accumulator size. Negligible.",
+    "oracle_status": "ok",
+    "unresolved": []
+  },
+  "tests": [
+    {
+      "file": "tests/Filament/Widgets/Dashboard/MissedOpportunitiesTest.php",
+      "what_it_pins": "getCardKey(); the explicit getStatColor() arm (nothing else in the suite pins colour -- V6); the countDistinct total scoped to the viewer's hotlist_org_id and excluding another org's rows; notNicb() exclusion; the four date-filter windows; canViewCardData() true for CLARITY_PRO, false for non-Pro, and whatever Q1 decides for a guest; lockedStat() never computing the value even with a value pre-seeded in cache; the cache-sentinel round-trip guard."
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/MissedOpportunityClientGraphTest.php",
+      "what_it_pins": "The grain fix both ways: 3 rows sharing one hotlist_id count as 1 (not 3), AND two DIFFERENT hotlists for one client still accumulate to 2 (guarding an over-correction that collapses to 1-per-client -- candidate 3's catch); notNicb() exclusion; the bumped :v2 cache key; the null/no-data branch."
+    },
+    {
+      "file": "tests/Filament/Pages/DashboardCardExpansionTest.php",
+      "what_it_pins": "cards() count 8 and the exact mockup-relative order with the new key between recovery-counts and recovery-leader; the four hit cards still contiguous (unmodified)."
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php",
+      "what_it_pins": "The seam's first genuinely gated production card: grid slot retained in cards(), excluded from expandableCards() for a non-Pro viewer, count bumped to 8, and the ungated-loop tripwire updated to record the deliberate exception."
+    }
+  ],
+  "notes": [
+    "TEST-RUN TRAP (knowledge card clarity/testing.md): `php artisan test` cannot run the full suite locally -- at the default memory_limit it OOMs during DISCOVERY and STILL EXITS 0, reporting a false pass. Use `php -d memory_limit=2G vendor/bin/phpunit` for any full-suite run. A FILTERED run is fine at the default limit. Expect ~1668 tests and ~8 PRE-EXISTING failures -- do not assume they are yours.",
+    "CH TEST DB TRAP (same card): tests/Concerns/RequiresClickhouse TRUNCATEs a HARDCODED clarity.*/zod.* list, so local ClickHouse test databases must use the LITERAL names clarity and zod. Those literal databases are SHARED across worktrees, so teardown must never DROP them. And .env.testing with CLICKHOUSE_DRIVER=pgsql makes RequiresClickhouse skip EVERY ClickHouse test while reporting all-green -- if a CH suite looks suspiciously fast or unanimously green, check the driver first. This worktree's .env.testing is currently on pgsql.",
+    "Use IntegrationEnum::NICB (from InsightLPR\\BlackAdam\\Enum), never a literal. Candidate 3 reports the reference implementation mislabelled this value once and review caught it. The model's scopeNotNicb() already does it correctly -- just call the scope.",
+    "Keep comments minimal per okf/concepts/laravel-boost-guidelines.md and the operator's stated preference -- but the the Company Metrics foundation seam methods are contract-critical, so a one-line 'why' on canViewCardData() is warranted, not a full docblock.",
+    "Model the new class on RecoveryCounts.php (28 lines), not on ScanCount or SharedHitStatsData.",
+    "Run `composer format` (Pint) before finishing.",
+    "The sibling-card epic's reference branch is a MEGA-branch spanning several sibling tickets plus dashboard-card hardening. Read only its MissedOpportunities / MissedOpportunityClientGraph / cards()-registration / getStatColor slices. Do not pull its Dashboard.php grid and toggleCard changes.",
+    "The reference implementation is WRONG (against the current test contract) on the guest gate -- see S13/Q1. The ticket tells the implementer to read it for approach, so this is the one place to deviate deliberately."
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC-1",
+        "kind": "agent",
+        "intent": "Render the dashboard as a CLARITY_PRO ADMIN; confirm the card sits between Total Repossessions and LPR Recovery Leaderboard with a sparkline and a non-gray colour."
+      },
+      {
+        "ac": "AC-2",
+        "kind": "agent",
+        "intent": "Toggle Today / Last 7d / This Month / Last Month and confirm the headline tracks the seeded per-window distinct-hotlist counts."
+      },
+      {
+        "ac": "AC-3",
+        "kind": "agent",
+        "intent": "Seed one hotlist with 3 rows in-window; confirm the card counts it once. Confirm the graph's per-client bars also count distinct (exercised directly, since the widget is unreachable from the UI)."
+      },
+      {
+        "ac": "AC-4",
+        "kind": "agent",
+        "intent": "Cache-sentinel: seed the real key, assert a second render serves the sentinel rather than re-querying."
+      },
+      {
+        "ac": "AC-5",
+        "kind": "agent",
+        "intent": "As a BASIC or PRO_LITE org, confirm the locked em-dash placeholder, no click affordance, absence from expandableCards(), and that no value leaks even with one pre-seeded in cache."
+      },
+      {
+        "ac": "AC-6",
+        "kind": "human",
+        "intent": "Eyeball the other 7 cards' values, order and colours before/after."
+      }
+    ],
+    "seed_scenario": "One CLARITY_PRO org and one BASIC/PRO_LITE org. For the Pro org, clarity.missed_opportunities rows across 2-3 months and 2+ client_org_name values, including (a) one hotlist_id with 3 rows in one window to prove distinct counting, (b) two DIFFERENT hotlists for one client to prove they still accumulate, and (c) one NICB-integration row to prove exclusion. Rows for a third org to prove hotlist_org_id scoping excludes them. Size the volume off the largest-group shape (66% concentration), not an average org.",
+    "personas": [
+      "ADMIN on a CLARITY_PRO org (sees the value)",
+      "ADMIN on a BASIC/PRO_LITE org (sees the locked placeholder)",
+      "InsightLPR staff / admin_impersonator (bypasses the gate)"
+    ],
+    "pg_tables": [
+      "orgs (Org factory, for hotlist_org_id and the tier flip)"
+    ],
+    "ch_tables": [
+      "clarity.missed_opportunities"
+    ]
+  },
+  "derivation_log_ref": "docs/investigations/DEV-2462/derivation-log-driver.json (4 read-only ClickHouse Cloud probes, aggregates only, no raw rows)",
+  "confidence": 88,
+  "escalate": {
+    "recommend": false,
+    "reason": "Escalation already happened (best-of-N, 3 blind candidates + backstop). Every factual disagreement is now settled by first-hand driver verification. What remains is two product decisions (Q1, Q2) and one cosmetic pick (Q3) -- those belong to the operator, not to another model pass."
+  },
+  "_gate_recompute": "All 3 questions answered by the operator on 2026-09-03. No blockers. Resource envelope resolved (oracle_status ok, driver-measured). No blast-radius file in scope without approval: the only shared file touched is DashboardWidget.php and the change is a single additive match arm. Dashboard.php was explicitly ruled OUT by Q2. Gate BLOCKED -> CLEAN."
+}

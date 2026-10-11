@@ -1,0 +1,332 @@
+{
+  "synthesis": "The scheduled app:org-cache command (Schedule::command(GenerateOrgCache::class)->everyFourHours()) dispatches a per-org batch of CacheOrgHotlistClients / CacheOrgHotlistLienholders jobs, which call Org::getHotlistClients() / getHotlistLienholders(). Those methods run 'SELECT name,id FROM orgs WHERE id IN (SELECT DISTINCT client_org_id FROM hotlist WHERE org_id=? AND client_org_id IS NOT NULL) ORDER BY name' against the zod read replica inside cache()->remember(...,endOfDay). For at least one org with a large hotlist table, this query exceeds the replica's statement_timeout (SQLSTATE 57014). Because the exception is thrown before ->remember() can store a value, the cache never warms for that org, and the identical expensive query is re-attempted on every 4-hour schedule tick (and on every cold cache-miss).\n\nDEV-1898 (Done, commit c744f887) already rewrote this exact query from a PHP-side pluck()->unique() into a SQL-side WHERE-NOT-NULL + DISTINCT subquery, for both methods -- that is exactly the code in this worktree today. DEV-2220 is the recurrence: the query-shape rewrite alone did not fix the underlying cost, because Postgres already treats whereIn(subquery-with-DISTINCT) as a semi-join -- there is no composite index on hotlist(org_id, client_org_id) or (org_id, lienholder_org_id), only single-column indexes on org_id, client_org_id, and lienholder_org_id separately, so Postgres cannot do a cheap index-only scan to produce the per-org DISTINCT list; it must still visit every hotlist row for that org_id. The blast radius is bigger than 'a background job fails': Org::getHotlistClients() is also called synchronously from ~9 web-request paths (Hits/Hotlist/MissedOpportunity resource filters, AlertSettingsForm, ClientTable widget, IndividualClientAnalytics::mount(), HasStatDrillDown, CreateMissedOpportunityAlertSettings). Because the cache never warms for the affected org(s), any user hitting one of those pages for that org will re-run the same query live and can get an uncaught QueryException / 500, not just a quiet cron failure.\n\nThe intended outcome is for the cache to actually warm (not just stop erroring loudly), and for the app to degrade gracefully instead of throwing to the browser when the underlying query is still too slow for the replica's timeout. The durable, complete fix (a composite partial index on hotlist so Postgres can do an index-only scan) lives in the schema owned by the vendor package insight-lpr/laravel-zod-migrations, not in this repo -- platform's one zod-connection migration is explicitly guarded to non-production, so platform cannot ship a production-effective index itself.",
+  "scope": {
+    "summary": "Platform-only scope: make Org::getHotlistClients()/getHotlistLienholders() resilient to the replica's statement_timeout (give the query a real, bounded chance to complete, and degrade gracefully instead of throwing to callers / burning the cache-miss window) so (a) user-facing pages never 500 on this query and (b) once the real index lands cross-repo, the same code path benefits without further changes. The composite-index fix itself is out of scope for this repo (vendor-owned schema, prod-guarded here) and should be tracked as a separate, cross-repo dependency.",
+    "proposed_changes": [
+      {
+        "file": "app/Models/Org.php",
+        "change": "In getHotlistClients() and getHotlistLienholders(), wrap the query execution in a bounded, explicitly-raised statement_timeout scoped to just that statement (e.g. DB::connection('zod')->transaction(fn () => ...) with a leading 'SET LOCAL statement_timeout = <ms>' inside the transaction so it auto-reverts at commit and never leaks to a reused Horizon worker connection), then catch \\Illuminate\\Database\\QueryException specifically for SQLSTATE 57014 around the whole cache()->remember(...) call (NOT inside the closure, so a failure is never persisted to cache), log via Log::channel('db-error') + logDatadogCount(...) matching the HasRetryQuery convention, and return an empty Collection instead of throwing.",
+        "reason": "This is the only platform-only lever that can make the query actually succeed (a genuinely bounded, larger timeout budget) while also protecting the ~9 synchronous web-request callers from an uncaught 500 if it still can't finish in time. Mirrors the existing HasRetryQuery QueryException-catch + db-error-channel + logDatadogCount('clarity.query_timeout', ...) pattern already used for this exact failure class.",
+        "ref": "app/Models/Org.php:185,202"
+      },
+      {
+        "file": "app/Models/Org.php",
+        "change": "Remove the now-confirmed-dead whereNotNull('client_org_id') in getHotlistClients() (column is NOT NULL) -- cosmetic only, do only if it doesn't complicate the diff.",
+        "reason": "hotlist.client_org_id is NOT NULL per schema; the guard is a no-op. Optional cleanup, not required.",
+        "ref": "app/Models/Org.php:190"
+      },
+      {
+        "file": "tests/Feature/Jobs/Org/CacheOrgHotlistClientsTest.php",
+        "change": "Add a test asserting the job does not throw and does not poison the cache when the underlying query exceeds statement_timeout (force a low statement_timeout + pg_sleep on the zod test connection, or construct/throw a real QueryException the same way HasRetryQueryTest does).",
+        "reason": "Pins the graceful-degradation behavior end to end through the job, not just the model method.",
+        "ref": "tests/Feature/Jobs/Org/CacheOrgHotlistClientsTest.php"
+      },
+      {
+        "file": "tests/Models/OrgTest.php",
+        "change": "Add/extend unit coverage on Org::getHotlistClients()/getHotlistLienholders() for the QueryException catch path (returns empty Collection, cache key stays unset, db-error log + datadog count fire).",
+        "reason": "Direct coverage of the new catch/fallback logic at the model layer (may not currently exist as a dedicated OrgTest -- verify file presence first).",
+        "ref": "app/Models/Org.php:185,202"
+      }
+    ],
+    "target_files": [
+      "app/Models/Org.php",
+      "tests/Feature/Jobs/Org/CacheOrgHotlistClientsTest.php",
+      "tests/Feature/Jobs/Org/CacheOrgHotlistLienholdersTest.php",
+      "tests/Models/OrgTest.php"
+    ],
+    "out_of_scope": [
+      "Composite/partial index on public.hotlist(org_id, client_org_id) / (org_id, lienholder_org_id) -- schema is owned by insight-lpr/laravel-zod-migrations; platform's only zod migration is guarded `app.env !== 'production'` so cannot ship a production-effective index from this repo. Needs a PR in that vendor repo (ideally CREATE INDEX CONCURRENTLY to avoid locking a large production table) plus a composer update in platform.",
+      "Further query-shape changes (explicit JOIN / whereExists instead of whereIn(subquery)) -- Postgres already treats the current whereIn(DISTINCT subquery) as a semi-join; DEV-1898 already did the query-shape rewrite and it still times out, so another reshape without the index is not expected to change the plan cost. Not proposing this again without new evidence (e.g. an EXPLAIN showing the planner is NOT semi-joining).",
+      "Forcing the write/primary connection for this read (useWritePdo()) -- would defeat the purpose of routing reads to the replica and could push an expensive scan onto the primary at scale (this job iterates every active org); flagged as a rejected option, not a proposed change.",
+      "Changing the global/connection-level statement_timeout for the whole 'zod' read connection -- too broad a blast radius (would affect every other query on the replica); scope this to just the two warm-cache queries.",
+      "DEV-2202 epic-level strategy work (the broader pg-read-replica statement-timeout program) -- DEV-2220 is one item under it, not the epic itself.",
+      "Any change to the hotlist schema/migrations themselves."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Org::getHotlistClients()/getHotlistLienholders() no longer let a statement_timeout (57014) propagate as an uncaught exception to callers (job or web request).",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Directly addresses the bug title/body and the wider web-request blast radius discovered in the consumer fan-out."
+    },
+    {
+      "item": "The warm-cache job gives the query a deliberately larger, bounded per-statement timeout budget so it has a real chance to complete and actually populate the cache (not just silence the error).",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Ticket explicitly asks to consider 'a bounded per-statement timeout'; without this, catching the exception alone leaves the cache permanently cold for that org."
+    },
+    {
+      "item": "On timeout, the job/method degrades gracefully (empty Collection, no cache write) and logs once via the established db-error/logDatadogCount convention instead of repeatedly failing loudly.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Matches sibling HasRetryQuery pattern; converts a failed-job storm into observable, low-noise telemetry."
+    },
+    {
+      "item": "Add a composite/partial index on hotlist(org_id, client_org_id) and hotlist(org_id, lienholder_org_id) so the underlying query can complete within the existing timeout.",
+      "source": "ticket",
+      "decision": "defer",
+      "reason": "Correct long-term fix per the ticket's own triage hint, but the schema is vendor-owned (insight-lpr/laravel-zod-migrations) and platform's zod migrations are prod-guarded -- cannot be shipped from this repo. Needs a cross-repo PR + coordinated deploy; track separately (likely under DEV-2202 or a new companion ticket)."
+    },
+    {
+      "item": "Reduce/eliminate the recurring failed-job count (12x on 2026-07-22, 20x on 2026-07-23) in Horizon.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Direct symptom named in the ticket; addressed by the catch+log change (jobs stop hard-failing) even though the underlying cache-cold condition persists until the index ships."
+    }
+  ],
+  "questions": [
+    {
+      "q": "Is the current DEV-1898-shipped query (WHERE org_id=? AND col IS NOT NULL, DISTINCT) actually being planned as a cheap semi-join by Postgres, or is something else (e.g. planner picking a full seq scan, stats skew, replica-specific config) making it disproportionately slow? We have no EXPLAIN ANALYZE from production/staging to confirm.",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    },
+    {
+      "q": "What per-statement statement_timeout value should the warm job/query be given? Horizon's 'low' queue supervisor already allows a 3600s job timeout, so there's headroom, but picking a concrete bound (e.g. 30s vs 120s) without real prod query timing is a guess.",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    },
+    {
+      "q": "Does the zod read replica enforce a *lower* statement_timeout than the primary specifically (an RDS-parameter-group-style split), or is it the same value everywhere? This determines whether raising it session-locally on the replica connection is even permitted/effective.",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    },
+    {
+      "q": "Is there an existing/preferred process for landing an index PR in insight-lpr/laravel-zod-migrations and getting it applied to production (who runs vendor migrations against prod, and would CREATE INDEX CONCURRENTLY be required to avoid locking public.hotlist)?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    },
+    {
+      "q": "Should Org::getHotlistClients()/getHotlistLienholders() catch the timeout (protecting the ~9 web-request call sites too), or only the two CacheOrgHotlistClients/CacheOrgHotlistLienholders jobs (narrower, ticket-literal scope)?",
+      "answered": true,
+      "answer": "Catch it in the Org model methods themselves, not just the jobs -- the jobs are thin one-line wrappers around the same model methods that ~9 Filament resources/widgets/pages call synchronously in the request path (grep confirms: HitsResource, HotlistResource, MissedOpportunityResource, AlertSettingsForm, ClientTable, IndividualClientAnalytics::mount(), HasStatDrillDown, CreateMissedOpportunityAlertSettings). Fixing only the job leaves every one of those pages exposed to the same uncaught 500 on cache miss for an affected org.",
+      "source": "code"
+    },
+    {
+      "q": "Is DEV-2202 actually the parent epic for DEV-2220?",
+      "answered": true,
+      "answer": "Not linked in Jira, but DEV-2202 (To Do) explicitly lists CacheOrgHotlistClients among the jobs it groups under the pg-read-replica statement-timeout program (per docs/investigations/DEV-2220/precedents.json, captured at intake) -- treat as the likely parent/tracking epic for the index-level fix, but do not assume a formal Jira link exists.",
+      "source": "ticket"
+    }
+  ],
+  "blockers": [
+    "The complete/durable fix (composite index on public.hotlist) requires a schema change owned by the external insight-lpr/laravel-zod-migrations repo; platform's own zod-connection migrations are guarded to non-production and cannot ship this. This ticket, scoped to the platform repo, can only ship resilience/mitigation -- it cannot make the query fast in an absolute sense without that cross-repo change landing."
+  ],
+  "notes": [
+    "DEV-1898 (commit c744f887, Done 2026-06-17) already shipped the exact query-shape rewrite (pluck()->unique() in PHP -> SQL-side whereNotNull+distinct) for both getHotlistClients() and getHotlistLienholders(). DEV-2220 is the recurrence after that fix, confirming the query-rewrite alone is insufficient -- don't repeat it.",
+    "public.hotlist has ix_hotlist_org_id, ix_hotlist_client_org_id, ix_hotlist_lienholder_org_id (all single-column), hotlist_org_id_status_created_at (org_id,status,created_at), and org_id_status_idx (org_id,status) INCLUDE (plate) -- but NO composite (org_id,client_org_id) or (org_id,lienholder_org_id). Confirmed directly against vendor/insight-lpr/laravel-zod-migrations/database/schema/zod-schema.sql. org_id already has SET STATISTICS 5000 (extended stats target), which makes planner misestimation a less likely root cause than genuine per-org data volume.",
+    "Sibling convention for this exact failure class already exists: app/Filament/Concerns/HasRetryQuery.php catches QueryException, logs via Log::channel('db-error') (which taps DataDogHandler) AND calls logDatadogCount('clarity.query_timeout', 1, [...]) -- reuse this shape/metric-naming convention rather than inventing a new one.",
+    "Horizon's 'low' queue supervisor (config/horizon.php) already sets 'tries' => 1 and 'timeout' => 3600 -- so the 12x/20x-per-day counts are NOT Horizon-level job retries; they're almost certainly the same org(s) failing on every 4-hour schedule tick (GenerateOrgCache runs everyFourHours = 6x/day) times 2 job types (clients+lienholders) = up to 12/day for one chronically-failing org, consistent with the 2026-07-22 count. This is an inference from the schedule cadence + queue config, not confirmed against real Horizon/failed_jobs data.",
+    "docs/investigations/DEV-2220/precedents.json (already captured at intake) cites DEV-2202 stating '309 cancels in a 6h window, 2026-07-17' for the broader read-replica statement-timeout epic -- treat as input context, not independently verified here.",
+    "Blast radius is materially larger than 'a cron job logs an error': Org::getHotlistClients() is called synchronously from HitsResource.php:330, HotlistResource.php:137, MissedOpportunityResource.php:222/229, AlertSettingsForm.php:56, ClientTable.php:88/300/354, IndividualClientAnalytics.php:48 (in mount()), HasStatDrillDown.php:89, and CreateMissedOpportunityAlertSettings.php:91. Any of these hit live for an affected org whenever the cache is cold/expired, so a user-facing 500 is a real (not just theoretical) risk today, independent of the cron job.",
+    "'SET LOCAL statement_timeout' must be issued inside an explicit transaction on the SAME connection used for the query, otherwise it silently has no scope-limiting effect (a bare SET without LOCAL would persist for the life of the pooled PDO connection, which Horizon workers reuse across jobs/orgs -- a real correctness risk to avoid in the implementation, not just a style preference).",
+    "Config touches: no existing config/env var currently controls a per-connection or per-query statement_timeout anywhere in this app (grepped config/database.php and app/ -- none found); this would be new, so keep it narrowly scoped to these two call sites rather than a connection-wide setting."
+  ],
+  "tests": [
+    {
+      "file": "tests/Feature/Jobs/Org/CacheOrgHotlistClientsTest.php",
+      "what_it_pins": "Job does not throw/fail when the underlying query hits a statement_timeout; cache key remains unset afterward (so the next tick will retry, not serve a stale/empty cached value for 24h)."
+    },
+    {
+      "file": "tests/Feature/Jobs/Org/CacheOrgHotlistLienholdersTest.php",
+      "what_it_pins": "Same graceful-degradation behavior for the lienholder sibling method/job."
+    },
+    {
+      "file": "tests/Models/OrgTest.php",
+      "what_it_pins": "Org::getHotlistClients()/getHotlistLienholders() catch QueryException (57014 specifically, not swallowing unrelated DB errors silently -- verify whether other SQLSTATEs should still propagate), return an empty Collection, and do not persist that empty result to cache()->remember()."
+    },
+    {
+      "file": "tests/Feature/Jobs/Org/CacheOrgHotlistClientsTest.php (or new)",
+      "what_it_pins": "Regression pin for the existing happy-path caching behavior (unaffected orgs still cache correctly) -- must not regress the 4 existing tests already in this file."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Models/Org.php:185 (getHotlistClients)",
+      "app/Models/Org.php:202 (getHotlistLienholders)",
+      "app/Jobs/Org/CacheOrgHotlistClients.php:23",
+      "app/Jobs/Org/CacheOrgHotlistLienholders.php:23",
+      "app/Console/Commands/GenerateOrgCache.php:39 (Bus::batch dispatch, everyFourHours schedule)",
+      "routes/console.php:19 (Schedule::command(GenerateOrgCache::class)->everyFourHours())",
+      "config/horizon.php:196-206 ('{low}' queue supervisor: tries=1, timeout=3600)",
+      "config/database.php:58-80 ('zod' connection: separate read/write host, no sticky, no statement_timeout config)",
+      "app/Filament/Concerns/HasRetryQuery.php:7-45 (sibling QueryException-catch + db-error log + logDatadogCount convention)",
+      "config/logging.php:69-76 ('db-error' channel, taps DataDogHandler)",
+      "app/helpers.php:44 (logDatadogCount helper)",
+      "vendor/insight-lpr/laravel-zod-migrations/database/schema/zod-schema.sql:3158-3193 (single-column hotlist indexes, no composite org_id+client/lienholder_org_id)",
+      "database/migrations/2025_08_06_124727_add_plate_variants_function.php (platform's only zod-connection migration, guarded `app.env !== 'production'`)",
+      "app/Filament/Resources/HitsResource.php:330,337 / HotlistResource.php:137 / MissedOpportunityResource.php:222,229 / AlertSettingsForm.php:56 / ClientTable.php:88,300,354 / IndividualClientAnalytics.php:48 / HasStatDrillDown.php:89 / CreateMissedOpportunityAlertSettings.php:91 (synchronous web-request consumers of the same cached method)"
+    ],
+    "code_flow": "Schedule::command(GenerateOrgCache)->everyFourHours() -> GenerateOrgCache::handle() iterates Org::active()->cursor() -> Bus::batch([CacheOrgHotlistClients, CacheOrgHotlistLienholders])->dispatch() (queue={low}) -> job::handle() -> Org::getHotlistClients()/getHotlistLienholders() -> cache()->remember(key, endOfDay, closure) -> closure runs self::query()->whereIn('id', Hotlist::query()->where('org_id',$id)->whereNotNull(col)->select(col)->distinct())->orderBy('name')->pluck('name','id') against the zod connection's read PDO (replica) -> Postgres cancels with SQLSTATE 57014 before results return -> QueryException propagates out of the closure -> cache()->remember() never calls put() -> job throws -> Horizon marks it failed (tries=1, no auto-retry) -> next 4h tick repeats identically. Separately, the SAME cached-method call sites in ~9 Filament resources/widgets/pages hit the identical query synchronously on any cache-miss during a normal web request.",
+    "tables": [
+      "public.hotlist (org_id, client_org_id, lienholder_org_id)",
+      "public.orgs (id, name)"
+    ],
+    "related_components": [
+      "App\\Console\\Commands\\GenerateOrgCache (schedule + Bus::batch dispatcher)",
+      "App\\Jobs\\Org\\CacheOrgHotlistClients / CacheOrgHotlistLienholders (ShouldQueue, queue={low})",
+      "App\\Jobs\\Org\\CacheOrgRdnClients (sibling cache-warm job, different data source -- not affected)",
+      "Horizon '{low}' queue supervisor (tries=1, timeout=3600s)",
+      "Log channel 'db-error' (taps DataDogHandler) + logDatadogCount() helper -- existing telemetry convention for this failure class (HasRetryQuery)",
+      "zod Postgres connection (read replica vs write host split, no 'sticky')"
+    ]
+  },
+  "exhaustiveness": {
+    "grep_patterns_used": [
+      "cache()->remember( / Cache::remember( across app/ (enumerate every cache-warming read site)",
+      "whereIn( co-occurring with select( across app/ (find other whereIn(subquery-over-large-table) idioms)",
+      "grep -rn \"CacheOrgHotlistClients\\|CacheOrgHotlistLienholders\\|CacheOrgRdnClients\" (find all callers/dispatchers)",
+      "find app/Jobs -iname '*Cache*' (enumerate all Org cache-warming jobs)",
+      "grep -rn \"getHotlistClients\\|getHotlistLienholders\" -r app (enumerate every consumer of the affected methods)",
+      "grep -rn statement_timeout / SET LOCAL / SET SESSION across app/ and config/ (confirm no existing timeout-override convention)",
+      "grep -n QueryException app --include=*.php (find existing sibling catch patterns)"
+    ],
+    "sites": [
+      {
+        "site": "app/Models/Org.php:185 getHotlistClients()",
+        "status": "buggy",
+        "reason": "Root cause -- whereIn(DISTINCT subquery over hotlist) with no composite index; already recurred once after DEV-1898's query-shape fix."
+      },
+      {
+        "site": "app/Models/Org.php:202 getHotlistLienholders()",
+        "status": "buggy",
+        "reason": "Identical shape/root cause as getHotlistClients(), same missing composite index on lienholder_org_id."
+      },
+      {
+        "site": "app/Models/Org.php:224 getRdnClients()",
+        "status": "safe",
+        "reason": "Cache-warmed by CacheOrgRdnClients (currently commented out of the batch in GenerateOrgCache.php), but its closure calls an external RDN API, not a Postgres whereIn(subquery) -- different failure class entirely."
+      },
+      {
+        "site": "app/Models/Org.php:269 isProEnabled() (cache remember)",
+        "status": "safe",
+        "reason": "Reads $this->meta (a single hasOne row via primary key), not a whereIn(subquery) over a large table."
+      },
+      {
+        "site": "app/Models/Org.php:322 stagingOrgIds()",
+        "status": "safe",
+        "reason": "Simple filtered pluck() on ApprovalList where agent_org_id=?, not a whereIn(subquery); no evidence of similar cost."
+      },
+      {
+        "site": "app/Models/Kit.php:237 getKits()",
+        "status": "safe",
+        "reason": "Filters kits directly by org_id (kits table, not hotlist-scale) with a leftJoin, no whereIn(subquery) against a large table."
+      },
+      {
+        "site": "app/Models/Kit.php:264 getSharedKits()",
+        "status": "safe",
+        "reason": "whereIntegerInRaw() against an array already plucked from Shared (filtered by shared_with_id), not a live correlated subquery at query time -- and Shared/kit-sharing volume is much smaller than hotlist."
+      },
+      {
+        "site": "app/Models/Zone.php:192 (Cache::remember)",
+        "status": "safe",
+        "reason": "Keyed by geohashes/zoneIds/orgId with a 5-minute TTL; not reviewed line-by-line for query shape but does not touch hotlist and has a short TTL bounding blast radius even if slow."
+      },
+      {
+        "site": "app/Jobs/Org/MaterializeOrgRunArea.php",
+        "status": "safe",
+        "reason": "Reads $this->org->runArea (single hasOne) and calls a geometry Materializer service -- no whereIn(subquery) over hotlist."
+      },
+      {
+        "site": "app/Jobs/Org/CacheOrgRdnClients.php",
+        "status": "safe",
+        "reason": "Wraps getRdnClients() (external RDN API call), not a Postgres query -- different failure class; also #[codeCoverageIgnore] and currently commented out of the dispatch batch."
+      },
+      {
+        "site": "app/Models/Hit.php scopeForClients/scopeForLienholders (whereIntegerInRaw hotlist.client_org_id/lienholder_org_id, ids)",
+        "status": "safe",
+        "reason": "Takes a caller-supplied array of ids (already resolved), not a live subquery -- no cache-warm job runs this on a schedule."
+      },
+      {
+        "site": "9 Filament consumer call sites of getHotlistClients()/getHotlistLienholders() (HitsResource, HotlistResource, MissedOpportunityResource, AlertSettingsForm, ClientTable, IndividualClientAnalytics, HasStatDrillDown, CreateMissedOpportunityAlertSettings)",
+        "status": "buggy (fall-through)",
+        "reason": "Not the root cause themselves, but every one of these re-triggers the SAME slow query synchronously on any cache miss for an affected org, meaning the bug's real-world impact includes user-facing request-path failures, not just the background job -- must be covered by wherever the fix/catch is placed."
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [
+      "public.hotlist",
+      "public.orgs"
+    ],
+    "ch_tables": [],
+    "mv_or_cdc_implications": "None -- this is a pure Postgres read-path cache-warming bug; no ClickHouse tables, materialized views, or CDC pipelines are touched.",
+    "indexes_relied_on": [
+      "ix_hotlist_org_id (org_id) -- currently used to locate an org's hotlist rows",
+      "ix_hotlist_client_org_id (client_org_id) -- single-column, not composite with org_id, so not usable for an index-only per-org DISTINCT scan",
+      "ix_hotlist_lienholder_org_id (lienholder_org_id) -- same limitation",
+      "MISSING: composite/partial index (org_id, client_org_id) WHERE client_org_id IS NOT NULL and (org_id, lienholder_org_id) WHERE lienholder_org_id IS NOT NULL -- this is the structural fix, owned by insight-lpr/laravel-zod-migrations, out of scope here"
+    ]
+  },
+  "derivation_log": [
+    {
+      "query_shape": "SELECT name,id FROM orgs WHERE id IN (SELECT DISTINCT client_org_id FROM hotlist WHERE org_id=? AND client_org_id IS NOT NULL) ORDER BY name",
+      "param_classes": [
+        "org_id: single bound integer per job invocation, one org per job"
+      ],
+      "aggregate_result": "No live prod/replica timing data available locally (read-only repo grounding, no DB access to the real zod replica); relying entirely on ticket-reported SQLSTATE 57014 occurrences (12x 2026-07-22, 20x 2026-07-23) and the epic-level '309 cancels in a 6h window, 2026-07-17' figure captured in docs/investigations/DEV-2220/precedents.json at intake.",
+      "why": "Establishes that failures are recurring and roughly track the schedule cadence (everyFourHours x 2 job types = up to 12/day per chronically-affected org), supporting the inference that this is a small number of orgs with disproportionately large hotlist tables rather than a universal every-org failure."
+    },
+    {
+      "query_shape": "Schema check: \\d public.hotlist indexes",
+      "param_classes": [
+        "N/A -- static schema introspection, no runtime params"
+      ],
+      "aggregate_result": "Confirmed via vendor/insight-lpr/laravel-zod-migrations/database/schema/zod-schema.sql: single-column indexes on org_id, client_org_id, lienholder_org_id exist; no composite (org_id,client_org_id) or (org_id,lienholder_org_id) index exists anywhere in the dumped schema.",
+      "why": "Directly supports the root-cause theory (no index-only-scan path available for the per-org DISTINCT) and confirms the ticket's own triage hint is schema-accurate."
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC-1 (no uncaught exception on timeout)",
+        "kind": "agent",
+        "intent": "Force a statement_timeout on a test/local zod connection (e.g. SET statement_timeout + pg_sleep, or a constructed QueryException per the HasRetryQueryTest pattern) and assert getHotlistClients()/getHotlistLienholders() return an empty Collection instead of throwing, for both the job and a direct model call."
+      },
+      {
+        "ac": "AC-2 (bounded larger timeout budget attempted)",
+        "kind": "agent",
+        "intent": "Assert the query is wrapped in a transaction issuing SET LOCAL statement_timeout before execution (inspect via DB::listen or a query log assertion) and that it reverts (does not leak) across subsequent queries on the same connection within a test."
+      },
+      {
+        "ac": "AC-3 (graceful degrade does not poison cache)",
+        "kind": "agent",
+        "intent": "After a simulated timeout, assert cache()->get('hotlist-clients:'.$org->id) is still null (not cached as empty) so a subsequent successful call can still populate it."
+      },
+      {
+        "ac": "AC-4 (telemetry fires)",
+        "kind": "agent",
+        "intent": "Assert Log::channel('db-error') receives an entry and logDatadogCount('clarity.query_timeout'-style metric, ...) is invoked on timeout."
+      },
+      {
+        "ac": "AC-5 (real production query still completes / index still needed)",
+        "kind": "human",
+        "intent": "Only a human with production/staging DB + real EXPLAIN ANALYZE access can confirm whether the bounded-timeout mitigation actually lets the query complete for the real large-hotlist org(s), or whether the composite index (cross-repo) is strictly required -- cannot be verified locally."
+      }
+    ],
+    "seed_scenario": "One Org (large-hotlist simulation) with several hundred+ Hotlist rows for that org_id, a subset with distinct client_org_id/lienholder_org_id values pointing at real Org rows of type Client/LienHolder, plus a way to force a real or simulated statement_timeout on the zod test connection to exercise the timeout/catch path without needing production-scale data.",
+    "personas": [
+      "Repo-org admin user viewing Hits/Hotlist/MissedOpportunity list filters, AlertSettingsForm, or the Client dashboard for an org whose hotlist cache is cold/expired -- needed to verify the request-path fallback doesn't 500."
+    ],
+    "pg_tables": [
+      "orgs",
+      "hotlist"
+    ],
+    "ch_tables": []
+  },
+  "confidence": 62,
+  "escalate": {
+    "recommend": true,
+    "reasons": [
+      "No production/staging EXPLAIN ANALYZE data available to confirm whether a bounded statement_timeout raise is actually sufficient, or whether the query is so slow that only the (cross-repo, out-of-scope) composite index will ever let it complete -- genuine open technical question, not resolvable from code alone.",
+      "The real, durable fix requires a schema change in an externally-owned repo (insight-lpr/laravel-zod-migrations) that this platform PR cannot ship; this is a cross-repo dependency the ticket doesn't explicitly acknowledge.",
+      "Multiple unresolved questions needing a human/DBA decision (specific timeout value, whether the replica truly has a tighter timeout than primary, index-deployment process for a large production table).",
+      "Ticket has no explicit acceptance criteria and is phrased as 'consider' rather than prescriptive -- meaningful judgment calls were made deriving scope (e.g., catching in the model vs. only the job) that a reconcile pass should double-check against the other candidates.",
+      "This is a recurrence of a previously 'fixed' ticket (DEV-1898) -- elevated risk that a narrow platform-only mitigation again looks sufficient in review but doesn't resolve the underlying incident, repeating the same mistake a third time."
+    ]
+  }
+}

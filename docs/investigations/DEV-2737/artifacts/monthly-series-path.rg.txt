@@ -1,0 +1,206 @@
+# DEV-2737 MonthlySeries path greps
+# Read-only. No PHPUnit. Generated 2026-09-28T15:28:52Z
+
+## CompanyMetricsOverview registry + this_month + makeMetricWidget
+57-    protected ?string $pollingInterval = null;
+58-
+59:    public ?string $date = 'this_month';
+60-
+61-    /**
+--
+105-            'unique-scan-counts' => UniqueScanCounts::class,
+106-            'unique-lpr-case-claims' => UniqueLprCaseClaims::class,
+107:            'lpr-repossessions' => LprRepossessions::class,
+108-            'recovery-counts' => RecoveryCounts::class,
+109-            'live-hits' => LiveHits::class,
+--
+231-     * @param  class-string<DashboardMetricCard>  $class
+232-     */
+233:    protected function makeMetricWidget(string $class): DashboardMetricCard
+234-    {
+235-        $widget = new $class;
+
+## DashboardWidget mount + getCardTotal
+90-        'maintainAspectRatio' => false,
+91-    ];
+92-
+93:    public function mount(): void
+94-    {
+95-        abort_unless(static::canView(), 403);
+96-
+--
+353-     * free (already-cached getMonthlyData() buckets); 'today'/'last_7d' cache under the
+354-     * same keys getDescription() already uses, so no duplicate query is introduced.
+355-     */
+356:    public function getCardTotal(): int
+357-    {
+358-        if (\in_array($this->date, ['today', 'last_7d'], true)) {
+359-            return $this->currentPeriodTotal();
+
+## LprRepossessions series, description, fetchMonthlySeries, card SQL
+18-
+19-/**
+20: * The `db_repos` funnel stage from LprRepossessionsQuery -- billed claims that
+21- * went on to a "recovered" hotlist transition within the backyard repo window, NOT the
+22- * `deduped` (billed-claims-only) stage its sibling UniqueLprCaseClaims reads.
+--
+60- * (plan node dc1) is its mitigation.
+61- *
+62: * Grid-slot work. Absorbs unique-scans-to-lpr-repossession's ratio (unique scans / db_repos) as
+63- * a description line + second chart series via RatioAgainstUniqueScans. The trait supplies
+64- * the numerator and its own degrade path; the ratio is zipped against getMonthlyData()'s
+--
+218-     * up-to-13-query per-month fan-out. The series includes the open month, so the TTL
+219-     * is the ladder's index-0 arm, not the year arm. Preserves the $monthlyDataMemo and
+220:     * formatMonthlyData() contracts. Reads the 'db_repos' stage, not 'deduped' -- that is
+221-     * the funnel stage this card reports. A month with no rows is 0, never missing.
+222-     *
+--
+231-        }
+232-
+233:        $orgId = auth()->user()->org_id;
+234-        $through = now(self::SERIES_ZONE);
+235-
+--
+257-        for ($i = 12; $i >= 0; $i--) {
+258-            $bucketKey = $through->clone()->startOfMonth()->subMonths($i)->format('Y-m-01');
+259:            $data[] = $series[$bucketKey]['db_repos'] ?? 0;
+260-        }
+261-
+--
+299-     * Same as the base, except the month names are UTC to match the buckets.
+300-     */
+301:    public function getDescription(): string|Htmlable|null
+302-    {
+303-        if ($this->date === 'today') {
+--
+359-        [$start, $end] = $this->resolveCardRange();
+360-
+361:        // Shared, class-neutral key (RN4) carrying the INT db_repos stage.
+362-        // UniqueScansToLprRepossession, its original co-reader, was absorbed into this card by
+363-        // the grid-slot work; the key stays class-neutral rather than a class_basename prefix for the
+--
+365-        // PAYLOAD CONTRACT before changing what is stored here.
+366-        $key = LprRepossessionsQuery::sharedWindowCacheKey(
+367:            auth()->user()->org_id ?? 0,
+368-            $this->date,
+369-            \in_array($this->date, ['today', 'last_7d'], true) ? $end->format('Y-m-d') : '-',
+--
+389-
+390-        return $this->fetchWindowTotal(
+391:            auth()->user()->org_id,
+392-            Carbon::parse($startDate, $timezone),
+393-            Carbon::parse($endDate, $timezone),
+--
+399-     * stubbing subclass in the test suite.
+400-     *
+401:     * @return array<string, array{deduped: int, db_repos: int}>
+402-     */
+403:    protected function fetchMonthlySeries(?int $orgId, CarbonInterface $through): array
+404-    {
+405-        return LprRepossessionsQuery::monthlySeries($orgId, $through);
+--
+407-
+408-    /**
+409:     * The single seam getModelQueryForDates() resolves through. Selects the 'db_repos'
+410-     * stage here, split from the query call itself (runWindowQuery()) so the stage choice
+411:     * is independently testable -- a ['db_repos'] -> ['deduped'] mutant must not survive.
+412-     */
+413-    protected function fetchWindowTotal(?int $orgId, CarbonInterface $start, CarbonInterface $end): int
+414-    {
+415:        return $this->runWindowQuery($orgId, $start, $end)['db_repos'];
+416-    }
+417-
+418-    /**
+419:     * @return array{deduped: int, db_repos: int}
+420-     */
+421-    protected function runWindowQuery(?int $orgId, CarbonInterface $start, CarbonInterface $end): array
+--
+503-
+504-        return $this->windowRatioMemo = self::ratio(
+505:            $this->windowUniqueScans(auth()->user()->org_id, $start, $end, $zone),
+506-            $this->currentPeriodTotal(),
+507-        );
+--
+527-        }
+528-
+529:        $orgId = auth()->user()->org_id;
+530-        $zone = $this->numeratorZone();
+531-        $through = now(tz: $zone);
+--
+610-    }
+611-
+612:    public function getCardQueryStatements(): array
+613-    {
+614:        $orgId = auth()->user()->org_id;
+615-
+616-        if (\in_array($this->date, ['today', 'last_7d'], true)) {
+--
+625-                    Carbon::parse($end->toDateTimeString(), $timezone),
+626-                ),
+627:                note: 'The card reads the `db_repos` column.',
+628-                queryClass: LprRepossessionsQuery::class,
+629-            )];
+--
+636-        return [new CardQueryStatement(
+637-            label: 'Headline total',
+638:            sql: LprRepossessionsQuery::monthlySeriesSql($orgId, $through),
+639:            note: "Bucketed by month -- the card reads the `db_repos` column of the `{$bucketKey}` row.",
+640-            queryClass: LprRepossessionsQuery::class,
+641-        )];
+
+## formatMonthlyData is not on LprRepossessions (only RecoveryLeader in this tree)
+app/Filament/Widgets/Dashboard/RecoveryLeader.php:543:    public function formatMonthlyData($data): array
+
+## LprRepossessionsQuery monthlySeries -> buildSql; BillingClaimDedup CTE
+app/Clickhouse/Queries/BillingClaimDedup.php-20-    }
+app/Clickhouse/Queries/BillingClaimDedup.php-21-
+app/Clickhouse/Queries/BillingClaimDedup.php:22:    public static function dedupedCteSql(): string
+app/Clickhouse/Queries/BillingClaimDedup.php-23-    {
+app/Clickhouse/Queries/BillingClaimDedup.php-24-        return "SELECT bucket, forwarder_org_id, agent_org_id, vin, min(claim_date) AS claim_date FROM claims WHERE success AND vin != '' GROUP BY bucket, forwarder_org_id, agent_org_id, vin";
+--
+app/Clickhouse/Queries/LprRepossessionsQuery.php-107-     * @return array<string, array{deduped: int, db_repos: int}> keyed by 'Y-m-01'
+app/Clickhouse/Queries/LprRepossessionsQuery.php-108-     */
+app/Clickhouse/Queries/LprRepossessionsQuery.php:109:    public static function monthlySeries(?int $orgId, CarbonInterface $through): array
+app/Clickhouse/Queries/LprRepossessionsQuery.php-110-    {
+app/Clickhouse/Queries/LprRepossessionsQuery.php-111-        $rows = self::run(self::monthlySeriesSql($orgId, $through));
+--
+app/Clickhouse/Queries/LprRepossessionsQuery.php-123-     * this method so the emitted SQL and the executed SQL cannot drift.
+app/Clickhouse/Queries/LprRepossessionsQuery.php-124-     */
+app/Clickhouse/Queries/LprRepossessionsQuery.php:125:    public static function monthlySeriesSql(?int $orgId, CarbonInterface $through): string
+app/Clickhouse/Queries/LprRepossessionsQuery.php-126-    {
+app/Clickhouse/Queries/LprRepossessionsQuery.php-127-        $end = $through->clone()->utc()->endOfMonth();
+--
+app/Clickhouse/Queries/LprRepossessionsQuery.php-131-    }
+app/Clickhouse/Queries/LprRepossessionsQuery.php-132-
+app/Clickhouse/Queries/LprRepossessionsQuery.php:133:    private static function buildSql(bool $bucketed, int $orgId, CarbonInterface $start, CarbonInterface $end): string
+app/Clickhouse/Queries/LprRepossessionsQuery.php-134-    {
+app/Clickhouse/Queries/LprRepossessionsQuery.php-135-        $utcStart = $start->clone()->utc();
+--
+app/Clickhouse/Queries/LprRepossessionsQuery.php-174-            : "uniqExact((d.forwarder_org_id, d.agent_org_id, d.vin)) AS deduped, uniqExactIf((d.forwarder_org_id, d.agent_org_id, d.vin), toDate(hsl.created_at, 'UTC') >= d.claim_date - 7) AS db_repos";
+app/Clickhouse/Queries/LprRepossessionsQuery.php-175-        $groupBy = $bucketed ? 'GROUP BY d.bucket ORDER BY d.bucket' : '';
+app/Clickhouse/Queries/LprRepossessionsQuery.php:176:        $deduped = BillingClaimDedup::dedupedCteSql();
+app/Clickhouse/Queries/LprRepossessionsQuery.php-177-
+app/Clickhouse/Queries/LprRepossessionsQuery.php-178-        return <<<SQL
+
+## Impersonation TTL
+27-     */
+28-    protected function baseDashboardCacheTTL(int $index = 0, ?\DateTimeInterface $monthEndedAt = null): \DateTimeInterface
+29-    {
+30:        if (session()->has('admin_impersonator')) {
+31-            return now()->addSeconds(10);
+32-        }
+33-
+
+## CardQuerySqlFidelityTest monthlySeries delegation
+144-            'StagingLiveHitLeaderQuery::handleRange' => [StagingLiveHitLeaderQuery::class, 'handleRange', 'handleRangeSql'],
+145-            'LprRepossessionsQuery::window' => [LprRepossessionsQuery::class, 'window', 'windowSql'],
+146:            'LprRepossessionsQuery::monthlySeries' => [LprRepossessionsQuery::class, 'monthlySeries', 'monthlySeriesSql'],
+147-            'UniqueLprCaseClaimsQuery::window' => [UniqueLprCaseClaimsQuery::class, 'window', 'windowSql'],
+148-            'UniqueLprCaseClaimsQuery::monthlySeries' => [UniqueLprCaseClaimsQuery::class, 'monthlySeries', 'monthlySeriesSql'],
+--
+160-    #[Group('clickhouse')]
+161-    #[DataProvider('builderProvider')]
+162:    public function test_the_executing_method_delegates_to_the_displayed_builder(
+163-        string $class,
+164-        string $executor,

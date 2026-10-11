@@ -1,0 +1,18 @@
+**First Glance** — Sprint 42 · **Ready**
+
+| Field | Value |
+| --- | --- |
+| Key | DEV-2929 |
+| Sprint | 42 |
+| App | Clarity |
+| Repo | insight-lpr/platform |
+| **Branch path** | **main→main** (fresh branch off main; independent of PR #374 and PR #510, neither touches this widget). Jeff merges the QA Ready PR into main. |
+| Verdict | **Ready** |
+| Hardness | Low |
+| Surface | UI only, one widget: `app/Filament/Widgets/Dashboard/LprRepossessions.php` `exportAction()` (L648–662). (1) `->fileName(...)` closure at **L656** (today `'lpr-repossession-export-'.now($this->viewerTimezone())->format('Y-m-d')`, the export day) → build from `exportWindow()` (L669–691) start/end: `lpr-repossessions-claimed-{start}-to-{end}`, single date when start and end are the same day. (2) `->tooltip('Export as CSV')` at **L653** (static) → closure over `exportWindow()` showing the selected period. The heading re-renders on the existing `refresh-dashboard` handler (L512–520), so the closure picks up the new toggle. Both read the **same** `exportWindow()` the export query (`exportRowsSql()` L693–698) uses: This Month / Last Month = full **UTC** calendar month (e.g. Oct 1–31); Today and Last 7d = viewer timezone via `resolveCardRange()` (Last 7d = `subDays(7)` → 8 calendar days, e.g. Sep 30–Oct 7). Format dates in the window's own zone; do not convert the UTC month bounds to the viewer zone. Tests: update `tests/Filament/Widgets/Dashboard/LprRepossessionsTest.php` (old filename assert at L1261); add filename + tooltip cases for a month filter, Last 7d, Today. **ClickHouse:** `ch_touch: no`. Query, `exportWindow()` and `LprRepossessionsQuery` unchanged. |
+| Hard stop | Smallest change: two closures in `exportAction()` plus tests, no new helper, class, or trait. Exported rows, CSV columns, query and date-window logic unchanged. **Out of scope:** notifications (incl. exporter completed body), CSV columns, exporter job batch name, query/window logic, chart and cards, date-filter behavior (kept as is), exporting the 13-month chart. No Cloud ClickHouse access. |
+| Forecast gates | (1) Pest/Filament: `getFileName()` and `getTooltip()` for a month filter, Last 7d, Today under `Carbon::setTestNow`, plus one case near a UTC month edge for a Chicago viewer (month label follows the UTC month, same as the chart). (2) #25 old-vs-new parity: N/A, no query or path rewrite. Existing export-window test stays green unchanged. (3) #31 `ch_touch: no` in the spec test map; #18 Docker CH evidence is not required for the change itself. (4) #27 Agent QA UI evidence on the PR: tooltip screenshots per toggle and a short clip of the tooltip updating after a toggle change, plus downloaded filename. This needs a running site, and the expanded card still renders its chart from ClickHouse. (5) Tooltip copy follows the ticket examples. |
+| Collisions | [DEV-2904](https://insightlpr-team.atlassian.net/browse/DEV-2904) (Done, shipped this export) — same file, no live conflict. Soft: PR #489 (Filament 5.6 → 5.9 dependency update, open) touches the Filament export stack. If it lands first, re-run the tests on the new version. PR #374 / #509 / #510 / #503: no overlap with this file or its test. |
+| Next | Prep → Plan → Provision → Implement → Review → Agent QA (#27 UI evidence on a running site) → Verify. Provision timing depends on QA environment capacity. No branch/PR/provision at glance. |
+
+Live Jira re-GET 2026-10-07 ~6:18pm CDT: Task · Sprint 42 (active) · Application Clarity · epic [DEV-1580](https://insightlpr-team.atlassian.net/browse/DEV-1580) · relates to [DEV-2904](https://insightlpr-team.atlassian.net/browse/DEV-2904) (Done) · assignee Dalton · To Do · no prior comments. Code read at main `0e5ae042`.

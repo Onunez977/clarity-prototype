@@ -1,0 +1,70 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Unique Scans to Repo — ratio card + batched clarity.recoveries denominator",
+      "approach": "Replace the UniqueScansToRepo stub body with the DEV-2469 ratio-card shape (option B: org-wide unique scans / TOTAL repossessions). Numerator reuses ScanPlateStatsBatchQuery at SERIES_ZONE='UTC', verbatim from the sibling, so the two cards share sharedMonthCacheKey() entries. Denominator is ONE new batched query class over clarity.recoveries with FINAL + _peerdb_is_deleted = 0, SQL-native toStartOfMonth(repo_date), per-month cache probe + one batched gap fill. No cold-mutex machinery on the denominator (measured 281,882 rows / 5.91 MB / 52.3 MB peak / ~15 ms -- ~2,000x cheaper than the sibling's leg that justified it).",
+      "target_files": [
+        "app/Clickhouse/Queries/RecoveryTotalsBatchQuery.php",
+        "app/Filament/Widgets/Dashboard/UniqueScansToRepo.php",
+        "tests/Filament/Widgets/Dashboard/UniqueScansToRepoTest.php",
+        "tests/Feature/Clickhouse/RecoveryTotalsBatchQueryTest.php",
+        "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php"
+      ],
+      "intended_diffs": {
+        "app/Clickhouse/Queries/RecoveryTotalsBatchQuery.php": "NEW. extends ClickhouseQuery (for static::clarityDb(); callers use handle()/handleRange() directly and NEVER query(), whose Throwable swallow would render a failure as an indistinguishable 0). handle() = 13-month series GROUP BY toStartOfMonth(repo_date) keyed 'Y-m-01'; handleRange() = single-window scalar on a repo_date date range. Both carry FINAL + _peerdb_is_deleted = 0 and count() -- matching Recovery's ApplyFinal + FiltersCdcDeletes global scopes and RecoveryCounts's ->count(), so the denominator equals the Total Repossessions figure on the same grid. Class-neutral sharedMonthCacheKey()/sharedWindowCacheKey() with explicit PAYLOAD CONTRACT (int) clauses. Date bounds validated against a strict Y-m-d allowlist before interpolation.",
+        "app/Filament/Widgets/Dashboard/UniqueScansToRepo.php": "Stub body replaced. Adds canViewCardData() (COMPANY_METRICS + admin_impersonator bypass), toStat() override routing through a NEW float getCardRatio() (getCardTotal() is int-typed on DashboardWidget and would truncate), self::ratio() zero-denominator guard verbatim from the sibling, UTC label axis (getGraphLabels/getHighlightedMonthsFromFilter/getDescription), fetchUniqueScansSeries() numerator leg copied from the sibling including the shared backoff marker + 4-move failure handling + the owner's impersonation TTL floor, fetchRepoSeries()/fetchWindowTotal() denominator legs on plain cache()->remember(). Removes the stub docblock.",
+        "tests/Filament/Widgets/Dashboard/UniqueScansToRepoTest.php": "NEW, modelled on UniqueScansToLprRepossessionTest: key/colour, the four Pro-gate states, lockedStat issues no query, ratio-not-truncated, zero-denominator, month-key-shape reconciliation across the two legs, numerator driven at UTC for a non-UTC viewer, per-month caching + batch counts on BOTH legs, today-arm window ratio, null-org short circuit, UTC label axis, numerator degrades + honours the marker, and the deliberate asymmetry: the DENOMINATOR propagates.",
+        "tests/Feature/Clickhouse/RecoveryTotalsBatchQueryTest.php": "NEW, RequiresClickhouse (skips locally without a CH container; CI runs a real ClickHouse 26.2). Pins FINAL dedup (a duplicated _version row counts once), the _peerdb_is_deleted = 0 filter, org scoping, the toStartOfMonth(repo_date) bucket keys, and the window bounds being inclusive on both ends.",
+        "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php": "Allowlist EIGHT -> NINE: add 'unique-scans-to-repo' plus its one-line prose reason."
+      },
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "UniqueScansToRepo",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php", "reason": "Already registers UniqueScansToRepo::class at row 2 col 2 -- no change needed."},
+    {"site": "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php", "reason": "getStatColor() already carries the 'unique-scans-to-repo' => 'info' arm."},
+    {"site": "tests/Filament/Pages/DashboardCardExpansionTest.php", "reason": "Layout-order assertion already lists the card at its slot; the card stays registered and in position."},
+    {"site": "tests/e2e/unique-scans-to-case-claims.spec.ts", "reason": "Uses 'unique-scans-to-repo' as a positional anchor. The card keeps its key and slot, so the anchor holds; no edit."},
+    {"site": "app/Filament/Widgets/Dashboard/RecoveryCounts.php", "reason": "Pointing it at the new batched query (13 round trips -> 1, shared with this card) is a real win but a separate optional follow-up. Out of scope per prep."},
+    {"site": "app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php", "reason": "The numerator's missing cold mutex (~2.44 GB peak per unguarded concurrent copy) is a disclosed DEV-2469 residual with its own follow-up ticket. This card becomes the THIRD reader of that unguarded leg and discloses it rather than absorbing it."},
+    {"site": "app/Filament/Widgets/Dashboard/UniqueScansToLprRepossession.php", "reason": "DEV-2469 ships as-is."}
+  ],
+  "decisions": [
+    {
+      "id": "d1",
+      "question": "count() vs uniqExact(id) on the FINAL'd denominator",
+      "pick": "count()",
+      "why": "Matches RecoveryCounts::getModelQueryForDates()'s ->count(), so this card's denominator is exactly the 'Total Repossessions' figure rendered two slots away on the same grid. The measured drift from uniqExact(id) is 2-7 rows per org over 13 months (~0.02%, the DEV-2406 mutable-sort-key class via repo_date) and is invisible at the card's one-decimal precision. Grid self-consistency beats a correction nobody can see. Flagged for review to challenge."
+    },
+    {
+      "id": "d2",
+      "question": "Does a denominator ClickHouse failure propagate or degrade?",
+      "pick": "propagate",
+      "why": "Deliberately asymmetric with the numerator leg, which degrades. (a) A zero denominator is a NORMAL reading here and renders 0.0, so a swallowed failure is indistinguishable from real data -- okf/concepts/company-metrics-dashboard.md's stated rule is that such cards propagate (LprRepossessionsQuery and UniqueLprCaseClaimsQuery both do). (b) The blast radius already exists and is not ours to add or remove: RecoveryCounts reads this same table via Eloquent with no catch, so a clarity.recoveries outage 500s all sixteen cards regardless. Degrading only our leg would make this card silently wrong at the moment its neighbour is loudly broken. The numerator is the opposite case: ScanPlateStatsBatchQuery's namespace carries a shared backoff-marker contract every writer MUST observe, so that leg degrades verbatim."
+    },
+    {
+      "id": "d3",
+      "question": "Cache the 13-month denominator as one entry, or per month?",
+      "pick": "per month + one batched gap fill",
+      "why": "One whole-series entry on a 10-minute TTL re-scans twelve immutable months ~144x/day/org -- the exact defect DEV-2469 RN2 failed its gate on (there at ~900 GB/day). Per-month probe writes closed months at getCacheTTL(1) (1 year) and only the current month short, which is precisely what RecoveryCounts already does for this same quantity through DashboardWidget's TTL ladder -- so the immutability assumption is the grid's existing one, not a new one. It also makes both legs of this card read with one identical loop shape."
+    },
+    {
+      "id": "d4",
+      "question": "heldFlexible/cold mutex on the denominator?",
+      "pick": "no",
+      "why": "Measured 281,882 rows / 5.91 MB / 52.3 MB peak / ~15 ms -- ~2,000x lighter than the 584M-row / 2.79 GB / 33.7s leg that justified the sibling's guard. HeldFlexibleCache's own contract requires coldBlockSeconds() to exceed a measured contended p99; there is no contention worth sizing here, and inventing constants for a 15 ms query would be cargo-culted machinery. Plain cache()->remember()."
+    },
+    {
+      "id": "d5",
+      "question": "Clock axis for the denominator",
+      "pick": "SQL-native toStartOfMonth(repo_date), UTC label axis",
+      "why": "repo_date is a ClickHouse Date with no time-of-day, so the bucket expression carries no timezone axis at all. The numerator is pinned to 'UTC' and the label axis adopted to match, exactly as the sibling does. Reusing RecoveryCounts's PHP-computed viewer-tz month boundaries would reintroduce a day-level version of the DEV-2469 mixed-axis defect at month edges. The WINDOW arm is deliberately viewer-local (both legs take explicit instants, so there is no month grouping and no axis to mix) -- matching RecoveryCounts::between()."
+    }
+  ]
+}

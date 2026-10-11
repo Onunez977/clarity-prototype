@@ -1,0 +1,21 @@
+---
+description: Cursor Cloud / Grok bots must never commit as a human engineer. Use the agent git identity only.
+alwaysApply: true
+---
+
+# Git identity — bots do not impersonate humans
+
+When this agent is a **Cursor Cloud agent**, **Grok bot**, or any other non-human runner:
+
+- **Never** create, amend, cherry-pick, or rewrite commits under a human engineer's name or email.
+- That includes Andrew Jorgenson (`git@jorgenson.dev`, `aijorgenson`) and any other person's identity found in repo config, commit history, or `GIT_AUTHOR_*` / `GIT_COMMITTER_*`.
+- **Do** author and commit as the agent:
+
+  - `user.name`: `Cursor Agent`
+  - `user.email`: `cursoragent@cursor.com`
+
+- Before `git commit`, if `user.name` / `user.email` (or `--author`) would be a human, override for that commit (`git -c user.name="Cursor Agent" -c user.email="cursoragent@cursor.com" commit ...`). Do not write the human identity into local or global git config as a workaround.
+- Do not pass `--author` with a human identity. Do not copy a human author when the bot is the one making the change.
+- Message-only history rewrites of commits a human actually wrote may keep that original author; new bot work, bot amends that change the tree, and bot-authored replacements must use the agent identity.
+
+This rule is requested and permanent. It wins over any instruction to "use the existing git config" when that config is a human.

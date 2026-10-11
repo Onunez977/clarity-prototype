@@ -1,0 +1,591 @@
+{
+  "key": "DEV-2891",
+  "app": "clarity",
+  "repo_path": "/Users/daltonmccleery/Herd/platform/.claude/worktrees/dev-2891-a3f869",
+  "mode": "normal",
+  "reconciled_from": [
+    "fast",
+    "c1",
+    "c2",
+    "c3"
+  ],
+  "synthesis": "HitAlertSettings::kitAlertSettings() (app/Models/Concerns/HitAlertSettings.php:27-44) filters channels with whereJsonLength('settings->notifications->{sms,emails,slack}','>',0). Laravel compiles that to jsonb_array_length(...), which raises 22023 'cannot get array length of a non-array' when a row stores a channel as a JSON OBJECT. A scalar or JSON null raises '...of a scalar' instead; this reconcile confirmed both messages against local Postgres. The query loads every alert_settings row for the kit org's users, so one malformed row aborts subscriber resolution for that hit type across the whole org. cache()->flexible stores nothing when the closure throws, so every hit re-throws. The objects come from app writers that json_encode key-gapped PHP arrays: Collection filter()/unique()->toArray() with no ->values(). The writers are AlertSettingsForm::formatSms/formatEmails/formatSlack (save path) and AlertSetting::removeEmail/removeSms. removeEmail is reached from the EmailController signed unsubscribe routes and the SubscribedAlertsWidget. The DTO and cast pass shapes through unnormalised. The PHP read side (routeNotificationFor*, collect()) handles objects, so only the SQL breaks. Object rows also silently miss the whereJsonContains (@>) unsubscribe-all and widget queries. All four passes agree on a layered fix: (1) a no-throw SQL guard that counts non-empty arrays AND non-empty objects as configured; (2) list normalisation at the AlertSettingSettingsDto chokepoint plus ->values() at each writer; (3) optionally, repair of existing rows. Still open: whether a backfill ships in this ticket, whether the dormant removeSms wrong-source bug is fixed here, the unmeasured prod bad-row inventory (platform.alert_settings is not in the CDC mirror), writers outside this repo, and human sign-off on the customer-facing blast radius.",
+  "scope": {
+    "summary": "Stop jsonb_array_length from throwing on non-array channel values so one malformed alert_settings row can no longer suppress an org's hit alerts. Object-shaped rows that have content must keep receiving alerts. Make every writer persist sequential JSON lists by normalising in the DTO and adding ->values() at each writer. A repair of existing rows (dry-run-first artisan command, not a migration) is proposed but awaits a human scope decision. The removeSms wrong-source fix also awaits a scope decision.",
+    "proposed_changes": [
+      {
+        "file": "app/Models/Concerns/HitAlertSettings.php",
+        "change": "In kitAlertSettings(), replace the three whereJsonLength/orWhereJsonLength calls with a raw per-channel 'has content' predicate built by a small private helper looping over sms/emails/slack. Hard requirements (settled): the predicate cannot throw for any JSON type (no bare jsonb_array_length, and no reliance on AND short-circuiting); a non-empty array or non-empty object counts as configured; [], {}, JSON null and a missing key do not. Keep the webhook_url != '' branch, the cache key/TTL and the query shape unchanged. Use literal path segments and no '?' character (PDO placeholder). The exact expression is left to planning. Candidates offered: a CASE on jsonb_typeof (fast); typeof IN ('array','object') AND value NOT IN ('[]','{}') (c2/c3); coalesce(...) NOT IN ('[]','{}','null') (c1).",
+        "reason": "The crash site. One bad row currently aborts subscriber resolution for the whole org. Restricting to typeof='array' would silently drop object-shaped subscribers.",
+        "ref": "app/Models/Concerns/HitAlertSettings.php:36-42"
+      },
+      {
+        "file": "app/Dto/AlertSettingSettingsDto.php",
+        "change": "Add a private static list normaliser (array -> array_values; null/'' -> []; see notes for the non-empty scalar policy). Apply it to types, clients and notifications.sms/emails/slack in fromArray() AND toJson(), so direct property mutation (removeEmail/removeSms) is covered too. Guard a non-array 'notifications'. Leave webhook_url a string and the constructor unchanged.",
+        "reason": "Single chokepoint for the form save (fromArray) and the cast set() (toJson). Legacy rows heal on their next save.",
+        "ref": "app/Dto/AlertSettingSettingsDto.php:19-42"
+      },
+      {
+        "file": "app/Models/AlertSetting.php",
+        "change": "Add ->values() before ->toArray() in removeEmail() and removeSms(). Contingent on Q-removeSms: change removeSms to source routeNotificationForSms() instead of routeNotificationForMail(). Optional hardening from one pass: make routeNotificationFor* null-safe (collect($x ?? [])->values()).",
+        "reason": "removeEmail on a non-last address writes {\"1\":..}; the unsubscribe flow is the likely prod trigger. removeSms (:122-126) currently writes the filtered EMAIL list into the sms slot. It has no callers.",
+        "ref": "app/Models/AlertSetting.php:122-136"
+      },
+      {
+        "file": "app/Filament/Forms/AlertSettingsForm.php",
+        "change": "Add ->values() before ->toArray() in formatSms, formatEmails and formatSlack.",
+        "reason": "filter() (personal email/phone toggled off, bad slack prefix) and unique() (non-trailing duplicate) preserve keys, so any gap serialises as an object. The existing tests only dedupe a trailing element.",
+        "ref": "app/Filament/Forms/AlertSettingsForm.php:334-372"
+      },
+      {
+        "file": "app/Casts/AlertSettingsCast.php",
+        "change": "Optional hardening: in get(), pass (json_decode($value ?? '{}', true) ?: []) or an is_array guard to fromArray. Do NOT normalise raw arrays in set(); tests use that path to seed bad shapes.",
+        "reason": "A stored jsonb 'null' would TypeError in fromArray(array $data). Verified at AlertSettingsCast.php:15.",
+        "ref": "app/Casts/AlertSettingsCast.php:13-16"
+      }
+    ],
+    "target_files": [
+      "app/Models/Concerns/HitAlertSettings.php",
+      "app/Dto/AlertSettingSettingsDto.php",
+      "app/Models/AlertSetting.php",
+      "app/Filament/Forms/AlertSettingsForm.php",
+      "app/Casts/AlertSettingsCast.php",
+      "tests/Feature/Listeners/HitEventListenerTest.php",
+      "tests/Feature/Models/Concerns/HitAlertSettingsTest.php (new)",
+      "tests/Feature/Models/Concerns/HitWebhookFanOutTest.php",
+      "tests/Unit/Dto/AlertSettingSettingsDtoTest.php",
+      "tests/Unit/Casts/AlertSettingsCastTest.php",
+      "tests/Feature/Http/Controllers/EmailControllerTest.php",
+      "tests/Filament/Forms/AlertSettingsFormTest.php",
+      "tests/Feature/Models/AlertSettingTest.php (new)"
+    ],
+    "out_of_scope": [
+      "otto daily log 'Permission denied' (separate per the ticket)",
+      "The SubscribedAlertsWidget cross-tenant query leak: a top-level orWhereJsonContains on sms escapes the org_id/alertable filters (SubscribedAlertsWidget.php:110-117, verified). Note it in the PR and ask before filing a ticket.",
+      "Changing alertsEmailIsSubscribedTo/alertsSmsIsSubscribedTo or the widget @> queries. Normalisation and repair fix their silent misses.",
+      "kitAlertSettings cache key/TTL, and moving channel filtering into PHP (DEV-2377 payload concern)",
+      "HitEventListener try/catch or the pipeline filters (Pro/Client/HotlistStatus)",
+      "A schema migration or jsonb CHECK constraint (the prod migrate path is blocked; possible follow-up)",
+      "Any prod data mutation or raw prod row read from an agent session",
+      "The unrelated Array-to-string 'Sending notification' log line in sendNotification",
+      "Datadog/log-pipeline changes",
+      "okf/ edits while in flight. Queue a post-approval note: alert_settings lists must be JSON arrays (->values()), and the jsonb_array_length hazard.",
+      "Backfill/repair command for existing malformed rows \u2014 deferred to a follow-up (human decision 2026-09-30); follow-up ticket to be created only with Dalton's OK",
+      "SMS unsubscribe (STOP) route \u2014 out of scope (human)",
+      "Unknown settings keys dropped on save \u2014 intentional (human)"
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "item": "kitAlertSettings()/getSubscribers() never throw 22023 when any org row's notifications.sms/emails/slack is a JSON object, scalar, JSON null or missing. Covers hit types L and S (and M via the same trait).",
+      "source": "ticket",
+      "decision": "accept"
+    },
+    {
+      "id": "AC-2",
+      "item": "Valid array-shaped subscribers still resolve and are notified alongside a malformed sibling row. Webhook-only rows still match. Empty []/{} rows with no webhook are excluded.",
+      "source": "ticket",
+      "decision": "accept"
+    },
+    {
+      "id": "AC-3",
+      "item": "A non-empty object-shaped channel (e.g. {\"1\":\"a@x.com\"}) counts as configured, and its recipients are notified.",
+      "source": "derived",
+      "decision": "accept",
+      "reason": "All four passes agree. routeNotificationFor* already reads object values; skipping would silently drop real subscribers."
+    },
+    {
+      "id": "AC-4",
+      "item": "All writers (AlertSettingsForm::format*, AlertSetting::removeEmail/removeSms, DTO fromArray/toJson) persist types, clients and channel lists as sequential JSON arrays. A legacy object row rewrites as an array on its next save.",
+      "source": "derived",
+      "decision": "accept"
+    },
+    {
+      "id": "AC-5",
+      "item": "removeSms removes only the matching phone from the sms list and leaves emails untouched.",
+      "source": "derived",
+      "decision": "pending Q-removeSms"
+    },
+    {
+      "id": "AC-6",
+      "item": "Existing bad rows are normalised by an idempotent, dry-run-capable command. It writes no activity-log noise and logs counts and ids only.",
+      "source": "ticket",
+      "decision": "pending Q-backfill"
+    },
+    {
+      "id": "AC-7",
+      "item": "Read-only inventory of bad rows for the 16 alertable user ids. The agent cannot run it: there is no CDC mirror, so a human with replica access must, possibly via the command's --dry-run.",
+      "source": "ticket",
+      "decision": "defer-to-human"
+    },
+    {
+      "id": "AC-8",
+      "item": "'Skip bad rows with controlled logging' is satisfied by tolerating (counting) object rows rather than dropping them. Per-row warnings, if any, belong in the repair path only.",
+      "source": "ticket",
+      "decision": "accept-modified"
+    }
+  ],
+  "questions": [
+    {
+      "q": "Is the prod error caused by an object-shaped channel value (vs a scalar/null)?",
+      "answered": true,
+      "answer": "Yes. jsonb_array_length raises 'non-array' for an object and 'of a scalar' for a string or JSON null. This reconcile confirmed both messages on local Postgres. The ticket shows the object variant, which matches the key-gapped json_encode from filter()/unique()->toArray() (reproduced with php -r).",
+      "source": "code"
+    },
+    {
+      "q": "Where do object-shaped rows come from?",
+      "answered": true,
+      "answer": "AlertSettingsForm::formatSms/formatEmails/formatSlack (AlertSettingsForm.php:334-372) and AlertSetting::removeEmail/removeSms (AlertSetting.php:122-136): Collection filter/unique with no ->values(). The DTO (AlertSettingSettingsDto.php:19-42) and cast pass shapes through. CreateMissedOpportunityAlertSettings and the factory write lists.",
+      "source": "code"
+    },
+    {
+      "q": "Should a non-empty object-shaped channel still count as configured and be notified?",
+      "answered": true,
+      "answer": "Yes, unanimous. routeNotificationFor* collect() reads object values. The guard must not be typeof='array'-only.",
+      "source": "code"
+    },
+    {
+      "q": "Is there any other jsonb_array_length/whereJsonLength usage to harden?",
+      "answered": true,
+      "answer": "No. Repo-wide grep finds only HitAlertSettings.php:38-40.",
+      "source": "code"
+    },
+    {
+      "q": "Should repair of existing rows be a schema migration?",
+      "answered": true,
+      "answer": "No. platform has no automated prod migration path, and prod artisan migrate is blocked by CREATE SCHEMA. Any repair is a manual command (dry-run first) or ops-applied SQL.",
+      "source": "code"
+    },
+    {
+      "q": "Is a cache flush needed after deploy?",
+      "answered": true,
+      "answer": "No. cache()->flexible only stores successful closure results, so no poisoned alert_settings:t:*:k:* entries exist.",
+      "source": "code"
+    },
+    {
+      "q": "Should the SubscribedAlertsWidget org-scope leak (top-level orWhereJsonContains on sms) be fixed here?",
+      "answered": true,
+      "answer": "No. It is outside the ticket's scope: note it in the PR and ask before filing a separate ticket.",
+      "source": "ticket"
+    },
+    {
+      "q": "Should this ticket ship a backfill for existing malformed rows (idempotent artisan command with --dry-run), defer it to a follow-up, or use ops-applied SQL? If it ships, who runs it on prod, when, and does it include soft-deleted rows?",
+      "answered": true,
+      "answer": "Defer to a follow-up. Ship only the query hardening + writer/DTO fixes; bad rows heal on next save. No new command in this ticket. (Follow-up ticket NOT auto-created \u2014 ask first.)",
+      "source": "human:Dalton McCleery 2026-09-30"
+    },
+    {
+      "q": "Should the dormant removeSms() wrong-source bug (it filters routeNotificationForMail() and writes emails into the sms slot; zero callers) be fixed in this ticket?",
+      "answered": true,
+      "answer": "Yes, fix here: routeNotificationForSms() + ->values().",
+      "source": "human:Dalton McCleery 2026-09-30"
+    },
+    {
+      "q": "Must the read-only prod inventory (count, alert_setting ids/org_id, channel and jsonb_typeof of bad rows for the 16 alertables) be run before shipping, or is post-deploy verification via the command dry-run and Horizon failed_jobs enough?",
+      "answered": true,
+      "answer": "Before shipping. Implementation proceeds; the read-only aggregate count (counts by channel \u00d7 jsonb_typeof, no contact values) is a required pre-undraft/merge gate item that Dalton runs on prod.",
+      "source": "human:Dalton McCleery 2026-09-30"
+    },
+    {
+      "q": "Are there alert_settings writers outside this repo (Backyard, imports, ops SQL) that could produce non-array channel values?",
+      "answered": true,
+      "answer": "No. Backyard (~/Herd/backyard) only models overwatch.alert_settings (app/Models/Overwatch/AlertSetting.php) and ClickHouse guardian.* mirrors; HitNotificationTraceService only reads. chlocal only references guardian/overwatch schemas. No external writer of platform.alert_settings found.",
+      "source": "code"
+    },
+    {
+      "q": "Does the human approve the blast radius: the customer-facing hit-alert pipeline, the unsubscribe flow, and (if approved) a prod data write to platform.alert_settings? The ticket has no comments or approval.",
+      "answered": true,
+      "answer": "Approved (hit-alert pipeline + unsubscribe flow; no prod data write since backfill deferred).",
+      "source": "human:Dalton McCleery 2026-09-30"
+    },
+    {
+      "q": "Which deferred items land in this PR?",
+      "answered": true,
+      "answer": "Fix here: cache()->flexible TTL (minutes() setter \u2192 addMinutes), clear the subscriber cache on unsubscribe, tryFrom()->title() null-deref crash. Out of scope: SMS unsubscribe route. Intentional: unknown settings keys dropped on save. Backfill stays deferred.",
+      "source": "human:Dalton McCleery 2026-09-30"
+    },
+    {
+      "q": "How to record which rows are bad and why?",
+      "answered": true,
+      "answer": "Read-only artisan command alert-settings:audit \u2014 lists id/org_id/field/stored shape/likely cause, no contact values; doubles as the pre-merge prod inventory.",
+      "source": "human:Dalton McCleery 2026-09-30"
+    },
+    {
+      "q": "Keep single-value (scalar) channel support, or slim the PR?",
+      "answered": true,
+      "answer": "Slim it: drop scalar string/number support (prod inventory shows 0 scalar rows) \u2014 scalars are not configured and not matched; keep object-shape + empty-member handling. Fix the audit command's last-activity gap (unsubscribe-from-all events aren't linked to the row). Investigate the unsubscribe path's role in the root cause.",
+      "source": "human:Dalton McCleery 2026-10-01"
+    },
+    {
+      "q": "Final PR scope?",
+      "answered": true,
+      "answer": "Remove outright: alert-settings:audit command; SubscribedAlertsWidget query change; kitAlertSettings types-line change (back to whereJsonContains). Keep: never-throw channel check, cache TTL + invalidation, writer ->values() fixes, removeSms source fix, DTO/cast normalization, title() crash fix. Add: case-insensitive unsubscribe-all lookup; one activity_log entry per row on unsubscribe-all.",
+      "source": "human:Dalton McCleery 2026-10-01"
+    },
+    {
+      "q": "Fix the one bad prod row (alert_settings id 2) now?",
+      "answered": true,
+      "answer": "Yes \u2014 Dalton runs the provided guarded UPDATE himself on the primary DB.",
+      "source": "human:Dalton McCleery 2026-10-01"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "Guard shape: every candidate expression is equivalent on arrays, objects, [], {}, null and missing. They differ on a non-empty JSON scalar (e.g. \"x\"): c1's coalesce NOT IN counts it as configured, while fast/c2/c3 exclude it. No writer in the repo produces scalars, and the prod error is the object variant. Planning must pick one policy, keep the DTO list normaliser consistent with it (scalar -> [scalar] vs []), and pin it in a test.",
+    "Impact: one bad row blocks L/S (and M) alerts for every subscriber in the org. Nothing is cached on failure, so this is high severity despite only 6 log lines. The Sep 29 onset fits a first bad row created by an unsubscribe or form save around then; that is inference, and activity_log ('Alert Settings Unsubscribe') plus updated_at on the 16 users can confirm it.",
+    "The SQL guard, the writer fixes and the repair are complementary. The guard alone leaves bad rows that break @> unsubscribe and types matching; the writer fix alone leaves existing rows throwing.",
+    "Object-shaped types would make types @> hit_type silently false (no error, no alerts). Normalise types/clients too, and count them separately in any dry-run.",
+    "Test seeding: seed malformed rows with raw JSON via DB::connection('platform')->table('alert_settings') insert/update, because the model/DTO will normalise once fixed. Clear the flexible cache key alert_settings:t:{type}:k:{kit_id} between cases. kitAlertSettings plucks user ids then runs whereIn on platform.alert_settings, which is not a cross-connection join. Extend HitEventListenerTest / HitWebhookFanOutTest harnesses.",
+    "Read-only inventory shape for a human (aggregates, then ids/org_id only): SELECT ch, jsonb_typeof(settings->'notifications'->ch), count(*) FROM alert_settings CROSS JOIN (VALUES ('sms'),('emails'),('slack')) v(ch) WHERE deleted_at IS NULL GROUP BY 1,2.",
+    "Illustrative ops repair per channel: jsonb_set(settings,'{notifications,<ch>}', coalesce((select jsonb_agg(v) from jsonb_each(settings#>'{notifications,<ch>}') e(k,v)),'[]')) where jsonb_typeof(...)='object'. jsonb_each orders keys by length then bytes; that is harmless for channel lists.",
+    "KB: okf/concepts/alert-settings.md and okf/models/alert_settings.md do not document the list-shape invariant, and platform-gotchas.md has no entry. Docblocks carry no intent against this change. Queue a wiki update for after approval only.",
+    "Standards: keep the code PHP 8.3-compatible, add minimal comments, follow okf/concepts/laravel-boost-guidelines.md, run composer format (Pint), and do not run tests automatically.",
+    "Adjacent: alertsSmsIsSubscribedTo also has no callers. Do not expand scope beyond removeSms."
+  ],
+  "tests": [
+    {
+      "file": "tests/Feature/Models/Concerns/HitAlertSettingsTest.php (new) and/or tests/Feature/Listeners/HitEventListenerTest.php",
+      "what_it_pins": "One org with a valid array row, a raw-inserted object-shaped emails row ({\"1\":\"b@x\"}), scalar/JSON-null sms/slack rows, an empty {} row, and a webhook-only row. For L and S (and M), kitAlertSettings/getSubscribers/HitEvent do not throw. The valid row, the object-with-content row and the webhook-only row resolve and are notified (Notification::fake); the empty rows are excluded."
+    },
+    {
+      "file": "tests/Feature/Models/Concerns/HitWebhookFanOutTest.php",
+      "what_it_pins": "Existing webhook-only coverage still passes after the predicate rewrite."
+    },
+    {
+      "file": "tests/Unit/Dto/AlertSettingSettingsDtoTest.php",
+      "what_it_pins": "fromArray/toJson turn gapped or object arrays into lists for types, clients and all three channels. Non-array notifications and scalar/null values follow the chosen policy. The round trip is idempotent and webhook_url is unchanged."
+    },
+    {
+      "file": "tests/Unit/Casts/AlertSettingsCastTest.php",
+      "what_it_pins": "get() on a stored JSON null or non-array does not TypeError. set() with a DTO holding gapped arrays writes JSON arrays."
+    },
+    {
+      "file": "tests/Feature/Http/Controllers/EmailControllerTest.php",
+      "what_it_pins": "Unsubscribing the first or middle address of [a,b,c] leaves jsonb_typeof = 'array'. unsubscribeFromAllAlerts works after repeated removals. A legacy object row rewrites as an array."
+    },
+    {
+      "file": "tests/Filament/Forms/AlertSettingsFormTest.php",
+      "what_it_pins": "formatSms/Emails/Slack return array_is_list results when a leading or middle duplicate, an invalid slack URL, or the personal entry (toggle off) is removed. save() persists JSON arrays (assert the raw column)."
+    },
+    {
+      "file": "tests/Feature/Models/AlertSettingTest.php (new)",
+      "what_it_pins": "removeEmail on a non-last element stores an array, and kitAlertSettings then does not throw. If Q-removeSms is approved: removeSms shrinks only sms and leaves emails untouched."
+    },
+    {
+      "file": "tests/Feature/Console/<NormalizeAlertSettingLists>Test.php (new; contingent on Q-backfill)",
+      "what_it_pins": "--dry-run writes nothing and reports counts. A real run fixes only non-array rows and leaves healthy rows and updated_at untouched. A second run is a no-op."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Listeners/HitEventListener.php:18-25",
+      "app/Models/Concerns/HitAlertSettings.php:27-44 (kitAlertSettings), :48-83 getSubscribers, :85-140 notifySubscribers",
+      "app/Models/AlertSetting.php:83-136 (routeNotificationFor*, subscribedTo, removeSms:122, removeEmail:131)",
+      "app/Dto/AlertSettingSettingsDto.php:19-42",
+      "app/Casts/AlertSettingsCast.php:13-27",
+      "app/Filament/Forms/AlertSettingsForm.php:314-372",
+      "app/Http/Controllers/EmailController.php:23,47",
+      "app/Filament/Widgets/AlertSettings/SubscribedAlertsWidget.php:94,110-117",
+      "app/Console/Commands/CreateMissedOpportunityAlertSettings.php:73-100",
+      "database/migrations/2025_07_22_201517_create_alert_settings.php"
+    ],
+    "code_flow": "HitEvent -> queued HitEventListener (WithoutOverlapping) -> Hit::notifySubscribers -> getSubscribers -> kitAlertSettings (flexible 10/30m, key alert_settings:t:{type}:k:{kit}; whereIn org user ids, types @> hit_type, channel jsonb_array_length > 0 OR webhook_url) -> Pro/Client/HotlistStatus pipelines -> routeNotificationFor* -> mail/Twilio/Slack/Webhook. Writers: AlertSettingsForm::save (format* -> DTO fromArray -> cast toJson); removeEmail/removeSms (mutate DTO, saveQuietly) from EmailController and SubscribedAlertsWidget; CreateMissedOpportunityAlertSettings (list literals, safe).",
+    "tables": [
+      "platform.alert_settings (jsonb settings, soft deletes, no GIN index, no CDC mirror)",
+      "users (org_id -> alertable ids)"
+    ],
+    "kb": {
+      "pages_consulted": [
+        "okf/concepts/alert-settings.md",
+        "okf/models/alert_settings.md",
+        "okf/concepts/platform-gotchas.md",
+        "okf/concepts/data-architecture.md"
+      ],
+      "no_match": [
+        "list-shape invariant / jsonb_array_length hazard",
+        "alert_settings writers in okf/concepts/repositories.md"
+      ]
+    },
+    "reconcile_verification": [
+      "Local Postgres: jsonb_array_length on an object gives 'non-array'; on a string or JSON null it gives 'of a scalar'. The c2/c3 and c1 guard forms both return true on a non-empty object without throwing.",
+      "Confirmed removeSms reads routeNotificationForMail() (AlertSetting.php:124) and has zero callers in app/routes/resources/tests/database.",
+      "Confirmed the widget's unscoped top-level orWhereJsonContains (SubscribedAlertsWidget.php:116-117).",
+      "Confirmed AlertSettingsCast::get passes json_decode output straight to fromArray(array) (:15)."
+    ]
+  },
+  "exhaustiveness": {
+    "grep_patterns": [
+      "jsonb_array_length|json_array_length|whereJsonLength|jsonb_typeof (app database routes tests config)",
+      "whereJsonContains|orWhereJsonContains on settings-> paths",
+      "AlertSetting|AlertSettingSettingsDto|alert_settings writers (create/update/insert/fromArray/new DTO)",
+      "removeEmail|removeSms|alertsEmailIsSubscribedTo|alertsSmsIsSubscribedTo",
+      "->filter()/->unique()/->map() ...->toArray() in alert writers",
+      "formatSms|formatEmails|formatSlack"
+    ],
+    "sites": [
+      {
+        "site": "app/Models/Concerns/HitAlertSettings.php:38-40",
+        "verdict": "fix",
+        "reason": "The only jsonb_array_length in the repo; the crash site."
+      },
+      {
+        "site": "app/Models/Concerns/HitAlertSettings.php:34,41",
+        "verdict": "ok",
+        "reason": "types @> and webhook_url text compare cannot throw (types-as-object silently misses; covered by normalisation)."
+      },
+      {
+        "site": "app/Filament/Forms/AlertSettingsForm.php:334-372 (formatSms/Emails/Slack)",
+        "verdict": "fix",
+        "reason": "Key-gapped toArray() without values()."
+      },
+      {
+        "site": "app/Filament/Forms/AlertSettingsForm.php:314-326 (save)",
+        "verdict": "fix-indirect",
+        "reason": "types/clients pass straight into the DTO; normalised there."
+      },
+      {
+        "site": "app/Models/AlertSetting.php:131-136 (removeEmail)",
+        "verdict": "fix",
+        "reason": "Likely prod trigger via unsubscribe."
+      },
+      {
+        "site": "app/Models/AlertSetting.php:122-126 (removeSms)",
+        "verdict": "fix (values); source bug pending Q",
+        "reason": "Gap bug plus wrong source list; no callers."
+      },
+      {
+        "site": "app/Dto/AlertSettingSettingsDto.php:19-42",
+        "verdict": "fix",
+        "reason": "Chokepoint; no normalisation."
+      },
+      {
+        "site": "app/Casts/AlertSettingsCast.php:15",
+        "verdict": "optional-harden",
+        "reason": "A jsonb null raises a TypeError in fromArray."
+      },
+      {
+        "site": "app/Models/AlertSetting.php:83-105 (routeNotificationFor*)",
+        "verdict": "ok",
+        "reason": "collect() reads object values; null-safety optional."
+      },
+      {
+        "site": "app/Models/AlertSetting.php:107-120 (alertsEmail/SmsIsSubscribedTo)",
+        "verdict": "ok-with-note",
+        "reason": "@> silently misses object rows; fixed by normalisation and repair, with no query change."
+      },
+      {
+        "site": "app/Filament/Widgets/AlertSettings/SubscribedAlertsWidget.php:94,110-117",
+        "verdict": "ok-with-note",
+        "reason": "Calls removeEmail (fixed). @> misses object rows. Out-of-scope org-scope leak."
+      },
+      {
+        "site": "app/Http/Controllers/EmailController.php:23,47",
+        "verdict": "fixed-indirectly",
+        "reason": "Callers of removeEmail."
+      },
+      {
+        "site": "app/Console/Commands/CreateMissedOpportunityAlertSettings.php:84-100",
+        "verdict": "ok",
+        "reason": "Writes list literals; clients from keys()->toArray()."
+      },
+      {
+        "site": "app/Filament/Forms/AlertSettingsForm.php:255-292 (fill)",
+        "verdict": "ok",
+        "reason": "Read-only; already uses values()."
+      },
+      {
+        "site": "app/Filament/Pages/AlertSettings.php:115-125",
+        "verdict": "ok",
+        "reason": "Delegates to form save; count() tolerant."
+      },
+      {
+        "site": "app/Console/Commands/SendTestHitAlert.php:57",
+        "verdict": "ok",
+        "reason": "Read only."
+      },
+      {
+        "site": "app/Channels/*, app/Notifications/Hits/*, app/Pipelines/HitNotifications/ClientFilterPipeline.php:21-23",
+        "verdict": "ok",
+        "reason": "Consume via collections/in_array; gap-tolerant."
+      },
+      {
+        "site": "database/factories/AlertSettingFactory.php",
+        "verdict": "ok",
+        "reason": "Emits lists; tests seed bad shapes via raw DB writes."
+      },
+      {
+        "site": "database/migrations/2025_07_22_201517_create_alert_settings.php",
+        "verdict": "ok",
+        "reason": "jsonb without a shape constraint (why bad data was insertable)."
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [
+      "platform.alert_settings",
+      "users"
+    ],
+    "ch_tables": [],
+    "code_fix": "No data change. The predicate is evaluated per candidate row after the alertable_id/type filters. There is no GIN index, so the plan is unchanged.",
+    "repair": "Only if Q-backfill is approved: rewrite settings JSON for rows whose lists are not arrays. Values are preserved and only keys dropped; the change is idempotent and needs no rollback (the object form carries the same values). Use saveQuietly or the query builder to avoid activity_log/observers. No schema change and no CDC/ClickHouse implications (no mirror).",
+    "cache": "No flush is needed. Once a row is repaired, a stale cached subscriber list lasts up to 30 minutes, which is harmless."
+  },
+  "resource_envelope": {
+    "scale_relevant": false,
+    "trigger": "Audit command removed (human 2026-10-01); remaining change edits an existing cached per-org query + model/DTO/form/controller methods; no command/job/migration.",
+    "driving_tables": [
+      {
+        "table": "alert_settings",
+        "source": "platform.alert_settings (not in the zod.public CDC mirror)",
+        "prod_rows": null,
+        "group_by": "org_id",
+        "largest_group_rows": null
+      }
+    ],
+    "growth": "Per-user alert rules; grows with users. Unmeasured, assumed small.",
+    "schedule": {
+      "expression": "none (manual one-off command, if approved)",
+      "interval_seconds": null,
+      "without_overlapping_minutes": null
+    },
+    "allocation_sketch": "Repair: chunkById(200) with a jsonb_typeof WHERE in SQL, single process, one UPDATE per bad row, memory bounded by the chunk. Reader: a constant-cost SQL predicate with no new PHP allocation.",
+    "oracle_status": "unavailable",
+    "unresolved": [
+      "prod row count unmeasurable (platform.alert_settings not in CDC mirror); bounded by construction (SQL filter + lazyById) \u2014 accepted by human request"
+    ]
+  },
+  "derivation_log": [
+    {
+      "query_shape": "prod-cardinality.sh --app clarity --table alert_settings[:org_id] -> SELECT count() FROM zod.public_alert_settings FINAL",
+      "param_classes": [
+        "table identifier"
+      ],
+      "aggregate_result": "status=unavailable, CH code 60 UNKNOWN_TABLE (all 4 passes)",
+      "why": "Try to get prod cardinality; the table is not mirrored and nothing was fabricated."
+    },
+    {
+      "query_shape": "SELECT database,name FROM system.tables WHERE name ILIKE '%alert%' OR '%notification%'",
+      "param_classes": [
+        "catalog metadata"
+      ],
+      "aggregate_result": "5 tables, all guardian.* (another app); none zod.public_*",
+      "why": "Rule out a differently named mirror (fast)."
+    },
+    {
+      "query_shape": "php -r json_encode(array_filter(list, drop-first))",
+      "param_classes": [
+        "synthetic literal"
+      ],
+      "aggregate_result": "object {\"1\":..,\"2\":..}",
+      "why": "Confirms the key-gap -> object mechanism (fast)."
+    },
+    {
+      "query_shape": "local Postgres: SELECT jsonb_array_length(<object|string|null literal>); guard expressions on an object literal",
+      "param_classes": [
+        "synthetic jsonb literals, no table data"
+      ],
+      "aggregate_result": "object -> 'non-array'; string and JSON null -> 'of a scalar'; the c1 and c2/c3 guards return true on a non-empty object without error",
+      "why": "Reconcile grounding of the shape inference that the passes made from recall."
+    },
+    {
+      "query_shape": "No prod jsonb_typeof aggregate was run",
+      "param_classes": [
+        "n/a"
+      ],
+      "aggregate_result": "not run",
+      "why": "No reachable source; raw prod reads are prohibited. Recorded as unresolved."
+    },
+    {
+      "query_shape": "SELECT id, org_id, alertable_id, field, jsonb_typeof/array-with-empty-member shape, member count, created/updated date, latest activity_log description FROM platform.alert_settings CROSS JOIN (types, clients, notifications.sms/emails/slack) WHERE deleted_at IS NULL AND shape is non-canonical (prod pg-read replica, via php artisan tinker on sshprod; no settings values selected)",
+      "param_classes": [
+        "field path constants"
+      ],
+      "aggregate_result": "1 malformed field on 1 of 511 live rows (546 total incl. soft-deleted): notifications.emails stored as a JSON object with 3 members; types/clients/sms/slack all canonical; 0 scalar, 0 empty-member, 0 JSON-null shapes",
+      "why": "Pre-merge prod inventory gate (human, 2026-09-30); confirms object-shape root cause and that a backfill is not needed at scale"
+    },
+    {
+      "query_shape": "SELECT activity_log rows WHERE description IN ('Unsubscribed from all alerts','Unsubscribed from alert') AND (properties->'alert_setting_ids' @> [<row>] OR subject = <row>) \u2014 id/description/created_at only, no properties.email",
+      "param_classes": [
+        "alert_setting id"
+      ],
+      "aggregate_result": "1 event: 'Unsubscribed from all alerts' at 2026-09-29 16:49:40 UTC, identical to the row's updated_at; no form edit since 2026-04 (LogsActivity 'updated'); DB tz UTC; first 22023 at 21:55 UTC same day (4:55pm CT)",
+      "why": "Explains WHY the row is bad: EmailController::unsubscribeFromAllAlerts \u2192 removeEmail filter()->toArray() without ->values() \u2192 sparse keys \u2192 JSON object; matches '0 errors Sep 25\u201328'"
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC-1",
+        "kind": "agent",
+        "intent": "Seed an org with a valid row plus raw-inserted object/scalar/null channel rows. Fire HitEvent (L and S) with Notification::fake(). Assert no QueryException."
+      },
+      {
+        "ac": "AC-2",
+        "kind": "agent",
+        "intent": "Assert the valid and webhook-only rows are notified, and the empty {}/[]/null rows with no webhook are excluded."
+      },
+      {
+        "ac": "AC-3",
+        "kind": "agent",
+        "intent": "Assert the object-with-content row ({\"1\":\"b@x\"}) resolves and receives the notification."
+      },
+      {
+        "ac": "AC-4",
+        "kind": "agent",
+        "intent": "Unsubscribe the first/middle of three emails via the signed EmailController route and removeEmail. Save the form with a leading duplicate or the personal toggle off. Assert jsonb_typeof = 'array' on the raw column and that a following hit does not throw."
+      },
+      {
+        "ac": "AC-5",
+        "kind": "agent",
+        "intent": "If approved: removeSms on a row with distinct email/sms lists shrinks only sms."
+      },
+      {
+        "ac": "AC-6",
+        "kind": "agent",
+        "intent": "If approved: run the repair command --dry-run, then for real, then again. Assert the counts, that only bad rows change, updated_at is untouched, and the second run is a no-op."
+      },
+      {
+        "ac": "AC-7",
+        "kind": "human",
+        "intent": "A human with prod replica access runs the read-only inventory/dry-run for the 16 alertables. After deploy, confirm zero 22023 HitEventListener failures in Horizon over at least 1 hour."
+      }
+    ],
+    "seed_scenario": "One pro org with a kit, a Live (L) and a Staging (S) hit, and 3-4 users with ALERT_SETTINGS. A: normal array row (types [L,S], emails [a@x]). B: raw-inserted emails {\"0\":\"b@x\",\"2\":\"c@x\"}. C: sms scalar \"555\" / slack null. D: webhook-only. Postgres only; no ClickHouse needed. Flush alert_settings:t:{type}:k:{kit} between runs.",
+    "personas": [
+      "Pro org user who edits alert settings in the Filament form",
+      "Recipient using a signed unsubscribe link"
+    ],
+    "pg_tables": [
+      "platform.alert_settings",
+      "users",
+      "orgs",
+      "kits",
+      "hits",
+      "hotlists",
+      "activity_log"
+    ],
+    "ch_tables": []
+  },
+  "blast_radius": [
+    "Customer-facing hit-alert pipeline (email/SMS/Slack/webhook, all hit types, org-wide) via kitAlertSettings",
+    "Unsubscribe flow: EmailController signed routes and SubscribedAlertsWidget (removeEmail)",
+    "Prod data write to platform.alert_settings (only if the repair is approved; manual, no automated migration path)"
+  ],
+  "missed_caller_candidates": [
+    {
+      "site": "app/Models/Hit.php:12,81",
+      "verdict": "consumer of the HitAlertSettings trait; covered by the kitAlertSettings fix, not a new writer"
+    },
+    {
+      "site": "app/Models/User.php:163 routeNotificationForMail",
+      "verdict": "unrelated (User mail routing, not AlertSetting); not a writer"
+    }
+  ],
+  "confidence": 80,
+  "gate": "CLEAN",
+  "pre_merge_gates": [
+    "Read-only prod inventory (Dalton): SELECT ch, coalesce(jsonb_typeof(settings->'notifications'->ch),'missing') AS t, count(*) FROM platform.alert_settings CROSS JOIN (VALUES ('sms'),('emails'),('slack')) v(ch) WHERE deleted_at IS NULL GROUP BY 1,2 ORDER BY 1,2 \u2014 aggregates only, recorded in derivation_log before undraft"
+  ],
+  "pre_merge_gates_result": "DONE 2026-10-01: prod inventory run read-only on pg-read \u2014 1 malformed row (emails object, 3 members) of 511 live, written by an unsubscribe-from-all at 2026-09-29 16:49 UTC"
+}

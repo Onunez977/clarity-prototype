@@ -1,0 +1,444 @@
+{
+  "key": "DEV-2252",
+  "generated_at": "2026-09-16T17:30:00Z",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "reconcile": {
+    "method": "insightlpr:multi-candidate-merge",
+    "candidates": 4,
+    "ran": "inline on driver (opus, = TICKET_PLAN_MODEL); candidate outputs were already in driver context, so a dispatch would have re-sent them with no fresher judgment. Recorded here for provenance.",
+    "candidate_reliability": "Candidate 1 and Candidate 3 cited line numbers that match the real file (Zone::rebuildGeometryFromDefinition at 251, Zone::searchZipCodes at 329). The fast pass and Candidate 2 cited offsets that do not exist in Zone.php (354 lines) and were down-weighted on grounding, though their FINDINGS were independently re-verified by the driver and several are correct.",
+    "driver_verification": "The driver independently read app/Models/Zone.php:251-354, app/Filament/Pages/ManageZones.php:276-330, app/Services/Zones/ZoneKmlImporter.php:55-75, resources/js/components/zone-manager.js:592-650 and :418-432, and tests/Filament/Pages/ManageZonesTest.php:188-220. Every defect recorded below was confirmed against that source, not accepted from a candidate."
+  },
+  "synthesis": "Admins can define a Scout zone by typing ZIP codes instead of drawing a polygon. The ticket reports this 'doesn't always like the zip codes', with manual drawing as the only reliable workaround. Reconciling four independent prep passes against the real source shows this is NOT one bug. The zip->zone path carries FOUR distinct, independently confirmed defects, each of which produces a symptom matching the ticket's wording, and the ticket contains no failing ZIP codes to tell us which one the reporter actually hit. Three of the four are confirmed locally with no production data required; the fourth (Census ZCTA coverage gaps) is a real property of the reference dataset that could not be sized locally because tiger_data.zcta5_all has 0 rows in this environment.",
+  "confirmed_defects": [
+    {
+      "id": "D1",
+      "title": "save() never checks that the rebuilt geometry is non-empty, then reports success unconditionally",
+      "severity": "high",
+      "evidence": "app/Filament/Pages/ManageZones.php:305 calls $zone->rebuildGeometryFromDefinition() and never inspects the result; :325-328 sends Notification 'Zone saved' ->success() unconditionally. app/Models/Zone.php:251-295 is a documented never-throw method: when the zip piece resolves to nothing, ST_Union over an empty set yields NULL, ST_MakeValid(NULL)->NULL, and the UPDATE writes geom = NULL. The sibling creation path app/Services/Zones/ZoneKmlImporter.php:64-72 ALREADY guards exactly this with `(geom IS NULL OR public.ST_IsEmpty(geom))::int AS is_empty` -> throw RuntimeException. ManageZones::save() is the only creation caller missing that guard.",
+      "user_symptom": "Filament says 'Zone saved'; the zone has geom = NULL and never renders on the map ('doesn't register')."
+    },
+    {
+      "id": "D2",
+      "title": "The existing test suite asserts the silent-failure behavior as correct",
+      "severity": "high",
+      "evidence": "tests/Filament/Pages/ManageZonesTest.php:191-204 (test_saves_a_zip_only_zone) saves zip '75201', asserts assertHasNoFormErrors() and that the Zone row + definition exist. It NEVER seeds tiger_data.zcta5_all (grep of the whole file returns zero references) and NEVER asserts geom. tiger_data.zcta5_all is empty in the test DB, so this test passes precisely BECAUSE a zip that resolves to nothing is accepted as a successful save. tests/Filament/Pages/ManageZonesTest.php:209-219 (test_empty_geometry_is_rejected) only covers a LITERALLY empty definition (polygons:[], zip_codes:[]) - it does not cover 'zip_codes non-empty but unresolvable'.",
+      "user_symptom": "This is why D1 shipped. It is also a locally reproducible proof of D1 that needs no production data - a point every individual candidate missed."
+    },
+    {
+      "id": "D3",
+      "title": "Client accepts 3-4 digit ZIP tokens, which the endpoint then prefix-matches",
+      "severity": "medium",
+      "evidence": "resources/js/components/zone-manager.js:599-600 filters tokens with /^\\d{3,5}$/. app/Models/Zone.php:340 matches with `zcta5ce LIKE ?` bound to $query.'%' - a deliberate prefix match for progressive autocomplete (pinned by ZoneZipSearchControllerTest with q=303). A 4-digit token is the classic shape of a leading-zero ZIP stripped by Excel/CSV (every ZIP in CT, MA, RI, NH, VT, NJ, PR starts with 0).",
+      "user_symptom": "A pasted leading-zero ZIP silently prefix-matches an unrelated 5-digit ZIP in another state."
+    },
+    {
+      "id": "D4",
+      "title": "addZip() falls back to rows[0] on non-exact match; its sibling hydrateZips() does not",
+      "severity": "high",
+      "evidence": "resources/js/components/zone-manager.js:634 `const exact = rows.find(r => r.zip === token) || rows[0];` - on no exact match it silently takes the first prefix match and attaches ITS polygon. The sibling path at :425 does `const exact = rows.find(r => r.zip === zip); if (!exact) continue;` - exact-match only. Two call sites of the same lookup, divergent behavior, no comment explaining the divergence.",
+      "user_symptom": "Combined with D3: the zone is created successfully with VALID geometry covering the WRONG geographic area. Arguably worse than a visible failure, because nothing looks broken."
+    },
+    {
+      "id": "D5",
+      "title": "Census ZCTA5 does not cover every USPS ZIP (PO-box-only, unique/large-employer, new ZIPs)",
+      "severity": "medium",
+      "evidence": "Domain property of the TIGER ZCTA5 dataset. NOT verifiable locally: tiger_data.zcta5_all has 0 rows in this worktree (confirmed by two candidates via tinker), and okf/models/zcta5_all.md documents it as a static PostGIS reference table outside the PeerDB CDC pipeline - so there is no read-only production oracle for it (prod-cardinality.sh returns UNKNOWN_TABLE for zod.public_zcta5_all).",
+      "user_symptom": "Search returns zero rows -> the UI correctly shows 'No boundary found for: <zip>'. This is a CORRECT, VISIBLE failure, and it may well be the literal thing the reporter means by 'doesn't always like the zip codes'. If so, the fix is a product decision (better message / geocoding fallback), not a code defect."
+    }
+  ],
+  "scope": {
+    "summary": "Close the silent-failure gaps on the admin zip->zone path: add the missing post-rebuild empty-geometry guard to ManageZones::save() (mirroring ZoneKmlImporter's existing check), fix the test that asserts the broken behavior, and remove the client-side wrong-ZIP substitution (tighten the commit-time token regex to exactly 5 digits and drop the rows[0] fallback so addZip matches hydrateZips). Scope of the D5 (ZCTA coverage gap) response is an OPEN QUESTION - see questions.",
+    "proposed_changes": [
+      {
+        "file": "app/Filament/Pages/ManageZones.php",
+        "change": "After rebuildGeometryFromDefinition() inside the save() transaction, check (geom IS NULL OR public.ST_IsEmpty(geom)) and fail the save with an actionable form error naming the unresolvable zip(s), instead of falling through to the unconditional 'Zone saved' success notification.",
+        "reason": "D1 - the actual missing guard. rebuildGeometryFromDefinition() is contractually never-throw, so the CALLER owns the post-condition; ZoneKmlImporter already does this.",
+        "ref": "app/Filament/Pages/ManageZones.php:305,325; precedent app/Services/Zones/ZoneKmlImporter.php:64-72"
+      },
+      {
+        "file": "resources/js/components/zone-manager.js",
+        "change": "Tighten the commit-time token filter from /^\\d{3,5}$/ to /^\\d{5}$/ (both validTokens and malformed).",
+        "reason": "D3 - commitZipInput runs on a COMMITTED token (Enter/comma/paste), not on progressive typing, so it should require a complete ZIP. Leaves the endpoint's prefix contract untouched.",
+        "ref": "resources/js/components/zone-manager.js:599-600"
+      },
+      {
+        "file": "resources/js/components/zone-manager.js",
+        "change": "Drop the `|| rows[0]` fallback in addZip(); treat a non-exact match as 'not_found', matching hydrateZips().",
+        "reason": "D4 - silent wrong-area substitution, and removes an unexplained divergence between two call sites of one lookup.",
+        "ref": "resources/js/components/zone-manager.js:634 vs :425"
+      },
+      {
+        "file": "tests/Filament/Pages/ManageZonesTest.php",
+        "change": "Fix test_saves_a_zip_only_zone so it seeds tiger_data.zcta5_all for the zip under test and asserts geom is non-null/non-empty; add a sibling test that an UNRESOLVABLE zip is rejected with a form error and no silently-invisible zone.",
+        "reason": "D2 - the suite currently pins the bug as correct behavior. Uses the seedTigerZip helper pattern already in ZoneZipSearchControllerTest (incl. the SRID 4269 spatial_ref_sys insert).",
+        "ref": "tests/Filament/Pages/ManageZonesTest.php:191-204"
+      },
+      {
+        "file": "tests/Models/ZoneTest.php",
+        "change": "Pin rebuildGeometryFromDefinition()'s never-throw contract explicitly: an unmatched zip_codes entry leaves geom NULL rather than throwing, so future callers know they must check.",
+        "reason": "Documents the contract that makes the caller-side guard necessary.",
+        "ref": "tests/Models/ZoneTest.php"
+      },
+      {
+        "file": "app/Services/RunArea/Materializer.php",
+        "change": "Add the same post-materialize empty-geometry guard after the ST_Union/ST_MakeValid/ST_CollectionExtract resolution, so an org run area cannot be silently written with a NULL/empty geometry.",
+        "reason": "Q5 answered: fix in this ticket. Identical idiom and identical missing post-check to D1, different table (org_run_areas).",
+        "ref": "app/Services/RunArea/Materializer.php:39,43,80"
+      }
+    ],
+    "target_files": [
+      "app/Filament/Pages/ManageZones.php",
+      "resources/js/components/zone-manager.js",
+      "tests/Filament/Pages/ManageZonesTest.php",
+      "tests/Models/ZoneTest.php",
+      "app/Services/RunArea/Materializer.php"
+    ],
+    "out_of_scope": [
+      "Geocoding fallback (e.g. the existing Geocodio integration in UpdateUsPostalCodesWithGeocodioAndTigerJob) for ZIPs with no ZCTA boundary - a product/cost decision, see Q2.",
+      "Zone::searchZipCodes() prefix-LIKE behavior - intentional and test-pinned (ZoneZipSearchControllerTest q=303); the fix belongs client-side.",
+      "DEV-2320 / origin/otto PersistZone::persist() - carries the same missing post-rebuild guard, but does not exist on main. See Q3.",
+      "app/Jobs/Rdn/GetOrgBranchZips.php and UpdateUsPostalCodesWithGeocodioAndTigerJob - operate on tiger.us_zipcodes (RDN branch metadata), a different table from tiger_data.zcta5_all despite both matching a 'zip' grep.",
+      "Geocoding fallback for zips with no Census ZCTA boundary - Q2 answered: clear error + draw manually. Explicitly declined, not forgotten."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Zip-code zone creation reliably works across zip codes that HAVE a Census ZCTA boundary.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Already works today for a well-formed existing 5-digit ZIP; D3+D4 are what break it for malformed input. Fixing those restores reliability for this class."
+    },
+    {
+      "item": "A zip that cannot be resolved to a boundary fails LOUDLY, never silently 'saves' an invisible zone.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "D1/D2 - the core defect and the reason it shipped."
+    },
+    {
+      "item": "Malformed or truncated zip input never silently attaches an unrelated zip's boundary.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "D3+D4 compound into a wrong-area zone that looks successful."
+    },
+    {
+      "item": "Confirm whether this is a data/formatting validation issue or a lookup/geocoding failure.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Answer: BOTH, and the ticket cannot distinguish which the reporter hit without the failing zips. Formatting/validation = D3+D4 (confirmed in code). Lookup = D5 (real dataset property, unsized locally). The Build Record must state both."
+    },
+    {
+      "item": "A zip with no Census boundary shows a clear, actionable error and the admin can draw the zone manually.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Q2 answered: error + manual draw, no geocoding fallback."
+    },
+    {
+      "item": "OrgRunArea materialization cannot silently persist a NULL/empty geometry.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Q5 answered: fix the Materializer sibling defect in this ticket."
+    }
+  ],
+  "questions": [
+    {
+      "id": "Q1",
+      "q": "Which specific zip codes did the reporter see fail? Without them we cannot tell whether the real-world complaint is the silent-save bug (D1), the wrong-area substitution (D3+D4), or simply zips that legitimately have no Census boundary (D5) - all three match the ticket's wording.",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human",
+      "material": false,
+      "materiality_downgrade": "Raised in the Phase 2 interview; NOT answered. Driver downgraded it from blocking to an unresolved premise, and SAID SO to the operator rather than silently proceeding. Reasoning: the answer would tell us which of D1-D5 the reporter actually hit, but all four code defects are now being fixed regardless, so it does not change what gets built - only what the Build Record may claim. The Build Record MUST state that we could not confirm which defect produced the reported symptom."
+    },
+    {
+      "id": "Q2",
+      "q": "For a zip with NO Census ZCTA boundary: is a clear error plus 'draw it manually' the accepted behavior, or should we add a geocoding fallback (the app already has a Geocodio integration)? The first is in the current scope; the second roughly triples it and adds per-lookup API cost.",
+      "answered": true,
+      "answer": "Clear error plus 'draw it manually'. Do NOT add a geocoding fallback. Keeps the change inside the current scope; the existing 'No boundary found' message stays and gets clearer wording.",
+      "source": "human:Dalton 2026-09-16",
+      "material": true
+    },
+    {
+      "id": "Q3",
+      "q": "DEV-2320 is In Code Review on the unmerged `otto` branch and its new PersistZone::persist() calls the same rebuildGeometryFromDefinition() with the same missing guard. Land this fix on main now and let DEV-2320 rebase, or hold and coordinate?",
+      "answered": true,
+      "answer": "Land on main now. Verified by diff that the two do not touch the same lines; DEV-2320 rebases and its PersistZone picks up the guard for free. Note it on the PR for whoever merges second.",
+      "source": "human:Dalton 2026-09-16",
+      "material": true
+    },
+    {
+      "id": "Q4",
+      "q": "A concurrent unmerged local branch (claude/dev-2557-e229d9, DEV-2557) rewrites addZip / renderEditableZip / hydrateZips / geometryToRings in the SAME file for an unrelated purpose (zip-detach, interior rings). No functional overlap, but high mechanical merge-conflict risk. Proceed and accept the conflict, or sequence behind DEV-2557?",
+      "answered": true,
+      "answer": "Proceed and accept the mechanical conflict. DEV-2557 does not touch the regex or the rows[0] fallback; whoever merges second resolves it.",
+      "source": "human:Dalton 2026-09-16",
+      "material": true
+    },
+    {
+      "id": "Q5",
+      "q": "app/Services/RunArea/Materializer.php has the identical missing-empty-geometry gap on a different table. Fix it here, or raise a follow-up ticket?",
+      "answered": true,
+      "answer": "FIX IT IN THIS TICKET. Operator OVERRODE the driver's recommendation of a follow-up ticket. app/Services/RunArea/Materializer.php moves from out_of_scope INTO scope.",
+      "source": "human:Dalton 2026-09-16",
+      "material": true
+    },
+    {
+      "id": "Q6",
+      "q": "Is an SRID mismatch between drawn polygons and TIGER zip geometry a factor?",
+      "answered": true,
+      "answer": "No. Verified empirically on this PostGIS 3.4 install: ST_GeomFromGeoJSON() returns SRID 4326 by default, matching the ST_Transform(...,4326) applied to the zip piece, so ST_Union(ARRAY[...]) never mixes SRIDs.",
+      "source": "code",
+      "material": false
+    },
+    {
+      "id": "Q7",
+      "q": "Does a zip whose ZCTA spans two states break the union?",
+      "answered": true,
+      "answer": "No. searchZipCodes() groups by zcta5ce and unions across partition rows (documented at Zone.php:337), and rebuildGeometryFromDefinition()'s IN(...) subquery unions all matching rows. Ruled out by code.",
+      "source": "code",
+      "material": false
+    },
+    {
+      "id": "Q8",
+      "q": "Is a leading-zero zip truncated by an integer cast anywhere in the SERVER path?",
+      "answered": true,
+      "answer": "No. Every zip is a string end-to-end: ManageZones casts with array_map('strval',...), rebuildGeometryFromDefinition casts (string) $zip, and the controller validates q as a string. The truncation risk is UPSTREAM of the app (spreadsheet export) and is handled by D3, client-side.",
+      "source": "code",
+      "material": false
+    }
+  ],
+  "blockers": [],
+  "missed_caller_candidates": [
+    {
+      "file": "app/Services/RunArea/Materializer.php",
+      "why": "same geometry-resolution idiom, same missing post-check - see Q5"
+    },
+    {
+      "file": "app/Services/Zones/KmlZoneParser.php",
+      "why": "second caller of rebuildGeometryFromDefinition (:182)"
+    },
+    {
+      "file": "app/Filament/Forms/Components/ZoneMapDisplay.php",
+      "why": "duplicates the searchZipCodes SQL fragment verbatim (:142); read-only render path"
+    },
+    {
+      "file": "app/Filament/Actions/ZoneQuickEditAction.php",
+      "why": "alternate zone edit entry point"
+    },
+    {
+      "file": "origin/otto app/Services/Zones/PersistZone.php",
+      "why": "unmerged third caller with the same gap - see Q3"
+    }
+  ],
+  "tests": [
+    {
+      "file": "tests/Filament/Pages/ManageZonesTest.php",
+      "what_it_pins": "A zip-only zone with a SEEDED tiger row saves with non-empty geom; a zip-only zone with an UNRESOLVABLE zip is rejected with a form error and no invisible zone is persisted."
+    },
+    {
+      "file": "tests/Models/ZoneTest.php",
+      "what_it_pins": "rebuildGeometryFromDefinition() leaves geom NULL (does not throw) for an unmatched zip - the contract that makes the caller-side guard mandatory."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Models/Zone.php:251-295 (rebuildGeometryFromDefinition)",
+      "app/Models/Zone.php:329-353 (searchZipCodes)",
+      "app/Filament/Pages/ManageZones.php:276-330 (save)",
+      "app/Services/Zones/ZoneKmlImporter.php:64-72 (the precedent guard)",
+      "resources/js/components/zone-manager.js:592-645 (commitZipInput/addZip)",
+      "resources/js/components/zone-manager.js:418-432 (hydrateZips, the correct sibling)",
+      "tests/Filament/Pages/ManageZonesTest.php:191-219"
+    ],
+    "code_flow": "Admin types/pastes zips -> commitZipInput() tokenizes and filters -> addZip() GETs /zones/zip-search -> ZoneZipSearchController -> Zone::searchZipCodes() (prefix LIKE, GROUP BY zcta5ce, union+MakeValid) -> JS picks exact OR rows[0] -> pushes to definition.zip_codes -> ManageZones::save() -> Zone::rebuildGeometryFromDefinition() (EXACT IN(...) match, union, MakeValid, writes platform.zones.geom) -> ZoneAssignmentSyncer -> ZoneBroadcaster -> unconditional 'Zone saved'.",
+    "asymmetry": "searchZipCodes() matches by PREFIX; rebuildGeometryFromDefinition() matches EXACTLY. A zip staged via prefix match or the rows[0] fallback can therefore resolve differently at save time than it did at search time.",
+    "tables": [
+      "platform.zones",
+      "platform.zone_user",
+      "tiger_data.zcta5_all (zod connection, static PostGIS reference)"
+    ],
+    "related_components": [
+      "ZoneAssignmentSyncer",
+      "ZoneBroadcaster",
+      "ZonePolicy (ADMIN-only)",
+      "FeatureEnum::CLARITY_SCOUT gate",
+      "ZoneKmlImporter"
+    ]
+  },
+  "exhaustiveness": {
+    "grep_patterns": [
+      "ST_MakeValid",
+      "ST_CollectionExtract",
+      "ST_Union",
+      "rebuildGeometryFromDefinition\\(",
+      "zcta5_all",
+      "\\\\d\\{3,5\\}",
+      "rows\\[0\\]"
+    ],
+    "sites": [
+      {
+        "site": "app/Filament/Pages/ManageZones.php:305",
+        "status": "buggy",
+        "reason": "D1 - calls rebuild, never checks the post-condition, reports success unconditionally."
+      },
+      {
+        "site": "resources/js/components/zone-manager.js:599-600",
+        "status": "buggy",
+        "reason": "D3 - accepts 3-4 digit tokens at commit time."
+      },
+      {
+        "site": "resources/js/components/zone-manager.js:634",
+        "status": "buggy",
+        "reason": "D4 - rows[0] fallback substitutes an unrelated zip."
+      },
+      {
+        "site": "resources/js/components/zone-manager.js:425 (hydrateZips)",
+        "status": "safe",
+        "reason": "Exact-match only; this is the correct reference behavior D4 should match."
+      },
+      {
+        "site": "tests/Filament/Pages/ManageZonesTest.php:191-204",
+        "status": "buggy",
+        "reason": "D2 - asserts the broken behavior as correct."
+      },
+      {
+        "site": "app/Services/Zones/ZoneKmlImporter.php:64-72",
+        "status": "safe",
+        "reason": "Already implements the guard; the precedent to mirror."
+      },
+      {
+        "site": "app/Models/Zone.php:251-295",
+        "status": "safe-by-contract",
+        "reason": "Documented never-throw. Correct as written; the defect is that its caller does not check. Do NOT change this contract - KmlZoneParser depends on it."
+      },
+      {
+        "site": "app/Models/Zone.php:226 (intersectingGeohashes)",
+        "status": "safe",
+        "reason": "Unions already-persisted zones.geom (already MakeValid'd, NULLs excluded by WHERE), not raw TIGER data."
+      },
+      {
+        "site": "app/Services/RunArea/Materializer.php:39,43,80",
+        "status": "buggy",
+        "reason": "Same idiom, same missing post-check, different domain. Deferred pending Q5."
+      },
+      {
+        "site": "app/Filament/Forms/Components/ZoneMapDisplay.php:142",
+        "status": "safe",
+        "reason": "Read-only render of an already-persisted zone; worst case a missing footprint, not a creation failure."
+      },
+      {
+        "site": "app/Models/Tiger/ZipCode5All.php:70-97 (getHeatMapData)",
+        "status": "safe",
+        "reason": "Uses ST_Collect, different feature, not on the zone-creation path."
+      },
+      {
+        "site": "origin/otto app/Services/Zones/PersistZone.php",
+        "status": "buggy",
+        "reason": "Unmerged; same missing guard. Deferred pending Q3."
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [
+      "platform.zones",
+      "platform.zone_user",
+      "tiger_data.zcta5_all"
+    ],
+    "ch_tables": [],
+    "mv_or_cdc_implications": "None. tiger_data.zcta5_all is a static PostGIS TIGER reference table outside the PeerDB public.* -> zod.public_* CDC pipeline (okf/models/zcta5_all.md), and platform.zones has no ClickHouse replica. Pure PostgreSQL/PostGIS change.",
+    "indexes_relied_on": "zcta5ce, via LIKE-prefix (search) and IN(...) (rebuild). The tiger_data schema is externally loaded with no Laravel migration, so the index definition is not in-repo and was not verifiable (0 rows locally). Not implicated by the defects above."
+  },
+  "resource_envelope": {
+    "scale_relevant": false,
+    "trigger": "No command, job, ClickHouse query class, or migration is touched. The change is a Filament Livewire page guard plus client-side input validation, over a bounded (LIMIT 25) autocomplete and a single zone's geometry rebuild. Not a data-cardinality concern.",
+    "driving_tables": [],
+    "growth": null,
+    "schedule": null,
+    "allocation_sketch": null,
+    "oracle_status": "not-configured",
+    "unresolved": []
+  },
+  "derivation_log": [
+    {
+      "query_shape": "SELECT count(*) FROM tiger_data.zcta5_all (zod connection, local worktree)",
+      "param_classes": "none",
+      "aggregate_result": "0 rows",
+      "why": "Establishes that the ZCTA coverage-gap hypothesis (D5) cannot be sized locally, and - more usefully - explains why test_saves_a_zip_only_zone passes: the test DB has no tiger data, so the zip resolves to nothing and the save silently succeeds. Confirmed independently by two candidates."
+    },
+    {
+      "query_shape": "SELECT ST_SRID(public.ST_GeomFromGeoJSON('<Polygon literal, no crs>'))",
+      "param_classes": "GeoJSON literal, no table access",
+      "aggregate_result": "4326",
+      "why": "Rules out SRID mismatch (Q6) as the intermittent-failure mechanism."
+    },
+    {
+      "query_shape": "prod-cardinality.sh --app clarity --table zcta5_all -> zod.public_zcta5_all",
+      "param_classes": "none",
+      "aggregate_result": "UNKNOWN_TABLE",
+      "why": "Confirms there is no read-only production oracle for this table; the constraint is structural (no CDC mirror for tiger_data), so oracle_status is 'not-configured' rather than a probe failure."
+    },
+    {
+      "query_shape": "git diff origin/main origin/otto -- app/Models/Zone.php app/Filament/Pages/ManageZones.php app/Services/Zones/*",
+      "param_classes": "local ref comparison, no DB",
+      "aggregate_result": "otto adds Services/Zones/{ZipCodeLookup,PersistZone,ResolveZoneCreateInput} + Ai/Tools; does NOT modify rebuildGeometryFromDefinition or searchZipCodes; PersistZone::persist() still calls rebuildGeometryFromDefinition with no post-check",
+      "why": "Sizes the DEV-2320 collision (Q3). Also independently corroborates D3: otto's ZipCodeLookup::normalize() requires an exact \\b(\\d{5})\\b."
+    },
+    {
+      "query_shape": "git diff main claude/dev-2557-e229d9 -- resources/js/components/zone-manager.js",
+      "param_classes": "local ref comparison, no DB",
+      "aggregate_result": "large diff across addZip/renderEditableZip/hydrateZips/geometryToRings; does NOT touch the commitZipInput regex or the rows[0] fallback",
+      "why": "Sizes the DEV-2557 merge-conflict risk (Q4): no functional overlap, high mechanical conflict risk in the same functions."
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC-1 resolvable zip saves and renders",
+        "kind": "agent",
+        "intent": "Seed a tiger_data.zcta5_all row with a valid polygon for a zip; create a zip-only zone via ManageZones; assert geom is non-null/non-empty and the zone appears in ZoneIndexController's feature list."
+      },
+      {
+        "ac": "AC-2 unresolvable zip is rejected, not silently saved",
+        "kind": "agent",
+        "intent": "Save a zip-only zone for a zip absent from tiger_data.zcta5_all; assert a visible form error and that no geom-null zone is persisted."
+      },
+      {
+        "ac": "AC-3 truncated token never substitutes a wrong area",
+        "kind": "human",
+        "intent": "In the map editor, type a 4-digit fragment and confirm it is rejected as malformed rather than silently resolving to an unrelated 5-digit zip's polygon. Browser-only - no JS unit runner exists in this repo."
+      },
+      {
+        "ac": "AC-4 manual polygon draw still works",
+        "kind": "human",
+        "intent": "Regression check on the adjacent untouched path."
+      }
+    ],
+    "seed_scenario": "An org with CLARITY_SCOUT enabled and an ADMIN user (ZonePolicy::create requires ADMIN). Two tiger_data.zcta5_all rows seeded via the seedTigerZip pattern from ZoneZipSearchControllerTest (including the SRID 4269 spatial_ref_sys insert): one valid small polygon for a control zip (75201), and one zip left deliberately unseeded (99999) to represent an unresolvable zip. Exercise both through the ManageZones zip-entry UI and through save().",
+    "personas": [
+      "Org ADMIN with Scout enabled - the only role permitted to create or edit zones"
+    ],
+    "pg_tables": [
+      "platform.zones",
+      "platform.zone_user",
+      "tiger_data.zcta5_all"
+    ],
+    "ch_tables": []
+  },
+  "notes": [
+    "Do NOT change rebuildGeometryFromDefinition()'s never-throw contract. KmlZoneParser and ZoneKmlImporter depend on it; the guard belongs in the caller, which is also where the existing precedent puts it.",
+    "No JS unit-test runner exists in this repo (package.json has Playwright e2e only, no vitest/jest), and the Livewire tests set data.definition directly, bypassing zone-manager.js. The client-side fixes (D3/D4) therefore need browser QA or a Playwright spec - they cannot be pinned by the PHP suite.",
+    "platform commits built assets: public/build is tracked, so a zone-manager.js change must be rebuilt and committed.",
+    "Follow the existing raw schema-qualified PostGIS idiom (public.ST_*) used throughout Zone.php and ZoneKmlImporter rather than introducing a new abstraction.",
+    "Run composer format (Pint) before finishing."
+  ],
+  "confidence": 88,
+  "escalated": true,
+  "escalation_triggers": [
+    "confidence<80 on fast pass",
+    "escalate.recommend",
+    "unmerged-branch dependency (DEV-2320)",
+    "open questions answered:false"
+  ],
+  "gate_note": "CLEAN after the Phase 2 interview. Q2/Q3/Q4/Q5 answered by the operator (Q5 overrode the driver's recommendation). Q1 remains answered:false but was explicitly downgraded from material to an unresolved premise, with the reasoning stated to the operator in chat - see questions[Q1].materiality_downgrade."
+}

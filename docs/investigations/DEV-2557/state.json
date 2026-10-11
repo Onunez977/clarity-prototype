@@ -1,0 +1,518 @@
+{
+  "key": "DEV-2557",
+  "app": "clarity",
+  "route": "hotfix",
+  "mode": "normal",
+  "base_branch": "deploy",
+  "base_branch_reason": "route=hotfix -> CLARITY_DEPLOY_BRANCH=deploy; branch head is exactly origin/deploy (main is 53 commits ahead and undeployed)",
+  "branch": "claude/dev-2557-e229d9",
+  "main_checkout": "/Users/daltonmccleery/Herd/platform",
+  "run_root": "/Users/daltonmccleery/Herd/platform/.claude/worktrees/dev-2528-70ab0c",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "prep-candidate:1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 786,
+      "tokens_total": 148639
+    },
+    {
+      "slot": "prep-candidate:2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 802,
+      "tokens_total": 147289
+    },
+    {
+      "slot": "prep-candidate:3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 999,
+      "tokens_total": 137390
+    },
+    {
+      "slot": "plan-arbiter",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "plan",
+      "dur_s": 618,
+      "tokens_total": 163605
+    },
+    {
+      "slot": "implement:t3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 159,
+      "tokens_total": 100261
+    },
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 364,
+      "tokens_total": 136156
+    },
+    {
+      "slot": "implement:t2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 215,
+      "tokens_total": 119454
+    },
+    {
+      "slot": "agent-qa",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "verify",
+      "dur_s": 1081,
+      "tokens_total": 266475
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "no_spawn": false,
+    "start_at": "verify",
+    "stop_at": "handoff",
+    "only": null,
+    "skip": [],
+    "force": false,
+    "eli5": true
+  },
+  "knowledge_cards_loaded": [
+    "knowledge/clarity/scout.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "2 answered:false questions",
+    "1 blocker (AC5/AC6 gated on Product storage decision)",
+    "fast-pass confidence 78 (<80)",
+    "fast-pass escalate.recommend=true",
+    "HOTFIX label + cross-panel blast radius on the token-level fix option"
+  ],
+  "best_of_n": true,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [
+    {
+      "file": "app/Providers/Filament/Client.php",
+      "symbol": "PlatformPanelProvider",
+      "referenced_at": "app/Providers/Filament/Client.php:13",
+      "note": "PlatformPanelProvider is a TRAIT used by BOTH App (/app) and Client (/client) panels - a palette change hits the customer-facing client portal too"
+    },
+    {
+      "file": "app/Providers/Filament/App.php",
+      "symbol": "PlatformPanelProvider",
+      "referenced_at": "app/Providers/Filament/App.php:21"
+    },
+    {
+      "file": "app/Filament/Forms/Components/ZoneMapDisplay.php",
+      "symbol": "zcta5_all",
+      "referenced_at": "app/Filament/Forms/Components/ZoneMapDisplay.php:137",
+      "note": "a SECOND zone-map surface outside ManageZones; check whether the ZIP-shape interaction model is duplicated here"
+    },
+    {
+      "file": "app/Services/Zones/ZoneKmlImporter.php",
+      "symbol": "rebuildGeometryFromDefinition",
+      "referenced_at": "app/Services/Zones/ZoneKmlImporter.php:63"
+    },
+    {
+      "file": "app/Services/Zones/KmlZoneParser.php",
+      "symbol": "rebuildGeometryFromDefinition",
+      "referenced_at": "app/Services/Zones/KmlZoneParser.php:18"
+    },
+    {
+      "file": "database/factories/ZoneFactory.php",
+      "symbol": "rebuildGeometryFromDefinition",
+      "referenced_at": "database/factories/ZoneFactory.php:105"
+    },
+    {
+      "file": "tests/Models/ZoneTest.php",
+      "symbol": "searchZipCodes/rebuildGeometryFromDefinition",
+      "referenced_at": "tests/Models/ZoneTest.php:28,44,75,100,105,130,144,185,199,200"
+    },
+    {
+      "file": "resources/css/filament/app/theme.css",
+      "symbol": "bg-primary-600",
+      "referenced_at": "resources/css/filament/app/theme.css:258",
+      "note": "theme override file; verify it does not redefine the primary token independently"
+    },
+    {
+      "file": "vite.config.js",
+      "symbol": "zone-manager",
+      "referenced_at": "vite.config.js:19"
+    }
+  ],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "CSS chips-only override + client-side DETACH; no ClickHouse surface",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "ba52011d3d6845cbfd75210bd1f243677d7aaf34",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": null,
+      "complexity": "complex",
+      "model": "sonnet"
+    },
+    {
+      "id": "t2",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": null,
+      "complexity": "complex",
+      "model": "sonnet"
+    },
+    {
+      "id": "t3",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": null,
+      "complexity": "simple",
+      "model": "sonnet"
+    },
+    {
+      "id": "t4",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": null,
+      "complexity": "complex",
+      "model": "driver (mechanical build + git hygiene)"
+    }
+  ],
+  "review_number": 2,
+  "pr": {
+    "number": 411,
+    "url": "https://github.com/insight-lpr/platform/pull/411",
+    "draft": false
+  },
+  "pr_urls": {
+    "deploy": "https://github.com/insight-lpr/platform/pull/411"
+  },
+  "spawned_sessions": [
+    {
+      "segment": "build",
+      "session_id": "a35768a4",
+      "at": "2026-09-15T18:20:03.444157+00:00"
+    },
+    {
+      "segment": "qa",
+      "session_id": "eb0e856b",
+      "at": "2026-09-15T19:24:41.346082+00:00"
+    }
+  ],
+  "jira_in_progress_by": "already In Progress at Phase 4 entry (set outside this run); no transition performed",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "In Progress -> In Code Review via Atlassian MCP transition id 4, 2026-09-16T13:37Z. Undrafting PR #411 did NOT trigger a GH Action transition on this repo, so the designed pipeline fallback performed it.",
+  "assumed": [],
+  "comment_ids": {
+    "status": "39916",
+    "build_record": "40016"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "resource_envelope": {
+      "path": "",
+      "verdict": "not-measured",
+      "basis": "n/a",
+      "note": "scale_relevant=false \u2014 UI theme tokens + client-side map interaction; no command, job, query class or migration touched, so no R-section was authored and none was required"
+    },
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "n/a",
+      "ch_container": "n/a",
+      "frontend_build": "n/a",
+      "postgres_db": "zod_claude_dev_2557_e229d9 (+ testing zod_testing_claude_dev_2557_e229d9)",
+      "ch_strategy": "deferred",
+      "herd_site": "clarity-claude_dev_2557_e229d9",
+      "baseline_reseed": "ran after the tiger.state patch; scans 0->795, kits 15->67, kit_settings 0->1",
+      "seed": "ran (tinker): tiger_data.zcta5_all 0->4 ZCTAs, platform.zones 0->3, zone_user attached"
+    },
+    "provisioned_early": true,
+    "plans": [
+      ".context/qa-plan-agent.md",
+      ".context/qa-plan-human.md"
+    ],
+    "seed_script": ".context/qa-seed.tinker.php",
+    "reseed_cmd": "php artisan tinker .context/qa-seed.tinker.php",
+    "backend_lane": "COMPLETE/clean: B1 boot, B2 searchZipCodes(4 rows; 75202 2 rings; 75203 2601 pts), B3 zone geom (Mixed 3 parts; Donut holes=1), B4 built-asset contents",
+    "browser_lane": "COMPLETE: 3 lanes, 12/12 items \u2705 (lane 1 A1-A6 contrast; lane 2 A7-A11 map behaviour; lane 3 A12 explicit removal, run alone after the others because it mutates zone data)",
+    "screenshots": ".context/qa-screenshots/ (17 shots + manifest.json)",
+    "seed_mutated_by_qa": "A12 removed ZIP 75201 from QA Mixed Zone and saved; re-seed with `php artisan tinker .context/qa-seed.tinker.php` if hp-6 should start from two ZIPs",
+    "human_guide": ".context/qa-human-guide.html",
+    "coverage_gaps": [
+      {
+        "gap": "client portal untested",
+        "detail": "The chip token change reaches the customer-facing /client panel: PlatformPanelProvider.php:56 sets ->viteTheme('resources/css/filament/app/theme.css') and BOTH App.php and Client.php use that trait; the chip rules key off panel-agnostic Filament classes (.fi-select-input-value-badges-ctn / .fi-fo-tags-input-tags-ctn .fi-badge.fi-color-primary). No agent-QA item visited /client. Not a defect \u2014 an untested customer-facing surface on a hotfix shipping straight to deploy.",
+        "found_by": "driver, Phase 7 Build Record review",
+        "surfaced_in": [
+          "qa-human-guide.html aqa-4",
+          "qa-plan-human.md",
+          "ledger qa_log",
+          "PR Status block"
+        ],
+        "status": "CLOSED by human check 2026-09-16 (operator confirmed /client chips render correctly in both modes)"
+      },
+      {
+        "gap": "AC-6 / AC-8 not agent-verified",
+        "detail": "AC-6 (vertex drag -> Save -> reload) has no agent item; AC-8's new-zone half not exercised. Both N/A, deferred to hp-4 / hp-7.",
+        "found_by": "Phase 6 AC fold-in",
+        "surfaced_in": [
+          "qa-ac-results.json",
+          "qa-human-guide.html pitfalls",
+          "Jira mirror"
+        ],
+        "status": "CLOSED by human QA 2026-09-16 (hp-4 passed; hp-7 covered)"
+      }
+    ],
+    "human_qa": {
+      "completed_at": "2026-09-16T13:35:01Z",
+      "by": "operator (Dalton)",
+      "result": "PASS \u2014 no failures reported",
+      "verified": [
+        "hp-4: donut interior ring survived drag -> Save -> reload; ZIP chip detached as designed",
+        "hp-7 / new-zone flow: covered by the manual pass, no failures",
+        "aqa-4 /client portal chips: checked, render correctly in both modes, nothing else shifted"
+      ]
+    },
+    "teardown_detail": "Ledger-driven, teardown-only (QA_TEARDOWN_ONLY=1 from Phase 7 step 6). Dropped zod_claude_dev_2557_e229d9 + zod_testing_claude_dev_2557_e229d9; unlinked herd site clarity-claude_dev_2557_e229d9; ClickHouse nothing to drop (strategy=deferred, never provisioned); .env reverted (MAIL_MAILER->smtp, CLICKHOUSE_HOST->Cloud endpoint, DEV_LOGIN_ENABLED->true); browser sessions swept; ledger deleted. NO guard refusals. Receipt at .context/qa-complete.md. NOT torn down (not ledger-named): the harness worktree dev-2557-resume-60ddea and its bootstrap set zod_claude_dev_2557_resume_60ddea / zod_testing_claude_dev_2557_resume_60ddea / site clarity-claude_dev_2557_resume_60ddea."
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test tests/Filament/Pages/ManageZonesTest.php",
+        "passed": 29,
+        "failed": 0
+      },
+      {
+        "cmd": "php artisan test tests/Models/ZoneTest.php",
+        "passed": 11,
+        "failed": 3,
+        "note": "PRE-EXISTING - identical 11/3 at baseline with the whole diff stashed out; unreachable from a CSS/JS/blade diff"
+      },
+      {
+        "cmd": "composer format (pint)",
+        "passed": 1,
+        "failed": 0
+      },
+      {
+        "cmd": "npm run build",
+        "passed": 1,
+        "failed": 0
+      }
+    ],
+    "deviations": [
+      {
+        "source": "implement:t1",
+        "edit": "ZIP chip x button: dropped the plan-literal hover:text-danger-600 / dark:hover:text-danger-400 Tailwind utilities and restated the hover in theme.css as .clarity-chip-btn:hover/:focus-visible { color: var(--danger-600) } (+ .dark -> var(--danger-400))",
+        "ac_ref": null,
+        "ac_delta": null,
+        "reason": "Tailwind utilities compile into layer(utilities); the new unlayered .clarity-chip-btn color rule beats them by the same unlayered-wins mechanism driver amendment B flagged for the vendor badge icon. Keeping the plan's literal classes would have silently killed the hover state. Driver verified --danger-600/--danger-400 are live, non-degenerate Filament vars."
+      },
+      {
+        "source": "implement:t2 + driver",
+        "edit": "selectZip() re-click guard: added `if (this.selectedZip === zip) return;` before the deselect call",
+        "ac_ref": null,
+        "ac_delta": null,
+        "reason": "t2 flagged rather than silently fixed an unbounded listener leak when re-clicking an already-selected ZIP (zipListeners[zip] was reassigned without removing the prior three path listeners). Driver judged it in-scope - a defect inside this node's own new function, not pre-existing drift - and applied the one-line guard."
+      },
+      {
+        "source": "driver:t4",
+        "edit": "deleted boost.json per the plan's t4 instruction, then restored it",
+        "ac_ref": null,
+        "ac_delta": null,
+        "reason": "boost.json is TRACKED and COMMITTED in this repo and npm run build did not modify it; the plan's 'delete boost.json before staging' note is wrong for platform. Restored with git checkout and the plan corrected. No net change."
+      }
+    ],
+    "review": {
+      "lanes": [
+        "claude1",
+        "claude2",
+        "claude3"
+      ],
+      "scores": [
+        92,
+        94,
+        94
+      ],
+      "findings_fixed": [
+        "HIGH (claude1 H1 / claude2 H1) - DETACH dropped interior rings; geometryToRingSets + ringSetToPaths + closeRing + polygonToGeoJson(getPaths) + attachEditablePolygonHandlers(all rings), all 3 call sites converted incl. beginEdit rehydrate",
+        "MEDIUM (claude1 H2 / claude2 M3) - stale ZIP click listeners survived detach; now stored in zipClickListeners and released via releaseZipListeners()",
+        "MEDIUM (claude1 H3 / claude2 M4) - unbounded editable ZCTA could freeze the tab and write a full-resolution ring into the definition JSON; zipEditVertexCap=2000 guard with an explanatory notice",
+        "LOW (claude3 L4) - selectZip validated the target after deselecting; guards reordered",
+        "TEST INTEGRITY (all 3 lanes) - the three new tests contained no ZIP and passed identically before/after; replaced with four tests that start from a ZIP-bearing zone and pin the transition, incl. interior-ring preservation"
+      ],
+      "findings_residual": [
+        {
+          "id": "RN2-claude1-M1 / claude2-M1 / claude3-M2",
+          "severity": "medium",
+          "title": "No test in this change can fail from a regression in the code it ships - the four new tests pin only the server-side definition round-trip, so reverting polygonToGeoJson to getPath(), the listener release, or the vertex cap leaves all 30 tests green.",
+          "disposition": "ACCEPTED as a documented gap, not fixed. The client half needs a Playwright spec; the harness exists (see below) but is not wired to this page and adding it is new scope on a hotfix. Follow-up warranted."
+        },
+        {
+          "id": "RN2-claude1-M1 (factual)",
+          "severity": "medium",
+          "title": "The 'no JS test runner in this repo' premise - carried from prep-context.notes and repeated in the test file - is FALSE. playwright.config.ts, tests/e2e/gl-kits.spec.ts and `npm run test:e2e` all exist (Playwright is simply not installed in node_modules right now).",
+          "disposition": "FIXED post-gate: the test file comment now states the truth and names the harness. Comment-only, no behaviour change. prep-context.notes[1] is also wrong and should be corrected in the post-approval pass."
+        },
+        {
+          "id": "RN2-claude3-M1",
+          "severity": "medium",
+          "title": "hydrateZips() silently drops ZIPs whose boundary fetch fails and then writes the truncated list into definition.zip_codes, permanently losing the ZIP on the next save.",
+          "disposition": "PRE-EXISTING (:412-443); the lane scoped it honestly and did not deduct. This diff only swaps the click wiring at :436. Not fixed here - but exposure rises because this ticket makes editing ZIP-derived zones routine. Strong follow-up candidate."
+        },
+        {
+          "id": "RN2-claude2-L3",
+          "severity": "low",
+          "title": "Re-adding a previously detached ZIP silently restores the area the user just edited away (the detached polygon and the re-derived ZIP now overlap).",
+          "disposition": "Not fixed - inherent to DETACH as specified by the operator. Worth surfacing in human QA."
+        },
+        {
+          "id": "RN2-claude2-L4 / claude1-L1",
+          "severity": "low",
+          "title": "The vertex cap makes AC4 unreachable for an unmeasured fraction of real ZCTAs, and a rejected selection writes a notice about ZIP B while ZIP A stays selected.",
+          "disposition": "Accepted trade: an explained refusal beats a frozen tab. The fraction is unmeasured because tiger_data.zcta5_all is empty locally. Durable fix is ST_SimplifyPreserveTopology in searchZipCodes - separate ticket."
+        },
+        {
+          "id": "RN2-claude3-L1",
+          "severity": "low",
+          "title": "Zone::geoJsonHasValidRing() validates only the exterior ring, while this diff makes the client emit interior rings for the first time.",
+          "disposition": "Checked: a 2-ring polygon saves cleanly (test_a_detached_boundary_keeps_its_interior_rings passes), so validation does not reject it. Hardening the validator is follow-up, not a blocker."
+        }
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "harness-claude-p"
+        },
+        {
+          "lane": "claude2",
+          "source": "harness-claude-p"
+        },
+        {
+          "lane": "claude3",
+          "source": "harness-claude-p"
+        }
+      ],
+      "gate_score": 92,
+      "gate_score_src": "lane-min",
+      "rounds": [
+        {
+          "rn": 1,
+          "reason": "gate",
+          "at": "2026-09-15T19:20:00Z"
+        },
+        {
+          "rn": 2,
+          "reason": "gate",
+          "at": "2026-09-15T20:10:00Z"
+        }
+      ],
+      "unresolved_premises": [
+        {
+          "claim": "Editable ZCTA vertex counts reach 10^3-10^4 in production, making the freeze real",
+          "premise": "tiger_data.zcta5_all has 0 rows in both the dev and testing databases, so no lane or QA pass in this run could exercise a real ZCTA at production vertex density",
+          "verify_by": "Seed a real coastal ZCTA into tiger_data.zcta5_all and click it on /app/manage-zones, or query production zod for max vertex count per zcta5ce"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "2fffc89d060952dcbaeaef192c157ccf05035bcf",
+      "rework_pivot": false
+    },
+    "ac": [
+      {
+        "item": "AC-1",
+        "status": "SATISFIED",
+        "evidence": "ZIP chips 75201/75204 measured in-page in LIGHT mode: color rgb(140,49,50) on background rgb(255,231,228) = 6.846:1 (gate 4.5:1; pre-fix baseline 1.00:1). Drawing banner same rule, 6.846:1."
+      },
+      {
+        "item": "AC-2",
+        "status": "SATISFIED",
+        "evidence": "Same chips in DARK mode: color rgb(255,207,203) on rgba(240,103,101,0.18) alpha-composited over the .fi-section opaque ancestor = 9.864:1. Drawing banner 9.864:1."
+      },
+      {
+        "item": "AC-3",
+        "status": "SATISFIED",
+        "evidence": "Chip colours resolve through var(--clarity-chip-*) in the built theme-DD-xtf5u.css; exactly 6 chip custom properties defined and every computed value traced back to its token (no pasted hex on the chip rule). Regression guard A5: primary button/link still white on #FF6666 = 2.859:1 in BOTH modes, i.e. unchanged - the fix did not leak past the chips."
+      },
+      {
+        "item": "AC-4",
+        "status": "SATISFIED",
+        "evidence": "Clicking the 75201 boundary SELECTS it: overlay count unchanged (75201:1, 75204:1), both chips intact, selectedZip='75201' - it no longer deletes. Donut ZIP 75202 renders and stays at getPaths().getLength()===2 (interior ring preserved) through the select transition. Backend B2 confirms the fixture: searchZipCodes('752')=4 rows, 75202 carries 2 rings, 75203 carries 2,601 points."
+      },
+      {
+        "item": "AC-5",
+        "status": "SATISFIED",
+        "evidence": "The selected ZIP overlay is genuinely editable: getEditable()===true with corner/midpoint drag handles rendered, while the unselected 75204 stays in the plain non-editable style. The donut's interior ring carries its own independent handle set. NOTE: the affordance is confirmed; actually dragging a vertex and persisting the result is human step hp-4."
+      },
+      {
+        "item": "AC-6",
+        "status": "SATISFIED",
+        "evidence": "HUMAN-VERIFIED (hp-4, operator, 2026-09-16): dragged a vertex on the donut ZIP 75202, saved, and did a full reload \u2014 the interior ring SURVIVED the round-trip and the ZIP chip detached as designed. This is the step no automated check could cover (client-side JS, no Playwright spec wired to this page). Agent-side corroboration: A12 proved a definition change survives the same save path; B3 proved the stored geom retains ST_NumInteriorRings=1."
+      },
+      {
+        "item": "AC-7",
+        "status": "SATISFIED",
+        "evidence": "Explicit chip-x removal of 75201 is precisely scoped: 75204's chip and overlay stay, the zone's DRAWN polygon survives (polygonCount stayed 1 through removal, Save and full reload), and 75201 does not reappear after reload. Conversely A7 proves a map click no longer removes anything."
+      },
+      {
+        "item": "AC-8",
+        "status": "SATISFIED",
+        "evidence": "Both-modes half AGENT-MEASURED: A1-A5 each measured in light and dark. New-zone half HUMAN-VERIFIED via the operator's manual pass (hp-7), completed 2026-09-16 with no failures reported."
+      },
+      {
+        "item": "AC-9",
+        "status": "SATISFIED",
+        "evidence": "Assigned Kit Users badge (Filament .fi-badge multi-value select, the chip the reporter amended the ACs for and the one no ->color() API can fix) measured 6.846:1 light and 8.593:1 dark. Both over the 4.5:1 gate."
+      },
+      {
+        "item": "AC-9 (client-portal reach)",
+        "status": "SATISFIED",
+        "evidence": "Driver-found coverage gap aqa-4, closed by human check 2026-09-16: the chip tokens reach the customer-facing /client panel (PlatformPanelProvider.php:56 viteTheme + both App.php and Client.php use the trait; chip selectors are panel-agnostic Filament classes). No agent-QA item visited /client. Operator manually confirmed the /client chips render correctly in both modes with nothing else shifted."
+      }
+    ],
+    "build_record_draft": ".context/build-record-draft.md"
+  },
+  "spawned_sessions_note": "The 'gate' row for session A is deliberately OMITTED: this is a CCD desktop session and its own id is not exposed to itself (list_sessions excludes the current session). Recording a placeholder would make session-closeout.sh a silent no-op. Session A is identifiable by its title 'DEV-2557: Phase A - Gate' and can only be archived from a desktop session, or automatically via the app's 'Auto-archive on PR close' preference."
+}

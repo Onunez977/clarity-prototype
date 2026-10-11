@@ -1,0 +1,178 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Extract the held-flexible cache machinery to a shared Dashboard concern",
+      "approach": "dc2 (operator-approved): heldFlexible(), flexibleCreatedKey() and flexibleRefreshLock() are private/protected to app/Filament/Widgets/Dashboard/UniqueLprCaseClaims.php:166-222 and DEV-2464 is the second of three users (DEV-2465 named in its docblock). Move them verbatim into a new trait app/Filament/Widgets/Dashboard/Concerns/HeldFlexibleCache.php and refit UniqueLprCaseClaims onto it with ZERO behaviour change. Constants stay per-card (q13-caching.md: they are calibrated per query), so the trait must reach them through abstract protected accessors coldBlockSeconds()/coldLockSeconds()/refreshLockSeconds() rather than static::CONST -- a card that forgets one then fails at compile time instead of at runtime, and tests/Filament/Widgets/Dashboard/UniqueLprCaseClaimsHerdGuardTest.php:101-105 keeps reading the constants off the CARD by reflection, so it must stay green untouched. RISK NODE, called out deliberately: this edits UniqueLprCaseClaims, which shipped and passed QA four days ago (#392). It gets its own subtask and its own full test run for exactly that reason -- the proof of a pure refactor is that all three existing UniqueLprCaseClaims suites pass with no test edits. Do NOT also move MIN_TTL_SECONDS/getCacheTTL(): that override is per-card policy, not machinery.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/Concerns/HeldFlexibleCache.php",
+        "app/Filament/Widgets/Dashboard/UniqueLprCaseClaims.php"
+      ],
+      "intended_diffs": "NEW Concerns/HeldFlexibleCache.php: trait with heldFlexible(string $key, array $ttl, Closure $compute): mixed (warm-path double-key check on $key AND illuminate:cache:flexible:created:{$key}, then cache()->lock($key.':cold', coldLockSeconds())->block(coldBlockSeconds()) inside try/catch LockTimeoutException, then Cache::flexible($key,$ttl,$compute,flexibleRefreshLock()) in try/finally release) + protected static flexibleCreatedKey() + protected flexibleRefreshLock(): array{seconds:int} returning ['seconds' => $this->refreshLockSeconds()] + abstract protected coldBlockSeconds()/coldLockSeconds()/refreshLockSeconds(): int. Carry the existing docblocks across verbatim -- the Redis-cluster two-key subtlety and the 'guard must never mask a present value' ordering note are the load-bearing parts. UniqueLprCaseClaims.php: add `use HeldFlexibleCache;`, delete the three private/protected members, add the three accessors returning self::COLD_BLOCK_SECONDS / self::COLD_LOCK_SECONDS / self::REFRESH_LOCK_SECONDS. Constants and all other methods unchanged.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "UniqueLprCaseClaims",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex",
+      "disposition": "in-scope: implement in Phase 4"
+    },
+    {
+      "id": "t2",
+      "title": "Add LprRepossessionsQuery: single-pass A1 funnel with the DB-repos leg",
+      "approach": "New app/Clickhouse/Queries/LprRepossessionsQuery.php, modelled on UniqueLprCaseClaimsQuery (same static window()/monthlySeries() API, same zodDb() prefix, same NO-ClickhouseQuery-subclass decision so a failure propagates instead of rendering as an indistinguishable 0 -- 4 of 29 entitled orgs legitimately read 0 per q10-q11-oscar.md). SQL body = the production-validated docs/investigations/DEV-2464/measure-org-monthly.sql, with the four q14/rescope corrections applied: (1) the insightlpr exclusion via the orgs FINAL CTE on BOTH sides (position(lower(replaceRegexpAll(coalesce(name,''),'[^a-zA-Z0-9]','')),'insightlpr') = 0), never a titlemax needle; (2) uniqExact over the (forwarder_org_id, agent_org_id, vin) triple, never uniq (HyperLogLog, and this figure is reconciled against Brek's report); (3) restructured to a SINGLE reference to the deduped CTE, i.e. one pass over zod.public_billing_events -- the measured SQL references it three times (pairs, floor_date, final FROM) and okf/concepts/billing-events.md measures each extra reference as exactly 3.0x the read_rows; (4) explicit 'UTC' in every date function (q9: neither CH connection block carries a timezone key). Per-table CDC discipline, deliberately asymmetric per driver-verification.md: FINAL + _peerdb_is_deleted = 0 on public_hotlist (13.3% raw overcount whole-table) and public_api_keys/public_orgs; _peerdb_is_deleted = 0 WITHOUT FINAL on public_hotlist_status_log (raw == FINAL exactly, FINAL costs 10x) and on public_billing_events -- whose engine is ReplacingMergeTree(_peerdb_version), ONE argument, so FINAL does NOT drop its tombstones and the predicate is mandatory and not interchangeable (okf billing-events.md, PG-028). Recoveries leg is A1 and only A1: zod.public_hotlist FINAL status=3 join zod.public_hotlist_status_log new_status=3, keeping backyard's date floor and the deliberate h.vin-not-normalised asymmetry. Reuses the sibling's validated claims/kept CTE text rather than re-deriving it (q4's 'reuse, do not re-port'); see plan.md for why that reuse is by copy plus a cross-check test rather than by extracting a shared fragment out of the shipped class.",
+      "target_files": [
+        "app/Clickhouse/Queries/LprRepossessionsQuery.php",
+        "tests/Feature/Clickhouse/LprRepossessionsQueryTest.php"
+      ],
+      "intended_diffs": "LprRepossessionsQuery.php: public static window(?int $orgId, CarbonInterface $start, CarbonInterface $end): array{deduped:int, db_repos:int} and monthlySeries(?int $orgId, CarbonInterface $through): array<string, array{deduped:int, db_repos:int}> keyed 'Y-m-01'; private run() doing the same strtr token substitution ({db},{org},{f},{t},{event_type}) plus a new {floor} token; private sql(bool $bucketed). SQL: WITH orgs AS (...FINAL, _peerdb_is_deleted = 0), claims AS (billing_events INNER JOIN api_keys FINAL, WHERE _peerdb_is_deleted = 0 AND event_type = {event_type} AND ts BETWEEN {f} AND {t}, projecting claim_date and toStartOfMonth(...,'UTC') AS bucket), kept AS (insightlpr exclusion on fo/ao + ({org} = 0 OR forwarder = {org} OR agent = {org})), deduped AS (SELECT bucket, forwarder_org_id, agent_org_id, vin, min(claim_date) AS claim_date FROM kept WHERE success AND vin != '' GROUP BY bucket, forwarder_org_id, agent_org_id, vin). Final SELECT reads deduped ONCE: FROM deduped d LEFT JOIN (SELECT id, org_id, vin FROM {db}.public_hotlist FINAL WHERE _peerdb_is_deleted = 0 AND status = 3) h ON h.org_id = d.agent_org_id AND h.vin = d.vin AND d.agent_org_id != 0 LEFT JOIN (SELECT hotlist_id, created_at FROM {db}.public_hotlist_status_log WHERE _peerdb_is_deleted = 0 AND new_status = 3 AND toDate(created_at,'UTC') >= {floor}) hsl ON hsl.hotlist_id = h.id, selecting uniqExact(triple) AS deduped and uniqExactIf(triple, toDate(hsl.created_at,'UTC') >= d.claim_date - 7) AS db_repos, with GROUP BY bucket ORDER BY bucket when bucketed. TWO equivalences this restructure rests on and must state in the docblock: max(created_at) >= X is true iff ANY transition row satisfies it, so uniqExactIf over the join fan-out equals backyard's grouped max(); and {floor} = (UTC window start date - 7 days) computed in PHP is <= min(claim_date) - 7, i.e. strictly looser, so it cannot change the answer -- it only replaces the floor_date CTE that was a second pass over billing_events. Keep the agent_org_id != 0 guard that the dropped `pairs` CTE used to carry (q7: an unresolved agent must count in deduped but never in db_repos). New test file mirrors tests/Feature/Clickhouse/UniqueLprCaseClaimsQueryTest.php structurally (RequiresClickhouse, #[Group('clickhouse')], local seedOrg/seedApiKey/seedClaim helpers plus new seedHotlist/seedStatusLog helpers) and pins the RULES, never the production number: full-triple dedup; insightlpr excluded on each side; titlemax NOT excluded; event_type (not type) as discriminator and ls-claim out; inclusive UTC BETWEEN on the integer ts at both boundary seconds; org axis OR-match on both sides plus a third org excluded; repo transition exactly at claim_date-7 counts and one day earlier does not; a NULL/absent claimed_by_org_id counts in deduped but never in db_repos; a status=3 hotlist with no new_status=3 transition never counts; a soft-deleted (_peerdb_is_deleted = 1) and a duplicate-version hotlist row do not inflate db_repos; a tombstoned billing_events row is excluded even though FINAL would keep it (the 1-arg-engine regression); monthly bucketing on UTC calendar months; a dead-port ClickHouse connection raises ClickhouseException instead of returning 0. Plus ONE cross-check test that the deduped stage agrees with UniqueLprCaseClaimsQuery::window()['deduped'] on the same seeded fixture -- read-only on the sibling class, and the drift alarm for the copied CTE.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "LprRepossessionsQueryTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex",
+      "disposition": "in-scope: implement in Phase 4"
+    },
+    {
+      "id": "t3",
+      "title": "Replace the LprRepossessions stub's data methods, Pro gate and UTC label axis",
+      "approach": "The whole remaining card-side scope per rescope-after-main-merge.md: #394 already shipped the class, the cards() registration at index 3, the getStatColor() 'info' arm and the expansion-test entry, so this node only replaces behaviour inside app/Filament/Widgets/Dashboard/LprRepossessions.php. Keep extending DashboardWidget (q5 closed by shipped code) and override exactly the paths that reach cache()->remember(). getMonthlyData() becomes ONE heldFlexible(Cache::flexible([3600, 86400])) call around a 13-month UTC toStartOfMonth series, replacing the base's up-to-13-query fan-out (DashboardWidget.php:220-232) -- the one-query AC. The cache key MUST carry the window's identity ('monthly-series:'.$through->format('Y-m')) or a UTC month rollover serves a map whose newest bucket is absent and ?? 0 fabricates a zero, which on this card is indistinguishable from a legitimate reading. getModelQueryForDates() becomes a single window() call for today/last_7d; DELETE the stub's currentPeriodTotal() override so the base's one-key cache path applies, exactly as the sibling does. Add canViewCardData() on the existing FeatureEnum::COMPANY_METRICS (q1: do NOT add a FeatureEnum case -- it already covers both CLARITY_PRO and CLARITY_PRO_PLUS and a second case would break tests/Unit/Enums/FeatureEnumTest.php's assertCount(18)), copying the sibling's guard ORDERING (auth()->check() first, then canView(), then the entitlement OR admin_impersonator). Add the getCacheTTL() floor (q13 part 2: the base collapses to 10s under admin_impersonator, SHORTER than this query's contended p99, so every impersonated re-render would start a fresh scan -- a stampede, not staleness). Mirror all three UTC label-axis overrides (dc3, okf checklist item 6): getGraphLabels(), getHighlightedMonthsFromFilter(), getDescription(). Expose fetchMonthlySeries()/fetchWindowTotal()/runWindowQuery() as seams so counting doubles can pin the round-trip AC (the ClickHouse driver never fires DB::listen, so a listener-based assertion would silently prove nothing). Propagate failures -- no try/catch, no swallow to 0.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/LprRepossessions.php",
+        "tests/Filament/Widgets/Dashboard/LprRepossessionsTest.php"
+      ],
+      "intended_diffs": "LprRepossessions.php: drop the stub docblock note; `use HeldFlexibleCache;`; add MIN_TTL_SECONDS / COLD_BLOCK_SECONDS / COLD_LOCK_SECONDS / REFRESH_LOCK_SECONDS constants with PROVISIONAL values plus the three trait accessors (t5 re-derives the numbers -- do NOT copy DEV-2463's 12/90/60, tuned for a ~40M-row query against this one's 664M/2.50 GB); canViewCardData(); getCacheTTL() floor via getTimestamp() comparison, not Carbon lessThan() (composer analyse flags it on the parent's \\DateTimeInterface return type); getMonthlyData() building 13 elements from $series[$bucketKey]['db_repos'] ?? 0 and preserving the $monthlyDataMemo/formatMonthlyData() contracts; getModelQueryForDates() re-anchoring resolveCardRange()'s naive viewer-timezone strings with Carbon::parse($s, $timezone) before the query converts to UTC; fetchMonthlySeries()/fetchWindowTotal()/runWindowQuery() delegating to LprRepossessionsQuery and selecting the ['db_repos'] stage in runWindowQuery's caller so the stage choice itself is testable (a ['db_repos']->['deduped'] mutant must not survive); getGraphLabels()/getHighlightedMonthsFromFilter()/getDescription() on now('UTC'). Keep heading 'LPR Repossessions' and getRgbColor() [0,45,211] as shipped -- the heading must stay clearly distinct from RecoveryCounts' 'Total Repossessions' two slots earlier. New tests/Filament/Widgets/Dashboard/LprRepossessionsTest.php modelled on UniqueLprCaseClaimsTest + UniqueLprCaseClaimsHerdGuardTest: getCardKey() == 'lpr-repossessions'; getStatColor() is non-gray AND resolves through FilamentColor::getColor() (an unregistered name renders untinted with no error); canViewCardData() false for guest/BASIC/PRO_LITE, true for CLARITY_PRO/CLARITY_PRO_PLUS, and true under admin_impersonator; lockedStat() renders LOCKED_VALUE, has no chart, and executes ZERO queries on both seams; exactly one round trip per seam across all four filter states, with a per-instance memo check and a fresh-instance cache check; month buckets align on UTC not America/Chicago (freeze at 2026-08-01 02:00 UTC); a missing bucket renders 0 and the series is always 13 elements; a throwing seam propagates instead of rendering 0; the guard windows are sized against this card's own measured p99 and the clarity_clickhouse timeout_query (threshold finalised by t5). Use counting/stubbing/throwing subclasses -- never DB::listen.",
+      "depends_on": [
+        "t1",
+        "t2"
+      ],
+      "parallelizable": false,
+      "test_filter": "LprRepossessionsTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex",
+      "disposition": "in-scope: implement in Phase 4"
+    },
+    {
+      "id": "t4",
+      "title": "Add lpr-repossessions to the card-visibility gated allowlist",
+      "approach": "t3 makes this card Pro-gated for the first time, which flips an existing shared invariant: tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php:59-63 keeps a DELIBERATE allowlist of gated keys ('gating a card is a deliberate, reviewed act and never an accident') and lpr-repossessions is NOT in it, so the loop at :76 will fail with 'lpr-repossessions is gated, but only [...] should be' the moment canViewCardData() lands. Add the key to $expectedGated and extend the comment to name DEV-2464 alongside DEV-2461/2463/2467. The expandableCards() array_diff_key assertion at :83-88 and the assertCount(16, cards()) at :198 both follow automatically and need no edit. Contradicts rescope-after-main-merge.md's claim that #394 already shipped 'the Pro-gate shape' -- #394 shipped the grid slot and the colour arm, but the stub inherits RendersDashboardStat::canViewCardData() and is currently UNGATED; flagged to the driver rather than silently absorbed. Kept as its own node because it is the one file where the new card's gate collides with a shared, cross-card test.",
+      "target_files": [
+        "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php"
+      ],
+      "intended_diffs": "Insert 'lpr-repossessions' into the $expectedGated array (grid order: after 'unique-lpr-case-claims') and extend the preceding comment from FOUR to FIVE gated production cards, naming DEV-2464. No other edit; run the whole file plus tests/Filament/Pages/DashboardCardExpansionTest.php to confirm the registry order and test_all_four_hit_cards_are_contiguous() are untouched by the change.",
+      "depends_on": [
+        "t3"
+      ],
+      "parallelizable": true,
+      "test_filter": "DashboardCardVisibilityTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple",
+      "disposition": "in-scope: implement in Phase 4"
+    },
+    {
+      "id": "t5",
+      "title": "Validate the restructured SQL against production and calibrate the herd-guard constants",
+      "approach": "The single live, read-only measurement node -- it exists because two things CANNOT be pinned in CI. (a) Correctness at scale: t2's single-pass restructure is a genuine rewrite of the shape that was validated in perf-measurement.md, so it must re-reproduce Jul 2026 deduped 11,975 / db_repos ~9,135 platform-wide and 7,230 / ~5,369 for org 165 (the +18 over Brek's 9,116-9,117 is live-hotlist drift at ~1.3-1.6/day in one direction, reconciled across three readings -- not a dedup artefact). (b) The herd-guard constants: q13-caching.md forbids inheriting DEV-2463's 12/90/60 because they were tuned against a ~40M-row query with a 9.3s contended p99 while A1 measures 664,270,998 read_rows / 15.04 GB / 2.50 GB peak -- roughly 16x -- and under-sizing COLD_BLOCK_SECONDS is the documented failure mode where every waiter times out and computes anyway, turning N tabs into N x 2.5 GB. Measure this card's own contended p99 INTERLEAVED (perf-measurement.md section 2 records a sequential batch producing a badly misleading result; MEMORY.md carries the same lesson from DEV-2464 itself) and re-derive COLD_BLOCK_SECONDS > that p99, COLD_LOCK_SECONDS > CLICKHOUSE_TIMEOUT_QUERY (60), MIN_TTL_SECONDS, REFRESH_LOCK_SECONDS > 0. Read the server-side envelope from the X-ClickHouse-Summary RESPONSE HEADER (q12 is closed: no READ ON REMOTE grant needed) and treat wall clock as the least informative number available -- it misled this ticket three times. Confirm the single-pass claim by comparing read_rows against the 664M three-reference baseline (expect roughly one billing_events pass, ~40M, instead of three). Read-only as readonly_user; aggregates and envelopes only, never raw rows; do not commit any credential-shaped harness (checkpoint.sh's PII scan correctly refuses it -- read creds from chlocal/.env at runtime).",
+      "target_files": [
+        "app/Clickhouse/Queries/LprRepossessionsQuery.php",
+        "app/Filament/Widgets/Dashboard/LprRepossessions.php",
+        "tests/Filament/Widgets/Dashboard/LprRepossessionsTest.php",
+        "docs/investigations/DEV-2464/single-pass-validation.md"
+      ],
+      "intended_diffs": "New docs/investigations/DEV-2464/single-pass-validation.md recording, per variant: the reproduced funnel stages against the ticket targets, read_rows / read_bytes / memory_usage from the summary header, and an interleaved n>=8 timing distribution (min/median/p90/max) for the worst-case org. Then: final constant values in LprRepossessions.php with a docblock citing the measured p99 rather than DEV-2463's figures; the guard-window test's p99 threshold updated to match; any SQL correction the reproduction forces in LprRepossessionsQuery.php. Build Record inputs to hand back to the driver: the measured envelope (which replaces the ticket's 'restate the unmeasured production-Postgres cost' AC with a measured ClickHouse one), variant B recorded as measured-and-REJECTED with its 23%-of-counted-pairs repo_date divergence so nobody re-proposes the 5.9x-cheaper clarity.hotlist shortcut as a free win, and the TitleMax structural understatement (53.0% against a 75-88% peer pack) noted as known and deliberate.",
+      "depends_on": [
+        "t2",
+        "t3"
+      ],
+      "parallelizable": false,
+      "test_filter": "LprRepossessionsTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex",
+      "disposition": "OUT of Phase 4. Operator-run PRE-MERGE verification gate: re-validate the restructured single-pass SQL against production read-only and calibrate the herd-guard constants from this card's own measured p99. t3 ships PROVISIONAL constants and a provisional threshold in its test; t5 finalises both."
+    },
+    {
+      "id": "t6",
+      "title": "Add the lpr-repossessions Playwright spec",
+      "approach": "Mirror tests/e2e/unique-lpr-case-claims.spec.ts for the new card: it is the sibling precedent for exactly this card family and the only place the two UI-visible ACs (a number renders for a Pro org; the locked em-dash placeholder renders for a non-Pro org, in the same grid slot, with no sparkline and no 'Upgrade to Pro' upsell) are checked against a real browser. Carries the sibling's login trap verbatim: GET /__qa/login/{id} sets admin_impersonator unconditionally and BYPASSES the Pro gate, so non-Pro locked-card scenarios MUST authenticate by OTP via loginAsNonProOrgAdmin and must FAIL rather than skip if only the QA login is available. The UTC month axis is not independently observable from the UI on a fixed clock, so it stays pinned in PHPUnit (t3) and is not re-asserted here. Lowest-value node in the DAG and the natural trim point -- e2e is not run by CI (tests/e2e is Playwright against a live environment), so it verifies nothing on the PR by itself.",
+      "target_files": [
+        "tests/e2e/lpr-repossessions.spec.ts",
+        "tests/e2e/helpers/company-metrics.ts"
+      ],
+      "intended_diffs": "helpers/company-metrics.ts: add LPR_REPOSSESSIONS_CARD_KEY = 'lpr-repossessions' and LPR_REPOSSESSIONS_HEADING = 'LPR Repossessions', and add the pair to COMPANY_METRICS_CARD_HEADINGS at its grid position (after unique-lpr-case-claims). NOTE that array currently lists 11 of main's 16 registered cards -- the five #394 stubs are absent -- so add only this card's entry and do not 'fix' the others in this ticket. New tests/e2e/lpr-repossessions.spec.ts: heading and slot adjacency, a parseCount()-able value plus a sparkline for a Pro admin, the four date-filter toggles re-rendering, LOCKED_VALUE with no chart and no UPSELL_COPY for a non-Pro admin, and expansion via expandCard()/expandedDetail().",
+      "depends_on": [
+        "t3"
+      ],
+      "parallelizable": true,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "simple",
+      "disposition": "DEFERRED. Playwright never runs in CI on this repo, so a spec proves nothing on the PR. Not built in this ticket."
+    }
+  ],
+  "excluded_sites": [
+    {
+      "site": "q14 correction 1 -- insightlpr internal-org exclusion",
+      "reason": "NOT excluded. Covered by t2 (orgs FINAL CTE, both sides, canonical needle) with dedicated per-side tests and the fails-open tombstone limitation recorded in the docblock."
+    },
+    {
+      "site": "q14 correction 2 -- uniqExactIf over the triple, never uniq",
+      "reason": "NOT excluded. Covered by t2's final SELECT (uniqExact/uniqExactIf over (forwarder_org_id, agent_org_id, vin)) plus the same three dedup regression tests that caught a bare-countIf mutant on the sibling."
+    },
+    {
+      "site": "q14 correction 3 -- single pass over billing_events",
+      "reason": "NOT excluded. Covered by t2's restructure to ONE deduped reference (PHP-side {floor} replaces floor_date, the LEFT JOIN replaces pairs) and confirmed by t5's read_rows comparison against the 664M three-reference baseline."
+    },
+    {
+      "site": "clarity.hotlist repo_date shortcut (q8 variant B)",
+      "reason": "Measured and rejected: 5.9x cheaper but its repo_date differs from the status transition on 1,588 of 6,770 counted pairs (23%) and 2 (vin, org) pairs are missing outright. Recorded in the Build Record by t5 so it is not re-proposed."
+    },
+    {
+      "site": "A new FeatureEnum case at CLARITY_PRO + CLARITY_PRO_PLUS (Jira comment 39129)",
+      "reason": "Stale instruction. FeatureEnum::COMPANY_METRICS already exists at both tiers and is Pennant-defined; a second case would gate the card independently of its own dashboard and break FeatureEnumTest's assertCount(18). q1."
+    },
+    {
+      "site": "cards() registration, the getStatColor() 'info' arm, DashboardCardExpansionTest and the 11->16 registry counts",
+      "reason": "Already shipped by #394 (9569ae76). Re-doing them is explicitly out of scope."
+    },
+    {
+      "site": "The cards() docblock grid-alignment claim (re-aligns at 12) and okf company-metrics-dashboard.md's stale 10-card cards() table",
+      "reason": "Both are documentation drift on already-shipped registration, not this card's behaviour. okf edits are forbidden while work is in flight (CLAUDE.md WRITE rule); queued for the post-merge pass."
+    },
+    {
+      "site": "titlemax-viewer disclosure copy and any zero-state / visibility branch",
+      "reason": "Oscar 2026-09-09: disclosure copy is handled outside this ticket, and the zero denominator was wrong (29/29 entitled orgs read non-zero in Aug 2026). Neither adds work. q10/q11."
+    },
+    {
+      "site": "The full five-column funnel in the expanded card state",
+      "reason": "Additive per comment 39129 and required by no AC; orgDbReposSql() returns a scalar db_repos only."
+    },
+    {
+      "site": "database/schema/clickhouse-schema.sql and tests/Concerns/RequiresClickhouse.php (blockers b1/b2)",
+      "reason": "Already fixed on main -- DEV-2463 cherry-picked both byte-identically. Verified: billing_events is at schema line 52 and all four zod.public_* tables are in the truncation list."
+    },
+    {
+      "site": "Granting readonly_user READ ON REMOTE for the server-side envelope",
+      "reason": "Infra, not app code, and no longer needed: the X-ClickHouse-Summary response header carries read_rows/read_bytes/memory_usage without it. q12."
+    },
+    {
+      "site": "Extracting the shared claims/kept CTE text out of the shipped UniqueLprCaseClaimsQuery",
+      "reason": "Deliberate deviation from q4's 'reuse rather than re-port' wording, defaulted rather than decided -- see plan.md. The two queries need different shapes (aggregates-only vs row-level with min(claim_date) and bucket), the shared part is inert SQL text, and a second refactor of just-shipped QA-passed code costs more than the cross-check test in t2 that catches divergence."
+    }
+  ],
+  "split_decision": {
+    "by": "Dalton McCleery",
+    "date": "2026-09-09",
+    "decision": "t1-t4 together as the shippable unit; t5 as an operator-run pre-merge verification; t6 deferred.",
+    "phase4_scope": [
+      "t1",
+      "t2",
+      "t3",
+      "t4"
+    ]
+  }
+}

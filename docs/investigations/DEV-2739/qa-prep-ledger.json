@@ -1,0 +1,293 @@
+{
+  "version": 2,
+  "key": "DEV-2739",
+  "ticket": "DEV-2739",
+  "unblocks": [
+    "DEV-2739 Path A provision / Agent QA"
+  ],
+  "repo": "insight-lpr/platform",
+  "app": "clarity",
+  "pr": 469,
+  "tip_sha": "b0a89abdf714f882c9dc3ae316ada6acc53351f9",
+  "status": "live",
+  "phase": "provisioned_live",
+  "phase_detail": "Path A fleet twin LIVE for PR #469 tip b0a89abd; product lock Given=any geocoded hotlist address (no type_id); Path A PG",
+  "product_lock": "Given=any geocoded hotlist address (no type_id); Path A PG",
+  "scope": "Stand Path A keyed fleet twin for DEV-2739 (PR #469 tip b0a89abdf \u2014 Path A retarget / no product PHP implemented by this stand). Separate containers/ports/DBs from live DEV-2601 and all torn Path A keys. Cloud CH READ-ONLY.",
+  "host": {
+    "machine": "Galadriel fleet Linux box",
+    "hostname": "grok-bot-vm-403507934",
+    "note": "Mac Herd/Expose is NOT the live-QA host"
+  },
+  "path_a": {
+    "note": "Path A live keys: DEV-2739 + DEV-2601 (do not collide / do not tear DEV-2601).",
+    "soft_ok_vs": "live DEV-2601 :18088/:15440/:18131 / torn DEV-2737 / torn DEV-2600 / torn DEV-2616 / torn DEV-2660 / torn DEV-2736 / torn DEV-2738 / torn DEV-2659 / torn DEV-2654 / SCHEMA-DRIFT-2657",
+    "live_ledger_count": 2,
+    "live_keys": [
+      "DEV-2601",
+      "DEV-2739"
+    ],
+    "no_global_current_env": true,
+    "mac_herd_refused": true,
+    "cloud_ch_writes": false
+  },
+  "other_live_fleet_ledgers": [
+    {
+      "key": "DEV-2601",
+      "path": "/workspace/docs/investigations/DEV-2601/qa-prep-ledger.json",
+      "status": "live",
+      "live": true,
+      "note": "Sister twin on :18088/:15440/:18131 \u2014 LEFT INTACT; DEV-2739 uses :18089/:15441/:18132"
+    },
+    {
+      "key": "DEV-2737",
+      "path": "/workspace/docs/investigations/DEV-2737/qa-prep-ledger.json",
+      "status": "torn_down",
+      "live": false,
+      "note": "Refuse reuse :18087/:15439/:18130"
+    },
+    {
+      "key": "DEV-2600",
+      "path": "/workspace/docs/investigations/DEV-2600/qa-prep-ledger.json",
+      "status": "torn_down",
+      "live": false,
+      "note": "Ports reused by live DEV-2601 (:18088/:15440/:18131)"
+    },
+    {
+      "key": "DEV-2616",
+      "path": "/workspace/docs/investigations/DEV-2616/qa-prep-ledger.json",
+      "status": "torn_down",
+      "live": false,
+      "note": "Refuse reuse :18086/:15438/:18129"
+    },
+    {
+      "key": "DEV-2660",
+      "path": "/workspace/docs/investigations/DEV-2660/qa-prep-ledger.json",
+      "status": "torn_down",
+      "live": false,
+      "note": "Refuse reuse :18085/:15437/:18128"
+    },
+    {
+      "key": "DEV-2736",
+      "path": "/workspace/docs/investigations/DEV-2736/qa-prep-ledger.json",
+      "status": "torn_down",
+      "live": false,
+      "note": "Refuse reuse :18084/:15436/:18127"
+    },
+    {
+      "key": "DEV-2738",
+      "path": "/workspace/docs/investigations/DEV-2738/qa-prep-ledger.json",
+      "status": "torn_down",
+      "live": false,
+      "note": "Torn"
+    },
+    {
+      "key": "SCHEMA-DRIFT-2657",
+      "path": "/workspace/docs/investigations/SCHEMA-DRIFT-2657/qa-prep-ledger.json",
+      "status": "unknown_or_torn",
+      "live": false,
+      "note": "Do not reuse :18125"
+    },
+    {
+      "key": "DEV-2659",
+      "path": "/workspace/docs/investigations/DEV-2659/qa-prep-ledger.json",
+      "status": "torn_down",
+      "live": false,
+      "note": "Refuse reuse :18083/:15435/:18126"
+    },
+    {
+      "key": "DEV-2654",
+      "path": "/workspace/docs/investigations/DEV-2654/qa-prep-ledger.json",
+      "status": "torn_down",
+      "live": false,
+      "note": "Refuse reuse :18082/:15434/:18124"
+    }
+  ],
+  "live_fleet_ledger": {
+    "key": "DEV-2739",
+    "status": "live",
+    "site": "http://127.0.0.1:18089",
+    "postgres": "0.0.0.0:15441",
+    "clickhouse": "0.0.0.0:18132",
+    "live": true
+  },
+  "site": {
+    "local_url": "http://127.0.0.1:18089",
+    "login_path": "/app/login",
+    "fleet_reachable_url": "http://127.0.0.1:18089",
+    "container": "clarity-qa-app-dev-2739",
+    "image": "clarity-qa-dev-2652:latest",
+    "image_note": "Reused slim FrankenPHP runtime clarity-qa-dev-2652:latest",
+    "publish": "0.0.0.0:18089->80",
+    "http_probe": "GET /app/login -> 200",
+    "probe_passed": true,
+    "hard_stop": null,
+    "checkout": "/workspace/dev-2739-wt",
+    "checkout_sha": "b0a89abdf714f882c9dc3ae316ada6acc53351f9",
+    "checkout_note": "insight-lpr/platform @ b0a89abdf (PR #469 tip) worktree /workspace/dev-2739-wt on branch cursor/dev-2739-hits-distance-na-prep-439d; vendor+filament assets symlinked from matching composer.lock sibling (dev-2601-wt)",
+    "note": "Path A stand for DEV-2739. Product lock: Given=any geocoded hotlist address (no type_id); Path A PG. Not Mac Herd. Does not share DSN/ports with DEV-2601 or any other key.",
+    "qa_user": {
+      "id": 1,
+      "email": "test@tester.com",
+      "password_ref": "/workspace/first-glance/secrets/dev-2739-qa-user-password.txt",
+      "schema": "overwatch.users",
+      "also_platform_users": true
+    },
+    "http_end_to_end": true,
+    "pr": 469,
+    "tip_sha": "b0a89abdf714f882c9dc3ae316ada6acc53351f9",
+    "product_lock": "Given=any geocoded hotlist address (no type_id); Path A PG"
+  },
+  "postgres": {
+    "container": "clarity-qa-postgres-dev-2739",
+    "image": "postgis/postgis:16-3.4",
+    "publish": "0.0.0.0:15441->5432",
+    "host": "0.0.0.0",
+    "host_from_box": "127.0.0.1",
+    "host_from_app_container": "172.23.0.1",
+    "port": 15441,
+    "dev_db": "zod_dev_2739",
+    "testing_db": "zod_testing_dev_2739",
+    "user": "clarity",
+    "password_ref": "/workspace/first-glance/secrets/dev-2739-pg-password.txt",
+    "superuser_password_ref": "/workspace/first-glance/secrets/dev-2739-pg-superuser-password.txt",
+    "env_ref": "/workspace/first-glance/secrets/clarity-qa-dev-2739.env",
+    "seed": "Restored zod_schema_gate.restore.sql into zod_dev_2739 (139 public BASE TABLE; platform 41); testing DB empty+postgis; QA user id=1 (platform.users + overwatch.users) test@tester.com",
+    "cloudagent_note": "Published 0.0.0.0:15441; east-west from app uses 172.23.0.1:15441",
+    "dsn_summary": "postgresql://clarity@127.0.0.1:15441/zod_dev_2739 (password via password_ref)",
+    "prove_public_base_tables": 139,
+    "prove_platform_base_tables": 41
+  },
+  "clickhouse": {
+    "strategy": "docker",
+    "container": "clarity-qa-clickhouse-dev-2739",
+    "image": "clickhouse/clickhouse-server:25.8.11.66",
+    "host": "0.0.0.0",
+    "http_port": 18132,
+    "publish": "0.0.0.0:18132->8123",
+    "https": false,
+    "username": "default",
+    "password_ref": "/workspace/first-glance/secrets/dev-2739-ch-password.txt",
+    "database": "clarity_dev_2739",
+    "database_clarity": "clarity_dev_2739",
+    "database_clarity_testing": "clarity_testing_dev_2739",
+    "database_zod": "zod_dev_2739",
+    "database_zod_testing": "zod_testing_dev_2739",
+    "databases": [
+      "clarity_dev_2739",
+      "clarity_testing_dev_2739",
+      "zod_dev_2739",
+      "zod_testing_dev_2739"
+    ],
+    "schema_applied": {
+      "source_remap": "/workspace/docs/investigations/DEV-2739/seed-work/schema_*_dev_2739.sql",
+      "source_from": "/workspace/docs/investigations/DEV-2737/seed-work/schema_*_dev_2737.sql (sed dev_2737->dev_2739)",
+      "billing_claim_source": "/workspace/docs/investigations/DEV-2739/seed-work/apply-three-dev-2739.sql",
+      "method": "clickhouse-client --multiquery on Docker",
+      "clarity_tables_with_billing": 31,
+      "recovery_scans_present": true,
+      "billing_claim_events_on_main": true,
+      "billing_claim_note": "billing_claim_events + _v + _mv on clarity_dev_2739"
+    },
+    "tunnel_public_host": null,
+    "tunnel_tool": null,
+    "tunnel_status": "not_attempted \u2014 fleet reachable via 0.0.0.0:18132 publish",
+    "fleet_dsn_http": "http://127.0.0.1:18132/?database=clarity_dev_2739",
+    "http_port_path_notes": "CH HTTP 8123 published 0.0.0.0:18132; refuse reuse 18124-18131 (18131 = live DEV-2601)",
+    "prove_select": {
+      "result": "PASS",
+      "probe": "recovery_scans + billing_claim + table_count",
+      "table_count": 31,
+      "recovery_scans": true,
+      "billing_claim": [
+        "billing_claim_events",
+        "billing_claim_events_mv",
+        "billing_claim_events_v"
+      ],
+      "query": "system.tables recovery_scans/billing_claim on clarity_dev_2739",
+      "local_http": "http://127.0.0.1:18132",
+      "tunnel_http": null,
+      "cloud_touched": false,
+      "at": "2026-09-29T08:20:12-05:00"
+    },
+    "cloud_touched": false,
+    "cloud_write_attempted": false,
+    "teardown_done": false,
+    "status": "live",
+    "network": "clarity-qa-dev-2739",
+    "network_gateway": "172.23.0.1",
+    "clickhouse_from_app": {
+      "CLICKHOUSE_DRIVER": "clickhouse",
+      "CLICKHOUSE_HOST": "172.23.0.1",
+      "CLICKHOUSE_PORT": 18132
+    },
+    "host_from_box": "127.0.0.1",
+    "host_from_app_container": "172.23.0.1",
+    "port": 18132,
+    "dev_db": "clarity_dev_2739",
+    "testing_db": "clarity_testing_dev_2739"
+  },
+  "network": {
+    "name": "clarity-qa-dev-2739",
+    "gateway": "172.23.0.1",
+    "note": "Own dedicated docker network; DB_HOST/CLICKHOUSE_HOST=gateway"
+  },
+  "ports": {
+    "app": 18089,
+    "postgres": 15441,
+    "clickhouse": 18132,
+    "note": "Distinct from live DEV-2601 :18088/:15440/:18131"
+  },
+  "cloud_touched": false,
+  "prove_passed": true,
+  "mac_herd_refused": true,
+  "soft_ok_vs": "live DEV-2601 / torn DEV-2737 / torn DEV-2600 / torn DEV-2616 / torn DEV-2660 / torn DEV-2736 / torn DEV-2738 / torn DEV-2659 / torn DEV-2654 / SCHEMA-DRIFT-2657",
+  "artifacts": {
+    "ledger_docs": "/workspace/docs/investigations/DEV-2739/qa-prep-ledger.json",
+    "ledger_first_glance": "/workspace/first-glance/docs/investigations/DEV-2739/qa-prep-ledger.json",
+    "seed_work": "/workspace/docs/investigations/DEV-2739/seed-work/",
+    "schema_remap_meta": "/workspace/docs/investigations/DEV-2739/seed-work/schema_remap_meta.json",
+    "billing_claim_ddl": "/workspace/docs/investigations/DEV-2739/seed-work/apply-three-dev-2739.sql",
+    "pg_fixture_source": "/workspace/docs/investigations/DEV-2653/seed-work/zod_schema_gate.restore.sql",
+    "stand_fleet_script": "/workspace/docs/investigations/DEV-2739/stand-fleet.sh",
+    "stand_fleet_log": "/workspace/docs/investigations/DEV-2739/stand-fleet.log",
+    "gateway": "/workspace/docs/investigations/DEV-2739/gateway.txt"
+  },
+  "secrets": {
+    "dir": "/workspace/first-glance/secrets/",
+    "refs": [
+      "/workspace/first-glance/secrets/dev-2739-pg-password.txt",
+      "/workspace/first-glance/secrets/dev-2739-pg-superuser-password.txt",
+      "/workspace/first-glance/secrets/dev-2739-ch-password.txt",
+      "/workspace/first-glance/secrets/dev-2739-qa-user-password.txt",
+      "/workspace/first-glance/secrets/clarity-qa-dev-2739.env"
+    ]
+  },
+  "timestamp": "2026-09-29T08:20:12-05:00",
+  "timestamp_label": "2026-09-29 08:20:12 CDT (America/Chicago)",
+  "qa_log": [
+    {
+      "at": "2026-09-29T08:20:12-05:00",
+      "stage": "qa-prep",
+      "event": "provisioned_live",
+      "details": "DEV-2739 Path A fleet twin LIVE: site :18089 login 200; PG :15441 zod_dev_2739 (139/41); CH :18132 table_count=31 recovery_scans+billing; gateway=172.23.0.1; checkout=/workspace/dev-2739-wt@b0a89abdf714; PR #469; product_lock Given=any geocoded hotlist address (no type_id); Path A PG; path_a live_keys=[DEV-2601,DEV-2739]; cloud_touched=false; mac_herd_refused=true; DEV-2601 twin left intact"
+    }
+  ],
+  "hard_stops": [],
+  "blockers": [],
+  "jira_provisioned": false,
+  "status_board_posted": false,
+  "baton": null,
+  "teardown_done": false,
+  "torn_down": false,
+  "notes": [
+    "Separate from live DEV-2601 and all torn Path A keys \u2014 no shared containers/ports/DBs/DSN",
+    "Ports: app 18089, PG 15441, CH 18132 (DEV-2601 owns 18088/15440/18131 \u2014 left intact)",
+    "Network clarity-qa-dev-2739 gateway 172.23.0.1",
+    "Cloud ClickHouse READ-ONLY \u2014 cloud_touched=false",
+    "Product lock: Given=any geocoded hotlist address (no type_id); Path A PG",
+    "Path A live_ledger_count=2 [DEV-2601, DEV-2739]",
+    "No product PHP implemented by this stand (PR #469 tip already on branch)",
+    "Checkout /workspace/dev-2739-wt @ b0a89abdf714f882c9dc3ae316ada6acc53351f9 (PR #469)"
+  ]
+}

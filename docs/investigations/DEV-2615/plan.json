@@ -1,0 +1,41 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Restore scopeForOrgs + historical org-set prune on ListScans CH path",
+      "approach": "Add Scan::scopeForOrgs. Add Kit::kitScanOrgSetCacheKey + Kit::scanOrgIdsForPrune (DISTINCT org_id from zod.kit_last_scan for authorized kit ids, unioned with org_ids from Kit::getKits so never-scanned kits still prune; cache per org+withShared; extend forgetCachedKits). ListScans::buildClickhouseQuery becomes forOrgs(...)->forKits(...). Invert ClickhouseScanQueryShapeTest to require org_id with real ids; add moved-kit shape/parity and cache-forget coverage.",
+      "target_files": [
+        "app/Clickhouse/Models/Scan.php",
+        "app/Models/Kit.php",
+        "app/Filament/Resources/ScansResource/Pages/ListScans.php",
+        "tests/Filament/Resources/ClickhouseScanQueryShapeTest.php"
+      ],
+      "intended_diffs": {
+        "app/Clickhouse/Models/Scan.php": "scopeForOrgs(array $orgIds) whereIntegerInRaw org_id",
+        "app/Models/Kit.php": "cache key + scanOrgIdsForPrune + forgetCachedKits clears org-set keys",
+        "app/Filament/Resources/ScansResource/Pages/ListScans.php": "forOrgs(Kit::scanOrgIdsForPrune(...))->forKits(scopedKitIds); update docblock",
+        "tests/Filament/Resources/ClickhouseScanQueryShapeTest.php": "assert org_id present; moved-kit / cache tests"
+      },
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "ClickhouseScanQueryShapeTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {
+      "file": "app/Filament/Resources/HitsResource/Pages/ListHits.php",
+      "reason": "DEV-2614 \u2014 Hits hotlist_org_id / feature-name; not Scans prune"
+    },
+    {
+      "file": "app/Filament/Resources/MissedOpportunityResource/Pages/ListMissedOpportunities.php",
+      "reason": "Different resource/table; not this incident"
+    },
+    {
+      "file": "ListScans::getVisitDateRange end-only floor",
+      "reason": "Q1 deferred by human"
+    }
+  ]
+}

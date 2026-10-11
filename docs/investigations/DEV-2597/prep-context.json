@@ -1,0 +1,296 @@
+{
+  "key": "DEV-2597",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "confidence": 88,
+  "escalate": {
+    "recommend": true,
+    "reason": "open product questions on cap policy + perf target; resource_envelope oracle_status=partial"
+  },
+  "synthesis": {
+    "problem": "On Scout Org Map (Bird's Eye), widening the date range makes the hit list feel slow, and nobody can tell whether the left-hand Live Hits list is complete or silently truncated. Demo guesses of '~20 rows' match code.",
+    "outcome": "Document the real caps, surface truncation in the UI wherever a cap applies, show a loading state while a range fetch is in flight, and measure 7/15/30d load times on a high-volume org against an agreed target."
+  },
+  "scope": {
+    "summary": "Stack on companion ticket (which removes BirdsEye recentHits limit(20)). DEV-2597: document remaining MAX_MAP_HITS=100, ensure truncation UI for map hits in admin Org Map, show loading/refreshing on Live Hits + range fetch, measure 7/15/30d against tiered targets.",
+    "proposed_changes": [
+      {
+        "file": "resources/js/clarity-scout/components/DashboardOverlay.vue",
+        "change": "Show loading/refreshing on Live Hits card; show rangeHitsCapped truncation in adminMode (not only !adminMode)",
+        "reason": "AC loading + truncation for remaining MAX_MAP_HITS cap",
+        "ref": "Live Hits card; rangeHitsCapped ~L110-118"
+      },
+      {
+        "file": "resources/js/clarity-scout/stores/dashboard.js",
+        "change": "Keep loading/refreshing correct on range switch; expose to overlay",
+        "reason": "Loading AC \u2014 flags exist but UI unused",
+        "ref": "setRange"
+      },
+      {
+        "file": "resources/js/clarity-scout/stores/map.js",
+        "change": "Coordinate loading if map hits fetch lags dashboard; keep rangeHitsCapped",
+        "reason": "Combined fetch latency is the measured surface",
+        "ref": "fetchRangeHits"
+      },
+      {
+        "file": "docs/investigations/DEV-2597 + QA/measurement",
+        "change": "Record cold/warm wall times for last_7/15/30 vs tiered targets",
+        "reason": "Perf AC",
+        "ref": "perf_validation"
+      }
+    ],
+    "target_files": [
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+      "app/Http/Controllers/Api/ClarityScoutMapController.php",
+      "app/Http/Controllers/Api/ClarityScoutDashboardController.php",
+      "resources/js/clarity-scout/stores/dashboard.js",
+      "resources/js/clarity-scout/stores/map.js",
+      "resources/js/clarity-scout/components/DashboardOverlay.vue",
+      "tests"
+    ],
+    "out_of_scope": [
+      "Removing BirdsEye recentHits limit(20) \u2014 owned by the companion admin-list-cap ticket",
+      "Changing MAX_MAP_HITS value from 100 unless measurement forces it",
+      "Companion ticket date-range query correctness beyond depending on its branch",
+      "Historical GPS path caps",
+      "Driver recentHits (already uncapped)"
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "The actual row limits, both query-side and render-side, are determined and documented",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Document MAX_MAP_HITS=100; admin 20-cap removal owned by the companion admin-list-cap ticket"
+    },
+    {
+      "item": "Where a cap exists, the UI indicates that results are truncated",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Map hits capped UI must show in admin Org Map; 20-list cap goes away with 2595"
+    },
+    {
+      "item": "Load time for 7, 15 and 30 day ranges is measured on a high-volume account against an agreed target",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Needs agreed target from human; then measure in Phase 3.5/QA"
+    },
+    {
+      "item": "A loading indicator is shown while a range is being fetched",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "dashboard.loading/refreshing exist but DashboardOverlay does not render them"
+    }
+  ],
+  "questions": [
+    {
+      "q": "Admin Live Hits list is silently capped at 20 (driver list already removed that cap). Keep 20 and show 'Showing the 20 most recent' OR remove the cap to match the driver?",
+      "answered": true,
+      "answer": "Defer admin limit(20) removal to the companion ticket (already implemented on prior companion branch). DEV-2597 owns remaining caps (MAX_MAP_HITS=100), truncation UI, loading indicator, and perf measurement.",
+      "source": "human:Dalton 2026-09-21 \u00b7 confirmed stack on companion admin-list-cap work"
+    },
+    {
+      "q": "What is the agreed load-time target for last_7 / last_15 / last_30 on a high-volume org (e.g. p95 < 2s wall clock for recentHits+hits)?",
+      "answered": true,
+      "answer": "Tiered cold-cache p95 for recentHits+hits combined: today/last_7 < 1s; last_15 < 2s; last_30 < 3s. Warm/cached < 300ms any range. Loading indicator must appear on any non-instant range switch. | Adjusted after measure: last_7 cold <2s (was 1s); warm via app Cache.",
+      "source": "human:Dalton 2026-09-21 \u00b7 accepted recommendation"
+    },
+    {
+      "q": "Cardinality oracle is partial (kits OK; organizations table missing in zod CDC). Approve proceeding with kits-only envelope for kit_ids fan-out sizing?",
+      "answered": true,
+      "answer": "Proceed with kits-only envelope (largest org 283 kits). CH hits cardinality deferred to measurement, not blocking.",
+      "source": "human:Dalton 2026-09-21 \u00b7 proceed"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "Companion ticket (admin list-cap / 7 Days filter trust) is the 7 Days filter trust defect \u2014 coordinate; do not 'fix' range keys here.",
+    "hits() cache TTL grows with range (last_30=5m, last_60=15m) \u2014 slow first paint vs cache hit is part of the demo lag story.",
+    "recentHits uses 10s cache; still does FINAL + hotlist semi-join over the full window before limit.",
+    "Stacked base: prior companion branch (PR #425). Gate answers recorded 2026-09-21"
+  ],
+  "tests": [
+    {
+      "file": "tests/Feature/*BirdsEye*",
+      "what_it_pins": "recentHits returns capped:true when >N open plates; capped:false otherwise; payload shape"
+    },
+    {
+      "file": "resources/js or browser QA",
+      "what_it_pins": "truncation copy + loading indicator on range switch"
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:55",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:691",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:941",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:999",
+      "app/Http/Controllers/Api/ClarityScoutDashboardController.php:135",
+      "app/Http/Controllers/Api/ClarityScoutMapController.php:40",
+      "resources/js/clarity-scout/stores/dashboard.js:28",
+      "resources/js/clarity-scout/stores/map.js:187",
+      "resources/js/clarity-scout/components/DashboardOverlay.vue:50",
+      "app/Http/Controllers/Api/Concerns/ScoutMapHelpers.php:35"
+    ],
+    "code_flow": "Org Map range change \u2192 dashboard.setRange + map.fetchRangeHits \u2192 BirdsEye recentHits (limit 20 silent) + hits (MAX 100 + capped) \u2192 Live Hits card renders recentHits with no capped/loading UI",
+    "tables": [
+      "ClickHouse hits (FINAL)",
+      "ClickHouse hotlists (Open semi-join)",
+      "kits (scope kit_ids)"
+    ],
+    "related_components": [
+      "DashboardOverlay Live Hits card",
+      "map rangeHits markers",
+      "Scout date-range control"
+    ]
+  },
+  "exhaustiveness": {
+    "patterns": [
+      "MAX_MAP_HITS",
+      "limit(20)",
+      "limitBy(1, 'ocr')",
+      "rangeHitsCapped",
+      "->capped"
+    ],
+    "sites": [
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+        "line": 55,
+        "snippet": "MAX_MAP_HITS = 100",
+        "verdict": "safe",
+        "reason": "Named const; hits() exposes capped",
+        "kind": "other"
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+        "line": 1000,
+        "snippet": "limit(20) on recentHits",
+        "verdict": "deferred",
+        "reason": "Owned by the companion admin-list-cap ticket (remove to match driver); not in DEV-2597",
+        "kind": "single"
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutMapController.php",
+        "line": 40,
+        "snippet": "MAX_MAP_HITS = 100",
+        "verdict": "safe",
+        "reason": "Driver map hits; returns capped",
+        "kind": "other"
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutDashboardController.php",
+        "line": 135,
+        "snippet": "No ->limit(20) removed on main",
+        "verdict": "deferred",
+        "reason": "Owned by the companion admin-list-cap ticket (remove to match driver); not in DEV-2597",
+        "kind": "other"
+      },
+      {
+        "file": "resources/js/clarity-scout/components/DashboardOverlay.vue",
+        "line": 117,
+        "snippet": "rangeHitsCapped message under !adminMode",
+        "verdict": "buggy",
+        "reason": "Truncation UI missing for admin Live Hits (recentHits) and optionally admin map",
+        "kind": "other"
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [
+      "kits (read scope only)"
+    ],
+    "ch_tables": [
+      "hits",
+      "hotlists"
+    ],
+    "mv_or_cdc_implications": "none \u2014 read-only query/UI; no schema change",
+    "indexes_relied_on": [
+      "ClickHouse hot window + kit_org_id / kit_id / hit_created_at ordering"
+    ]
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "BirdsEye hits/recentHits CH queries over last_7/15/30 with org kit_ids IN list",
+    "driving_tables": [
+      {
+        "table": "kits",
+        "source": "zod.public_kits",
+        "prod_rows": 5644,
+        "group_by": "org_id",
+        "largest_group_rows": 283
+      }
+    ],
+    "growth": "kit count per org bounds IN-list size; hit volume over range is CH-side (not in PG CDC oracle)",
+    "schedule": {
+      "expression": "on-demand HTTP + 10s recentHits cache / range-tiered hits cache",
+      "interval_seconds": null,
+      "without_overlapping_minutes": null
+    },
+    "allocation_sketch": "Per request: CH FINAL scan of windowed hits for up to ~283 kits, then plate-dedupe + limit; PHP holds at most 101 hit rows for map / 21 for list probe",
+    "oracle_status": "partial",
+    "unresolved": [
+      "CH hits row counts not in PG CDC oracle \u2014 measure query wall time directly instead"
+    ]
+  },
+  "derivation_log": [
+    {
+      "query_shape": "prod-cardinality kits:org_id",
+      "param_classes": [
+        "app=clarity"
+      ],
+      "aggregate_result": "total=5644 largest_org_kits=283",
+      "why": "sizes kit_ids IN clause"
+    },
+    {
+      "query_shape": "prod-cardinality organizations",
+      "param_classes": [
+        "app=clarity"
+      ],
+      "aggregate_result": "UNKNOWN_TABLE",
+      "why": "attempted org count; oracle partial"
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "document limits",
+        "kind": "human",
+        "intent": "confirm UI copy names the real N"
+      },
+      {
+        "ac": "truncation UI",
+        "kind": "agent",
+        "intent": "seed >N open hits; assert capped banner"
+      },
+      {
+        "ac": "loading indicator",
+        "kind": "agent",
+        "intent": "switch to uncached range; assert loading visible"
+      },
+      {
+        "ac": "perf 7/15/30",
+        "kind": "human",
+        "intent": "measure on high-volume org vs agreed target"
+      }
+    ],
+    "seed_scenario": "High-volume org with >20 distinct open Live/Staging plates in last_30; switch Org Map range across today\u2192last_7\u2192last_15\u2192last_30.",
+    "personas": [
+      {
+        "role": "Scout admin (Org Map)",
+        "why": "ticket surface"
+      },
+      {
+        "role": "Scout driver",
+        "why": "regression \u2014 driver list must stay uncapped"
+      }
+    ],
+    "pg_tables": [
+      "kits"
+    ],
+    "ch_tables": [
+      "hits",
+      "hotlists"
+    ]
+  },
+  "missed_caller_candidates": []
+}

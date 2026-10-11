@@ -1,0 +1,64 @@
+{
+  "key": "DEV-2928",
+  "status": "live",
+  "phase": "provisioned",
+  "phase_detail": "provision_done_awaiting_implement",
+  "provision_mode": "fleet_path_a_cli",
+  "site": {
+    "url": "http://172.21.0.1:18094",
+    "local_url": "http://127.0.0.1:18094",
+    "http_probe": "GET /app/login -> 200",
+    "probe_passed": true,
+    "checkout": "/workspace/dev-2928-wt",
+    "checkout_sha": "2fd4c3e9487d8687b5989449554c48296d81438e",
+    "publish": "0.0.0.0:18094->80"
+  },
+  "postgres": {
+    "host": "172.21.0.1",
+    "port": 15446,
+    "dev_db": "zod_dev_2928",
+    "testing_db": "zod_testing_dev_2928",
+    "publish": "0.0.0.0:15446->5432",
+    "dsn_summary": "postgresql://clarity@172.21.0.1:15446/zod_dev_2928 (password via password_ref)"
+  },
+  "clickhouse": {
+    "strategy": "docker",
+    "dedicated_container": true,
+    "host": "172.21.0.1",
+    "http_port": 18137,
+    "database": "clarity",
+    "database_clarity": "clarity",
+    "database_zod": "zod",
+    "separate_test_db": false,
+    "publish": "0.0.0.0:18137->8123",
+    "fleet_dsn_http": "http://172.21.0.1:18137/?database=clarity",
+    "server": "25.8.11.66",
+    "schema": "clickhouse-schema.sql @ 2fd4c3e9 (86/86)",
+    "CLICKHOUSE_DRIVER": "clickhouse"
+  },
+  "network": {
+    "name": "clarity-qa-dev-2928",
+    "gateway": "172.21.0.1"
+  },
+  "mac_herd_refused": true,
+  "cloud_touched": false,
+  "prove_passed": true,
+  "path_a": {
+    "live_keys": [
+      "DEV-2450",
+      "DEV-2928"
+    ],
+    "live_ledger_count": 2,
+    "no_global_current_env": true,
+    "cloud_ch_writes": false
+  },
+  "seed": {
+    "pg": "/workspace/docs/investigations/DEV-2928/seed-work/pg-seed-dev-2928.sql",
+    "ch": "/workspace/docs/investigations/DEV-2928/seed-work/ch-seed-dev-2928.sql",
+    "idempotent": true,
+    "reseed_after_ch_tests": true
+  },
+  "secrets_refs": "/workspace/first-glance/secrets/dev-2928-*.txt, clarity-qa-dev-2928.env",
+  "ledger": "/workspace/docs/investigations/DEV-2928/qa-prep-ledger.json",
+  "timestamp": "2026-10-07T16:48:00-05:00"
+}

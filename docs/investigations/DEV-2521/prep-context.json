@@ -1,0 +1,263 @@
+{
+  "generated_at": "2026-09-14T00:00:00Z",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "gate_reasons": [
+    "all questions answered by the operator; blast-radius auth surface explicitly approved"
+  ],
+  "confidence": 55,
+  "escalate": {
+    "recommend": true,
+    "reason": "authentication change + 4 unanswered safety-critical questions"
+  },
+  "synthesis": "OTP sign-in cannot work on deployed non-production environments because testers have no reachable inbox there, which blocks QA from signing in at all. Let CustomLoginPage go straight from a valid, eligible platform-user email to an authenticated session when the app is not production, leaving the production email->OTP->verify flow untouched behind a hard guard.",
+  "scope": {
+    "summary": "Add a non-production bypass branch to CustomLoginPage::authenticate() that logs in an eligible user by email without sending/verifying an OTP, gated on a hard non-production check. Reuse sendOtp()'s existing user-existence + canAccessPanel eligibility check verbatim. Add tests for the non-prod bypass and the prod-still-required paths. Guard is environment-only (! app()->isProduction()); no new config flag. UI goes straight through with no OTP field. Existing rateLimit(5) retained. Bypassed logins are marked in the activity log.",
+    "proposed_changes": [
+      {
+        "file": "app/Filament/Auth/CustomLoginPage.php",
+        "change": "Insert a non-production bypass branch in authenticate() before the !otp_sent -> sendOtp() branch; resolve the user with the same lookup+canAccessPanel eligibility check, log in via Filament::auth()->login($user), fall through to the existing shared post-login tail.",
+        "reason": "Sole OTP gate in the app; the bypass must intercept before any OTP is sent.",
+        "ref": "app/Filament/Auth/CustomLoginPage.php:58-118"
+      },
+      {
+        "file": "app/Filament/Auth/CustomLoginPage.php",
+        "change": "Extract the 'find eligible user by email' logic into one private helper used by BOTH sendOtp() and the new bypass.",
+        "reason": "One source of truth for the security-relevant eligibility check; two copies would drift.",
+        "ref": "app/Filament/Auth/CustomLoginPage.php:122-141"
+      },
+      {
+        "file": "tests/Filament/Auth/CustomLoginPageTest.php",
+        "change": "Add three tests: non-prod known email logs in with no OTP; non-prod unknown email still fails; production still requires OTP end-to-end.",
+        "reason": "AC4 requires automated coverage of both directions.",
+        "ref": "tests/Filament/Auth/CustomLoginPageTest.php"
+      }
+    ],
+    "target_files": [
+      "app/Filament/Auth/CustomLoginPage.php",
+      "tests/Filament/Auth/CustomLoginPageTest.php"
+    ],
+    "out_of_scope": [
+      "app/Filament/Auth/OneTimePassword.php, the OTP cache format/TTL, and the notification/mail templates - the production path is unchanged.",
+      "The existing routes/web.php __qa/login/{id} dev-login route - a separate shipped mechanism, not rewired by this ticket.",
+      "The unrelated User.two_factor_enabled property.",
+      "Per-panel differentiation (app vs client) - both share the one CustomLoginPage, confirmed by backstop.",
+      "A new opt-in config flag and the matching deploy-workflow wiring - explicitly declined (Q1): a flag would ship the bypass OFF on preprod/PR previews.",
+      "Extra throttling / host / IP restriction beyond the existing rateLimit(5) - explicitly declined (Q3)."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Entering a known user email on a non-prod environment completes login without requiring OTP.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Core ask."
+    },
+    {
+      "item": "Entering an unknown / non-existent email still fails (no login).",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Bypass reuses sendOtp()'s eligibility check, so ineligible emails hit the same Account Not Found path."
+    },
+    {
+      "item": "Production behavior is unchanged (OTP still required).",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Bypass unreachable when the hard non-production guard fails."
+    },
+    {
+      "item": "Covered by automated tests for non-prod bypass and prod-still-required paths.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Three new tests in the existing CustomLoginPageTest."
+    }
+  ],
+  "questions": [
+    {
+      "q": "Is app()->environment('local') enough for 'non-production'?",
+      "answered": true,
+      "answer": "No. Real APP_ENV values in use are local, testing, and preprod - and preprod covers BOTH the shared qa deploy (kamal-deploy.yml:49) and every PR preview (kamal-pr-preview.yml:98), which is exactly the environment the ticket is about. A negative check (!app()->isProduction()) covers all three and any future non-prod name.",
+      "source": "code"
+    },
+    {
+      "q": "Should the bypass require the same eligibility as sendOtp() (exists AND canAccessPanel), or bare email existence?",
+      "answered": true,
+      "answer": "Reuse the identical canAccessPanel check at CustomLoginPage.php:127-134. The ticket says do not skip the user lookup, and existing tests already pin that a merely-existing but ineligible user must fail.",
+      "source": "code"
+    },
+    {
+      "q": "Does this apply to both the app and client panels?",
+      "answered": true,
+      "answer": "Yes by construction - both panels wire ->login(CustomLoginPage::class) through PlatformPanelProvider:32, and the backstop confirmed no second 'extends Login' class exists.",
+      "source": "code"
+    },
+    {
+      "q": "Should an opt-in config flag gate the bypass IN ADDITION to the environment check?",
+      "answered": true,
+      "answer": "No. Environment-only guard: `! app()->isProduction()`.",
+      "source": "human:Dalton 2026-09-14"
+    },
+    {
+      "q": "DEV_LOGIN_ENABLED is forced to \"false\" on preprod (kamal-deploy.yml:55) and PR previews (kamal-pr-preview.yml:104) - the exact environments this ticket targets. If the new bypass is gated behind a similar opt-in flag it ships OFF there and AC1 silently fails. Environment-only guard, or environment+flag with a coordinated workflow change?",
+      "answered": true,
+      "answer": "Environment-only. No new flag, no deploy-workflow change; the bypass must work on preprod and PR previews out of the box.",
+      "source": "human:Dalton 2026-09-14"
+    },
+    {
+      "q": "What should the UI do - does submitting the email go straight to an authenticated redirect with the OTP field never appearing, or does the OTP step still render and auto-succeed?",
+      "answered": true,
+      "answer": "Straight through - submit email, authenticated redirect, the OTP field never renders.",
+      "source": "human:Dalton 2026-09-14"
+    },
+    {
+      "q": "Is the existing rateLimit(5) enough, given this removes the 'possession of the inbox' factor on VPC-reachable preprod hosts (unlike __qa/login, which is loopback-only)?",
+      "answered": true,
+      "answer": "Yes - rateLimit(5) is sufficient. No extra throttle, no host/IP restriction. preprod holds non-production data behind the VPC.",
+      "source": "human:Dalton 2026-09-14"
+    },
+    {
+      "q": "Should the auth activity log mark the bypass explicitly instead of logging otp => 'N/A'?",
+      "answered": true,
+      "answer": "Yes - log the bypass explicitly (e.g. otp => 'BYPASSED_NON_PROD').",
+      "source": "human:Dalton 2026-09-14"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "activity() log at CustomLoginPage.php:108-114 records 'otp' => $otp_data['otp'] ?? 'N/A'; in the bypass branch it will log 'N/A'. Consider an explicit BYPASSED_NON_PROD marker for the auth audit trail.",
+    "routes/web.php:161-196 documents its 4-layer non-prod guard with reasoning about all layers failing simultaneously. Mirror that commenting rigor."
+  ],
+  "tests": [
+    {
+      "file": "tests/Filament/Auth/CustomLoginPageTest.php",
+      "what_it_pins": "non-prod known email authenticates in one submit, no OTP field, no notification sent"
+    },
+    {
+      "file": "tests/Filament/Auth/CustomLoginPageTest.php",
+      "what_it_pins": "non-prod unknown email still fails with Account Not Found, stays guest"
+    },
+    {
+      "file": "tests/Filament/Auth/CustomLoginPageTest.php",
+      "what_it_pins": "APP_ENV=production still requires the full send-then-verify OTP flow"
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Filament/Auth/CustomLoginPage.php:21",
+      "app/Filament/Auth/CustomLoginPage.php:58-118",
+      "app/Filament/Auth/CustomLoginPage.php:122-141",
+      "app/Support/Filament/PlatformPanelProvider.php:32",
+      "app/Models/User.php:257-270",
+      "routes/web.php:161-196",
+      "config/app.php:29",
+      "config/app.php:47",
+      ".github/workflows/kamal-deploy.yml:49,55",
+      ".github/workflows/kamal-pr-preview.yml:98,104",
+      "tests/Filament/Auth/CustomLoginPageTest.php"
+    ],
+    "code_flow": "submit -> authenticate() -> rateLimit(5) -> if !otp_sent: sendOtp() (User by email + canAccessPanel, send OTP, set otp_sent) -> else: re-find user, compare cached OTP, Filament::auth()->login() -> shared tail (canAccessAnyPanel, session regenerate, activity log, LoginResponse). Bypass intercepts between rateLimit and the otp_sent branch.",
+    "tables": [
+      "users",
+      "orgs"
+    ],
+    "related_components": [
+      "Filament\\Auth\\Pages\\Login",
+      "LivewireRateLimiting",
+      "Spatie Activitylog"
+    ]
+  },
+  "exhaustiveness": {
+    "grep_patterns": [
+      "extends Login -- app/",
+      "CustomLoginPage -- app/ config/ routes/",
+      "OneTimePassword|otp_sent -- app/ routes/",
+      "APP_ENV|DEV_LOGIN_ENABLED -- .github/workflows/"
+    ],
+    "sites": [
+      {
+        "site": "app/Filament/Auth/CustomLoginPage.php:70",
+        "verdict": "buggy",
+        "reason": "sole OTP gate, no environment check today - where the bypass belongs"
+      },
+      {
+        "site": "routes/web.php:175-196",
+        "verdict": "safe",
+        "reason": "separate shipped dev-login route; template for guard rigor, not modified"
+      },
+      {
+        "site": "app/Filament/Auth/OneTimePassword.php",
+        "verdict": "safe",
+        "reason": "production path only; bypass never calls it"
+      },
+      {
+        "site": "app/Support/Filament/PlatformPanelProvider.php:32",
+        "verdict": "safe",
+        "reason": "single wiring point for both panels - no second surface to patch"
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [
+      "users",
+      "orgs"
+    ],
+    "ch_tables": [],
+    "mv_or_cdc_implications": "none - PostgreSQL auth-path read only",
+    "indexes_relied_on": [
+      "users.email"
+    ]
+  },
+  "resource_envelope": {
+    "scale_relevant": false,
+    "trigger": "Login-path conditional, once per interactive sign-in. No command, job, query class, migration, or data-driven iteration.",
+    "driving_tables": [],
+    "growth": "none",
+    "schedule": null,
+    "allocation_sketch": "",
+    "oracle_status": "not-required-for-gate",
+    "unresolved": []
+  },
+  "missed_caller_candidates": [],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC1",
+        "kind": "agent",
+        "intent": "non-prod known email logs in with no OTP field and no notification"
+      },
+      {
+        "ac": "AC2",
+        "kind": "agent",
+        "intent": "non-prod unknown email fails, stays guest"
+      },
+      {
+        "ac": "AC3",
+        "kind": "agent",
+        "intent": "APP_ENV=production still sends and requires the OTP"
+      },
+      {
+        "ac": "AC4",
+        "kind": "agent",
+        "intent": "the three tests live in CustomLoginPageTest and pass in CI"
+      }
+    ],
+    "seed_scenario": "No new seed data - existing createUser()/createClientPortalUser() helpers cover both canAccessPanel branches.",
+    "personas": [
+      "repo-org admin user",
+      "client-portal user",
+      "unknown email"
+    ],
+    "pg_tables": [
+      "users",
+      "orgs"
+    ],
+    "ch_tables": []
+  },
+  "derivation_log": [],
+  "blast_radius_approval": {
+    "surface": "app/Filament/Auth/** (authentication)",
+    "approved_by": "human:Dalton 2026-09-14",
+    "basis": "Operator chose the environment-only guard (Q1) and accepted the rateLimit(5) exposure posture (Q3) with the VPC/preprod tradeoff stated explicitly."
+  },
+  "gate_recomputed_at": "2026-09-14T15:05:00Z"
+}

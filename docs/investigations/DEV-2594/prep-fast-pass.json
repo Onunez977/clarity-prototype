@@ -1,0 +1,281 @@
+{
+  "synthesis": {
+    "problem": "On the Scout driver map, the topmost / most-recent entry in the Live Hits Pending Repossession stack does not open hit details when tapped, while older entries in the same stack do. Reproduced live on a Premier Adjusters demo (2026-09-16) as a Scout user.",
+    "outcome": "Every Live Hits row (and any map marker that represents the same hit) must open the Hit Details bottom sheet on click, including the newest entry, on desktop and in-vehicle (compact) viewports."
+  },
+  "scope": {
+    "summary": "Frontend click/selection path for Live Hits Pending Repossession on the Scout map (driver + shared overlay). Root-cause the first-row / newest-hit miss; fix without workaround; pin with a regression test or browser assertion.",
+    "proposed_changes": [
+      {
+        "file": "resources/js/clarity-scout/components/DashboardOverlay.vue",
+        "change": "Ensure Live Hits list rows are fully clickable (z-index / pointer-events / keying); keep selectHitFromCard \u2192 mapStore.focusHit.",
+        "reason": "This is the Live Hits card stack (top-left) named by the ticket.",
+        "ref": "DashboardOverlay.vue:90-105,594-597"
+      },
+      {
+        "file": "resources/js/clarity-scout/components/ScoutControlsWidget.vue",
+        "change": "If desktop overlap is confirmed: keep --scout-controls-h measurement honest and/or lower stacking so controls cannot steal clicks from Live Hits rows.",
+        "reason": "Controls sit at z-[25] above Live Hits z-20 by design (ScoutHome comment); height CSS var is the only gap.",
+        "ref": "ScoutControlsWidget.vue:12,195-212; ScoutHome.vue:9-14; DashboardOverlay.vue:26-29"
+      },
+      {
+        "file": "resources/js/clarity-scout/stores/map.js",
+        "change": "Only if focusHit/selection semantics are wrong for newest hits (e.g. silent no-op on missing fields).",
+        "reason": "focusHit always setSelectedHit today; recenter is optional when lat/lng present.",
+        "ref": "map.js:1140-1145"
+      }
+    ],
+    "target_files": [
+      "resources/js/clarity-scout/components/DashboardOverlay.vue",
+      "resources/js/clarity-scout/components/ScoutControlsWidget.vue",
+      "resources/js/clarity-scout/stores/map.js",
+      "resources/js/clarity-scout/components/MapShell.vue",
+      "resources/js/clarity-scout/components/ScannerMap.vue",
+      "resources/js/clarity-scout/views/ScoutHome.vue",
+      "app/Http/Controllers/Api/ClarityScoutDashboardController.php"
+    ],
+    "out_of_scope": [
+      "Changing recentHits ClickHouse query semantics / disposition rules unless the payload is proven to omit fields that block opening",
+      "Bird's Eye-only admin chrome unless the same overlay bug reproduces there",
+      "Unrelated map layers (orders, teammates, density)"
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Reproduced in a Scout user session",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Required to prove root cause; agent-QA + human in-vehicle check."
+    },
+    {
+      "item": "Root cause identified, not worked around",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Gate requires a file:line root cause before merge."
+    },
+    {
+      "item": "Every card in the hit stack opens its detail view on click, including the most recent one",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Primary functional fix."
+    },
+    {
+      "item": "Verified on desktop and on the in-vehicle form factor Scout users actually use",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Compact (<lg) and desktop layouts differ (controls hidden vs z-25 stack)."
+    }
+  ],
+  "questions": [
+    {
+      "q": "When Matt reproduced this, was he on a laptop/desktop layout, or the in-vehicle / phone-width (compact) Scout UI?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    },
+    {
+      "q": "Was the failed click on a row inside the Live Hits Pending Repossession list, or on a company-logo hit marker on the map itself?",
+      "answered": false,
+      "answer": null,
+      "source": "needs-human"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "Live Hits list: DashboardOverlay.vue @click=selectHitFromCard \u2192 mapStore.focusHit \u2192 setSelectedHit + optional pan.",
+    "ScoutControlsWidget is z-[25]; Live Hits column is z-20. Desktop Live Hits top offset uses var(--scout-controls-h). Compact hides the controls widget and pins Live Hits at safe-area+12px.",
+    "Stale comment in DashboardOverlay still says Live Hits are hidden in adminMode; code shows them (DEV-2137 restored). Not this bug's cause.",
+    "recentHits payload includes id, scan_id, lat/lng (nullable), images, vehicle fields. focusHit opens the sheet even when lat/lng are null.",
+    "List :key=hit.id \u2014 prefer scan_id if id collisions ever appear; not yet proven.",
+    "Precedents: DEV-2200 (same card payload), DEV-2292 (overlay pointer-events), DEV-2106 (top-left overlay collision with Live Hits)."
+  ],
+  "tests": [
+    {
+      "file": "tests/Feature/Api/ClarityScoutDashboardRecentHitsTest.php (or existing sibling)",
+      "what_it_pins": "Payload still includes fields the sheet needs (scan_id, plate, hit_time); not the click bug itself."
+    },
+    {
+      "file": "agent-QA / browser assertion on Scout map",
+      "what_it_pins": "Click newest Live Hits row opens Hit Details; click second row also opens; both desktop and compact widths."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "resources/js/clarity-scout/components/DashboardOverlay.vue:90-105",
+      "resources/js/clarity-scout/components/DashboardOverlay.vue:594-597",
+      "resources/js/clarity-scout/components/ScoutControlsWidget.vue:12",
+      "resources/js/clarity-scout/components/ScoutControlsWidget.vue:195-212",
+      "resources/js/clarity-scout/stores/map.js:1140-1145",
+      "resources/js/clarity-scout/components/MapShell.vue:19-24",
+      "resources/js/clarity-scout/views/ScoutHome.vue:1-17",
+      "app/Http/Controllers/Api/ClarityScoutDashboardController.php:114-186"
+    ],
+    "code_flow": "ScoutHome mounts DashboardOverlay + ScoutControlsWidget over MapShell. Live Hits rows call selectHitFromCard \u2192 focusHit \u2192 selectedHit. MapShell BottomSheet binds :open=!!selectedHit. Map logo markers call setSelectedHit directly.",
+    "tables": [
+      "clarity.hits_hot / hits_cold (read via ClickhouseHit::hot)",
+      "clarity hotlists for Open status semi-join"
+    ],
+    "related_components": [
+      "BottomSheet",
+      "ScannerMap focusOnHit / range hit markers",
+      "useKitPositionPolling (refreshes recentHits)"
+    ]
+  },
+  "exhaustiveness": {
+    "idiom": "Opening hit details from a user click (setSelectedHit / focusHit)",
+    "grep_patterns": [
+      "focusHit",
+      "selectHitFromCard",
+      "setSelectedHit",
+      "setSelectedHitCluster"
+    ],
+    "sites": [
+      {
+        "file": "resources/js/clarity-scout/components/DashboardOverlay.vue",
+        "line": "93,594",
+        "verdict": "buggy-candidate",
+        "reason": "Only Live Hits list path; ticket names this stack.",
+        "kind": "single"
+      },
+      {
+        "file": "resources/js/clarity-scout/stores/map.js",
+        "line": "1131-1145",
+        "verdict": "safe",
+        "reason": "Always assigns selectedHits; recenter optional.",
+        "kind": "single"
+      },
+      {
+        "file": "resources/js/clarity-scout/components/ScannerMap.vue",
+        "line": "450",
+        "verdict": "safe",
+        "reason": "Trip hit markers \u2192 setSelectedHit.",
+        "kind": "single"
+      },
+      {
+        "file": "resources/js/clarity-scout/components/ScannerMap.vue",
+        "line": "514-517",
+        "verdict": "buggy-candidate",
+        "reason": "Main-map logo markers; ticket 'icon' wording may mean this path.",
+        "kind": "single"
+      },
+      {
+        "file": "resources/js/clarity-scout/components/ScannerMap.vue",
+        "line": "536-540",
+        "verdict": "safe",
+        "reason": "Cluster opens full group via setSelectedHitCluster.",
+        "kind": "single"
+      },
+      {
+        "file": "resources/js/clarity-scout/components/DayOverlay.vue",
+        "line": "218",
+        "verdict": "safe",
+        "reason": "Day view local selectedHit; different surface.",
+        "kind": "single"
+      },
+      {
+        "file": "resources/js/clarity-scout/components/TripOverlay.vue",
+        "line": "133",
+        "verdict": "safe",
+        "reason": "Trip view local selectedHit; different surface.",
+        "kind": "single"
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [],
+    "ch_tables": [
+      "hits_hot",
+      "hits_cold",
+      "hotlists (CH)"
+    ],
+    "mv_or_cdc_implications": "Read-only; no write path change expected.",
+    "indexes_relied_on": [
+      "existing hot()/liveActionable/forCreatedBetween query path"
+    ]
+  },
+  "resource_envelope": {
+    "scale_relevant": false,
+    "trigger": "UI click-handler / overlay stacking fix; does not iterate production collections in a new command/job.",
+    "driving_tables": [],
+    "growth": null,
+    "schedule": null,
+    "allocation_sketch": null,
+    "oracle_status": "not-applicable",
+    "unresolved": []
+  },
+  "derivation_log": [],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "Newest Live Hits row opens Hit Details",
+        "kind": "agent",
+        "intent": "Seed \u22652 recent actionable hits; expand Live Hits; click first row; assert sheet open with that plate."
+      },
+      {
+        "ac": "Older row still opens",
+        "kind": "agent",
+        "intent": "Click second row; assert sheet updates."
+      },
+      {
+        "ac": "Desktop + compact",
+        "kind": "human",
+        "intent": "Repeat at \u22651024px and <1024px (in-vehicle width)."
+      }
+    ],
+    "seed_scenario": "Scout driver kit with at least two live-actionable open-hotlist hits in range, newest ~minutes old, older days old; Live Hits expanded.",
+    "personas": [
+      {
+        "role": "Scout driver",
+        "why": "Ticket reproduction surface"
+      }
+    ],
+    "pg_tables": [],
+    "ch_tables": [
+      "hits_hot"
+    ]
+  },
+  "confidence": 72,
+  "escalate": {
+    "recommend": true,
+    "reason": "Two unanswered material questions (viewport + click target) change which of the candidate sites is the true root cause; confidence < 80."
+  },
+  "gate": "BLOCKED",
+  "mode": "normal",
+  "missed_caller_candidates": [
+    {
+      "file": "resources/js/clarity-scout/components/ScannerMap.vue",
+      "symbol": "setSelectedHit",
+      "referenced_at": "450,516"
+    },
+    {
+      "file": "resources/js/clarity-scout/components/DayOverlay.vue",
+      "symbol": "selectedHit = hit",
+      "referenced_at": "218"
+    },
+    {
+      "file": "resources/js/clarity-scout/components/TripOverlay.vue",
+      "symbol": "selectedHit = hit",
+      "referenced_at": "133"
+    }
+  ],
+  "leading_hypotheses": [
+    {
+      "id": "H1",
+      "title": "Desktop overlay steal",
+      "detail": "ScoutControlsWidget (z-25) overlaps the top of Live Hits (z-20) when --scout-controls-h underestimates height \u2014 first row(s) receive no click.",
+      "fits": "Most recent = top row; older rows further down still work."
+    },
+    {
+      "id": "H2",
+      "title": "Map icon vs list row confusion",
+      "detail": "Newest hit's logo marker sits under/near the Live Hits panel; click hits non-interactive overlay chrome while older list rows work.",
+      "fits": "Ticket says both 'icon' and 'card'."
+    },
+    {
+      "id": "H3",
+      "title": "Live poll / key churn on newest row",
+      "detail": "Polling replaces recentHits; unstable key (hit.id) on the newest row drops the click handler mid-tap.",
+      "fits": "Newest-only; less likely if id is stable CH id."
+    }
+  ]
+}

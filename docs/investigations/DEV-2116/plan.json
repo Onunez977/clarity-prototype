@@ -1,0 +1,100 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "OrgLivePositionsQuery — latest sc_positions point per kit for an org",
+      "approach": "New ClickhouseQuery. Resolve org's kit_mappings from Kit::getKits(org_id). Query clarity.sc_positions: WHERE lower(kit_mapping) IN (lowercased mappings) AND timestamp_utc >= 24h cutoff, latest row per mapping via argMax(...)/GROUP BY lower(kit_mapping). Select tupleElement(geo,1) lng, tupleElement(geo,2) lat, max timestamp, speed, heading. Map kit_mapping -> kit_id/name/vehicle_type for the response. Mirror kitPosition() semantics (heading only when speed>1).",
+      "target_files": ["app/Clickhouse/Queries/OrgLivePositionsQuery.php", "tests/Feature/Scout/OrgLivePositionsQueryTest.php"],
+      "intended_diffs": "New query class + test pinning latest-per-mapping, lower() match, geo decode, 24h cutoff, org-mapping enumeration.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "OrgLivePositionsQuery",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t2",
+      "title": "OrgLivePaths — per-kit live trails since cursor (org-wide)",
+      "approach": "New OrgLivePathsQuery (or multi-mapping param on KitHistoricPositionsQuery). Accept org's mappings (or selected subset) + since cursor; return per-kit decimated point arrays; reuse HistoricPathBuilder for segmentation. Keep 3s decimation; cap points per kit.",
+      "target_files": ["app/Clickhouse/Queries/OrgLivePathsQuery.php", "tests/Feature/Scout/OrgLivePathsQueryTest.php"],
+      "intended_diffs": "New query class + test for multi-mapping trails + cursor semantics.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "OrgLivePathsQuery",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t3",
+      "title": "Admin Bird's-Eye API: controller + routes + org-wide stats + gating",
+      "approach": "New ClarityScoutBirdsEyeController with drivers(), livePositions() (t1), livePaths() (t2), scanPaths()/hits()/heatmapHits()/heatmapOrders() (reuse org-wide queries with org_id + optional kit_ids), stats() (org-wide aggregation in THIS controller via the existing Clickhouse Scan/Hit query builders dropping the kit_id filter — do NOT edit the driver ClarityScoutDashboardController). Register web routes ABOVE scout/{any?} (web.php:110) in the clarity_scout block: GET scout/birds-eye (SPA shell) + scout/birds-eye/api/* data endpoints, gated web+auth + Feature::active(CLARITY_SCOUT) && hasRole(ADMIN), all scoped to auth()->user()->org_id. Access + org-scope feature tests.",
+      "target_files": ["app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php", "routes/web.php", "tests/Feature/Scout/BirdsEyeAccessTest.php", "tests/Feature/Scout/BirdsEyeOrgScopeTest.php"],
+      "intended_diffs": "New controller; route block above catch-all; gating + org-scope tests.",
+      "depends_on": ["t1", "t2"],
+      "parallelizable": false,
+      "test_filter": "BirdsEye",
+      "ui_impact": false,
+      "blast_radius": ["auth/gating", "routes"],
+      "complexity": "complex"
+    },
+    {
+      "id": "t4",
+      "title": "Filament 'Scout' nav entry for Bird's Eye",
+      "approach": "Thin Filament Page (or panel NavigationItem) in the 'Scout' group; canAccess = Feature::active(CLARITY_SCOUT) && hasRole(ADMIN); navigation URL → the SPA route (route('clarity-scout.birds-eye') or url). Match ScoutUsersResource/ManageZones registration.",
+      "target_files": ["app/Filament/Pages/BirdsEye.php"],
+      "intended_diffs": "New nav Page linking to the SPA route with the Scout+admin gate.",
+      "depends_on": ["t3"],
+      "parallelizable": false,
+      "test_filter": "BirdsEye",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "simple"
+    },
+    {
+      "id": "t5",
+      "title": "Bird's-Eye SPA shell: blade + Vite entry",
+      "approach": "New resources/views/clarity-scout-birds-eye.blade.php (parallel to clarity-scout.blade.php) injecting __CLARITY_SCOUT_CONFIG__ + a birdsEye/admin flag + API base; new resources/js/clarity-scout/birdseye.js mounting the Bird's-Eye app (Pinia + router, NO driver auth store; axios withCredentials). Register birdseye.js in vite.config.js.",
+      "target_files": ["resources/views/clarity-scout-birds-eye.blade.php", "resources/js/clarity-scout/birdseye.js", "vite.config.js"],
+      "intended_diffs": "New blade + entry + vite input.",
+      "depends_on": ["t3"],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": true,
+      "complexity": "simple",
+      "blast_radius": []
+    },
+    {
+      "id": "t6",
+      "title": "BirdsEyeHome orchestration + org-wide store + DriverSelector",
+      "approach": "New views/BirdsEyeHome.vue reusing MapShell/MapStatsBar/ScoutControlsWidget/DateRangeControl + DashboardOverlay toggles; org-wide fetches via the admin endpoints. Add per-kit collection state for positions/trails (dedicated birdsEye store or parameterized map/dashboard stores). New components/DriverSelector.vue (multi-select, default all) re-scoping kit_ids/mappings across layers + stats.",
+      "target_files": ["resources/js/clarity-scout/views/BirdsEyeHome.vue", "resources/js/clarity-scout/components/DriverSelector.vue", "resources/js/clarity-scout/stores/birdsEye.js"],
+      "intended_diffs": "New orchestration view + selector + store (prefer a new birdsEye store over editing shared map.js/dashboard.js to limit blast radius).",
+      "depends_on": ["t5"],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": true,
+      "complexity": "complex",
+      "blast_radius": []
+    },
+    {
+      "id": "t7",
+      "title": "ScannerMap multi-driver rendering (N markers + N trails)",
+      "approach": "Generalize ScannerMap.vue from a single kit marker + single liveTrail to N per-driver markers + N trails, keyed by kit with per-driver color/label (reuse KitScanPathsQuery color ramp). Drive from the birdsEye store collections; gate by selected drivers. Keep existing single-kit driver behavior intact (guard new paths behind a birdsEye mode prop/flag).",
+      "target_files": ["resources/js/clarity-scout/components/ScannerMap.vue"],
+      "intended_diffs": "Per-driver marker/trail layers behind a birds-eye mode flag; no behavior change for the driver SPA.",
+      "depends_on": ["t6"],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": true,
+      "complexity": "complex",
+      "blast_radius": []
+    }
+  ],
+  "excluded_sites": [
+    {"site": "BuildShiftSummary / CloseInactiveShiftsCommand sc_positions reads", "reason": "Shift jobs, not the viewing surface — out of scope."},
+    {"site": "Driver /api/scout/* endpoints + driver SPA (main.js/App.vue/ScoutHome.vue)", "reason": "Left untouched per decision; Bird's Eye is a parallel admin surface."},
+    {"site": "ClarityScoutDashboardController::stats()", "reason": "Driver-shared; org-wide stats implemented in the new admin controller instead to avoid blast radius."}
+  ]
+}

@@ -1,0 +1,316 @@
+{
+  "mode": "normal",
+  "gate": "CLEAN",
+  "confidence": 88,
+  "escalate": {
+    "recommend": true,
+    "reason": "Open product-scope question (date floor) + resource-envelope oracle partial for kit_last_scan; bias escalate. Deep best-of-N skipped: operator required single-session --no-spawn."
+  },
+  "synthesis": {
+    "problem": "DEV-2591 removed org_id from ListScans ClickHouse queries because filtering by the kit's current Postgres owner silently dropped historical rows. Production now filters kit_id only. scans_cold is sorted (org_id, scanned_at, kit_id, id), so kit_id cannot prune \u2014 measured 2.21B rows scanned vs ~24.5M with an org predicate. p50 went from 0.21s to 18s; customers hit ClickHouse error 159 (30s).",
+    "outcome": "Restore org_id pruning using DISTINCT org_id from zod.kit_last_scan for the authorized kit set (historical orgs), keep kit_id IN (...), restore scopeForOrgs, cache+invalidate with Kit::forgetCachedKits, invert ClickhouseScanQueryShapeTest, verify parity on moved kits and EXPLAIN row counts."
+  },
+  "scope": {
+    "summary": "Scans list ClickHouse prune fix on deploy tip of DEV-2591; Hits left to DEV-2614; date-floor product change gated.",
+    "proposed_changes": [
+      {
+        "file": "app/Clickhouse/Models/Scan.php",
+        "change": "Add scopeForOrgs(array $orgIds) via whereIntegerInRaw('org_id', ...), matching deleted DEV-2591 helper.",
+        "reason": "org_id leads the sort key; needed for prune.",
+        "ref": "ticket working context \u00a71"
+      },
+      {
+        "file": "app/Filament/Resources/ScansResource/Pages/ListScans.php",
+        "change": "buildClickhouseQuery: forOrgs(historicalOrgIds)->forKits(scopedKitIds); add cached historical org-set resolver from kit_last_scan (union current Kit::getKits org_ids so never-scanned kits still prune).",
+        "reason": "Restore prune without current-owner row loss.",
+        "ref": "ticket fix snippet"
+      },
+      {
+        "file": "app/Models/Kit.php",
+        "change": "Add kitScanOrgSetCacheKey(+ helpers); extend forgetCachedKits to clear org-set keys.",
+        "reason": "AC: cache alongside getKits; invalidate together.",
+        "ref": "ticket \u00a76"
+      },
+      {
+        "file": "tests/Filament/Resources/ClickhouseScanQueryShapeTest.php",
+        "change": "Invert org_id-absent assertion: require org_id present with real ids; keep kit_id + no FINAL + CDC delete checks; add moved-kit parity / cache invalidation tests.",
+        "reason": "DEV-2591 test currently forbids the fix.",
+        "ref": "ticket \u00a78"
+      }
+    ],
+    "target_files": [
+      "app/Clickhouse/Models/Scan.php",
+      "app/Filament/Resources/ScansResource/Pages/ListScans.php",
+      "app/Models/Kit.php",
+      "tests/Filament/Resources/ClickhouseScanQueryShapeTest.php"
+    ],
+    "out_of_scope": [
+      "DEV-2614 Hits list hotlist_org_id prune / feature-name mismatch",
+      "Date-range floor product change (pending gate Q1)",
+      "Changing CLICKHOUSE_TIMEOUT_QUERY / clarity_clickhouse max_execution_time (confirm-only AC)",
+      "Main backport of DEV-2591 (#418 closed) \u2014 separate unless dual-PR requested at handoff",
+      "okf wiki edit (post-merge only)"
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "ListScans::buildClickhouseQuery() filters org_id again, sourced from zod.kit_last_scan, never from the kit's current Postgres owner alone",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Core fix."
+    },
+    {
+      "item": "EXPLAIN ESTIMATE on a representative search shows rows-to-scan in the tens of millions, not billions",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Verify in QA / derivation_log against prod-read or chlocal; ticket already measured 24.5M with org predicate."
+    },
+    {
+      "item": "Row-set parity for a kit that changed orgs \u2014 vs kit_id-only ground truth, not current-owner",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Automated test with seeded multi-org scans + kit_last_scan rows; optional live verify in QA."
+    },
+    {
+      "item": "Scans-list p50 returns to sub-second and ClickHouse error 159 timeouts stop",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Prod outcome; validated post-deploy / agent-qa where possible; not fully provable in unit tests."
+    },
+    {
+      "item": "Org-set lookup cached alongside Kit::getKits() and invalidated by Kit::forgetCachedKits()",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Prevent per-search CH round-trip; avoid ShareOrgKits stale-key class."
+    },
+    {
+      "item": "Confirm which setting imposes the 30s ClickHouse timeout given CLICKHOUSE_TIMEOUT_QUERY discrepancy",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Answer from code: clarity_clickhouse does not set max_execution_time; public_clickhouse does via CLICKHOUSE_TIMEOUT_QUERY. Error 159 'maximum: 30000 ms' is server max_execution_time (Cloud default 30s), not the PHP timeout_query. Document in Build Record; no config change in this ticket."
+    },
+    {
+      "item": "When only an upper scanned_at bound is set, default a lower bound (or deliberately leave unbounded)",
+      "source": "ticket",
+      "decision": "defer",
+      "reason": "Ticket marks as product-behaviour; gate Q1."
+    }
+  ],
+  "questions": [
+    {
+      "id": "Q1",
+      "q": "Should this ticket also add a default lower bound when the user sets only an end date on Scans (getVisitDateRange currently leaves start null)?",
+      "answered": true,
+      "answer": "defer \u2014 leave end-only searches unbounded-below; not in this ticket",
+      "source": "human:Dalton 2026-09-18"
+    },
+    {
+      "id": "Q2",
+      "q": "prod-cardinality.sh cannot see zod.kit_last_scan (derived table, not zod.public_*). Proceed using the ticket's 2026-09-17 measured aggregates (5,926 rows; 285 multi-org kits) for the resource envelope?",
+      "answered": true,
+      "answer": "yes \u2014 use ticket 2026-09-17 measured aggregates for kit_last_scan / EXPLAIN",
+      "source": "human:Dalton 2026-09-18"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "Base is deploy (human). Main still has pre-2591 forOrg(current-user) path.",
+    "Empty kit_last_scan for never-scanned kits: union DISTINCT hist orgs with org_id values from Kit::getKits() so forOrgs never collapses to empty while kits exist.",
+    "ListHits forKits-only is DEV-2614 \u2014 exhaustiveness marks it out_of_scope, not buggy for this ticket.",
+    "Date filter between() is applied via DateTogglesFilter modifyQueryUsing after buildClickhouseQuery \u2014 end-only searches stay unbounded-below today."
+  ],
+  "tests": [
+    {
+      "file": "tests/Filament/Resources/ClickhouseScanQueryShapeTest.php",
+      "what_it_pins": "Invert: org_id predicate present with real ids; kit_id present; no FINAL; CDC delete filter; reject org_id in (0)."
+    },
+    {
+      "file": "tests/Filament/Resources/ClickhouseScanQueryShapeTest.php (or sibling)",
+      "what_it_pins": "Moved-kit parity: forOrgs(historical)+forKits equals forKits alone on ids; current-owner-only would fail."
+    },
+    {
+      "file": "tests around Kit::forgetCachedKits",
+      "what_it_pins": "Org-set cache key cleared with kit list keys."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Filament/Resources/ScansResource/Pages/ListScans.php:304-342",
+      "app/Clickhouse/Models/Scan.php:43-54",
+      "app/Models/Kit.php:235-250",
+      "tests/Filament/Resources/ClickhouseScanQueryShapeTest.php:21-55",
+      "config/database.php:160-230",
+      "app/Clickhouse/Queries/OrgKitLastScanQuery.php"
+    ],
+    "code_flow": "getTableQuery \u2192 shouldUseClickhouse (config app.experimental.clickhouse.scans) \u2192 buildClickhouseQuery (forKits only) \u2192 table filters apply between()/plate/etc.",
+    "tables": [
+      "clarity.scans_cold",
+      "clarity.scans_hot",
+      "zod.kit_last_scan",
+      "platform.kits"
+    ],
+    "related_components": [
+      "Kit::getKits",
+      "DateTogglesFilter",
+      "FiltersCdcDeletes",
+      "OrgKitLastScanQuery"
+    ]
+  },
+  "exhaustiveness": {
+    "patterns": [
+      "forKits\\(",
+      "scopeForKits",
+      "buildClickhouseQuery",
+      "scopeForOrgs",
+      "kit_last_scan"
+    ],
+    "sites": [
+      {
+        "file": "app/Filament/Resources/ScansResource/Pages/ListScans.php",
+        "verdict": "buggy",
+        "reason": "forKits-only; cannot prune on org_id-leading sort key."
+      },
+      {
+        "file": "app/Filament/Resources/HitsResource/Pages/ListHits.php",
+        "verdict": "safe",
+        "reason": "Same shape class but owned by DEV-2614; hits sort key is hotlist_org_id."
+      },
+      {
+        "file": "app/Filament/Resources/MissedOpportunityResource/Pages/ListMissedOpportunities.php",
+        "verdict": "safe",
+        "reason": "Different table/resource; not this incident."
+      },
+      {
+        "file": "app/Clickhouse/Models/Scan.php",
+        "verdict": "buggy",
+        "reason": "scopeForOrgs missing (deleted in DEV-2591); scopeForKits present."
+      },
+      {
+        "file": "tests/Filament/Resources/ClickhouseScanQueryShapeTest.php",
+        "verdict": "buggy",
+        "reason": "Asserts org_id ABSENT \u2014 must invert with this fix."
+      },
+      {
+        "file": "app/Clickhouse/Models/Hit.php",
+        "verdict": "safe",
+        "reason": "Hits; DEV-2614."
+      },
+      {
+        "file": "app/Models/Kit.php forgetCachedKits",
+        "verdict": "safe",
+        "reason": "Must gain org-set keys; currently correct for kit lists only."
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [
+      "kits"
+    ],
+    "ch_tables": [
+      "clarity.scans_cold",
+      "clarity.scans_hot",
+      "zod.kit_last_scan"
+    ],
+    "mv_or_cdc_implications": "Read-only use of kit_last_scan to widen prune set; no MV/CDC write. Auth still Postgres Kit::getKits.",
+    "indexes_relied_on": "scans_cold/hot ORDER BY (org_id, scanned_at, kit_id, id); kit_last_scan ORDER BY (org_id, kit_id)"
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "ListScans ClickHouse query class; per-request prune set lookup against kit_last_scan",
+    "driving_tables": [
+      {
+        "table": "zod.kit_last_scan",
+        "source": "ticket-measurement-2026-09-17",
+        "prod_rows": 5926,
+        "group_by": "kit_id",
+        "largest_group_rows": 3,
+        "note": "285 kits with >1 org_id; table tiny \u2014 lookup ~0.1s"
+      },
+      {
+        "table": "clarity.scans_cold",
+        "source": "ticket-EXPLAIN-ESTIMATE-2026-09-17",
+        "prod_rows": 2214971384,
+        "group_by": "org_id",
+        "largest_group_rows": 24558327,
+        "note": "kit_id-only estimate 2.21B rows; with org predicate ~24.5M for the failing query's org"
+      }
+    ],
+    "growth": "scans_cold grows continuously; kit_last_scan stays ~one row per org/kit pair (~6k).",
+    "schedule": null,
+    "allocation_sketch": "One small DISTINCT query on ~6k-row table per search (cached per org/shared flag); main scan query prunes by org_id then kit_id. No host-RAM iteration of prod rows in PHP.",
+    "oracle_status": "measured-cloud-2026-09-18",
+    "unresolved": []
+  },
+  "derivation_log": [
+    {
+      "query_shape": "prod-cardinality.sh --table kit_last_scan:org_id",
+      "param_classes": [
+        "app=clarity"
+      ],
+      "aggregate_result": "status=unavailable UNKNOWN_TABLE zod.public_kit_last_scan",
+      "why": "resource envelope probe"
+    },
+    {
+      "query_shape": "code inspection config/database.php clarity_clickhouse vs public_clickhouse settings.max_execution_time",
+      "param_classes": [],
+      "aggregate_result": "clarity_clickhouse: no max_execution_time; public_clickhouse: env CLICKHOUSE_TIMEOUT_QUERY default 60",
+      "why": "AC confirm 30s timeout source"
+    },
+    {
+      "query_shape": "EXPLAIN ESTIMATE scans_cold kit_id-only vs org_id+kit_id (ticket representative search)",
+      "param_classes": [
+        "kit_id IN (16 ids)",
+        "org_id IN (single org)",
+        "OCR LIKE wildcard",
+        "scanned_at upper bound",
+        "_peerdb_is_deleted=0"
+      ],
+      "aggregate_result": "kit_id-only rows=2217023592; org+kit rows=24542538; factor~90x",
+      "why": "production cardinality gate requested 2026-09-18"
+    },
+    {
+      "query_shape": "COUNT scans_cold kit=10044 kit_only vs historical orgs vs current owner",
+      "param_classes": [
+        "kit_id",
+        "org_id IN (hist)",
+        "org_id IN (current)"
+      ],
+      "aggregate_result": "kit_only=2141322 historical=2141322 naive=233517; wall_s 7.59/0.56/0.22",
+      "why": "production moved-kit parity at full cardinality"
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "org prune from kit_last_scan",
+        "kind": "agent",
+        "intent": "shape test + moved-kit parity"
+      },
+      {
+        "ac": "EXPLAIN rows tens of millions",
+        "kind": "human",
+        "intent": "optional prod-read EXPLAIN after deploy or against staging CH"
+      },
+      {
+        "ac": "cache invalidation",
+        "kind": "agent",
+        "intent": "unit assert forgetCachedKits clears org-set key"
+      }
+    ],
+    "seed_scenario": "Org with a kit that has kit_last_scan rows under two org_ids and scans_cold rows under both; assert list parity vs kit_id-only.",
+    "personas": [
+      {
+        "role": "org admin",
+        "why": "runs Scans search that currently times out"
+      }
+    ],
+    "pg_tables": [
+      "kits"
+    ],
+    "ch_tables": [
+      "clarity.scans_cold",
+      "zod.kit_last_scan"
+    ]
+  },
+  "missed_caller_candidates": []
+}

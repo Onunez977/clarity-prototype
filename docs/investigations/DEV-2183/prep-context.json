@@ -1,0 +1,84 @@
+{
+  "key": "DEV-2183",
+  "mode": "normal",
+  "route": "bug",
+  "synthesis": "The Scout Map order-density layers (Direct + Staging) should exclude hotlist addresses whose plate is too short to be a real, actionable plate, matching the dashboard-stats rule. The ticket frames it as 'add a >= 3 guard', but the order query already carries a stricter `length(plate) > 3` guard; the real change is to relax `> 3` to `>= 3` so the order map matches HotlistCount (dashboard stats), which uses `>= 3`.",
+  "scope": {
+    "summary": "REVISED: hardcode the plate-length guard in HotlistAddressGeohashQuery from `> 3` to `>= 3` (one line). One query serves Direct (staging=false), Staging (staging=true), AND the non-Scout KitUserPathController heatmap; all three now use `>= 3`, matching dashboard stats. No caller edits and no param — Dalton chose to drop the param as over-engineered (q2 revised).",
+    "proposed_changes": [
+      {"file": "app/Clickhouse/Queries/HotlistAddressGeohashQuery.php", "change": "line ~150: `AND length(plate) > 3` -> `AND length(plate) >= 3` (+ a 2-line explanatory comment).", "reason": "Match the dashboard-stats `>= 3` rule (HotlistCount.php:74-76) on the order-map density layers.", "ref": "HotlistCount.php:74"}
+    ],
+    "target_files": ["app/Clickhouse/Queries/HotlistAddressGeohashQuery.php"],
+    "out_of_scope": [
+      "ScoutCheckInRollupQuery.php:108 (`> 3`) — check-in rollup, kept narrow per q3; new divergence flagged as follow-up.",
+      "ClarityScoutDashboardController.php:173,183 (`> 3`) — dashboard controller stat queries, kept narrow per q3.",
+      "Hotlist.php:119,124 — CH model scopes, unrelated.",
+      "KitUserPathController.php:73 — non-Scout repo heatmap; now ALSO `>= 3` via the shared query (q2 revised: accepted, marginal)."
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "Direct order query excludes hotlist rows where LENGTH(plate) < 3", "source": "ticket", "decision": "implement", "reason": "staging=false path of HotlistAddressGeohashQuery; `>= 3` excludes length 0-2, keeps 3+."},
+    {"item": "Staging order query excludes hotlist rows where LENGTH(plate) < 3", "source": "ticket", "decision": "implement", "reason": "staging=true path (same query + is_staged filter)."},
+    {"item": "Behavior matches the existing dashboard-stats `>= 3` rule", "source": "ticket", "decision": "implement", "reason": "HotlistCount.php uses `length(plate) >= 3`; the edit makes the order query identical."}
+  ],
+  "questions": [
+    {"q": "q1: The order query is HotlistAddressGeohashQuery, whose plate guard is currently `> 3` (not absent). Confirm the intended end state is `>= 3` (relax, keeps length-3 plates), matching dashboard stats — i.e. this is a change, not an addition?", "answered": true, "answer": ">= 3 (relax, per ticket) — the AC 'matches dashboard-stats >= 3 rule' is the target end state.", "source": "human:Dalton 2026-07-13"},
+    {"q": "q2: HotlistAddressGeohashQuery is also called by KitUserPathController (the non-Scout repo user-path heatmap). Editing the shared query relaxes its guard to `>= 3` too. OK to apply uniformly to all callers (simplest, one edit, consistent), or keep KitUserPathController on `> 3`?", "answered": true, "answer": "REVISED 2026-07-13: hardcode `>= 3` in the shared query for ALL callers (drop the min_plate_length param). KitUserPathController repo heatmap also moves to `>= 3` — accepted (marginal: only exactly-length-3 plates). Dalton judged the param over-engineered for a value that never varies. Supersedes the initial 'Scout-only via param' answer.", "source": "human:Dalton 2026-07-13"},
+    {"q": "q3: DEV-2163 set ScoutCheckInRollupQuery to `> 3` explicitly to match the order query. Moving the order query to `>= 3` re-introduces a check-in-vs-order-map divergence. Leave check-in rollup (and the dashboard-controller queries) on `> 3` as out-of-scope, or align them too?", "answered": true, "answer": "Keep narrow — order query only. Leave ScoutCheckInRollupQuery + ClarityScoutDashboardController on `> 3`; flag the new divergence as a follow-up.", "source": "human:Dalton 2026-07-13"}
+  ],
+  "blockers": [],
+  "notes": [
+    "Change is a one-line SQL relaxation; the query is unchanged otherwise.",
+    "The guard is inside a `clarity.hotlist FINAL` subquery filtering hotlist_id membership; plate lives on clarity.hotlist. `length()` on a Nullable plate returns 0 for NULL in ClickHouse, so `< 3` short/NULL plates are excluded either way; only the exactly-length-3 boundary moves."
+  ],
+  "tests": [
+    {"file": "tests/Feature/Clickhouse/HotlistAddressGeohashQueryTest.php (existing or new)", "what_it_pins": "A hotlist row with a length-3 plate now contributes an address geohash cell to both direct and staging layers; a length-2 plate does not."}
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Clickhouse/Queries/HotlistAddressGeohashQuery.php:150",
+      "app/Filament/Widgets/Dashboard/HotlistCount.php:74",
+      "app/Http/Controllers/Api/ClarityScoutMapController.php:557",
+      "app/Http/Controllers/Api/Concerns/ScoutMapHelpers.php:110",
+      "app/Http/Controllers/KitUserPathController.php:73"
+    ],
+    "code_flow": "ClarityScoutMapController::orderLayers -> orderRows(staging) -> HotlistAddressGeohashQuery::query -> queryClickhouseRaw (line 150 guard). Admin Bird's Eye uses ScoutMapHelpers::orderRows -> same query. KitUserPathController::geojson -> same query.",
+    "tables": ["clarity.hotlist (FINAL)", "zod.public_hotlist_address", "zod.public_address"],
+    "related_components": ["HotlistCount dashboard widget (the >= 3 reference)"]
+  },
+  "exhaustiveness": {
+    "grep_patterns": ["length\\s*\\(\\s*(coalesce\\s*\\(\\s*)?plate", "length\\([^)]*plate"],
+    "sites": [
+      {"site": "HotlistAddressGeohashQuery.php:150 `length(plate) > 3`", "verdict": "buggy", "reason": "the order-map query in scope — must become `>= 3`."},
+      {"site": "ScoutCheckInRollupQuery.php:108 `length(plate) > 3`", "verdict": "safe", "reason": "check-in rollup, out of ticket scope (see q3)."},
+      {"site": "ClarityScoutDashboardController.php:173,183 `length(plate) > 3`", "verdict": "safe", "reason": "dashboard-controller stat queries, out of scope (see q3)."},
+      {"site": "Hotlist.php:119 `length(plate) > 3`", "verdict": "safe", "reason": "CH model scope, not the order map."},
+      {"site": "Hotlist.php:124 `length(coalesce(plate,'')) < 3`", "verdict": "safe", "reason": "inverse missing-plate scope, not the order map."},
+      {"site": "HotlistCount.php:74,76 `length(plate) >= 3`", "verdict": "safe", "reason": "already `>= 3`; this is the reference behavior."}
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [],
+    "ch_tables": ["clarity.hotlist", "zod.public_hotlist_address", "zod.public_address"],
+    "mv_or_cdc_implications": "Reads CDC mirror tables; no writes, no MV. The precision-6 MV was already retired (docblock). No schema change.",
+    "indexes_relied_on": ["clarity.hotlist org_id/status filter", "zod.public_address id primary key (a.id IN ...)"]
+  },
+  "derivation_log": [],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "length-3 plate appears on direct order layer", "kind": "agent", "intent": "seed a hotlist+address with a 3-char plate in an org's own hotlist; assert its geohash cell is returned by the direct order layer."},
+      {"ac": "length-2 plate excluded", "kind": "agent", "intent": "seed a 2-char plate; assert no cell."},
+      {"ac": "staging parity", "kind": "human", "intent": "verify staging layer shows the length-3 provider address."}
+    ],
+    "seed_scenario": "One org with an OrgRunArea covering a small bbox; two hotlist rows (plate length 3 and 2), each linked via public_hotlist_address to a valid EWKT public_address point inside the bbox; a staging provider org with an is_staged hotlist of a length-3 plate.",
+    "personas": ["Scout driver (org map)", "admin (Bird's Eye)"],
+    "pg_tables": [],
+    "ch_tables": ["clarity.hotlist", "zod.public_hotlist_address", "zod.public_address"]
+  },
+  "confidence": 98,
+  "escalate": {"recommend": true, "reason": "Shared query (q2) touches a non-Scout caller; q3 re-introduces a cross-surface divergence DEV-2163 deliberately avoided. Both resolved by human at gate 2026-07-13."},
+  "gate": "CLEAN",
+  "missed_caller_candidates": [
+    {"file": "app/Http/Controllers/KitUserPathController.php", "symbol": "HotlistAddressGeohashQuery::query", "referenced_at": "line 73"}
+  ]
+}

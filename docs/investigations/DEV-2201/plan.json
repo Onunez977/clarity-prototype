@@ -1,0 +1,48 @@
+{
+  "key": "DEV-2201",
+  "sizing": {
+    "app_files": 7,
+    "test_files": 3,
+    "verdict": "proceed",
+    "note": "Above the 6-file heuristic, but NOT split: this is one non-decomposable feature (KML import). The file count is driven by Dalton's grooming choices (support holes + queue large files) plus test files. Parser->importer->job/action->resource wiring are a single deliverable and cannot ship independently. Built as ONE implementation node because the interfaces (parser output shape -> importer signature -> job/action call sites) must co-evolve; splitting across blind parallel workers would produce interface mismatches."
+  },
+  "perf_validation_required": false,
+  "async_feedback_decision": "Queued-path completion feedback = an EMAIL notification (App\\Notifications\\ZoneImportCompleted) via the Notifiable User. Chosen over enabling Filament's panel-wide database-notification bell (which app/Providers/Filament panels do NOT currently enable) to keep the change self-contained and avoid a cross-cutting admin-UI change. Assumption flagged for Dalton at QA/handoff; switching to an in-app bell later is a light-path change.",
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "KML bulk-import for Zone Manager (parser + shared importer + queued job + Filament action + toolbar wiring)",
+      "approach": "Build the whole feature in ONE node via TDD, in dependency order, reusing the existing Zone geometry pipeline. Order: (1) ScoutAnalyticsEvent::ZoneImport enum case. (2) KmlZoneParser service (TDD parser test first): namespace-aware SimpleXML (registerXPathNamespace 'kml' => http://www.opengis.net/kml/2.2, xpath //kml:Placemark), read <name> (fallback 'Imported Zone {n}'), parse <Polygon><outerBoundaryIs><LinearRing><coordinates> as outer ring + each <innerBoundaryIs><LinearRing><coordinates> as a hole, strip altitude (3rd tuple element), force-close each ring, validate EACH ring (>=4 positions & closed) replicating Zone::geoJsonHasValidRing's threshold; invalid outer => skip placemark (record reason), invalid hole => drop that hole keep the polygon; emit GeoJSON Polygon coordinates=[outer, ...holes]; non-<Polygon> placemarks skipped+counted; never let a SimpleXML libxml warning/exception escape (libxml_use_internal_errors). (3) ZoneKmlImporter service: run(string $kml, int $orgId, int $userId): array{created:int,skipped:int,skip_reasons:array} — calls the parser, per valid polygon wraps Zone::create([org_id,created_by_user_id,name,color=Zone::DEFAULT_COLOR,is_no_scan_zone=false,definition=['polygons'=>[$polygon],'zip_codes'=>[]]]) + $zone->rebuildGeometryFromDefinition() in its OWN DB::connection('platform')->transaction()+try/catch (per-placemark, NOT one wrapping txn), tallies counts, fires ONE Analytics::track(ScoutAnalyticsEvent::ZoneImport, user, ['created'=>N,'skipped'=>M], ScoutAnalyticsPage::Zones). Written ONCE, called by both the sync action and the job. (4) ImportZonesFromKml job (ShouldQueue): ctor(string $storedPath, string $disk, int $orgId, int $userId); handle() reads the stored KML from the disk, calls ZoneKmlImporter::run(), notifies the user by email (ZoneImportCompleted) with the counts, deletes the stored file in a finally; failed() emails a failure notice + deletes the file. (5) App\\Notifications\\ZoneImportCompleted (queued mail notification): 'Your KML zone import finished — N created, M skipped' (+ a failure state). (6) ZoneKmlImportAction static action: schema() = required FileUpload('file') with acceptedFileTypes(['application/vnd.google-earth.kml+xml','text/xml','application/xml','application/octet-stream']) + ->rules(['mimes:kml']) (extension backstop; verify empirically) + ->maxSize(config value); action() = Gate::authorize('create', Zone::class) once, then decide sync-vs-queue by a named threshold (default: raw file size > ZoneKmlImportAction::QUEUE_THRESHOLD_BYTES ~ 262144). SYNC: read TemporaryUploadedFile->get(), ZoneKmlImporter::run() inline, immediate summary Notification ('Imported N zones, skipped M'). QUEUE: persist the upload to a private disk, dispatch ImportZonesFromKml, show 'Import started — you'll be emailed when it finishes'. (7) Wire ZoneKmlImportAction::make() into ZoneResource::table()->toolbarActions([...]) beside 'create', ->visible(fn(): bool => static::canCreate()). Then the Filament action/resource test + job test. Run pint + full suite at the end.",
+      "target_files": [
+        "app/Enums/ScoutAnalyticsEvent.php",
+        "app/Services/Zones/KmlZoneParser.php",
+        "app/Services/Zones/ZoneKmlImporter.php",
+        "app/Jobs/ImportZonesFromKml.php",
+        "app/Notifications/ZoneImportCompleted.php",
+        "app/Filament/Actions/ZoneKmlImportAction.php",
+        "app/Filament/Resources/ZoneResource.php",
+        "tests/Services/Zones/KmlZoneParserTest.php",
+        "tests/Jobs/ImportZonesFromKmlTest.php",
+        "tests/Filament/Resources/ZoneResourceTest.php"
+      ],
+      "intended_diffs": "See approach — per-file: enum(+1 case), 2 new services, 1 job, 1 notification, 1 action, ZoneResource(+1 toolbar entry using the existing canCreate() gate), 3 test files (parser unit incl. a holed polygon; job unit incl. email + cleanup; Filament action/resource test incl. gating parity + sync happy-path + partial-skip + org isolation + large-file dispatch via Bus::fake).",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "app/Filament/Pages/ManageZones.php", "reason": "map-editor pattern reference only; not edited (its form ->rule() enforcement is replicated by the importer's pre-save ring check, not shared)."},
+    {"site": "app/Models/Zone.php geoJsonHasValidRing()", "reason": "kept private; the parser replicates the >=4-position/closed-ring rule to keep Zone's blast radius zero (plan_time default from prep-context)."},
+    {"site": "app/Providers/Filament/*Provider.php databaseNotifications()", "reason": "NOT enabled — async feedback uses email, not the Filament panel bell, to avoid a cross-cutting admin-UI change."},
+    {"site": "database/migrations/**", "reason": "no schema change — notifications table already exists; feature is insert-only into platform.zones via the existing pipeline."}
+  ],
+  "rules_applied": {
+    "parallelizable_disjoint": "single node, N/A",
+    "test_filter_null": "real null -> worker runs targeted new-test files during TDD, full TEST_CMD after",
+    "exhaustiveness_coverage": "all buggy/candidate sites from prep covered by t1 or listed in excluded_sites; grep backstop = LOW blast radius, no exhaustive enum match"
+  }
+}

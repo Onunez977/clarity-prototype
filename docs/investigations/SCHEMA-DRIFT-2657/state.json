@@ -1,0 +1,324 @@
+{
+  "track": "SCHEMA-DRIFT-2657",
+  "label": "Thin platform mirror of the frozen clarity.hotlist status-timestamp shape. Progress ticket DEV-2657. DEV-2660 stays out of scope.",
+  "phase": "done",
+  "phases_completed": [
+    "intake",
+    "prep",
+    "gate",
+    "plan",
+    "provision",
+    "implement",
+    "review",
+    "verify",
+    "build_record"
+  ],
+  "gate": "CLEAN",
+  "next": "Undraft/CI (Jeff-skip; no QA Ready)",
+  "next_detail": "Jeff-skip closeout. Undraft PR #461; green CI = merge gate. No QA Ready. Leave fleet Docker CH :18125 UP until Undraft/CI teardown. Definition prove only \u2014 no Agent QA.",
+  "app": "Clarity",
+  "repo": "insight-lpr/platform",
+  "base_branch": "main",
+  "base_sha": "c811e34e482805df5e7795c118489d1e55c379f4",
+  "branch": "cursor/schema-drift-2657-e108",
+  "artifact_dir": "docs/investigations/SCHEMA-DRIFT-2657/",
+  "implement": true,
+  "provision": true,
+  "provisioned": true,
+  "cli_provision": {
+    "status": "done",
+    "at": "2026-09-24T19:00:12Z",
+    "provision_mode": "provision-only (fleet CH cite \u00b7 slim)",
+    "slim": true,
+    "site": null,
+    "postgres": null,
+    "clickhouse": {
+      "strategy": "docker",
+      "container": "clarity-qa-clickhouse-schema-drift-2657",
+      "host_http_port": 18125,
+      "http_url_local": "http://127.0.0.1:18125",
+      "http_url_fleet": "http://172.30.0.2:18125",
+      "database": "clarity_schema_drift_2657",
+      "dsn_http_local": "http://default@127.0.0.1:18125/clarity_schema_drift_2657",
+      "dsn_http_fleet": "http://default@172.30.0.2:18125/clarity_schema_drift_2657",
+      "prove": {
+        "ping": "Ok",
+        "table_count": 31,
+        "hotlist_present": true,
+        "hotlist_has_first_star_at": false,
+        "note": "Current platform schema applied. first_*_at / _peerdb_hsl_synced_at absent until the schema mirror of chlocal migration 116. That absence is the drift under test."
+      }
+    },
+    "cloud_ch_writes": false,
+    "mac_herd_refused": true,
+    "cloud_touched": false,
+    "ledger_path": "docs/investigations/SCHEMA-DRIFT-2657/qa-prep-ledger.json",
+    "ledger_handoff": ".context/qa-prep-ledger.json",
+    "ledger_committed": false,
+    "ledger_timestamp": "2026-09-24T13:57:39-05:00"
+  },
+  "soft_collision": {
+    "path": "A",
+    "dev_2654": {
+      "status": "torn_down",
+      "at": "2026-09-24 ~13:02 CT",
+      "ports": {
+        "site": 18082,
+        "postgres": 15434,
+        "clickhouse": 18124
+      },
+      "ports_free": true,
+      "live_ledger": false
+    },
+    "soft_ok_versus": {
+      "track": "DEV-2555 SCHEMA-GATE",
+      "ports": {
+        "site": 18081,
+        "postgres": 15433,
+        "clickhouse": 18123
+      },
+      "status": "soft OK",
+      "note": "Those twins are the live Path A neighbor. This track does not reuse them."
+    },
+    "this_track_ledger": "docs/investigations/SCHEMA-DRIFT-2657/ after a fresh keyed Docker stand is published. Not written in this run."
+  },
+  "ddl_source": {
+    "repo": "insight-lpr/chlocal",
+    "pr": "https://github.com/insight-lpr/chlocal/pull/37",
+    "pr_state": "OPEN",
+    "pr_head_equals_pin": true,
+    "commit": "a9e366bb21fee0702fd827a9d7c57488be57fc69",
+    "short": "a9e366bb",
+    "commit_subject": "Merge branch 'main' into claude/dev-2657-e32bd2",
+    "migration": "migrations/116_dev_2657_hotlist_status_timestamps.sql",
+    "migration_blob": "235ac8e9eafca3e499e29c607dfe499657ec5c98",
+    "migration_bytes": 29039,
+    "sections_mirrored": [
+      "1 ADD COLUMN list, folded into the existing CREATE TABLE",
+      "3 ADD PROJECTION prj_id_lookup_v2, folded into the existing CREATE TABLE",
+      "4 CREATE MATERIALIZED VIEW clarity.hotlist_incremental_mv"
+    ],
+    "sections_excluded": [
+      "2 MATERIALIZE COLUMN (Cloud catch-up on existing parts)",
+      "3 MATERIALIZE PROJECTION (async mutation)",
+      "4 DROP VIEW IF EXISTS",
+      "5 commented DROP PROJECTION prj_id_lookup",
+      "scripts/backfill/backfill_hotlist_status_timestamps.py"
+    ],
+    "do_not_copy": [
+      "database/schemas/clickhouse/clarity/tables/hotlist.sql at a9e366bb has no first_* columns and no prj_id_lookup_v2",
+      "database/schemas/clickhouse/clarity/materialized_views/hotlist_incremental_mv.sql at a9e366bb is the pre-migration view and carries a personal DEFINER"
+    ]
+  },
+  "gap_confirmed": {
+    "file": "database/schema/clickhouse-schema.sql",
+    "ref": "origin/main",
+    "sha": "c811e34e482805df5e7795c118489d1e55c379f4",
+    "hotlist_line": 24,
+    "first_open_at": 0,
+    "hotlist_incremental_mv": 0,
+    "prj_id_lookup_v2": 0,
+    "_peerdb_hsl_synced_at": 0,
+    "prj_id_lookup": 1,
+    "header": "TABLES (64), VIEWS (13), MATERIALIZED VIEWS (5), Generated 2026-09-01"
+  },
+  "statements": {
+    "hotlist_create_sha256": "ba93b813d584a900f4076a92550d26936a5242a025d637caaf7535250024e875",
+    "hotlist_incremental_mv_sha256": "383185efb27168c87bd49ac7bdbad0338f456ed8fb598bdf47e1b32e895511b8"
+  },
+  "jira": {
+    "progress_only": true,
+    "assignee_unchanged": true,
+    "do_not_transition": true,
+    "DEV-2657": {
+      "url": "https://insightlpr-team.atlassian.net/browse/DEV-2657",
+      "status": "In Code Review",
+      "summary": "chlocal: add per-status first-transition timestamp columns to clarity.hotlist + backfill history",
+      "assignee": "Dalton McCleery",
+      "plan_comment": "41704",
+      "provision_comment": "41717",
+      "build_record_comment": "41731"
+    }
+  },
+  "cloud_clickhouse": "READ-ONLY absolute. SHOW CREATE drift check allowed. No INSERT, ALTER, DELETE, OPTIMIZE, or DROP.",
+  "out_of_scope": [
+    "Cloud apply",
+    "backfill script",
+    "product PHP",
+    "DEV-2660",
+    "Cloud ClickHouse writes"
+  ],
+  "ticket_status": {
+    "ticket": "SCHEMA-DRIFT-2657 (progress ticket DEV-2657, status left at In Code Review, assignee Dalton McCleery)",
+    "phase": "done",
+    "done": "intake \u00b7 Ultra-Prep \u00b7 Question Gate (CLEAN) \u00b7 Ultra-Plan \u00b7 ticket provision (fleet Docker CH cite \u00b7 slim) \u00b7 Implement \u00b7 Review (PASS min 90) \u00b7 Verify/Build Record (comment 41731 \u00b7 fleet :18125 prove)",
+    "next": "Undraft/CI (Jeff-skip; green CI = merge; no QA Ready)",
+    "open_questions": "none",
+    "status": "Next Undraft/CI (Jeff-skip)",
+    "status_cite": "Verify/Build Record done. BR comment 41731. Fleet Docker CH :18125 definition prove SATISFIED (25.8.11.66; seven first_*/hsl columns; prj_id_lookup + prj_id_lookup_v2). reviewed_sha=1787e046\u2026. Jeff-skip: undraft PR #461; green CI = merge; no QA Ready. Leave env UP.",
+    "artifacts": "docs/investigations/SCHEMA-DRIFT-2657/"
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "sha256 CREATE TABLE clarity.hotlist and CREATE MATERIALIZED VIEW clarity.hotlist_incremental_mv in database/schema/clickhouse-schema.sql",
+        "passed": true,
+        "at": "2026-09-24T19:06:37Z",
+        "sha": "1f5d8491e8066b5368ca80f8a58abe01e34c2de6",
+        "hotlist_create_sha256": "ba93b813d584a900f4076a92550d26936a5242a025d637caaf7535250024e875",
+        "hotlist_incremental_mv_sha256": "383185efb27168c87bd49ac7bdbad0338f456ed8fb598bdf47e1b32e895511b8",
+        "note": "Both match plan.json. The view statement also matches the whitespace-collapsed section 4 of chlocal migrations/116_dev_2657_hotlist_status_timestamps.sql at a9e366bb21fee0702fd827a9d7c57488be57fc69 (blob 235ac8e9eafca3e499e29c607dfe499657ec5c98). Header stays TABLES (64), VIEWS (13), Generated 2026-09-01. MATERIALIZED VIEWS is 6."
+      },
+      {
+        "cmd": "ClickHouse 26.2.19.43 at 127.0.0.1:8123: CREATE the hotlist table and hotlist_incremental_mv in scratch database clarity_schema_drift_2657_prove, then SHOW CREATE and system.projections. Scratch database dropped after.",
+        "passed": true,
+        "at": "2026-09-24T19:06:37Z",
+        "version": "26.2.19.43",
+        "columns": [
+          "first_open_at Nullable(DateTime64(6))",
+          "first_hold_at Nullable(DateTime64(6))",
+          "first_repossessed_at Nullable(DateTime64(6))",
+          "first_declined_at Nullable(DateTime64(6))",
+          "first_closed_at Nullable(DateTime64(6))",
+          "first_invalid_at Nullable(DateTime64(6))",
+          "_peerdb_hsl_synced_at DateTime64(9) DEFAULT now64()"
+        ],
+        "projections": {
+          "prj_id_lookup": "select list unchanged, ORDER BY id",
+          "prj_id_lookup_v2": "same select list plus first_repossessed_at, ORDER BY id"
+        },
+        "engine": "ReplacingMergeTree",
+        "mv": "REFRESH EVERY 1 MINUTE APPEND, DEFINER = default SQL SECURITY DEFINER",
+        "note": "Agent ClickHouse already running on :8123. Fleet HTTP :18125 (127.0.0.1 and 172.30.0.2) did not connect. The scratch view read clarity.orgs and zod sources already on :8123, and wrote only into the scratch database. ClickHouse Cloud was not written. Scratch database dropped."
+      },
+      {
+        "cmd": "Fleet Docker CH :18125 Preflight #18: DROP+CREATE remapped tip hotlist into clarity_schema_drift_2657; DESCRIBE seven fields; system.projections; engine ReplacingMergeTree. MV CREATE soft-fail missing public_orgs_latest.",
+        "passed": true,
+        "at": "2026-09-24T19:15:42Z",
+        "version": "25.8.11.66",
+        "host": "127.0.0.1",
+        "port": 18125,
+        "container": "clarity-qa-clickhouse-schema-drift-2657",
+        "database": "clarity_schema_drift_2657",
+        "ping": "Ok",
+        "columns": [
+          "first_open_at Nullable(DateTime64(6))",
+          "first_hold_at Nullable(DateTime64(6))",
+          "first_repossessed_at Nullable(DateTime64(6))",
+          "first_declined_at Nullable(DateTime64(6))",
+          "first_closed_at Nullable(DateTime64(6))",
+          "first_invalid_at Nullable(DateTime64(6))",
+          "_peerdb_hsl_synced_at DateTime64(9) DEFAULT now64()"
+        ],
+        "projections": {
+          "prj_id_lookup": "select list unchanged, ORDER BY id",
+          "prj_id_lookup_v2": "same select list plus first_repossessed_at, ORDER BY id"
+        },
+        "engine": "ReplacingMergeTree",
+        "mv_create": "soft_fail_missing_zod_public_orgs_latest",
+        "hotlist_create_sha256": "ba93b813d584a900f4076a92550d26936a5242a025d637caaf7535250024e875",
+        "hotlist_incremental_mv_sha256": "383185efb27168c87bd49ac7bdbad0338f456ed8fb598bdf47e1b32e895511b8",
+        "cloud_touched": false,
+        "note": "Supersedes Implement agent :8123 scratch prove. Hard bar table+projections SATISFIED."
+      }
+    ],
+    "review": {
+      "rn": 1,
+      "passed": true,
+      "min_score": 90,
+      "threshold": 85,
+      "scores": [
+        92,
+        90,
+        91
+      ],
+      "lanes": [
+        "correctness",
+        "conventions",
+        "blast-radius"
+      ],
+      "lane_sources": [
+        "in-session-review",
+        "in-session-review",
+        "in-session-review"
+      ],
+      "reviewed_sha": "1787e0462e96af3e12dbb8743006fda2f271556f",
+      "rerun_required": false,
+      "act_on": "NONE",
+      "next": "Verify",
+      "at": "2026-09-24T19:10:35Z",
+      "gate": "REVIEW_GATE: pass min=90 threshold=85 lanes=3 rn=1 scores=92/90/91 conventions=90"
+    },
+    "ac": [
+      {
+        "id": "AC-1",
+        "verdict": "SATISFIED",
+        "evidence": "Dump CREATE TABLE clarity.hotlist sha256 ba93b813d584a900f4076a92550d26936a5242a025d637caaf7535250024e875 MATCH; tip file has six Nullable(DateTime64(6)) first_* + _peerdb_hsl_synced_at DateTime64(9) DEFAULT now64(); fleet DESCRIBE on :18125 clarity_schema_drift_2657 proves all seven fields after tip apply."
+      },
+      {
+        "id": "AC-2",
+        "verdict": "SATISFIED",
+        "evidence": "prj_id_lookup select list unchanged (no first_*); prj_id_lookup_v2 adds first_repossessed_at only. Proven via tip SHOW CREATE + fleet system.projections."
+      },
+      {
+        "id": "AC-3",
+        "verdict": "SATISFIED",
+        "evidence": "hotlist_incremental_mv sha256 383185efb27168c87bd49ac7bdbad0338f456ed8fb598bdf47e1b32e895511b8 MATCH; file has hsl watermark / status-log arm / six columns. Fleet CREATE soft-failed (missing zod_schema_drift_2657.public_orgs_latest on slim stand) \u2014 hard bar is table+projections."
+      },
+      {
+        "id": "AC-4",
+        "verdict": "SATISFIED",
+        "evidence": "Pin a9e366bb migration 116 sections mirrored (ADD COLUMN, prj_id_lookup_v2, CREATE MV); excluded MATERIALIZE/DROP/backfill. Dump-only ship."
+      },
+      {
+        "id": "AC-5",
+        "verdict": "SATISFIED",
+        "evidence": "Preflight #18: fleet Docker CH 127.0.0.1:18125 container clarity-qa-clickhouse-schema-drift-2657 DB clarity_schema_drift_2657 ping Ok version 25.8.11.66; remapped tip CREATE applied; DESCRIBE + system.projections prove."
+      },
+      {
+        "id": "AC-6",
+        "verdict": "SATISFIED",
+        "evidence": "Out-of-scope respected: cloud_touched=false; no backfill; no product PHP; no DEV-2660. Ship file database/schema/clickhouse-schema.sql only."
+      },
+      {
+        "id": "AC-7",
+        "verdict": "SATISFIED",
+        "evidence": "Thin conventions #16: Review conventions 90 green; .sql+docs only \u2014 no Pint. OKF okf/models/clickhouse/hotlist.md lag soft OK."
+      },
+      {
+        "id": "DEV-2657-full-Cloud-backfill-product",
+        "verdict": "OUT_OF_SCOPE",
+        "evidence": "NOT_COVERED on this platform dump PR. Progress ticket Cloud apply / backfill / product ACs live elsewhere; do not HARD FAIL this track."
+      }
+    ],
+    "qa": {
+      "agent_qa": false,
+      "note": "Definition prove on fleet Docker CH only. No Pippin / no Agent QA on this track. Jeff-skip; green CI = merge gate; no QA Ready.",
+      "cloud_touched": false,
+      "fleet_ch": {
+        "host": "127.0.0.1",
+        "port": 18125,
+        "database": "clarity_schema_drift_2657",
+        "version": "25.8.11.66",
+        "ping": "Ok"
+      }
+    }
+  },
+  "pr": {
+    "url": "https://github.com/insight-lpr/platform/pull/461",
+    "number": 461,
+    "draft": true,
+    "assignee": "DaltonMcCleery",
+    "assignee_note": "REST assign returned 201. The cloud-agent GitHub token's GraphQL assignee edit failed on missing read:org scope and left assignees empty."
+  },
+  "updated_at": "2026-09-24T19:15:42Z",
+  "comment_ids": {
+    "build_record": "41731"
+  },
+  "build_record": {
+    "comment_id": "41731",
+    "posted_at": "2026-09-24T19:15:42Z",
+    "jira": "DEV-2657",
+    "marker": "Insight AI \u2014 Build Record"
+  }
+}

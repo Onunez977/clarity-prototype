@@ -1,0 +1,42 @@
+{
+  "key": "DEV-2163",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2163",
+  "phase": "done",
+  "models": {"base": "haiku", "recall": "haiku", "prep": "sonnet", "plan": "opus", "plan_arbiter": "opus", "implement": "sonnet", "implement_simple": "sonnet", "arbitrate": "opus", "offload": "sonnet", "review": "opus"},
+  "efforts": {"prep": "inherit", "plan": "inherit", "plan_arbiter": "inherit", "implement": "inherit", "implement_simple": "inherit", "arbitrate": "inherit", "offload": "inherit", "review": "inherit"},
+  "timings": [],
+  "flags": {"companion": false, "review_policy": "functional", "jira_mirror": true, "start_at": null, "stop_at": null, "only": null, "skip": [], "force": false},
+  "knowledge_cards_loaded": ["clarity/scout.md", "clickhouse/core.md"],
+  "escalated": true,
+  "escalation_triggers": ["confidence<80 (75)", "prep escalate.recommend=true", "answered:false material questions (perf approach, plate filter)", "blast-radius cross-db CH join, failures silent"],
+  "missed_caller_candidates": [],
+  "diff_base": "360b8d9d9d2636c96f8f63f9c2b7a09b9777f1b7",
+  "subtasks": [{"id": "t1", "status": "merged", "worktree_path": "", "branch": "", "complexity": "complex", "model": "opus (driver, single-node fast path)"}],
+  "review_number": 1,
+  "pr": {"number": 258, "url": "https://github.com/insight-lpr/platform/pull/258", "draft": true},
+  "pr_urls": {},
+  "jira_in_progress_by": "daltonmccleery@gmail.com @ 2026-07-07T18:20:00Z",
+  "jira_transitioned_by": "manual-daltonmccleery@gmail.com",
+  "assumed": [],
+  "comment_ids": {"status": "34688", "build_record": "34721"},
+  "qa": {"ledger": "", "agent_report": "", "ac_results": "", "torn_down": true, "note": "no local QA env provisioned — parked for human QA + CI per Dalton (2026-07-07); nothing to tear down",
+         "provisioning": {"bootstrap": "", "deps": "", "migrations": "", "docker_daemon": "", "ch_container": "", "frontend_build": "", "postgres_db": "", "ch_strategy": "", "herd_site": ""}},
+  "record": {
+    "tests": [{"cmd": "CI lint_check_and_test.yml — Pint & Tests (8.4) against real ClickHouse", "result": "success", "duration": "10m50s", "run": "https://github.com/insight-lpr/platform/actions/runs/28944625632", "note": "re-fixtured ClarityScoutDashboardControllerTest executed on real CH; not run locally this session (triggered via a real trigger commit after [skip ci] checkpoints suppressed it)"}],
+    "deviations": [],
+    "review": {"lanes": 3, "scores": [90, 94, 100], "reviewer": "in-session insightlpr:adversarial-reviewer (nested claude -p unavailable in embedded harness)", "findings_fixed": ["docblock: corrected misleading 'never JOIN' wording to protect the load-bearing id-IN prune", "docblock: corrected BBOX pad lat/lng asymmetry + high-latitude caveat"], "findings_residual": [{"id": "M1", "severity": "medium", "finding": "matches geoDistance join is |scan_window| x |bbox-addresses|; bbox bounds only the address side, so a metro-wide busy kit on last_60/90 could still exceed the CH read budget and degrade silently to {0,0} (ClickhouseQuery swallows to []). This is AC5 (perf on largest kits) + AC4 (live verification), both live-data items. Load-test a high-volume kit at QA; if it times out, escalate to a geohash-prefix pre-join before shipping.", "disposition": "verify-at-QA (AC5/AC4 live)"}, {"id": "L2", "severity": "low", "finding": "no FINAL on the two zod ReplacingMergeTree tables can transiently over-count un-merged CDC deletes; matches accepted sibling tradeoff, status/plate gate rides clarity.hotlist FINAL.", "disposition": "accepted (sibling convention)"}]},
+    "ac": [
+      {"item": "Source open-assignment addresses from zod.public_hotlist_address->zod.public_address (Open), not clarity.recovery_address", "status": "SATISFIED", "evidence": "addresses/address_links CTEs read the zod path (ScoutCheckInRollupQuery.php); confirmed by 3 review lanes; re-fixtured tests seed the zod tables"},
+      {"item": "EWKT geo parsed to lng/lat with null/empty/(0,0) guards", "status": "SATISFIED", "evidence": "extract()+toFloat64OrNull (not readWKTPoint) + geo IS NOT NULL/!=''/addr!=0 guards; test_check_in_counts_guard_malformed_geo pins NULL/empty/malformed/(0,0)"},
+      {"item": "Direct vs staging split (is_staged) + staging-org authorization preserved", "status": "SATISFIED", "evidence": "hotlistOrgFilter() unchanged in open_hotlists; is_staged threaded through to matches; review lane 3 (100) confirmed no tenant leak; ignore_unauthorized_staging_orgs test retained"},
+      {"item": "Endpoint returns non-zero counts for a real org/kit (live-data verified)", "status": "NOT SATISFIED", "evidence": "DEFERRED to human QA on live/staging ClickHouse — cannot be verified locally (no prod-scale data). Suggested: org 1271 / kit 14904, 90-day window (per ticket)."},
+      {"item": "Performance acceptable for high-volume kits; approach documented", "status": "NOT SATISFIED", "evidence": "Approach (scan-window bbox prefilter + id-IN prune) documented in class docblock. Sufficiency for the LARGEST kits is UNVERIFIED (review M1: matches join bounds only the address side). DEFERRED to a live load test at QA; escalate to a geohash pre-join if it times out."},
+      {"item": "Feature tests re-fixtured onto the two zod tables; existing coverage retained + passing", "status": "SATISFIED", "evidence": "6 check-in tests repointed to insertOpenAssignmentAddress; radius test strengthened to sit inside bbox/outside 160m; +malformed-geo +short-plate tests. CONFIRMED PASSING on CI (Pint & Tests 8.4, real ClickHouse, run 28944625632, success 2026-07-08)."}
+    ]
+  }
+}

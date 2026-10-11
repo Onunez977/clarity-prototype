@@ -1,0 +1,354 @@
+{
+  "key": "DEV-2467",
+  "mode": "normal",
+  "route": "feature",
+  "gate": "CLEAN",
+  "reconcile": {
+    "method": "insightlpr:multi-candidate-merge, performed IN-SESSION by the opus driver (all 4 candidate outputs were already in driver context; re-dispatching them to a sub-agent would have re-sent ~500KB for no added independence). Model equals TICKET_PLAN_MODEL (opus).",
+    "candidates": [
+      "fast-pass",
+      "candidate-1",
+      "candidate-2",
+      "candidate-3"
+    ],
+    "confidences": [
+      68,
+      62,
+      62,
+      62
+    ],
+    "driver_verified": [
+      "cards() insertion point \u2014 read the mockup-grid docblock at CompanyMetricsOverview.php:46-89 directly; row 2 col 1 sits between 'recovery-counts' (r1c2) and 'staging-live-hit-leader' (r3c2). Array has exactly 9 entries today.",
+      "Second hardcoded card count at DashboardCardVisibilityTest.php:191 (assertCount(9, CompanyMetricsOverview::cards())) \u2014 confirmed, plus DashboardCardExpansionTest.php:94 (assertCount(9, $cardWidgets)).",
+      "FeatureEnum has 18 cases and NONE is unique-scan specific; COMPANY_METRICS = 'platform_repo_pro_company_metrics' is the only applicable flag.",
+      "No custom Filament colour is registered in app/Providers/Filament/ \u2014 candidate-2's claim that primary/info/danger are overridden there is WRONG. The palette is Filament's 6 defaults.",
+      "AggregateScanCountByHour::affiliateStatsReportQuery() has exactly ONE occurrence in the repo: its own definition. It is DEAD CODE, not a live third divergence (candidate-1 correct, candidate-2 overstated).",
+      "DEV-2466 findings.md sec 7 measured GROUP BY kit_id WITH ROLLUP for a SINGLE window only (Aug 2026), not for the 13-month series \u2014 candidate-1's 'combined shape is unmeasured' flag is accurate."
+    ]
+  },
+  "synthesis": "Add the 'Unique Scan Counts' card at Company Metrics mockup slot row 2 col 1: period-distinct plates, uniqExact(ocr) over clarity.scans_cold for the selected window, with a 13-month sparkline. The DEV-2466 spike (merged, GO) already settled the query contract and corrected two premises the ticket originally got wrong. The engineering work is a new ClickHouse query class, a new DashboardWidget card, one cards() insertion at the exact mockup slot, one getStatColor() arm, a Pro gate, and two test-count updates. The residual risk is not the query \u2014 it is the cross-class cache-key shape that DEV-2468 must be able to reuse, and two product decisions the ticket explicitly defers.",
+  "scope": {
+    "summary": "New ScanPlateStatsBatchQuery (clarity.scans_cold, org_id-filtered, no FINAL, _peerdb_is_deleted=0) + new UniqueScanCounts DashboardWidget registered at cards() index 2, Pro-gated on FeatureEnum::COMPANY_METRICS, with the 13-month series batched into ONE call and the selected-window total served by a GROUP BY kit_id WITH ROLLUP pass whose kit_id=0 row is the org total and whose cache key DEV-2468 can read.",
+    "proposed_changes": [
+      {
+        "file": "app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php",
+        "change": "NEW. handle() = 13-month series GROUP BY toStartOfMonth(scanned_at) (org total per month, NO kit dimension). handleRange() = single-window GROUP BY kit_id WITH ROLLUP, kit_id=0 is the org total. Both: static::clarityDb(), org_id filter, scanned_at bounds, _peerdb_is_deleted = 0, NO FINAL. Plus a public static cache-key builder so a sibling card can read the same cached rollup byte-identically.",
+        "reason": "DEV-2466 proven shapes. ScanStatsBatchQuery is not extendable: it reads scan_report_hourly (uniqExactMerge over a scan-id count, no ocr column) and hardcodes the 'clarity.' prefix.",
+        "ref": "HitPlateStatsBatchQuery.php (structural template); DEV-2466 findings.md sec 4 + sec 7"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueScanCounts.php",
+        "change": "NEW DashboardWidget subclass. Overrides getMonthlyData() to batch the uncached month range into ONE handle() call. Overrides the range path to one handleRange() call. Overrides canViewCardData()/canView() for the COMPANY_METRICS gate. getModelQueryForDates() becomes a 0-stub (the LiveHits precedent) since both real paths are overridden. Ships NO explanatory description copy about the Scan Count / affiliate-report divergences (operator decision, Q2 - Build Record only).",
+        "reason": "DashboardWidget::getMonthlyData() default issues up to 13 separate calls on a cold cache.",
+        "ref": "ScanCount.php (batching template); DashboardWidget.php:208-239"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php",
+        "change": "Insert 'unique-scan-counts' => UniqueScanCounts::class at index 2, between 'recovery-counts' and 'staging-live-hit-leader'. Un-bracket [Unique Scan Counts] in the row-2 line of the mockup docblock, and correct the stale alignment prose (this becomes the 10th card, so 6 built cards now precede the hit block, not 5).",
+        "reason": "The array is mockup-relative and explicitly NOT append-only; the docblock's own grid places this card at row 2 col 1.",
+        "ref": "CompanyMetricsOverview.php:46-103"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+        "change": "Add the explicit arm 'unique-scan-counts' => 'success' to getStatColor(). Reuses the same colour as 'scan-count' deliberately (operator decision, Q1) so the two scan-family cards read as one group; no custom colour is registered.",
+        "reason": "AC requires an explicit arm; default => 'gray' fails silently and is documented as unreachable.",
+        "ref": "DashboardWidget.php:299-309"
+      },
+      {
+        "file": "tests/Filament/Pages/DashboardCardExpansionTest.php",
+        "change": "Insert the new key into the layout-order expectation; bump assertCount(9, $cardWidgets) at line 94 to 10. test_all_four_hit_cards_are_contiguous() must keep passing unmodified (it measures array adjacency, and the block shifts as a unit).",
+        "reason": "Named by the ticket; pins the card-order invariant.",
+        "ref": "DashboardCardExpansionTest.php:94,152-177"
+      },
+      {
+        "file": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php",
+        "change": "Bump assertCount(9, CompanyMetricsOverview::cards()) at line 191 to 10.",
+        "reason": "SECOND, independent hardcoded card count NOT named by the ticket. Found by the grep backstop, corroborated by candidate-1, verified by the driver.",
+        "ref": "DashboardCardVisibilityTest.php:191"
+      },
+      {
+        "file": "tests/Feature/Clickhouse/ScanPlateStatsBatchQueryTest.php",
+        "change": "NEW RequiresClickhouse test.",
+        "reason": "Only coverage for the new query class.",
+        "ref": "tests/Feature/Clickhouse/HitPlateStatsBatchQueryTest.php"
+      },
+      {
+        "file": "tests/Filament/Widgets/Dashboard/UniqueScanCountsTest.php",
+        "change": "NEW widget test incl. a round-trip-count assertion through a protected countable seam.",
+        "reason": "AC-5 needs a test that can actually fail; DB::listen never fires for the ClickHouse driver.",
+        "ref": "StagingLiveHitLeaderTest.php"
+      }
+    ],
+    "target_files": [
+      "app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php",
+      "app/Filament/Widgets/Dashboard/UniqueScanCounts.php",
+      "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php",
+      "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+      "tests/Filament/Pages/DashboardCardExpansionTest.php",
+      "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php",
+      "tests/Feature/Clickhouse/ScanPlateStatsBatchQueryTest.php",
+      "tests/Filament/Widgets/Dashboard/UniqueScanCountsTest.php"
+    ],
+    "out_of_scope": [
+      "DEV-2468 leaderboard widget itself \u2014 this ticket only leaves the query + cache key reusable.",
+      "DEV-2469/2470 \u2014 they read clarity.recovery_scans, a different and far cheaper table, and must NOT be forced onto this scan.",
+      "Changing ScanCount, AffiliateStatsHourly, or the affiliate report's own numbers.",
+      "Fixing the 5 pre-existing hardcoded 'clarity.' prefixes (LprVisitCountQuery, RdnHitHourCountQuery, RdnScanHourCountQuery, RecoveryLeaderQuery, ScanStatsBatchQuery) \u2014 do not add a 6th, do not retrofit the others.",
+      "Fixing ScanCount's Scan::hot()::query() static-discard bug (DEV-2324).",
+      "Deleting the dead AggregateScanCountByHour::affiliateStatsReportQuery()."
+    ]
+  },
+  "settled_by_reconcile": [
+    {
+      "item": "cards() insertion at index 2, between 'recovery-counts' and 'staging-live-hit-leader'",
+      "agreement": "4/4 candidates + driver-verified against the mockup docblock"
+    },
+    {
+      "item": "New query class, do NOT extend ScanStatsBatchQuery",
+      "agreement": "4/4. Name: ScanPlateStatsBatchQuery (3/4; mirrors HitPlateStatsBatchQuery). candidate-2 proposed UniqueScanStatsBatchQuery \u2014 outvoted and less consistent with the named template pair."
+    },
+    {
+      "item": "getMonthlyData() must be overridden to batch \u2014 the default is 13 separate calls",
+      "agreement": "4/4, all citing DashboardWidget.php:208-239"
+    },
+    {
+      "item": "static::clarityDb(), org_id filter, no FINAL, _peerdb_is_deleted = 0",
+      "agreement": "4/4 + ticket + spike"
+    },
+    {
+      "item": "Reuse BuildsDateFilterChartSeries::resolveCardRange() verbatim; do NOT re-derive month/timezone arithmetic. Naive user-tz strings against the UTC scanned_at column is the existing accepted convention across every sibling card.",
+      "agreement": "4/4"
+    },
+    {
+      "item": "Call handle()/handleRange() DIRECTLY inside the card's own try/catch, bypassing ClickhouseQuery::query(), which swallows any Throwable to [] in production|testing \u2014 otherwise a failed query is cached as a zero.",
+      "agreement": "3/4 explicitly, 0 dissent"
+    },
+    {
+      "item": "Cross-class sharing = a documented cache-key FORMAT, NOT a new trait and NOT SharedHitStatsData (whose 4-entry hitWidgetMap and dual total/unique series do not fit, and whose trait statics are copied per using-class \u2014 the DEV-2406 bug). Refinement adopted from candidate-1: put a PUBLIC STATIC key-builder on the query class itself, so there is one spelling of the format rather than two hand-mirrored copies.",
+      "agreement": "4/4 on 'no new trait'; candidate-1's static-key-builder refinement adopted as the best synthesis"
+    },
+    {
+      "item": "Round-trip count must be pinned through a protected countable seam, not DB::listen (never fires for the ClickHouse driver)",
+      "agreement": "4/4"
+    },
+    {
+      "item": "Pro gate = FeatureEnum::COMPANY_METRICS, StagingLiveHitLeader's canViewCardData() shape",
+      "agreement": "3/4 answered yes; candidate-2 called it ambiguous. Resolved by evidence: the ticket AC requires it, and the driver verified no unique-scan FeatureEnum exists among the 18 cases."
+    },
+    {
+      "item": "SHAPE SPLIT (resolves candidate-2's design fork using candidate-1's measurement gap): the 13-month series is GROUP BY month ONLY (measured, DEV-2466 sec 4: 60,738,996 rows / 1.31 GB / 2.44 GB peak / 1,102 ms). The selected-window total is GROUP BY kit_id WITH ROLLUP (measured, sec 7: 5,573,739 rows / 142.7 MB / 249 MB peak / 606 ms) and its kit_id=0 row is the org total DEV-2468 reads from cache. A COMBINED 13-month x per-kit rollup was NEVER measured by the spike and would multiply the group count from 13 to ~13 x kits (up to ~1,500 uniqExact states) on a 2.18B-row table \u2014 an unmeasured allocation this ticket must not ship. Both chosen shapes are individually measured, so no new prod-scale probe is required.",
+      "agreement": "synthesised by the driver from candidate-1's unmeasured-shape flag + candidate-2's fork; verified against findings.md sec 4 and sec 7"
+    },
+    {
+      "item": "AggregateScanCountByHour::affiliateStatsReportQuery() is DEAD CODE (one occurrence, its own definition) \u2014 not a live third divergence. Worth one Build Record line, nothing more.",
+      "agreement": "candidate-1 correct; candidate-2's 'third divergence' claim rejected on driver-verified evidence"
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "item": "Card present in its mockup slot with a trend sparkline matching existing card styling, and an explicit getStatColor() mapping.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "cards() index 2 + explicit getStatColor() arm. Colour value is open question Q1."
+    },
+    {
+      "item": "Counts distinct ocr over the selected window, filtered by org_id directly and by _peerdb_is_deleted = 0. FINAL omitted, with the dup-group probe kept as a regression check.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "DEV-2466 proven shape; the dup-group probe ships as a test-level regression check, not a runtime guard."
+    },
+    {
+      "item": "Respects the Today / Last 7d / This Month / Last Month filter.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Inherited free via resolveCardRange(); no new date arithmetic."
+    },
+    {
+      "item": "The 13-month series is served by ONE batched call, via a cross-class cache key DEV-2468 can share.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "One handle() call for the uncached month range; the DEV-2468-shareable key is the WINDOW rollup key, published as a public static builder on the query class."
+    },
+    {
+      "item": "Per-render ClickHouse round-trip count does not regress, and the measured cost is within the DEV-2466 envelope.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Protected countable seam + a test. Both shipped shapes are inside the measured envelope."
+    },
+    {
+      "item": "Both divergences (Scan Count card, affiliate report) resolved by an explicit decision, recorded in the Build Record.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Blocked on open question Q2 (UI treatment). The Build Record entry is required either way."
+    },
+    {
+      "item": "Non-Pro orgs do not see the value. Existing metrics and their values are unaffected.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "COMPANY_METRICS gate via canViewCardData()/canView(), StagingLiveHitLeader shape."
+    }
+  ],
+  "questions": [
+    {
+      "id": "Q1",
+      "q": "Which Filament colour should the card use? All 6 default names are taken: success (Scan Count), info (Total Repossessions / LPR Recovery Leaderboard), primary (Missed Opportunities), danger (the 2 direct hit cards), warning (the 2 staging hit cards + Staging Live Hit Leaderboard), and gray is what a LOCKED card renders. No custom colour is registered in any panel provider.",
+      "answered": true,
+      "answer": "Reuse the existing named colour `success`, pairing the card with Scan Count so the two scan-family cards read as one group. No new colour registered in the panel provider; one new match arm in getStatColor().",
+      "source": "human:Dalton McCleery 2026-09-08",
+      "options": [
+        "Reuse 'success', pairing it with Scan Count \u2014 the two scan-family cards read as one group (driver's pick)",
+        "Register a new named colour in the panel provider so the card is visually distinct"
+      ]
+    },
+    {
+      "id": "Q2",
+      "q": "This card will read lower than two existing numbers. Does the UI say anything, or does the Build Record carry it alone?",
+      "answered": true,
+      "answer": "Build Record only \u2014 NO UI copy anywhere. Both divergences (Scan Count card 2.1x; affiliate report 1.18x-1.63x) are recorded in the Build Record with their measured factors and org/window provenance. The card ships no explanatory description line and the affiliate report is not touched.",
+      "source": "human:Dalton McCleery 2026-09-08",
+      "options": [
+        "Explain on the card only: a short description line saying it counts distinct plates, so the gap with Scan Count is self-evident. The affiliate report is a different surface and gets no UI change, only a Build Record note with the measured 1.18x-1.63x factor (driver's pick)",
+        "Build Record only, no UI copy anywhere"
+      ]
+    },
+    {
+      "id": "Q3",
+      "q": "Confirm the Pro gate. The ticket AC says non-Pro orgs must not see the value, so this card would be gated on COMPANY_METRICS \u2014 while its sibling Scan Count, one row above, is NOT gated at all. Is that asymmetry intended?",
+      "answered": true,
+      "answer": "Yes \u2014 gate on FeatureEnum::COMPANY_METRICS, matching StagingLiveHitLeader's canViewCardData() shape. The asymmetry with the ungated Scan Count card is intended. Non-Pro orgs get the locked placeholder and no ClickHouse query runs for them.",
+      "source": "human:Dalton McCleery 2026-09-08",
+      "options": [
+        "Yes, gate it on COMPANY_METRICS as the AC says (driver's pick)",
+        "No, leave it ungated like Scan Count and treat the AC line as boilerplate"
+      ]
+    },
+    {
+      "id": "Q4",
+      "q": "Is 'unique' period-distinct (one plate counted once across the whole selected window) or the hourly-sum the affiliate report already ships as 'unique scans'? DEV-2466 sec 3 measured the two definitions 1.556x apart (org 1271, Jul 2026: 7,115,302 period-distinct vs 11,070,941 hourly-sum). The DEV-2409 gate settled 'unique = distinct plate (ocr)' on 2026-08-25, which does not distinguish the two. The card shipped period-distinct; that choice was unconfirmed by a product owner until now.",
+      "answered": true,
+      "answer": "Period-distinct is correct. Oscar Nunez, on DEV-2467 comment 39250: \"unique by reporting window/timeframe is right.\" This confirms the shipped uniqExact(ocr) over the whole selected window, and rules out summing per-hour unique_plates from clarity.affiliate_stats_hourly. The 1.556x divergence from the affiliate report's 'unique scans' is therefore expected and stays a Build Record note, not a defect.",
+      "source": "human:Oscar Nunez 2026-09-09 (Jira DEV-2467 comment 39250)",
+      "options": [
+        "Period-distinct over the selected window via uniqExact(ocr) on scans_cold (shipped)",
+        "Sum of hourly unique_plates from clarity.affiliate_stats_hourly, matching the affiliate report's existing 'unique scans'"
+      ],
+      "scope": "Confirms the metric definition ONLY. Oscar did not answer the other two asks in that comment: whether the magnitudes (~2.05M Relentless / ~2.80M Reliable per month, ~1.9 scans per plate) look right, and whether shipping with no explanatory copy beside Scan Count is acceptable. Both remain open."
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "DEV-2466's findings are checked into this repo at docs/investigations/DEV-2466/findings.md \u2014 the measurement source of truth, cite section numbers in the Build Record.",
+    "The definitional question (period-distinct vs hourly-sum) is CLOSED by DEV-2466's 'The definitional question is ANSWERED' section, on three independent grounds. Do not reopen it.",
+    "HitPlateStatsBatchQuery declares strict_types=1; HitStatsBatchQuery does not. Match the newer convention.",
+    "Local CH tests need LITERAL clarity/zod database names (RequiresClickhouse truncates hardcoded literals) and a full suite run needs a raised memory_limit via PHPRC or vendor/bin/phpunit directly.",
+    "Keep comments and docblocks sparse (operator preference), except where a genuine trap exists \u2014 the cache-key format contract and the no-FINAL decision both warrant a short docblock note so a future reviewer does not 'fix' them back.",
+    "Q2 decision means the divergences are a Build Record obligation ONLY. Do not add card copy, a tooltip, or an affiliate-report note. The Build Record must carry both with their measured factors: Scan Count 14,917,623 vs period-distinct 7,115,302 for org 1271 Jul 2026 (~2.1x); affiliate hourly-sum overcounts period-distinct by 1.18x-1.63x, org-dependent so no constant corrects it.",
+    "Q3 decision: the Pro-gate asymmetry with the ungated ScanCount sibling is INTENDED, not an oversight. Record it in the Build Record so a future reviewer does not 'harmonise' the two cards."
+  ],
+  "missed_caller_candidates": [
+    {
+      "file": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php",
+      "symbol": "CompanyMetricsOverview::cards()",
+      "referenced_at": "191",
+      "status": "FOLDED INTO SCOPE",
+      "note": "assertCount(9, ...) \u2014 driver-verified. Now a target file."
+    }
+  ],
+  "data_impact": {
+    "pg_tables": [],
+    "ch_tables": [
+      "clarity.scans_cold"
+    ],
+    "mv_or_cdc_implications": "Read-only against an existing PeerDB CDC mirror. No new materialized view, no DDL, no chlocal change. _peerdb_is_deleted = 0 is the only CDC-awareness required; FINAL is deliberately omitted per DEV-2466 sec 5 (ocr is immutable across CDC versions on this table \u2014 the opposite of hits_cold, where a mutable hit_created_at in the sort key makes FINAL load-bearing).",
+    "indexes_relied_on": "clarity.scans_cold ORDER BY (org_id, scanned_at, kit_id, id). org_id MUST be filtered directly; routing via kit_id costs 6.7x rows and 3.8x time for an identical answer (DEV-2466 sec 1c). PARTITION BY toYYYYMM(scanned_at) prunes the month range."
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "New ClickHouse query class over clarity.scans_cold (2.18B rows) on the Company Metrics dashboard page-load path.",
+    "driving_tables": [
+      {
+        "table": "clarity.scans_cold",
+        "source": "prior-measurement (DEV-2466, production ClickHouse Cloud, 2026-09-08)",
+        "prod_rows": 2180621658,
+        "group_by": "org_id (leading sort-key column); month for the series, kit_id WITH ROLLUP for the window",
+        "largest_group_rows": 65427573
+      }
+    ],
+    "growth": "Per-org cost scales with that org's own scan volume, not fleet-wide row count, because org_id leads the sort key. DEV-2466 measured ~1,900x spread across org sizes; org 469 (65.4M scans / 13 months) is the ceiling anchor.",
+    "schedule": {
+      "expression": "n/a \u2014 request-time widget render, not a scheduled command",
+      "interval_seconds": null,
+      "without_overlapping_minutes": null
+    },
+    "allocation_sketch": "Per org per cache window, worst case (org 469): 13-month series 60,738,996 read_rows / 1.31 GB / 2.44 GB peak / 1,102 ms, plus one window rollup 5,573,739 rows / 142.7 MB / 249 MB peak / 606 ms. Both figures are measured, not extrapolated. The 4-unbatched-card figure DEV-2466 warns about (243M rows / 10.09 GB / ~10 GB concurrent peak / 3.818 s) is the outcome this ticket's batching exists to prevent; only 1 of those 4 cards ships here.",
+    "oracle_status": "prior-measurement (DEV-2466, 2026-09-08)",
+    "unresolved": []
+  },
+  "derivation_log": [
+    {
+      "query_shape": "read of docs/investigations/DEV-2466/findings.md sec 1a/1c/4/5/6/7/8/9/10 (no live query issued by prep)",
+      "param_classes": "n/a",
+      "aggregate_result": "sort key (org_id, scanned_at, kit_id, id); 2,180,621,658 rows / 122.58 GiB; org-filter prunes 266,535 -> 1,698 granules; FINAL costs +97% server ms / +149% bytes for an identical answer; scans_hot 3.3x slower; WITH ROLLUP total exactly matches the standalone scalar; affiliate hourly-sum overcounts by 1.18x-1.63x",
+      "why": "The spike is the measurement source of truth; re-probing production would duplicate a read-only measurement already taken 2026-09-08."
+    },
+    {
+      "query_shape": "git grep for affiliateStatsReportQuery across app/tests/resources/routes",
+      "param_classes": "n/a",
+      "aggregate_result": "1 occurrence (its own definition) => dead code",
+      "why": "Adjudicating candidate-2's claim of a third live divergence against candidate-1's claim that it is dead."
+    },
+    {
+      "query_shape": "git grep for colors(/Color:: across app/Providers/Filament",
+      "param_classes": "n/a",
+      "aggregate_result": "0 occurrences => no custom palette registered",
+      "why": "Adjudicating candidate-2's claim that primary/info/danger are overridden in the panel provider."
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "Card at mockup slot with sparkline + explicit colour",
+        "kind": "agent",
+        "intent": "Render Company Metrics as an entitled ADMIN; assert the card sits between Total Repossessions and Staging Live Hit Leaderboard with a non-gray colour and a non-flat sparkline."
+      },
+      {
+        "ac": "Distinct ocr, org-scoped, tombstones excluded",
+        "kind": "agent",
+        "intent": "Seed scans_cold with a plate repeated across two kits and two CDC versions in one window, one tombstoned row, and a second org's rows; assert the headline is the distinct-plate count for the viewing org only."
+      },
+      {
+        "ac": "Date filter",
+        "kind": "agent",
+        "intent": "Toggle all four windows and assert the headline tracks each. Note last_7d and this_month coincide on the 8th of a month by design."
+      },
+      {
+        "ac": "One batched call",
+        "kind": "agent",
+        "intent": "Cold-cache render; assert exactly one handle() call for the month batch and at most one handleRange() for the window, via the protected seam."
+      },
+      {
+        "ac": "Non-Pro sees no value",
+        "kind": "agent",
+        "intent": "Render for a non-entitled org; assert the locked placeholder and that zero ClickHouse calls were issued."
+      },
+      {
+        "ac": "Divergences decided and recorded",
+        "kind": "human",
+        "intent": "Confirm the shipped UI treatment matches the Q2 decision and that the Build Record carries both divergences with their measured factors."
+      }
+    ],
+    "seed_scenario": "One entitled org with 2+ kits: a plate scanned by two kits in the same window (proves per-plate not per-kit dedup), a duplicate-id CDC pair sharing one ocr, one _peerdb_is_deleted = 1 tombstone, and rows across the current month plus 2-3 prior months for a non-flat sparkline. A second org's rows prove org scoping. A third, non-entitled org proves the locked path.",
+    "personas": [
+      "ADMIN/USER on a COMPANY_METRICS-entitled org \u2014 sees the value",
+      "ADMIN/USER on a non-entitled org \u2014 sees the locked placeholder",
+      "admin_impersonator session \u2014 bypasses the gate"
+    ],
+    "pg_tables": [],
+    "ch_tables": [
+      "clarity.scans_cold"
+    ]
+  },
+  "confidence": 84,
+  "confidence_note": "Higher than any individual candidate (68/62/62/62) because the reconcile closed three of their shared unknowns with evidence rather than opinion: the shape split (measured), the dead affiliateStatsReportQuery (grepped), and the Pro gate (enum verified). What remains open is genuinely product judgement, not missing grounding.",
+  "gate_recomputed_at": "2026-09-08 (Phase 2 interview)"
+}

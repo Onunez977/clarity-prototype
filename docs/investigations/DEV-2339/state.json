@@ -1,0 +1,262 @@
+{
+  "key": "DEV-2339",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "CANDIDATES:0 from base-resolve; ScoutOpenOrderAddressesQuery already on origin/main via merged DEV-2313 commits",
+  "branch": "claude/DEV-2339",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "prep-fast",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 476
+    },
+    {
+      "slot": "prep-candidate:1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 476
+    },
+    {
+      "slot": "prep-candidate:2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 476
+    },
+    {
+      "slot": "prep-candidate:3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 476
+    },
+    {
+      "slot": "backstop",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 476
+    },
+    {
+      "slot": "reconcile",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 16
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 268
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "clarity/scout.md",
+    "clickhouse/core.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "confidence_conflict_across_candidates",
+    "unanswered_material_questions",
+    "ticket_lead_conflicts_with_code_docs",
+    "CH_perf_requires_EXPLAIN_before_commit"
+  ],
+  "best_of_n": true,
+  "needs_human_interview": false,
+  "missed_caller_candidates": [
+    {
+      "file": "routes/console.php",
+      "symbol": "ScoutRecordCheckIns",
+      "referenced_at": "59-67 schedule withoutOverlapping(10) \u2014 owned by DEV-2342, not this fix"
+    },
+    {
+      "file": "app/Models/ScoutCheckIn.php",
+      "symbol": "ScoutRecordCheckIns",
+      "referenced_at": "docblock reference only \u2014 safe"
+    }
+  ],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [
+      "zod.public_address",
+      "zod.public_hotlist_address",
+      "clarity.hotlist"
+    ],
+    "approach": "B prune-first",
+    "measurement": "org123 Cloud B EXPLAIN PK prune 14678/23934; count=312893 in 10.3s (2026-08-12 reconfirm)",
+    "verdict": "go",
+    "measured_at": "2026-08-12T15:48:00Z"
+  },
+  "diff_base": "7af102d523957708ffc2de56e149fe0d33ff175c",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "simple",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 1,
+  "pr": {
+    "number": 322,
+    "url": "https://github.com/insight-lpr/platform/pull/322",
+    "draft": false
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": "daltonmccleery@gmail.com @ 2026-08-12T15:52:00Z",
+  "jira_transitioned_by": "qa-complete @ 2026-08-12",
+  "jira_transitioned_detail": "In Code Review",
+  "assumed": [],
+  "comment_ids": {
+    "status": "38202"
+  },
+  "qa": {
+    "ledger": "/Users/daltonmccleery/Herd/platform/.claude/worktrees/DEV-2339/.context/qa-prep-ledger.json",
+    "agent_report": "/Users/daltonmccleery/Herd/platform/.claude/worktrees/DEV-2339/.context/qa-agent-report.md",
+    "ac_results": "/Users/daltonmccleery/Herd/platform/.claude/worktrees/DEV-2339/.context/qa-ac-results.json",
+    "verdict": "pass",
+    "torn_down": true,
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "already-running",
+      "ch_container": "clarity-qa-clickhouse-dev-2339",
+      "frontend_build": "not-needed",
+      "postgres_db": "zod_claude_dev_2339_qa",
+      "ch_strategy": "docker:18239",
+      "herd_site": "clarity-claude_dev_2339_qa"
+    },
+    "provisioned_early": false,
+    "human_skipped": true,
+    "human_skip_reason": "backend-only; operator waived UI human QA after Cloud org123 confirm"
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "ScoutRecordCheckInsCommandTest via Docker CH clarity/zod on :18123",
+        "passed": 17,
+        "failed": 0
+      },
+      {
+        "cmd": "Agent QA B1-B7 on worktree Docker CH :18239",
+        "passed": 7,
+        "failed": 0
+      }
+    ],
+    "deviations": [],
+    "review": {
+      "lanes": [
+        "claude1"
+      ],
+      "scores": [
+        100
+      ],
+      "findings_fixed": [],
+      "findings_residual": [],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "in-session-agent"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "3766ba354f73ebe547ab27bddf28a060c9e86bf2",
+      "rework_pivot": false
+    },
+    "ac": [
+      {
+        "ac": "AC-1",
+        "status": "SATISFIED",
+        "evidence": "Local EXPLAIN shows public_address PrimaryKey id-in-set prune; prior Cloud measure B ~13.4s vs A TIMEOUT@20s (docs/investigations/DEV-2339/measure-results.json). Human hp-5 reconfirms Cloud.",
+        "items": [
+          "B5"
+        ]
+      },
+      {
+        "ac": "AC-2",
+        "status": "SATISFIED",
+        "evidence": "Query returned Direct+Staging rows; scout:record-check-ins recorded 2 then 0 on rerun for kit 65.",
+        "items": [
+          "B2",
+          "B4",
+          "B6"
+        ]
+      },
+      {
+        "ac": "AC-3",
+        "status": "SATISFIED",
+        "evidence": "Exactly 2 rows: 92339101\u219292339001 Direct (-97.7,30.3); 92339104\u219292339002 Staging; malformed/zero absent; deterministic across cold runs.",
+        "items": [
+          "B2",
+          "B3",
+          "B7"
+        ]
+      },
+      {
+        "ac": "AC-4",
+        "status": "SATISFIED",
+        "evidence": "No timeout/max_execution_time config changes in branch diff vs origin/main.",
+        "items": [
+          "B5"
+        ]
+      },
+      {
+        "ac": "AC-5",
+        "status": "SATISFIED",
+        "evidence": "routes/console.php unchanged vs origin/main (DEV-2342 lock expiry untouched).",
+        "items": []
+      },
+      {
+        "ac": "AC-6",
+        "status": "SATISFIED",
+        "evidence": "measure-queries.sql + measure-results.json capture EXPLAIN/elapsed aggregates only; local EXPLAIN confirms IN prune. Human hp-5 re-runs Cloud comparison.",
+        "items": [
+          "B5"
+        ]
+      }
+    ]
+  }
+}

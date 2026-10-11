@@ -1,0 +1,702 @@
+{
+  "key": "DEV-2651",
+  "generated_at": "2026-09-21T14:30:00Z",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "reconcile": {
+    "method": "insightlpr:multi-candidate-merge, performed inline by the driver (opus, = TICKET_PLAN_MODEL) over 4 candidate passes: 1 fast pass + 3 blind deep candidates. Inline rather than a 5th dispatch because all four JSONs were already in the driver's context; re-emitting ~25k tokens to disk to hand to a same-tier sub-agent would have added cost with no analytic gain. Zero-tolerance floor honoured: no single-candidate finding was dropped.",
+    "candidates": 4,
+    "driver_verified": [
+      "ScanCount has NO canViewCardData() override; UniqueScanCounts gates on FeatureEnum::COMPANY_METRICS (UniqueScanCounts.php:84-89). The scan-count gating regression is REAL.",
+      "tests/e2e/unique-lpr-case-claims.spec.ts and tests/e2e/lpr-repossessions.spec.ts assert claimsAt === recoveryCountsAt + 1, which is 2 === 4 against current cards(). Both specs are ALREADY RED on main.",
+      "Playwright is not wired into CI \u2014 no .github/workflows file references playwright or tests/e2e.",
+      "UniqueScansToLprRepossession.php contains ZERO occurrences of UNAVAILABLE_VALUE / numeratorUnavailable; its two siblings have 6/9 and 4/14.",
+      "UniqueScansLeaderboard has FIVE user-facing 'unique' sites (L58 heading, L110 chart subtitle, L141 axis title, L255 dataset label, L276-277 description), not the two the ticket names.",
+      "tests/Filament/Pages/ThrowingQueryCard.php:8 declares `class ThrowingQueryCard extends ScanCount` \u2014 deleting ScanCount fatals at class load."
+    ]
+  },
+  "synthesis": "DEV-2651 collapses the Company Metrics grid from 16 compact cards to 12 by merging four pairs into one card each: the survivor keeps its key, cache namespace and headline; the absorbed card's figure becomes a ->description() line and its series a second dataset in the expanded chart. Three pairs put a ratio next to a count, so those three get a second right-hand Chart.js Y axis (operator decision, 2026-09-21); unique-scan-counts + scan-count are both counts and stay single-axis. The framing 'reuse the SharedHitStatsData dual-axis pattern pattern' understates the work in one important way, agreed by all four prep passes: NONE of the four surviving cards uses SharedHitStatsData \u2014 that trait is hit-card-only, written against HitStatsBatchQuery/HitPlateStatsBatchQuery. So the pattern has to be rebuilt as a new shared concern on the DashboardWidget seam, and this would be the codebase's first dual-Y-axis chart. Two further things the ticket does not anticipate turned up and were verified against the code: merging scan-count into the Pro-gated unique-scan-counts silently removes the total-scan figure from every non-Pro org, and two of the four merges zip together series bucketed in different timezones.",
+  "scope": {
+    "summary": "Delete four keys from CompanyMetricsOverview::cards() (16 -> 12), reorder to the operator-confirmed layout, extract the window+ratio machinery shared by the three absorbed ratio widgets into one new Concerns trait, fold each absorbed figure onto its survivor as a ->description() line plus a second chart dataset (with scales.y1 for the three ratio pairs), collapse UniqueScansToCaseClaims's private heldFlexible() duplicate onto HeldFlexibleCache, drop 'unique' from the scans leaderboard's user-facing wording, and update every registry test and adjacency-based e2e spec the reorder touches \u2014 a substantially larger set than AC-7 names.",
+    "proposed_changes": [
+      {
+        "file": "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php",
+        "change": "Delete 'scan-count', 'unique-scans-to-repo', 'unique-scans-to-case-claims', 'unique-scans-to-lpr-repossession' from cards(); reorder to the confirmed 12-card layout; rewrite the docblock grid table. NOTE: the existing docblock's own row layout (L52-56) already contradicts its own cards() array \u2014 use DashboardCardExpansionTest.php:156-159 as ground truth, not the prose.",
+        "reason": "AC-1, AC-6",
+        "ref": "CompanyMetricsOverview.php:92-112 (keys), :46-91 (docblock)",
+        "agreement": "4/4"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/Concerns/<NewRatioConcern>.php",
+        "change": "NEW trait. Extract what is genuinely common to the three absorbed ratio widgets: SERIES_ZONE='UTC', MIN_TTL_SECONDS floor + pastMonthCacheTTL(), fetchUniqueScansSeries()/fetchUniqueScansRange() (the ScanPlateStatsBatchQuery numerator \u2014 byte-identical across all three, same shared cache namespace and backoff marker), getCardRatio()/windowRatio() + the memo, the static ratio() zero-guarded divide, UNAVAILABLE_VALUE + $numeratorUnavailable + its toStat()/getData() branches, UTC getGraphLabels()/getHighlightedMonthsFromFilter(), and the re-declared #[On('refresh-dashboard')] refreshData() that clears the memo. The DENOMINATOR fetch stays on each survivor \u2014 that is the one genuinely per-card part.",
+        "reason": "ticket forbids copying 848/873/656 lines into three survivors",
+        "ref": "UniqueScansToRepo.php:441-528; UniqueScansToCaseClaims.php:68-260; UniqueScansToLprRepossession.php:67-165",
+        "agreement": "4/4 on doing it; names proposed varied (RatioCardData / SharedRatioCardData / RatioAgainstUniqueScans) \u2014 naming is a build-time call"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueScanCounts.php",
+        "change": "Add ->description('N total scans') fed by ScanCount's ported fetch leg (ScanStatsBatchQuery past-months batch + Scan::hot() current month), and a getData() override rendering two datasets on ONE axis. Must NOT touch UniqueScanCounts's existing ScanPlateStatsBatchQuery::sharedMonthCacheKey() namespace or fetch methods \u2014 UniqueScansLeaderboard's sparkline is a passive reader of it and goes to 0 on a cold cache if that changes.",
+        "reason": "AC-2/3; AC-4 single-axis exception",
+        "ref": "UniqueScanCounts.php:100-161; ScanCount.php:36-192; CompanyMetricsOverview.php:69-73",
+        "agreement": "4/4"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueLprCaseClaims.php",
+        "change": "use the new ratio concern; ->description('N scans per case claim'); getOptions() override adding scales.y1 (position right, grid.drawOnChartArea false, both axes labelled); denominator stays UniqueLprCaseClaimsQuery deduped stage.",
+        "reason": "AC-2/3/4",
+        "ref": "UniqueLprCaseClaims.php:139-174,263-294",
+        "agreement": "4/4"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/LprRepossessions.php",
+        "change": "Same shape; ->description('N scans per LPR repo'); denominator stays LprRepossessionsQuery db_repos stage. Absorbing UniqueScansToLprRepossession means inheriting a card that has NO numeratorUnavailable fail-safe \u2014 see question Q8.",
+        "reason": "AC-2/3/4",
+        "ref": "LprRepossessions.php:194-233,323-343",
+        "agreement": "4/4"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/RecoveryCounts.php",
+        "change": "The largest of the four by a wide margin. 51 lines today, no ratio machinery, no herd guard, no gate, and still on 13 per-month Eloquent round trips. Needs: the new ratio concern, HeldFlexibleCache, a denominator leg, ->description('N scans per repo'), the scales.y1 getOptions() override, and an explicit canViewCardData() decision (Q2).",
+        "reason": "AC-2/3/4 + the ticket's 'DECIDE EXPLICITLY'",
+        "ref": "RecoveryCounts.php:1-51; UniqueScansToRepo.php:657-767; RecoveryTotalsBatchQuery.php:1-45",
+        "agreement": "4/4 that this is the biggest lift"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueScansLeaderboard.php",
+        "change": "Drop 'unique' from the user-facing wording. FIVE sites exist, not the two the ticket names: L58 $heading, L110 chart subtitle 'Top 10 kits by unique plates', L141 axis title 'Unique plates', L255 dataset label 'Unique Plates', L276-277 getDescription 'unique plates' x2. Scope is Q7.",
+        "reason": "AC-5",
+        "ref": "UniqueScansLeaderboard.php:58,110,141,255,276-277",
+        "agreement": "C1+C3 found the extra sites; driver verified all five"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+        "change": "Optional hygiene: getStatColor()'s match arms for the four removed keys become unreachable. Harmless (an EXTRA arm is safe; a MISSING one is the risky case), so this is cleanup, not a defect.",
+        "reason": "hygiene",
+        "ref": "DashboardWidget.php:326-341",
+        "agreement": "4/4 that it is safe"
+      },
+      {
+        "file": "ScanCount.php, UniqueScansToRepo.php, UniqueScansToCaseClaims.php, UniqueScansToLprRepossession.php",
+        "change": "Delete or leave unregistered \u2014 Q4. Deleting ScanCount specifically fatals tests/Filament/Pages/ThrowingQueryCard.php:8 (extends it) and breaks DashboardMonthLabelsTest.php:95,173 and DashboardCardMetricsTest.php:206,451,469,475, which all use ScanCount as a generic non-hit-card fixture. A replacement exemplar has to be chosen in each.",
+        "reason": "AC-1 removes the keys; the classes' fate is separate",
+        "ref": "ThrowingQueryCard.php:8",
+        "agreement": "C1/C2/C3 say delete; C0 says undecided; driver found the fixture cost"
+      },
+      {
+        "file": "okf/concepts/company-metrics-dashboard.md",
+        "change": "Stale on main already (16-card table, a 5-card gated list where the code has 9) AND will be further changed by this ticket. Fix both in one POST-merge pass, per the CLAUDE.md WRITE rule.",
+        "reason": "wiki hygiene",
+        "ref": "okf/concepts/company-metrics-dashboard.md",
+        "agreement": "4/4, all flag do-not-edit-now"
+      }
+    ],
+    "target_files": [
+      "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php",
+      "app/Filament/Widgets/Dashboard/Concerns/<NewRatioConcern>.php (new)",
+      "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+      "app/Filament/Widgets/Dashboard/UniqueScanCounts.php",
+      "app/Filament/Widgets/Dashboard/UniqueLprCaseClaims.php",
+      "app/Filament/Widgets/Dashboard/LprRepossessions.php",
+      "app/Filament/Widgets/Dashboard/RecoveryCounts.php",
+      "app/Filament/Widgets/Dashboard/UniqueScansLeaderboard.php",
+      "app/Filament/Widgets/Dashboard/ScanCount.php",
+      "app/Filament/Widgets/Dashboard/UniqueScansToRepo.php",
+      "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php",
+      "app/Filament/Widgets/Dashboard/UniqueScansToLprRepossession.php",
+      "tests/Filament/Pages/DashboardCardExpansionTest.php",
+      "tests/Filament/Pages/ThrowingQueryCard.php",
+      "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php",
+      "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardMetricsTest.php",
+      "tests/Filament/Widgets/Dashboard/DashboardMonthLabelsTest.php",
+      "tests/Filament/Widgets/Dashboard/UniqueScanCountsTest.php",
+      "tests/Filament/Widgets/Dashboard/UniqueLprCaseClaimsTest.php",
+      "tests/Filament/Widgets/Dashboard/UniqueLprCaseClaimsHerdGuardTest.php",
+      "tests/Filament/Widgets/Dashboard/UniqueLprCaseClaimsLabelAxisTest.php",
+      "tests/Filament/Widgets/Dashboard/UniqueLprCaseClaimsWindowSeamTest.php",
+      "tests/Filament/Widgets/Dashboard/LprRepossessionsTest.php",
+      "tests/Filament/Widgets/Dashboard/RecoveryCountsTest.php",
+      "tests/Filament/Widgets/Dashboard/UniqueScansLeaderboardTest.php",
+      "tests/Filament/Widgets/Dashboard/ScanCountTest.php",
+      "tests/Filament/Widgets/Dashboard/UniqueScansToRepoTest.php",
+      "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsTest.php",
+      "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsHerdGuardTest.php",
+      "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsWindowSeamTest.php",
+      "tests/Filament/Widgets/Dashboard/UniqueScansToLprRepossessionTest.php",
+      "tests/Unit/Clickhouse/ScanPlateStatsBatchQueryContractTest.php",
+      "tests/e2e/helpers/company-metrics.ts",
+      "tests/e2e/unique-scans-to-case-claims.spec.ts",
+      "tests/e2e/unique-scans-to-lpr-repossession.spec.ts",
+      "tests/e2e/staging-live-hit-leader.spec.ts",
+      "tests/e2e/unique-scans-leaderboard.spec.ts",
+      "tests/e2e/missed-opportunities.spec.ts",
+      "tests/e2e/unique-lpr-case-claims.spec.ts",
+      "tests/e2e/lpr-repossessions.spec.ts"
+    ],
+    "out_of_scope": [
+      "The four hit cards and SharedHitStatsData itself \u2014 reference pattern only, not modified.",
+      "MissedOpportunities, RecoveryLeader, StagingLiveHitLeader \u2014 untouched except where a reorder shifts their index in an e2e assertion.",
+      "Any change to the underlying ClickHouse query classes (ScanStatsBatchQuery, ScanPlateStatsBatchQuery, LprRepossessionsQuery, UniqueLprCaseClaimsQuery, RecoveryTotalsBatchQuery). Only the widget layer changes.",
+      "the hardcoded clarity-prefix issue (ScanStatsBatchQuery hardcodes `clarity.`) \u2014 separate ticket; relevant here ONLY as a Phase 6 local-ClickHouse-QA risk.",
+      "Re-measuring the COLD_BLOCK / COLD_LOCK / REFRESH_LOCK constants on the ratio cards \u2014 their own docblocks already defer this deliberately.",
+      "Fixing ScanCount's known Scan::hot()::query() setTable-discard bug (the known setTable-discard bug) if that logic is ported verbatim \u2014 preserve as-is, do not silently fix unrelated drift.",
+      "okf/ wiki edits before the change is approved and merged (CLAUDE.md WRITE rule).",
+      "the recovery-totals batching work (RecoveryCounts onto the batched denominator) \u2014 UNLESS Q5 pulls it in."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "AC-1 The grid renders 12 compact cards; the four absorbed keys are gone from cards().",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "mechanical; DashboardCardExpansionTest.php:95 and DashboardCardVisibilityTest.php:208 both hardcode 16."
+    },
+    {
+      "item": "AC-2 Each merged card shows the primary figure as the headline and the partner figure as a ->description() line.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "clear for three; unique-scan-counts needs ScanCount's separate total-count query ported because ScanPlateStatsBatchQuery exposes only uniqExact(ocr) and has no count column."
+    },
+    {
+      "item": "AC-3 Expanding a merged card shows both series as two datasets per month, with a legend.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "no survivor overrides getData()/getOptions() today; mirror SharedHitStatsData's shape in the new concern rather than `use`-ing that hit-only trait."
+    },
+    {
+      "item": "AC-4 The three ratio pairs plot the ratio on a second right-hand Y axis, both axes labelled, right axis drawing no grid lines. unique-scan-counts keeps one axis.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "pure PHP \u2014 the vendor chart-widget blade forwards getOptions()/getData() to Alpine verbatim, so this is a getOptions() override plus per-dataset yAxisID. It would be the codebase's FIRST dual-axis chart; no precedent to copy."
+    },
+    {
+      "item": "AC-5 The scans leaderboard label reads 'Scans Leaderboard'; no user-facing label or description says 'unique' where it was dropped.",
+      "source": "ticket",
+      "decision": "implement, scope pending Q7",
+      "reason": "AC-5's own wording is broader than the ticket's two named call sites; five user-facing sites exist."
+    },
+    {
+      "item": "AC-6 Surviving card keys are unchanged (cache namespaces intact).",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "getCardKey() derives from class_basename and no surviving class is renamed."
+    },
+    {
+      "item": "AC-7 Tests updated and green.",
+      "source": "ticket",
+      "decision": "implement, scope pending Q6",
+      "reason": "the named list is materially incomplete \u2014 see exhaustiveness. Two of the affected e2e specs are ALREADY RED on main, so 'green' needs a scope decision."
+    },
+    {
+      "item": "Final 12-card order.",
+      "source": "ticket",
+      "decision": "blocked on Q1",
+      "reason": "ticket says CONFIRM; a stated preference, not derivable."
+    },
+    {
+      "item": "RecoveryCounts gating.",
+      "source": "ticket",
+      "decision": "blocked on Q2",
+      "reason": "ticket says DECIDE EXPLICITLY; has a measured production-load consequence."
+    }
+  ],
+  "questions": [
+    {
+      "id": "Q1",
+      "q": "Confirm the final 12-card order. The ticket's proposed table is row1 = Unique Scan Counts | Unique LPR Case Claims | LPR Repossessions | Total Repossessions; row2 = the four hit cards; row3 = Missed Opportunities | Scans Leaderboard | LPR Recovery Leaderboard | Staging Live Hit Leaderboard. All three test-pinned constraints hold under it.",
+      "answered": true,
+      "answer": "Yes \u2014 the proposed 12-card order as written in the ticket.",
+      "source": "human:Dalton 2026-09-21",
+      "material": true
+    },
+    {
+      "id": "Q2",
+      "q": "Should the merged RecoveryCounts be Pro-gated? It has no canViewCardData() override today and renders for every ADMIN/USER viewer; the ratio it absorbs reads ScanPlateStatsBatchQuery, measured in-repo at 60,738,996 rows / 2.44 GB peak / ~1.1s solo, which today runs only for the ~29 COMPANY_METRICS-entitled orgs. Ungated, that trigger population widens by >140x.",
+      "answered": true,
+      "answer": "MIXED, resolved together with Q3. recovery-counts keeps its Total Repossessions headline visible to ALL orgs (as today); the ABSORBED 'N scans per repo' ratio (description line + second chart dataset) is Pro-gated. So the card is partially gated, not wholly.",
+      "source": "human:Dalton 2026-09-21",
+      "material": true
+    },
+    {
+      "id": "Q3",
+      "q": "NOT IN THE TICKET \u2014 verified regression. ScanCount has no gate; UniqueScanCounts gates on COMPANY_METRICS (UniqueScanCounts.php:84-89). Merging scan-count into it means every non-Pro org LOSES the total-scan figure it can see today and gets a locked placeholder. Accept that regression, or keep the total visible ungated?",
+      "answered": true,
+      "answer": "UNGATE the merged unique-scan-counts card. Remove its existing COMPANY_METRICS gate. All orgs see unique plates (headline) + 'N total scans' (description) + both chart series. Operator accepts giving away the previously Pro-only unique-plates figure, and accepts that this widens the tz=<viewer> ScanPlateStatsBatchQuery scan from ~29 orgs to every ADMIN/USER org. Cost was stated twice before the decision.",
+      "source": "human:Dalton 2026-09-21",
+      "material": true
+    },
+    {
+      "id": "Q4",
+      "q": "Delete the four absorbed widget classes outright, or leave them in the tree unregistered? Deleting is cleaner but ScanCount specifically is load-bearing in tests: ThrowingQueryCard.php:8 extends it, and DashboardMonthLabelsTest + DashboardCardMetricsTest use it as a generic non-hit-card fixture \u2014 each needs a replacement exemplar. ~3,300 lines of the absorbed classes' own unit tests also go or stay with them.",
+      "answered": true,
+      "answer": "Delete the four absorbed classes. Repoint the three ScanCount fixture sites (ThrowingQueryCard.php:8, DashboardMonthLabelsTest.php:95/:173, DashboardCardMetricsTest.php:206/:451/:469/:475) at a surviving exemplar.",
+      "source": "human:Dalton 2026-09-21",
+      "material": true
+    },
+    {
+      "id": "Q5",
+      "q": "Pull the recovery-totals batching work into this ticket? RecoveryCounts's headline counts recoveries via 13 Eloquent round trips while the absorbed ratio's denominator reads the batched RecoveryTotalsBatchQuery. RecoveryTotalsBatchQuery's own docblock says the two paths can disagree by a few rows within a TTL. Today that drift hides across two separate cards; after the merge both numbers sit on the SAME card, so a visible mismatch becomes possible.",
+      "answered": true,
+      "answer": "Pull the recovery-totals batching work in. Move RecoveryCounts's headline onto the batched RecoveryTotalsBatchQuery so the headline and the ratio denominator cannot disagree on one card.",
+      "source": "human:Dalton 2026-09-21",
+      "material": true
+    },
+    {
+      "id": "Q6",
+      "q": "e2e scope. Seven specs are affected, not the two AC-7 names. Two of them (unique-lpr-case-claims.spec.ts, lpr-repossessions.spec.ts) are ALREADY RED on main \u2014 their adjacency assertions date from an earlier card-slot mockup ticket/2464 and the recent card-reorder reordered cards() without updating them; nothing caught it because Playwright is not in CI. Fix all seven (absorbing the pre-existing drift), or fix only what this ticket breaks and log the rest separately?",
+      "answered": true,
+      "answer": "Fix all seven e2e specs, including the two already red on main. Say so explicitly in the PR so the pre-existing drift is not mistaken for this diff.",
+      "source": "human:Dalton 2026-09-21",
+      "material": true
+    },
+    {
+      "id": "Q7",
+      "q": "Does dropping 'unique' cover all five user-facing sites on UniqueScansLeaderboard (heading L58, chart subtitle L110, axis title L141, dataset label L255, description L276-277), or only the two the ticket names (L58 and the description)?",
+      "answered": true,
+      "answer": "All five user-facing 'unique' sites on UniqueScansLeaderboard (L58 heading, L110 chart subtitle, L141 axis title, L255 dataset label, L276-277 description).",
+      "source": "human:Dalton 2026-09-21",
+      "material": false
+    },
+    {
+      "id": "Q8",
+      "q": "UniqueScansToLprRepossession has no UNAVAILABLE_VALUE / numeratorUnavailable degrade path (verified: zero occurrences, vs 6/9 and 4/14 in its two siblings) \u2014 on a numerator fetch failure it renders a fabricated ratio rather than '--'. Extracting one shared concern forces a single shape. Standardize the degrade path across all three, or preserve the divergence?",
+      "answered": true,
+      "answer": "Standardize the UNAVAILABLE_VALUE / numeratorUnavailable degrade path across all three ratio merges in the shared concern.",
+      "source": "human:Dalton 2026-09-21",
+      "material": false
+    },
+    {
+      "id": "Q9",
+      "q": "Two of the four merges zip together series bucketed in DIFFERENT timezones: UniqueScanCounts uses ScanPlateStatsBatchQuery's sanitized bucketZone() while ScanCount uses the raw viewer timezone; RecoveryCounts buckets in viewer-tz Eloquent while UniqueScansToRepo buckets UTC. Putting two such series on one 13-month label array mislabels bars. Normalize both merges onto one bucketing convention as part of this ticket (the safe answer), or accept and document the residual?",
+      "answered": true,
+      "answer": "Out of scope \u2014 the viewer-timezone follow-on owns the viewer-timezone shift and explicitly sequences behind DEV-2651. THIS ticket only guarantees that each merged card's TWO datasets bucket consistently WITH EACH OTHER, so the new chart is not internally inconsistent on day one. For recovery-counts, repo_date is a Date with no time axis and cannot be shifted; document the residual in the class docblock per the viewer-timezone follow-on AC-4.",
+      "source": "human:Dalton 2026-09-21",
+      "material": true
+    },
+    {
+      "id": "Q10",
+      "q": "Does removing a card key strand persisted per-user toggle/expand state?",
+      "answered": true,
+      "answer": "No. Dashboard::$expandedCard (app/Filament/Pages/Dashboard.php:37) is a plain Livewire property with no #[Url], session or DB persistence; it resets on every page load, and toggleCard()/expandedCardComponents() resolve an unknown key to null without crashing. Nothing to migrate.",
+      "source": "code",
+      "material": false
+    },
+    {
+      "id": "Q11",
+      "q": "Do the four surviving cards use SharedHitStatsData, i.e. can the SharedHitStatsData dual-axis pattern pattern be reused directly?",
+      "answered": true,
+      "answer": "No. All four extend DashboardWidget directly. SharedHitStatsData is hit-card-only, written against HitStatsBatchQuery/HitPlateStatsBatchQuery with a $hitWidgetMap keyed to the four hit cards. The pattern must be rebuilt as a new concern, not inherited.",
+      "source": "code \u2014 all 4 candidates independently confirmed",
+      "material": false
+    },
+    {
+      "id": "Q12",
+      "q": "Where does the 'N total scans' figure come from for the merged unique-scan-counts card?",
+      "answered": true,
+      "answer": "It must be ported from ScanCount's own ScanStatsBatchQuery path (past-months batch + Scan::hot() current month). It cannot be derived from UniqueScanCounts's existing data: ScanPlateStatsBatchQuery exposes only uniqExact(ocr) and has no count column (ScanPlateStatsBatchQuery.php:166-192).",
+      "source": "code",
+      "material": false
+    },
+    {
+      "id": "Q13",
+      "q": "What is the exact seam for the second Y axis?",
+      "answered": true,
+      "answer": "Pure PHP. The vendor chart-widget blade forwards getOptions()/getCachedData() to the Alpine chart component verbatim, and Filament's ChartWidget::getOptions() just returns $this->options. So: a getOptions() override per ratio survivor merging a scales.y1 entry into DashboardWidget's base $options, plus a yAxisID key on each dataset built in getData(). No JS or blade work.",
+      "source": "code",
+      "material": false
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "SIZING: this is ~40 files (12 app, ~20 PHPUnit, 8 e2e) and a new shared abstraction. Phase 3's sizing gate (>6 files or multiple distinct concerns) will fire. Raised in the Phase 2 interview rather than deferred, so the plan is not authored twice.",
+    "The CompanyMetricsOverview docblock's own row layout (L52-56) contradicts its own cards() array. DashboardCardExpansionTest.php:156-159 restates the real order correctly \u2014 use the test as ground truth when rewriting the docblock.",
+    "UniqueScanCounts's ScanPlateStatsBatchQuery::sharedMonthCacheKey() namespace is LOAD-BEARING: UniqueScansLeaderboard's sparkline is a passive reader of the month keys it fills (CompanyMetricsOverview.php:69-73). The merge must add ScanCount's total as a second dataset without touching that namespace or those fetch methods.",
+    "What is genuinely common across the three absorbed ratio widgets: SERIES_ZONE='UTC', MIN_TTL_SECONDS=60, getCardRatio()/windowRatio()/ratio(), and a byte-identical fetchUniqueScansSeries() reading the SAME shared cache namespace and backoff marker. What DIFFERS: the denominator source, and the herd-guard shape \u2014 UniqueScansToLprRepossession uses HeldFlexibleCache, UniqueScansToCaseClaims privately duplicates it (the ticket's fix target), and UniqueScansToRepo deliberately uses neither.",
+    "okf/concepts/company-metrics-dashboard.md is stale on main independently of this ticket: it documents 16 cards and a 5-card gated allowlist where the code and DashboardCardVisibilityTest both have NINE gated cards. Do not trust it while designing. Correct the pre-existing drift and this ticket's change together, POST-merge.",
+    "Per the standing preference for minimal comments, the new trait should match HeldFlexibleCache's terse style rather than the heavily-narrated style of the three widgets being merged.",
+    "Tests must stub the query classes the way the existing *Test.php files already do (Counting* subclasses); never hit real ClickHouse. Run `composer format` (Pint) before finishing.",
+    "Phase 6 QA risk: the hardcoded clarity-prefix issue (ScanStatsBatchQuery hardcodes `clarity.`) will 500 the Company Metrics page under local ClickHouse QA. Expect to work around it, not fix it here.",
+    "DECIDED (operator 2026-09-21): recovery-counts needs PARTIAL gating \u2014 headline visible to all, absorbed ratio Pro-only. canViewCardData() is all-or-nothing today, so a finer-grained per-figure check is needed. New, small, but not covered by any existing pattern.",
+    "MEASURED, drives the Q2/Q3 split: ScanPlateStatsBatchQuery::sharedMonthCacheKey() embeds ':tz={timezone}'. UniqueScanCounts keys at safeTimezone(viewer); UniqueScansToRepo keys at SERIES_ZONE='UTC'. They are therefore TWO cache entries (two scans) for any non-UTC viewer, not one. Ungating unique-scan-counts widens only the tz=<viewer> entry; gating the scans-per-repo ratio keeps the tz=UTC entry at ~29 orgs. After the viewer-timezone follow-on shifts SERIES_ZONE to the viewer zone the two keys collapse into one."
+  ],
+  "tests": [
+    {
+      "file": "tests/Filament/Pages/DashboardCardExpansionTest.php",
+      "what_it_pins": "cards() count 16->12, the full key/order map, test_all_four_hit_cards_are_contiguous(), leaderboards-last-three, unique-scan-counts-before-unique-scans-leaderboard."
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php",
+      "what_it_pins": "the gated allowlist (9 keys today; drops 3 dead ratio keys, plus whatever Q2/Q3 decide) at :59-73 and :481-497, and assertCount(16) at :208."
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/Concerns/CardQuerySqlFidelityTest.php",
+      "what_it_pins": "iterates cards() dynamically so it self-adjusts, but each survivor's getCardQueryStatements() must still resolve now that it covers two legs."
+    },
+    {
+      "file": "tests/Filament/Pages/ThrowingQueryCard.php",
+      "what_it_pins": "extends ScanCount \u2014 a hard constraint on Q4."
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/DashboardMonthLabelsTest.php",
+      "what_it_pins": "the month-bucket overflow guard month-bucket overflow, using ScanCount as a generic fixture at :95,:173."
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardMetricsTest.php",
+      "what_it_pins": "help text + expanded-view contracts, using ScanCount as a fixture at :206,:451,:469,:475."
+    },
+    {
+      "file": "the four survivors' own test files (UniqueScanCountsTest, UniqueLprCaseClaimsTest + HerdGuard/LabelAxis/WindowSeam, LprRepossessionsTest, RecoveryCountsTest)",
+      "what_it_pins": "need NEW cases: the description text, the two-dataset getData() with correct yAxisID, getOptions() scales.y1 present for three and absent for unique-scan-counts. UniqueLprCaseClaimsLabelAxisTest is squarely in AC-4's blast radius."
+    },
+    {
+      "file": "tests/Unit/Clickhouse/ScanPlateStatsBatchQueryContractTest.php",
+      "what_it_pins": "the numerator contract both UniqueScanCounts and UniqueScansLeaderboard depend on."
+    },
+    {
+      "file": "the seven affected e2e specs",
+      "what_it_pins": "grid adjacency by index arithmetic against the old 16-card order; two are already red on main."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php:46-91 (docblock + the 3 pinned constraints), :92-112 (cards())",
+      "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php:41-83 ($options chart seam), :124-136 (base getData()), :296-301 (getCardKey), :326-341 (getStatColor)",
+      "app/Filament/Widgets/Dashboard/Concerns/SharedHitStatsData.php:609-618, 669-687, 696-705, 31 (pattern reference ONLY \u2014 hit-card scoped)",
+      "app/Filament/Widgets/Dashboard/Concerns/RendersDashboardStat.php:78-134 (dashboardStat/canViewCardData default/lockedStat)",
+      "app/Filament/Widgets/Dashboard/Concerns/HeldFlexibleCache.php:44-145",
+      "app/Filament/Widgets/Dashboard/UniqueScanCounts.php:84-89 (the COMPANY_METRICS gate), :100-161, :286-343",
+      "app/Filament/Widgets/Dashboard/ScanCount.php:36-192 (no gate anywhere in the file)",
+      "app/Filament/Widgets/Dashboard/UniqueLprCaseClaims.php:139-174,263-294",
+      "app/Filament/Widgets/Dashboard/LprRepossessions.php:194-233,323-343",
+      "app/Filament/Widgets/Dashboard/RecoveryCounts.php:1-51 (whole class)",
+      "app/Filament/Widgets/Dashboard/UniqueScansToRepo.php:441-528,534-556,657-767",
+      "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php:456-491 (the private heldFlexible duplicate)",
+      "app/Filament/Widgets/Dashboard/UniqueScansToLprRepossession.php:135-140 (no unavailable branch)",
+      "app/Filament/Widgets/Dashboard/UniqueScansLeaderboard.php:58,110,141,255,276-277",
+      "app/Filament/Pages/Dashboard.php:37,120-124,163-181",
+      "app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php:166-192 (uniqExact only, no count column)",
+      "app/Clickhouse/Queries/RecoveryTotalsBatchQuery.php:1-45",
+      "vendor/filament/widgets/src/ChartWidget.php:100-102 and resources/views/chart-widget.blade.php:76-84",
+      "tests/Filament/Pages/DashboardCardExpansionTest.php:95,152-205",
+      "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php:59-73,208,481-497"
+    ],
+    "code_flow": "CompanyMetricsOverview::getStats() iterates cards(), applies canViewCardData(), then calls toStat() or lockedStat() per card (no per-card try/catch \u2014 a propagating exception 500s the whole grid). Dashboard::toggleCard() resolves the SAME registry via expandableCards()/cardWidgets() and mounts the one expanded card as a real Livewire ChartWidget, calling getData()/getOptions(). Each card's figures come from a ClickHouse query class (ScanStatsBatchQuery, ScanPlateStatsBatchQuery, UniqueLprCaseClaimsQuery, LprRepossessionsQuery, RecoveryTotalsBatchQuery) or the Eloquent Recovery model, behind either a class-prefixed buildWidgetCacheKey() or a deliberately class-neutral shared*CacheKey() that siblings opt into.",
+    "tables": [
+      "clarity.scans_cold",
+      "clarity.scan_report_hourly",
+      "clarity.recoveries",
+      "clarity.hits_cold",
+      "zod.public_billing_events",
+      "zod.public_hotlist",
+      "zod.public_hotlist_status_log",
+      "zod.public_orgs",
+      "zod.public_api_keys"
+    ],
+    "related_components": [
+      "Filament StatsOverviewWidget + ChartWidget",
+      "Laravel Pennant FeatureEnum::COMPANY_METRICS",
+      "Cache::flexible + HeldFlexibleCache cold-path herd guard",
+      "Playwright e2e specs asserting DOM order \u2014 NOT run by CI"
+    ]
+  },
+  "exhaustiveness": {
+    "grep_patterns_used": [
+      "git grep -F \"'scan-count'\" / \"'unique-scans-to-repo'\" / \"'unique-scans-to-case-claims'\" / \"'unique-scans-to-lpr-repossession'\"",
+      "git grep -F 'ScanCount' / 'UniqueScansToRepo' / 'UniqueScansToCaseClaims' / 'UniqueScansToLprRepossession'",
+      "git grep -F 'UniqueScanCounts' / 'UniqueLprCaseClaims' / 'LprRepossessions' / 'RecoveryCounts' / 'UniqueScansLeaderboard'",
+      "git grep -F 'SCAN_COUNT_CARD_KEY' / 'UNIQUE_SCANS_TO_*_CARD_KEY' / 'unique plates' / 'Unique Scans Leaderboard'",
+      "per-file canViewCardData presence scan across app/Filament/Widgets/Dashboard/*.php",
+      "excluded: vendor/ node_modules/ public/build/ storage/ ; docs/investigations/ reported separately (106 hits, historical artifacts)"
+    ],
+    "sites": [
+      {
+        "site": "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php:95,100-102",
+        "status": "buggy",
+        "reason": "the four keys to delete \u2014 the only app/ code referencing the absorbed classes by ::class"
+      },
+      {
+        "site": "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php:326-341",
+        "status": "safe",
+        "reason": "unreachable match arms are harmless in PHP; a MISSING arm is the risky case, an extra one is not"
+      },
+      {
+        "site": "app/Filament/Widgets/Dashboard/Concerns/DashboardMetricCard.php:41",
+        "status": "safe (stale docblock)",
+        "reason": "cites the ScanCount/UniqueScanCounts pair as the canonical example; becomes wrong after the merge"
+      },
+      {
+        "site": "app/Filament/Widgets/Dashboard/Concerns/SharedHitStatsData.php:693",
+        "status": "safe (stale docblock)",
+        "reason": "excludes ScanCount/RecoveryCounts from the trait; becomes wrong after the merge"
+      },
+      {
+        "site": "tests/Filament/Pages/DashboardCardExpansionTest.php:95,152-205,238-239,389",
+        "status": "buggy",
+        "reason": "hardcodes 16 and the full key order; also uses 'scan-count'/'recovery-counts' as generic fixtures in two unrelated tests"
+      },
+      {
+        "site": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php:59-73,208,237,481-497",
+        "status": "buggy",
+        "reason": "9-key gated allowlist includes 3 removed keys; :208 hardcodes 16; :237 uses 'scan-count' as a stand-in real key"
+      },
+      {
+        "site": "tests/Filament/Pages/ThrowingQueryCard.php:8",
+        "status": "buggy if ScanCount is deleted",
+        "reason": "`extends ScanCount` \u2014 fatals at class load"
+      },
+      {
+        "site": "tests/Filament/Widgets/Dashboard/DashboardMonthLabelsTest.php:7,95,173",
+        "status": "buggy if ScanCount is deleted",
+        "reason": "generic non-hit-card fixture; needs a replacement exemplar"
+      },
+      {
+        "site": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardMetricsTest.php:10,206,451,469,475",
+        "status": "buggy if ScanCount is deleted",
+        "reason": "same generic-fixture usage, including a Livewire::test mount"
+      },
+      {
+        "site": "ScanCountTest, UniqueScansToRepoTest, UniqueScansToCaseClaimsTest, UniqueScansToCaseClaimsHerdGuardTest, UniqueScansToCaseClaimsWindowSeamTest, UniqueScansToLprRepossessionTest (~3,300 lines)",
+        "status": "buggy if classes deleted; orphaned-but-passing if kept",
+        "reason": "dedicated coverage for the absorbed classes; AC-7 names none of them"
+      },
+      {
+        "site": "UniqueScanCountsTest, UniqueLprCaseClaimsTest + HerdGuard/LabelAxis/WindowSeam, LprRepossessionsTest, RecoveryCountsTest, UniqueScansLeaderboardTest",
+        "status": "buggy (need new cases)",
+        "reason": "the SURVIVORS' own tests; found only by the grep backstop, absent from every candidate's first-pass inventory and from AC-7"
+      },
+      {
+        "site": "tests/Unit/Clickhouse/ScanPlateStatsBatchQueryContractTest.php:8,9,40,119,128",
+        "status": "buggy (verify)",
+        "reason": "contract test naming both UniqueScanCounts and UniqueScansLeaderboard"
+      },
+      {
+        "site": "tests/Feature/Clickhouse/RecoveryTotalsBatchQueryTest.php:18,136 and ScanPlateStatsBatchQueryTest.php:320",
+        "status": "safe (docblock references)",
+        "reason": "prose comparisons to the grid figures; verify they stay accurate"
+      },
+      {
+        "site": "tests/e2e/unique-scans-to-case-claims.spec.ts",
+        "status": "buggy",
+        "reason": "named in AC-7; subject card deleted AND it asserts both removed neighbours"
+      },
+      {
+        "site": "tests/e2e/unique-scans-to-lpr-repossession.spec.ts",
+        "status": "buggy",
+        "reason": "NOT in AC-7; its entire subject card key is deleted"
+      },
+      {
+        "site": "tests/e2e/staging-live-hit-leader.spec.ts:129-158,445-455,506-516",
+        "status": "buggy",
+        "reason": "named in AC-7; recoveryCountsAt+2/+3 offsets encode the 16-card spacing"
+      },
+      {
+        "site": "tests/e2e/unique-scans-leaderboard.spec.ts:41,209-226,437-455,504-506,540,545",
+        "status": "buggy",
+        "reason": "NOT in AC-7; explicitly asserts scan-count is present in the Pro grid, and asserts the old 'Unique Scans Leaderboard' heading that AC-5 changes"
+      },
+      {
+        "site": "tests/e2e/missed-opportunities.spec.ts:112-124,317-327,373-387",
+        "status": "buggy",
+        "reason": "NOT in AC-7; adjacency arithmetic plus an expandCard(SCAN_COUNT_CARD_KEY) call"
+      },
+      {
+        "site": "tests/e2e/unique-lpr-case-claims.spec.ts:114-124,272-276,325-329,337",
+        "status": "ALREADY RED on main",
+        "reason": "driver-verified: asserts claimsAt === recoveryCountsAt + 1, which is 2 === 4 against current cards(). Pre-existing since the recent card-reorder's reorder."
+      },
+      {
+        "site": "tests/e2e/lpr-repossessions.spec.ts:129-142,307-314,363-370",
+        "status": "ALREADY RED on main",
+        "reason": "driver-verified: same broken adjacency chain"
+      },
+      {
+        "site": "tests/e2e/helpers/company-metrics.ts:5-54",
+        "status": "buggy",
+        "reason": "exports card keys/headings for the deleted cards, a stale leaderboard heading, and a COMPANY_METRICS_CARD_HEADINGS registry that already omits unique-scans-to-repo"
+      },
+      {
+        "site": "resources/ views, config/, database/ seeders and factories, routes/",
+        "status": "safe",
+        "reason": "no hits for any removed key or absorbed class"
+      },
+      {
+        "site": "app/Models/AggregateScanCountByHour.php, AggregateScanCountUniqueByHour.php, RecoveriesKitUserScansReport.php, database/factories/AggregateScanCountByHourFactory.php, database/seeders/LocalDataSeeder.php",
+        "status": "safe (false positives)",
+        "reason": "substring matches on 'ScanCount'; unrelated models"
+      },
+      {
+        "site": "okf/ \u2014 company-metrics-dashboard.md, billing-events.md, platform-gotchas.md, recovery.md, models/aggregate_scan_count_h.md, models/aggregate_scan_count_unq_h.md, models/index.md",
+        "status": "buggy, fix POST-merge",
+        "reason": "CLAUDE.md WRITE rule; company-metrics-dashboard.md is already stale independently of this ticket"
+      },
+      {
+        "site": "docs/investigations/** (106 hits)",
+        "status": "safe",
+        "reason": "historical artifacts, not executable"
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [
+      "users (org_id/timezone reads)",
+      "org_meta (platform_repo_pro_tier, read indirectly through the Pennant COMPANY_METRICS resolver)"
+    ],
+    "ch_tables": [
+      "clarity.scans_cold",
+      "clarity.scan_report_hourly",
+      "clarity.recoveries",
+      "clarity.hits_cold",
+      "zod.public_billing_events",
+      "zod.public_hotlist",
+      "zod.public_hotlist_status_log",
+      "zod.public_orgs",
+      "zod.public_api_keys"
+    ],
+    "mv_or_cdc_implications": "None. No schema, migration, materialized view, or CDC change. No new query shapes are introduced \u2014 the merges only change which widget calls an existing query class and how the result renders.",
+    "indexes_relied_on": [
+      "clarity.scans_cold ORDER BY leads with org_id, so the numerator's org-scoped read prunes (kit_id does not prune \u2014 a documented gotcha, not exercised here)",
+      "clarity.recoveries ORDER BY leads with org_id; repo_date is non-leading, which is why RecoveryTotalsBatchQuery requires FINAL"
+    ]
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "Not a new query and not new per-org iteration \u2014 a POPULATION widening, conditional on Q2 and Q3. RecoveryCounts is ungated today and renders for every ADMIN/USER viewer; the ratio it absorbs reads ScanPlateStatsBatchQuery, which today runs only for COMPANY_METRICS-entitled viewers because all four current readers are gated and share one cache key.",
+    "driving_tables": [
+      {
+        "table": "clarity.scans_cold",
+        "source": "in-repo measured figure (the scan-volume measurement note, quoted at UniqueScanCounts.php:292-293) \u2014 NOT a fresh probe",
+        "prod_rows": 60738996,
+        "group_by": "org_id (uniqExact(ocr), 13-month batch, per-org)",
+        "largest_group_rows": 60738996,
+        "peak_bytes": "2.44 GB solo; ~10 GB / 3.818s slowest at 4 concurrent copies"
+      },
+      {
+        "table": "clarity.recoveries",
+        "source": "in-repo measured (RecoveryTotalsBatchQuery.php:32-35, read-only against production ClickHouse Cloud, 2026-09-14)",
+        "prod_rows": 281882,
+        "group_by": "org_id",
+        "largest_group_rows": 240140
+      }
+    ],
+    "growth": "29 orgs entitled to COMPANY_METRICS out of 4,118 carrying any platform_repo_pro* key (okf/concepts/company-metrics-dashboard.md, measured 2026-09-08). If the merged RecoveryCounts ships ungated, the trigger population for the 2.44 GB scan widens from 29 to at least 4,118 \u2014 >140x \u2014 and potentially to every org with an ADMIN/USER viewer. Per-org cost is unchanged; the risk is concurrency of cold-cache first renders.",
+    "schedule": null,
+    "allocation_sketch": "Per render, per org, on a cold cache: one 13-month ScanPlateStatsBatchQuery scan at 2.44 GB peak, already shared and memoized across the four current readers via a class-neutral cache key. No per-request fan-out beyond the single rendering org. The exposure is how many orgs can do this concurrently.",
+    "oracle_status": "ok",
+    "unresolved": [
+      "Accepted risk, not unresolved: the tz=<viewer> ScanPlateStatsBatchQuery scan (measured 60,738,996 rows / 2.44 GB peak solo; ~10 GB at 4 concurrent copies, no lock) now runs on first render for every ADMIN/USER org instead of ~29. Past months cache for a year, so this is a cold-start cost. Operator accepted after the figure was stated. Phase 6 must measure this in the resource lane."
+    ],
+    "operator_accepted": true
+  },
+  "derivation_log": [
+    {
+      "query_shape": "ScanPlateStatsBatchQuery::handle(org_id, start, end, timezone) -> GROUP BY month WITH ROLLUP over kit_id on clarity.scans_cold",
+      "param_classes": [
+        "org_id: single tenant id",
+        "date window: 13 months",
+        "timezone: sanitized IANA name"
+      ],
+      "aggregate_result": "uniqExact(plate) per month; measured envelope 60,738,996 rows / 2.44 GB peak / ~1,102 ms solo",
+      "why": "the shared numerator for UniqueScanCounts and all three absorbed ratio cards; sizes the Q2/Q3 population risk",
+      "source": "in-repo docblock (the scan-volume measurement note), not re-run here"
+    },
+    {
+      "query_shape": "ScanStatsBatchQuery::query(org_id, start, end) -> GROUP BY month on clarity.scans_cold",
+      "param_classes": [
+        "org_id",
+        "13-month window"
+      ],
+      "aggregate_result": "count(*) per month",
+      "why": "ScanCount's total-scan series \u2014 the source for the merged unique-scan-counts description line",
+      "source": "code read"
+    },
+    {
+      "query_shape": "RecoveryTotalsBatchQuery -> batched 13-month per-org totals on clarity.recoveries with FINAL",
+      "param_classes": [
+        "org_id",
+        "13-month window"
+      ],
+      "aggregate_result": "281,882 rows / 5.91 MB / 52.3 MB peak in ~15 ms; largest single org 240,140 rows",
+      "why": "the batched denominator UniqueScansToRepo already uses and RecoveryCounts does not \u2014 the substance of Q5",
+      "source": "in-repo docblock, measured read-only against production 2026-09-14"
+    },
+    {
+      "query_shape": "Recovery::query()->forOrg(org_id)->between(start,end)->count(), called once per month",
+      "param_classes": [
+        "org_id",
+        "one month"
+      ],
+      "aggregate_result": "13 separate round trips per render",
+      "why": "RecoveryCounts's current headline path; the inefficiency the recovery-totals batching work targets and Q5 asks about pulling forward",
+      "source": "code read, RecoveryCounts.php:32-38"
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC-1",
+        "kind": "agent",
+        "intent": "assert cards() has exactly 12 entries and none of the four absorbed keys; count rendered compact cards on /app"
+      },
+      {
+        "ac": "AC-2",
+        "kind": "agent",
+        "intent": "for each merged card assert the headline and the ->description() partner figure both render non-zero for a seeded org"
+      },
+      {
+        "ac": "AC-3",
+        "kind": "agent",
+        "intent": "expanded getData() returns exactly two datasets over 13 labels with the legend enabled"
+      },
+      {
+        "ac": "AC-4",
+        "kind": "human",
+        "intent": "expand each of the three ratio cards and confirm visually: a labelled right-hand axis, no grid lines drawn over the left axis, the ratio bar actually visible. Confirm unique-scan-counts has ONE axis."
+      },
+      {
+        "ac": "AC-5",
+        "kind": "agent",
+        "intent": "assert the 'Scans Leaderboard' heading and no residual 'unique' in any rendered label, description, chart subtitle, axis title or legend entry"
+      },
+      {
+        "ac": "AC-6",
+        "kind": "agent",
+        "intent": "assert surviving getCardKey() values and cache-key prefixes are byte-identical to pre-merge"
+      },
+      {
+        "ac": "AC-7",
+        "kind": "human",
+        "intent": "run the full PHPUnit dashboard suite plus all seven affected e2e specs \u2014 and establish the pre-existing red baseline FIRST so this diff is not blamed for it"
+      },
+      {
+        "ac": "Q2/Q3 gating",
+        "kind": "human",
+        "intent": "once decided, verify a non-Pro org actually sees the intended thing for recovery-counts and unique-scan-counts \u2014 visible behaviour, not just the allowlist test"
+      }
+    ],
+    "seed_scenario": "One COMPANY_METRICS-entitled org and one non-entitled org, each with an ADMIN user. For both: 13 months of clarity.scans_cold rows including repeated plates so total > unique is visible; clarity.recoveries rows (some LPR-attributed); zod.public_billing_events funnel rows reaching both the deduped and db_repos stages; and at least one month with a zero denominator to exercise the ratio's zero guard. The non-entitled org is what makes the Q2/Q3 gating decisions testable.",
+    "personas": [
+      "ADMIN on a Pro-entitled org \u2014 all 12 cards unlocked with real ratios",
+      "ADMIN on a non-Pro org \u2014 the gating boundary, which is exactly what Q2 and Q3 decide",
+      "admin_impersonator \u2014 the 10s TTL collapse and the gate bypass"
+    ],
+    "pg_tables": [
+      "users",
+      "org_meta"
+    ],
+    "ch_tables": [
+      "clarity.scans_cold",
+      "clarity.scan_report_hourly",
+      "clarity.recoveries",
+      "zod.public_billing_events",
+      "zod.public_hotlist_status_log"
+    ]
+  },
+  "confidence": 72,
+  "escalate": {
+    "recommend": false,
+    "reason": "Escalation already happened: 4 passes reconciled, and the driver independently verified the six sharpest claims against the code. Remaining uncertainty is not resolvable by more prep \u2014 it is nine operator decisions, five of them material."
+  },
+  "sizing_decision": {
+    "answer": "Keep as ONE ticket; do not split RecoveryCounts off.",
+    "source": "human:Dalton 2026-09-21"
+  }
+}

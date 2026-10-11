@@ -1,0 +1,205 @@
+name: 'Pint & Tests'
+
+# PROTOTYPE: the upstream Pint/PHPUnit workflow is manual-only. It expects the
+# Insight CI database and private package credentials this sandbox does not use.
+on:
+  workflow_dispatch:
+
+jobs:
+  detect_okf_title:
+    name: 'Detect [OKF] title'
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.gate.outputs.skip }}
+    steps:
+      - name: Decide whether Pint & Tests can skip
+        id: gate
+        env:
+          SKIP: ${{ startsWith(github.event.pull_request.title, '[OKF]') }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${SKIP}" == "true" ]]; then
+            echo "Title starts with [OKF]; Pint & Tests will skip."
+          else
+            echo "Title does not start with [OKF]; Pint & Tests will run."
+          fi
+
+          echo "skip=${SKIP}" >> "$GITHUB_OUTPUT"
+
+  pint-and-tests:
+    name: 'Pint & Tests'
+    needs: detect_okf_title
+    if: ${{ !cancelled() && github.event.pull_request.draft == false && needs.detect_okf_title.outputs.skip != 'true' }}
+    environment: 'pull-request-validation'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        php: [8.4]
+        shard: [1, 2, 3]
+    env:
+      COMPOSER_AUTH_GITHUB_PAT: ${{ secrets.COMPOSER_AUTH_GITHUB_PAT }}
+      COMPOSER_AUTH_FILAMENT_FILTER_USERNAME: ${{ secrets.COMPOSER_AUTH_FILAMENT_FILTER_USERNAME }}
+      COMPOSER_AUTH_FILAMENT_FILTER_PASSWORD: ${{ secrets.COMPOSER_AUTH_FILAMENT_FILTER_PASSWORD }}
+      DB_HOST: 127.0.0.1
+      DB_USERNAME: root
+      DB_PASSWORD: postgres
+      DB_NAME: zod
+      DB_CONNECTION: platform
+      APP_ENV: testing
+      CLICKHOUSE_DRIVER: clickhouse
+      CLICKHOUSE_HOST: 127.0.0.1
+      CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_DATABASE_CLARITY: clarity
+      CLICKHOUSE_DATABASE_ZOD: zod
+      CLICKHOUSE_USERNAME: default
+      CLICKHOUSE_PASSWORD: ''
+      CLICKHOUSE_HTTPS: false
+
+    services:
+      postgres:
+        image: postgis/postgis:16-3.5
+        env:
+          POSTGRES_USER: root
+          POSTGRES_DB: zod
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      clickhouse:
+        image: clickhouse/clickhouse-server:26.2
+        ports:
+          - 8123:8123
+          - 9000:9000
+        env:
+          CLICKHOUSE_USER: default
+          CLICKHOUSE_PASSWORD: ""
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+          CLICKHOUSE_DB: clarity
+        options: >-
+          --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Checkout shared Zod migrations
+        run: |
+          git clone --depth 1 "https://x-access-token:${{ secrets.COMPOSER_AUTH_GITHUB_PAT }}@github.com/insight-lpr/laravel-zod-migrations.git" ../laravel-zod-migrations
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: json, dom, curl, libxml, mbstring, ftp, intl, zip, gd
+          coverage: none
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor
+            ~/.cache/composer
+          key: composer-${{ runner.os }}-php${{ matrix.php }}-${{ hashFiles('composer.lock') }}
+          restore-keys: |
+            composer-${{ runner.os }}-php${{ matrix.php }}-
+
+      - name: Install Composer Dependencies
+        run: |
+          composer config github-oauth.github.com "${{ secrets.COMPOSER_AUTH_GITHUB_PAT }}"
+          composer install -q --no-ansi --no-interaction --no-scripts --no-progress
+
+      - name: Run Pint Check
+        if: matrix.shard == 1
+        run: ./vendor/bin/pint --test --config ${{ github.workspace }}/pint.json
+
+      - name: Prepare Application
+        run: |
+          echo "APP_KEY=" > ${{ github.workspace }}/.env
+          echo "DB_PASSWORD=${{ env.DB_PASSWORD }}" >> ${{ github.workspace }}/.env
+          echo "CLICKHOUSE_DRIVER=${{ env.CLICKHOUSE_DRIVER }}" >> ${{ github.workspace }}/.env
+          echo "CLICKHOUSE_HOST=${{ env.CLICKHOUSE_HOST }}" >> ${{ github.workspace }}/.env
+          echo "CLICKHOUSE_PORT=${{ env.CLICKHOUSE_PORT }}" >> ${{ github.workspace }}/.env
+          echo "CLICKHOUSE_DATABASE_CLARITY=${{ env.CLICKHOUSE_DATABASE_CLARITY }}" >> ${{ github.workspace }}/.env
+          echo "CLICKHOUSE_DATABASE_ZOD=${{ env.CLICKHOUSE_DATABASE_ZOD }}" >> ${{ github.workspace }}/.env
+          echo "CLICKHOUSE_USERNAME=${{ env.CLICKHOUSE_USERNAME }}" >> ${{ github.workspace }}/.env
+          echo "CLICKHOUSE_PASSWORD=${{ env.CLICKHOUSE_PASSWORD }}" >> ${{ github.workspace }}/.env
+          echo "CLICKHOUSE_HTTPS=${{ env.CLICKHOUSE_HTTPS }}" >> ${{ github.workspace }}/.env
+          php artisan key:generate
+          cp ${{ github.workspace }}/.env.example ${{ github.workspace }}/.env.testing
+          {
+            echo "APP_ENV=testing"
+            echo "APP_KEY=$(grep '^APP_KEY=' ${{ github.workspace }}/.env | cut -d= -f2-)"
+            echo "DB_CONNECTION=platform"
+            echo "DB_HOST=127.0.0.1"
+            echo "DB_PORT=5432"
+            echo "DB_DATABASE=zod_testing"
+            echo "DB_USERNAME=root"
+            echo "DB_PASSWORD=${{ env.DB_PASSWORD }}"
+            echo "DB_SEARCH_PATH=platform"
+            echo "CLICKHOUSE_DRIVER=${{ env.CLICKHOUSE_DRIVER }}"
+            echo "CLICKHOUSE_HOST=${{ env.CLICKHOUSE_HOST }}"
+            echo "CLICKHOUSE_PORT=${{ env.CLICKHOUSE_PORT }}"
+            echo "CLICKHOUSE_DATABASE_CLARITY=${{ env.CLICKHOUSE_DATABASE_CLARITY }}"
+            echo "CLICKHOUSE_DATABASE_ZOD=${{ env.CLICKHOUSE_DATABASE_ZOD }}"
+            echo "CLICKHOUSE_USERNAME=${{ env.CLICKHOUSE_USERNAME }}"
+            echo "CLICKHOUSE_PASSWORD=${{ env.CLICKHOUSE_PASSWORD }}"
+            echo "CLICKHOUSE_HTTPS=${{ env.CLICKHOUSE_HTTPS }}"
+          } > ${{ github.workspace }}/.env.testing
+          docker exec $(docker ps -q --filter "ancestor=postgis/postgis:16-3.5") \
+            psql -U root -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'zod_testing'" | grep -q 1 \
+            || docker exec $(docker ps -q --filter "ancestor=postgis/postgis:16-3.5") \
+            psql -U root -d postgres -c "CREATE DATABASE zod_testing"
+          php artisan dev:migrate --env=testing
+          php artisan config:clear
+          php artisan route:clear
+
+      - name: Load ClickHouse schema
+        run: |
+          cat ${{ github.workspace }}/database/schema/clickhouse-schema.sql \
+            | docker exec -i $(docker ps -q --filter "ancestor=clickhouse/clickhouse-server:26.2") clickhouse-client --multiquery
+
+      - name: Run Unit Tests
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARD_TOTAL: 3
+        run: |
+          # Round-robin the test files across shards by a stable sort so each
+          # shard runs ~1/SHARD_TOTAL of the suite. Restricted to the four
+          # phpunit testsuite dirs so the sharded set matches what
+          # `php artisan test` runs today (tests/Jobs|Models|Services are not
+          # in any testsuite and are intentionally excluded, as before).
+          FILES=$(find tests/Unit tests/Feature tests/Filament tests/Roles -name '*Test.php' \
+            | sort | awk "NR % $SHARD_TOTAL == $SHARD % $SHARD_TOTAL")
+          COUNT=$(printf '%s\n' "$FILES" | grep -c . || true)
+          echo "Shard $SHARD/$SHARD_TOTAL: running $COUNT test files"
+          php artisan test --compact $FILES
+
+  # Required checks match the matrix job name ("Pint & Tests (8.4, N)").
+  # When the heavy job is skipped, this sibling reports success under that
+  # same name so branch protection still sees a green check.
+  pint-and-tests-okf-skip:
+    name: 'Pint & Tests'
+    needs: detect_okf_title
+    if: ${{ !cancelled() && github.event.pull_request.draft == false && needs.detect_okf_title.outputs.skip == 'true' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        php: [8.4]
+        shard: [1, 2, 3]
+    steps:
+      - name: Skip Pint & Tests
+        run: echo "Title starts with [OKF] — Pint & Tests skipped"

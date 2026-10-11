@@ -1,0 +1,47 @@
+{
+  "key": "DEV-2186",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2186",
+  "phase": "done",
+  "models": {"base": "haiku", "recall": "haiku", "prep": "sonnet", "plan": "opus", "plan_arbiter": "opus", "implement": "sonnet", "implement_simple": "sonnet", "arbitrate": "opus", "offload": "sonnet", "review": "opus"},
+  "efforts": {"prep": "inherit", "plan": "inherit", "plan_arbiter": "inherit", "implement": "inherit", "implement_simple": "inherit", "arbitrate": "inherit", "offload": "inherit", "review": "inherit"},
+  "timings": [],
+  "flags": {"companion": false, "review_policy": "functional", "jira_mirror": true, "start_at": null, "stop_at": null, "only": null, "skip": [], "force": false},
+  "knowledge_cards_loaded": ["clarity/scout.md"],
+  "escalated": true,
+  "escalation_triggers": ["confidence<80 (55)", "escalate.recommend=true", "cross-branch dependency: DEV-2185 unmerged same files", "material UX/scope design question"],
+  "missed_caller_candidates": [],
+  "diff_base": "d65c30a70999f9bf0f66bd71d408f1371f731a9c",
+  "subtasks": [{"id": "t1", "status": "merged", "worktree_path": "REPO_PATH (single-node fast path)", "branch": "claude/DEV-2186", "complexity": "simple", "model": "opus (driver inline — fully-specified 5-file mechanical edit)"}],
+  "review_number": 2,
+  "pr": {"number": 273, "url": "https://github.com/insight-lpr/platform/pull/273", "draft": true},
+  "pr_urls": {},
+  "jira_in_progress_by": "dalton.mccleery@insightlpr.com @ 2026-07-14T16:10:00Z",
+  "jira_transitioned_by": "manual-dalton.mccleery@insightlpr.com (no draft-aware GH action fired)",
+  "assumed": [],
+  "comment_ids": {"status": "35708", "build_record": "35747"},
+  "qa": {"ledger": ".context/qa-prep-ledger.json", "agent_report": ".context/qa-agent-report.md", "ac_results": ".context/qa-ac-results.json", "torn_down": true,
+         "provisioning": {"bootstrap": "ran", "deps": "via-bootstrap", "migrations": "ran", "docker_daemon": "n/a", "ch_container": "n/a (CH deferred)", "frontend_build": "ran (implement phase)", "postgres_db": "zod_claude_dev_2186 (+ testing zod_testing_claude_dev_2186)", "ch_strategy": "deferred (host neutralized to 127.0.0.1)", "herd_site": "clarity-claude_dev_2186.test"}},
+  "record": {
+    "tests": [
+      {"cmd": "npm run build", "passed": 1, "failed": 0, "note": "Vite build compiled clean (both the base pill-pruning change and the Yesterday-pill follow-up)."},
+      {"cmd": "reflection verify getDateRange('yesterday') x3 (tinker)", "passed": 3, "failed": 0, "note": "All three getDateRange copies return [yesterday 00:00:00 .. yesterday 23:59:59]; today unchanged."},
+      {"cmd": "php artisan test --filter=test_recent_hits_yesterday_range_returns_only_the_previous_day", "passed": 0, "failed": 0, "note": "Added a range=yesterday assertion mirroring the existing range-filter test; SKIPS locally (RequiresClickhouse-gated, CH deferred) — runs where CH is available (CI). Correct-by-construction + pint clean + php -l clean."}
+    ],
+    "deviations": [
+      "Base change (pill pruning) was JS-only; PHP suite left to CI (documented).",
+      "Yesterday follow-up adds PHP date-boundary logic (3 getDateRange arms) + a JS list. Verified via reflection (deterministic bounds) + a new CH-gated feature test that couldn't execute locally (CH deferred) — mirrored an adjacent passing test exactly, confirmed it skips cleanly. Did NOT stand up the CH Docker container just to run one mirror-arm test.",
+      "Yesterday was a dev-requested addition during the Phase-7 park. Because it introduced backend semantic (date-boundary) logic — not cosmetic polish — I re-entered review + browser QA (review #2 = 100/100; browser 3/3) rather than taking the strict light-path rebaseline-only route."
+    ],
+    "review": {"lanes": ["RN1 adversarial-reviewer (base pill-pruning)", "RN2 adversarial-reviewer (Yesterday-pill follow-up)"], "scores": [100, 100], "findings_fixed": ["RN2 non-scoring: added range=yesterday test assertion (CH-gated) per reviewer recommendation"], "findings_residual": ["non-scoring: usePrefetch module-level `scheduled` one-shot (pre-existing)", "non-scoring: adminMode duplicated in auth.js + map.js (pre-existing)", "non-scoring: theoretical midnight-DST startOfDay edge — pre-existing to all range arms, irrelevant for US tz"]},
+    "ac": [
+      {"item": "AC-1 Driver map defaults to Today + Yesterday + last 7 days", "status": "SATISFIED", "evidence": "Real browser (agent-browser): /scout date-range control renders exactly 'Today', 'Yesterday', '7 Days' (no 15/30/60). Yesterday is now an explicit distinct-day pill (per Dalton's follow-up); tapping it issues range=yesterday (scan-paths 200). Backend getDateRange('yesterday') reflection-verified = [yesterday 00:00 .. 23:59:59] across all 3 copies. Boot unchanged."},
+      {"item": "AC-2 Heavy 15/30/60-day not in driver default experience", "status": "SATISFIED", "evidence": "Real browser network log: driver stats + scan-paths prefetch fired only range=today & range=last_7; zero last_15/30/60."},
+      {"item": "AC-3 Driver/admin windows deliberately decoupled (admin unchanged)", "status": "SATISFIED", "evidence": "Real browser: /scout/org-map renders all 5 pills + full-set prefetch (unchanged). Driver restriction did not leak into admin. Screenshot A3."}
+    ]
+  }
+}

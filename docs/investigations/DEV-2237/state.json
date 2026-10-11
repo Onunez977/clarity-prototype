@@ -1,0 +1,315 @@
+{
+  "key": "DEV-2237",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2237",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "plan-arbiter",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "plan",
+      "dur_s": 0,
+      "note": "authored inline by driver (opus); exploration already in context"
+    },
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 563
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 490
+    },
+    {
+      "slot": "implement:t1-reviewfix",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 606
+    },
+    {
+      "slot": "review-rn2",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 302
+    },
+    {
+      "slot": "review-rn3",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 281
+    },
+    {
+      "slot": "review-rn4",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 124
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "knowledge/clarity/scout.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "confidence<80 (55)",
+    "needs-human questions (Q1-Q3)",
+    "blocker present",
+    "escalate.recommend=true",
+    "competing options in ticket comment (design fork)"
+  ],
+  "best_of_n": false,
+  "needs_human_interview": true,
+  "best_of_n_note": "escalated=true but skipped best-of-N deep candidates: the blocker is a product design decision only Dalton can make (mechanism + workflow), not an exploration gap that more blind candidates could resolve. Ran the mechanical grep backstop instead.",
+  "missed_caller_candidates": [],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "2d8f2c7d45a73eb186387873a91715e2f1e94747",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "claude/DEV-2237",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 4,
+  "pr": {
+    "number": 312,
+    "url": "https://github.com/insight-lpr/platform/pull/312",
+    "draft": false
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": "dalton.mccleery@insightlpr.com @ 2026-08-06T00:00:00Z",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "In Code Review via Atlassian MCP (no GH draft-aware action on clarity) @ 2026-08-07",
+  "assumed": [],
+  "comment_ids": {
+    "status": "38094",
+    "build_record": "38133"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "provisioned_early": true,
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "n/a",
+      "ch_container": "n/a",
+      "frontend_build": "n/a",
+      "postgres_db": "zod_claude_dev_2237_2fb08d",
+      "ch_strategy": "deferred",
+      "herd_site": "clarity-claude_dev_2237_2fb08d.test"
+    }
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact --filter=UsersResource",
+        "passed": 60,
+        "failed": 0,
+        "risky": 1,
+        "risky_note": "pre-existing unrelated ScoutUsersResourceTest::test_cross_org_kit_cannot_be_edited_via_direct_url"
+      }
+    ],
+    "deviations": [
+      {
+        "source": "qa-loop",
+        "edit": "Seed fix: enable_genetech_hotlist=true on QA orgs 5/6 in .context/qa-seed.tinker.php so seeded admins reach the admin panel (User::canAccessPanel gate). Seed-only, no app code.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "qa-loop",
+        "edit": "UX rework (Dalton, human QA): Scout moved from a separate right-hand Toggle section into the Roles card as a peer Checkbox ('Scout'), with the Assigned Kit picker beneath it; still the clarity-scout permission (not a role). Presentation-only in ProvisionsScoutUser.php + UsersResource.php; reconcile/permission/kit logic unchanged. 55 filtered tests still pass.",
+        "ac_ref": "AC-1",
+        "ac_delta": null
+      },
+      {
+        "source": "qa-loop",
+        "edit": "UX (Dalton): Create User form now pre-checks 'Default User' by default (roles CheckboxList formatStateUsing defaults to the USER role on create; Edit still hydrates real roles). So a Scout user = check Scout + pick kit. Added test_create_form_defaults_roles_to_default_user. 56 filtered tests pass.",
+        "ac_ref": "AC-1",
+        "ac_delta": null
+      },
+      {
+        "source": "qa-loop",
+        "edit": "REVISED the default-role behavior (Dalton): reverted the unconditional 'pre-check Default User for all creates'. Now Default User is force-checked ONLY when Scout is checked (and re-checked if removed while Scout stays on, so a Scout user keeps the base role); with Scout off, roles behave exactly as original (nothing pre-checked). Implemented via scout_access + roles afterStateUpdated (no disableOptionWhen \u2014 a disabled option is dropped from the valid `in:` set and would reject its own value). Tests: does-not-pre-check, enabling-scout-force-checks, re-check-on-removal, not-forced-when-off. 59 filtered tests pass; browser-confirmed.",
+        "ac_ref": "AC-2",
+        "ac_delta": null
+      },
+      {
+        "source": "qa-loop",
+        "edit": "Scout checkbox help text simplified to 'Enable Clarity Scout driver-portal access for this user.' (no mention of permission/role/kit) per Dalton.",
+        "ac_ref": "AC-1",
+        "ac_delta": null
+      },
+      {
+        "source": "qa-loop",
+        "edit": "Assigned Kit is now REQUIRED when Scout is checked (and only shown then) \u2014 resolves the earlier 'half-provisioned allowed' open question: Scout+no-kit is now a validation error. Updated test (test_scout_requires_a_kit_when_enabled) + 2 edit tests now supply a kit.",
+        "ac_ref": "AC-4",
+        "ac_delta": "was: Scout could be saved with no kit (half-provisioned allowed) -> now: kit required when Scout on"
+      },
+      {
+        "source": "dev-request",
+        "edit": "Refactor (Dalton, post-QA): extracted the ProvisionsScoutUser trait into a framework-light App\\Support\\Scout\\ScoutUserProvisioner action class (canAccess/availableKitOptions/extract/reconcile); inlined the Scout form fields onto UsersResource::scoutFormFields(). Behavior-preserving; RN4 review 100/100; 60 tests pass.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "dev-request",
+        "edit": "Best-practices audit cleanup (Dalton, findings 1-3): trimmed over-heavy comments/docblocks to house sparse-comment style, fixed stale 'trait' wording in a test comment (it's a class), added missing closure ': void' + a Builder type hint. Diff-verified as comment/signature-only (zero executable changes); 60 tests pass; pint clean.",
+        "ac_ref": null,
+        "ac_delta": null
+      }
+    ],
+    "review": {
+      "lanes": [
+        "rn1:3 (in-session-agent)",
+        "rn2:2 (in-session-agent)",
+        "rn3:2 (in-session-agent) \u2014 post-QA UX diff",
+        "rn4:1 (in-session-agent) \u2014 trait\u2192ScoutUserProvisioner refactor",
+        "post-audit cleanup: cosmetic-only delta over RN4 (comments/docblocks trimmed, +:void/Builder hint) \u2014 verified non-behavioral by diff, no new lane"
+      ],
+      "scores": [
+        100
+      ],
+      "rn1_scores": [
+        88,
+        82,
+        79
+      ],
+      "findings_fixed": [
+        "HIGH cross-org kit hijack: scout_kit_id now re-resolved to acting org + availability before any KitSettings write (all 3 rn1 lanes)",
+        "atomicity: grant/revoke + KitSettings in a DB transaction; onboarding notify only after commit",
+        "perf N+1: scout_access column uses memoized scoutEnabledUserIds single query",
+        "defense-in-depth: canAccessScoutProvisioning() guard in extract+reconcile",
+        "tests: cross-org rejection, closed-guard no-op, verified-user no re-notify, resave no re-send, scout-on-no-kit"
+      ],
+      "findings_residual": [
+        "non-scoring: once() memo ignores $orgId arg (safe today; single-org render) \u2014 consider per-org key",
+        "non-scoring: USER role retained after Scout revoke",
+        "non-scoring: atomicity + N+1 not pinned by failing-on-regression tests",
+        "non-scoring: setPermissionsTeamId global mutation during form render",
+        "non-scoring: no scout_access column-render or admin_impersonator grant-path test",
+        "non-scoring (rn3): scout-on-with-null-kit else-branch grants access while clearing tie (UI in:+required prevents reaching it)",
+        "non-scoring (rn3): suggest test also asserts Administrator survives the Default-User re-add"
+      ],
+      "lane_sources": [
+        {
+          "lane": "lane1",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "lane2",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "rn3-lane1",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "rn3-lane2",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "rn4-lane1",
+          "source": "in-session-agent"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "bf2ebf20718987d95cdc99e721a7f24f2d092ea6",
+      "rework_pivot": false,
+      "rn3_scores": [
+        100,
+        95
+      ],
+      "rn4_scores": [
+        100
+      ]
+    },
+    "ac": [
+      {
+        "item": "AC-1",
+        "status": "SATISFIED",
+        "evidence": "Reworked UI: Scout is a checkbox in the Roles group (Administrator/Client/Default User/Scout), Default User pre-checked; checking Scout reveals the Assigned Kit picker (kits 16/17). Browser-verified on reworked UI. Gating additionally confirmed via a REAL non-impersonated OTP login as the non-Scout org admin: no Scout checkbox/kit/column (not just the unit test)."
+      },
+      {
+        "item": "AC-2",
+        "status": "SATISFIED",
+        "evidence": "Created user with Administrator + Default User + Scout + kit \u2014 all persisted independently. Browser-verified on reworked UI."
+      },
+      {
+        "item": "AC-3",
+        "status": "SATISFIED",
+        "evidence": "Edit shows Scout checked + kit pre-selected; Users list Scout Access column = green check. Browser-verified on reworked UI."
+      },
+      {
+        "item": "AC-4",
+        "status": "SATISFIED",
+        "evidence": "Target user: check Scout + Kit 2 -> persisted (kit 1 no longer offered = 1:1 uniqueness); uncheck Scout -> revoked + kit cleared. Browser-verified on reworked UI."
+      },
+      {
+        "item": "AC-5",
+        "status": "SATISFIED",
+        "evidence": "Plain user (Client + Default User, Scout off) creates fine, Scout Access column red X; normal role checkboxes unaffected. 56 filtered tests pass. Browser-verified on reworked UI."
+      }
+    ]
+  }
+}

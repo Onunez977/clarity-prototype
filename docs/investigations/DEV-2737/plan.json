@@ -1,0 +1,212 @@
+{
+  "key": "DEV-2737",
+  "track": "verify",
+  "phase": "implemented",
+  "gate": "CLEAN",
+  "authoritative": true,
+  "product_php": false,
+  "claude_first": {
+    "preflight": 23,
+    "primary": "docs/investigations/DEV-2737/claude-plan-draft.md",
+    "model": "claude-opus-5",
+    "effort": "high",
+    "cloud_review": "docs/investigations/DEV-2737/cloud-plan-review.md",
+    "reconcile": "docs/investigations/DEV-2737/claude-plan-reconcile.md",
+    "note": "Opus draft is primary. CloudAgent review then Opus reconcile. Prior CloudAgent-authored plan was counsel only."
+  },
+  "input": "docs/investigations/DEV-2737/prep-context.json",
+  "base_sha": "76d4f5fcfdb37a9cb3b7b667c9e34a0d2f4f3266",
+  "branch_path": "main\u2192main",
+  "first_glance": "42082",
+  "answers": {
+    "source": "Question Gate lock, 2026-09-28",
+    "Q1": {
+      "org_id": 14,
+      "name": "Brad Webb / premieradjusters"
+    },
+    "Q2": {
+      "ui": "~509",
+      "ui_is_exact": false,
+      "toggle": "this_month",
+      "surface": "production ClickHouse",
+      "session": "admin impersonating Brad Webb",
+      "card": "LPR Repos This Month",
+      "stage": "db_repos",
+      "class": "LprRepossessions"
+    }
+  },
+  "ship_surface": "Verify-first. Cloud measure executed read-only: db_repos 533 vs UI ~509 (mismatch_pending_v1). V1 UI re-pin required. No product PHP. One follow-on AC named; no fix steps.",
+  "implement": {
+    "product_php": false,
+    "v1": "V1_PENDING",
+    "notes": "docs/investigations/DEV-2737/implement-notes.md",
+    "reconcile": "docs/investigations/DEV-2737/reconcile.md",
+    "follow_on_ac_file": "docs/investigations/DEV-2737/follow-on-ac.md",
+    "follow_on_status": "STANDING",
+    "review": "skipped_NO_PRODUCT_PHP"
+  },
+  "code_path": {
+    "confirmed": true,
+    "this_month_is": "last db_repos bucket of LprRepossessionsQuery::monthlySeries (13-month), never windowSql",
+    "chain": [
+      "CompanyMetricsOverview::cards()['lpr-repossessions'] => LprRepossessions (CompanyMetricsOverview.php:107)",
+      "Compact card: makeMetricWidget copies $date + filters date_toggles (CompanyMetricsOverview.php:237-243); page default this_month (:59)",
+      "Expanded: DashboardWidget::mount() defaults this_month (DashboardWidget.php:97)",
+      "getCardTotal this_month \u2192 last bucket of getMonthlyData (DashboardWidget.php:356-367; LprRepossessions.php:257-260)",
+      "monthlySeries(org_id, now UTC) \u2192 buildSql(bucketed: true) (LprRepossessions.php:403-406; LprRepossessionsQuery.php:125-131)",
+      "billing_claim_events_v is_internal=0 event_type=case-claim org either side \u2192 BillingClaimDedup \u2192 status-3 hotlist FINAL + status-log \u2192 db_repos uniqExactIf"
+    ],
+    "refs": [
+      "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php:107",
+      "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php:59",
+      "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php:237-243",
+      "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php:97",
+      "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php:356-367",
+      "app/Filament/Widgets/Dashboard/LprRepossessions.php:163",
+      "app/Filament/Widgets/Dashboard/LprRepossessions.php:209-214",
+      "app/Filament/Widgets/Dashboard/LprRepossessions.php:225-267",
+      "app/Filament/Widgets/Dashboard/LprRepossessions.php:311-318",
+      "app/Filament/Widgets/Dashboard/LprRepossessions.php:403-406",
+      "app/Filament/Widgets/Dashboard/LprRepossessions.php:616-641",
+      "app/Clickhouse/Queries/LprRepossessionsQuery.php:125-215",
+      "app/Clickhouse/Queries/BillingClaimDedup.php:22-24",
+      "app/Filament/Widgets/Dashboard/Concerns/ResolvesDashboardCacheTtl.php:30-32",
+      "tests/Filament/Widgets/Dashboard/Concerns/CardQuerySqlFidelityTest.php:167-180",
+      "database/schema/clickhouse-schema.sql:18",
+      "database/schema/clickhouse-schema.sql:85"
+    ],
+    "fidelity_test_claim": "monthlySeries() delegates to monthlySeriesSql() and contains no inline heredoc \u2014 not a rendered-string strcmp",
+    "reads_clarity_orgs": false,
+    "prior_lpr_repossessions_coverage_sha": "1bc1a0cc00f971b76c15632155ed92f10846c35f"
+  },
+  "measure": {
+    "mode": "cloud_clickhouse_read_only",
+    "executed_this_phase": true,
+    "executed_at": "2026-09-28T14:28:00Z",
+    "method": "ch-cloud-readonly curl readonly_user; hand-mirrored monthlySeries SQL",
+    "sql_artifact": "docs/investigations/DEV-2737/cloud-measure-org14.sql",
+    "writeup": "docs/investigations/DEV-2737/cloud-measure-org14-sep2026.md",
+    "sql_provenance": "hand-mirrored, predicate-equivalent to buildSql(bucketed: true) for org 14 through Sep 2026; deduped CTE byte-matches BillingClaimDedup::dedupedCteSql()",
+    "exact_count": 533,
+    "deduped": 630,
+    "bucket": "2026-09-01",
+    "ui_lock": "~509",
+    "ui_comparison": "mismatch_pending_v1",
+    "adjacent": {
+      "2026-08-01": {
+        "deduped": 334,
+        "db_repos": 286
+      },
+      "2026-07-01": {
+        "deduped": 307,
+        "db_repos": 251
+      }
+    },
+    "window": {
+      "label": "13-month monthlySeries through Sep 2026 UTC (card SQL shape)",
+      "start": "2025-09-01 00:00:00 UTC",
+      "end": "2026-09-30 23:59:59 UTC",
+      "ts_between": [
+        1756684800,
+        1790812799
+      ],
+      "event_date": [
+        "2025-09-01",
+        "2026-09-30"
+      ],
+      "status_log_floor": "2025-08-25",
+      "not_windowSql": "September-only windowSql is a cross-check only; This Month uses the last monthlySeries bucket"
+    },
+    "org_predicate": "org_id = 14 OR agent_org_id = 14",
+    "predicates": [
+      "is_internal = 0",
+      "event_type = 'case-claim'",
+      "ts BETWEEN 1756684800 AND 1790812799",
+      "event_date BETWEEN toDate('2025-09-01') AND toDate('2026-09-30')",
+      "success AND vin != '' inside deduped",
+      "public_hotlist FINAL status = 3, _peerdb_is_deleted = 0, agent_org_id != 0",
+      "public_hotlist_status_log no FINAL, new_status = 3, _peerdb_is_deleted = 0, h.id != 0",
+      "db_repos = uniqExactIf(triple, toDate(hsl.created_at,'UTC') >= claim_date - 7)"
+    ],
+    "headline_column": "db_repos",
+    "mcp_note": "ClickHouse Cloud MCP Production service refused (Forbidden). Measure used box curl + ch-cloud-readonly.env instead. No writes.",
+    "ttl_note": "Impersonation cache TTL is 10s and cannot explain a ~24 gap",
+    "open_month_note": "Open-month accrual unchecked until V1; do not assume the ~24 arrived 2026-09-25\u219228"
+  },
+  "decision": {
+    "status": "mismatch_pending_v1",
+    "do_not_close": true,
+    "product_php": false,
+    "v1_required": "While admin-impersonating org 14, record exact LPR Repos headline, date toggle, and description Sep/Aug integers. No formatMonthlyData on this class \u2014 description uses the same array as the headline.",
+    "follow_on_ac": "Org 14, September 2026 UTC. LprRepossessionsQuery::monthlySeries bucket 2026-09-01 returns db_repos 533 (deduped 630) on production ClickHouse, read-only, 2026-09-28. The question-gate UI impression is ~509 on This Month under admin impersonation. If V1's live headline is 533, withdraw this AC and close DEV-2737 with proof notes \u2014 the ~509 was not the live headline. If V1's headline is not 533, this AC stands as the evidence record for a separate fix ticket. This AC names no code change.",
+    "follow_on_filed": false,
+    "do_not_reconcile_deduped": true
+  },
+  "verify_steps": [
+    "V1",
+    "V2",
+    "V3",
+    "V4",
+    "V5"
+  ],
+  "m2_m3": "Gated on V1 headline \u2260 533; read-only localisers; must not become a second product path (#25)",
+  "preflight_24": "verify_first_simple_wins",
+  "preflight_25": {
+    "fires": false,
+    "value": "does_not_fire",
+    "reason": "Verify and reconcile the existing LprRepossessionsQuery statement. No second query and no path rewrite."
+  },
+  "preflight_18": {
+    "fires_this_phase": false,
+    "later": "Agent QA needs a real fleet Docker ClickHouse only if a follow-on ships query PHP. This plan does not invent a DSN."
+  },
+  "provisioned": false,
+  "non_goals": [
+    "Product PHP",
+    "Invented UI integer or tolerance band turning 533 into a match for ~509",
+    "Reconciling deduped 630 to ~509",
+    "status-log retirement work",
+    "Rewritten repos query / new query class / sentinel / is_internal backfill",
+    "okf edits this ticket",
+    "Cloud ClickHouse writes",
+    "Fleet DSN / PHPUnit at Cloud / .env edits",
+    "Extended LprRepossessions* tests this phase"
+  ],
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Confirm the code path after the prior LPR Repossessions coverage work",
+      "approach": "Confirmed. This Month = last monthlySeries db_repos bucket. Hop 1 = CompanyMetricsOverview.php:107. No file edit.",
+      "target_files": [],
+      "product_php": false,
+      "depends_on": [],
+      "executed": true
+    },
+    {
+      "id": "t2",
+      "title": "Cloud CH READ-ONLY monthlySeries measure org 14",
+      "approach": "Executed via ch-cloud-readonly. Statement: cloud-measure-org14.sql. Result: bucket 2026-09-01 db_repos=533 deduped=630 vs UI ~509 \u2192 mismatch_pending_v1.",
+      "target_files": [
+        "docs/investigations/DEV-2737/cloud-measure-org14.sql",
+        "docs/investigations/DEV-2737/cloud-measure-org14-sep2026.md"
+      ],
+      "product_php": false,
+      "depends_on": [
+        "t1"
+      ],
+      "executed": true
+    },
+    {
+      "id": "t3",
+      "title": "V1 UI re-pin then close or keep follow-on AC",
+      "approach": "V1 required. If headline is 533: proof notes, withdraw follow-on AC, close. If not 533: follow-on AC stands (evidence only, no fix PHP). M2/M3 only if V1 \u2260 533.",
+      "note": "V1 pending Agent QA / production re-pin. Headline, date toggle, and Sep/Aug description integers are unfilled. Follow-on AC STANDING until V1=533.",
+      "target_files": [],
+      "product_php": false,
+      "depends_on": [
+        "t2"
+      ],
+      "executed": false
+    }
+  ]
+}

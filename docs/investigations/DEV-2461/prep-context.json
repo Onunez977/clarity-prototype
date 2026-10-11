@@ -1,0 +1,365 @@
+{
+  "key": "DEV-2461",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "reconcile": {
+    "candidates": 3,
+    "technique": "insightlpr:multi-candidate-merge \u2014 union additive content deduped; agreement = settled; disagreement -> explicit open question; grounded beats confident; conservative on 'resolved'",
+    "confidences": [
+      74,
+      78,
+      70
+    ]
+  },
+  "synthesis": "Add the 'Staging Live Hit Leaderboard' card at mockup slot row 3 col 2 (slot 10 of 16) of the Company Metrics dashboard: a leaderboard of the viewing org's kits ranked by deduped Staging Live plates (uniqExactIf(ocr, hit_type='S')) on clarity.hits_cold, scoped by kit_org_id. DEV-2460 (merged into main) already made CompanyMetricsOverview::cards() mockup-relative and built the lockedStat()/canViewCardData() Pro-gate seam wired to zero cards. The distinguishing requirement is architectural: the 13-month series must be served by ONE batched ClickHouse call (GROUP BY month, kit_id + LIMIT 10 BY month), not 13 per-month calls.",
+  "scope": {
+    "summary": "New batched ClickHouse query class (StagingLiveHitLeaderQuery, static::clarityDb()-clean) + a new RecoveryLeader-shaped (ChartWidget-direct) widget (StagingLiveHitLeader), registered at its exact mockup slot in CompanyMetricsOverview::cards(), plus the two card-count/card-order test contracts and two new test files. Pro-gate wiring is BLOCKED pending a human decision.",
+    "target_files": [
+      "app/Clickhouse/Queries/StagingLiveHitLeaderQuery.php",
+      "app/Filament/Widgets/Dashboard/StagingLiveHitLeader.php",
+      "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php",
+      "app/Enums/FeatureEnum.php",
+      "app/Enums/ProTierEnum.php",
+      "app/Providers/PennantServiceProvider.php",
+      "tests/Filament/Pages/DashboardCardExpansionTest.php",
+      "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php",
+      "tests/Feature/Clickhouse/StagingLiveHitLeaderQueryTest.php",
+      "tests/Filament/Widgets/Dashboard/StagingLiveHitLeaderTest.php"
+    ],
+    "conditional_target_files": [],
+    "out_of_scope": [
+      "The other 8 DEV-2409 sibling grid slots \u2014 one metric, one ticket",
+      "Fixing the pre-existing hardcoded-'clarity.' offenders (RecoveryLeaderQuery, LprVisitCountQuery, RdnHitHourCountQuery, RdnScanHourCountQuery, ScanStatsBatchQuery, Client/CohortClosedQuery, Client/CohortDeclinedQuery, Models/AffiliateStatsHourly, Models/LprAssist) \u2014 sweep complete, all listed safe/pre-existing",
+      "Adding a runner-up line to the collapsed Stat (RecoveryLeader has one; the reference implementation deliberately dropped it and no AC asks for it)",
+      "Page-level (Dashboard) Pro gating",
+      "Retrofitting SharedHitStatsData/DashboardWidget to represent ranked-list data generically",
+      "Any hits_cold schema/CDC/migration change",
+      "DEV-2430's full-page-500 containment at the CompanyMetricsOverview level \u2014 separate ticket; this card only contains its own contribution"
+    ],
+    "dropped_by_answer": [
+      {
+        "file": "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+        "reason": "Q2 answered 'hardcode the colour, skip the dead arm' \u2014 DashboardWidget is NOT touched."
+      }
+    ]
+  },
+  "settled_by_agreement": [
+    {
+      "item": "Leaderboard ROW = kit (grouped/keyed by kit_id, labelled anyLast(kit_name)); hits_cold carries both kit_id and kit_name so NO join to clarity.kits is needed (unlike RecoveryLeaderQuery, which joins).",
+      "agreement": "3/3 candidates + driver-verified against the committed CH schema"
+    },
+    {
+      "item": "Ranked MEASURE = uniqExactIf(ocr, hit_type='S'); a bare count() is forbidden because hits_cold's mutable hit_created_at is in the sort key so duplicates survive FINAL (runs up to ~30% high).",
+      "agreement": "3/3 + HitPlateStatsBatchQuery docblock"
+    },
+    {
+      "item": "Org axis = kit_org_id (the scanning org), NOT hotlist_org_id \u2014 matches the sibling StagingLiveHits card / HitPlateStatsBatchQuery so the totals agree.",
+      "agreement": "3/3 + HitPlateStatsBatchQuery docblock"
+    },
+    {
+      "item": "Card SHAPE = RecoveryLeader-shaped: extends ChartWidget implements DashboardMetricCard, traits BuildsDateFilterChartSeries + RendersDashboardStat + StatHelper. NOT DashboardWidget/SharedHitStatsData, whose contract is a SCALAR per month and cannot represent a ranked list of rows per month.",
+      "agreement": "3/3 (candidate 3 adjudicated this explicitly)"
+    },
+    {
+      "item": "LIMIT 10 rows, ORDER BY total DESC, kit_id ASC (deterministic tiebreak). Collapsed card shows the leader's count only; the ranked top-10 appears in the expanded stacked-bar chart.",
+      "agreement": "3/3"
+    },
+    {
+      "item": "Registration slot: insert 'staging-live-hit-leader' between 'recovery-counts' and 'recovery-leader'. Mockup is 4x4; row3col2 = slot 10, which sorts after recovery-counts (slot 2) and before recovery-leader (slot 12). The array is explicitly NOT append-only.",
+      "agreement": "3/3 + driver-verified against the cards() docblock mockup table"
+    },
+    {
+      "item": "The batched 13-month series backs BOTH the sparkline and the expanded chart body (same cached buckets). Only today/last_7d/last_month go through a SEPARATE single-window handle() call; this_month reuses the last batched bucket. So a render issues 0 calls warm, 1 call cold.",
+      "agreement": "3/3"
+    },
+    {
+      "item": "handleMonthly() must be called DIRECTLY, bypassing ClickhouseQuery::query(), because query() swallows Throwable and would persist a genuine ClickHouse failure as an empty leaderboard. Pair it with a short-TTL negative-cache failure marker (SharedHitStatsData's pattern) so a hard-down cluster is not re-scanned on every dashboard paint.",
+      "agreement": "2/3 (candidates 2+3); consistent with the known ClickhouseQuery Throwable-swallow behaviour"
+    },
+    {
+      "item": "Copy the structural pattern from the FIXED pair HitStatsBatchQuery / HitPlateStatsBatchQuery: static::clarityDb(), a shared private fromAndWhere(), and the strict assertDatetime() allowlist (addslashes() is not a SQL escape).",
+      "agreement": "3/3 + ticket rule"
+    },
+    {
+      "item": "No cross-class cache KEY (sharedUniqueRangeMemoKey-style) is needed: this card is the ONLY consumer of its query class, unlike the four hit widgets that share HitStatsBatchQuery. An instance-level memo (RecoveryLeader's pattern) satisfies the ticket's 'never a static::$memo array' rule and avoids the DEV-2406 trait-static-per-class hazard, which only bites when a TRAIT is used by multiple classes.",
+      "agreement": "candidate 3, grounded; not contradicted"
+    },
+    {
+      "item": "AC-4 has no prior baseline (this is a NEW card), so the real obligation is that no EXISTING card regresses. CORRECTED after RN2/RN3/RN4 (the original text here said 'cold cache = exactly 1 batched call' and prescribed the pgsql-bridge technique; both are WITHDRAWN): warm cache = 0 ClickHouse calls; a fully cold entitled render = THREE sequential calls for this card (leaderboard batch + shared past-months batch + shared current-month range), and the fleet cost is 5 vs 4 before = net +1, because calls 2 and 3 are the four hit cards' own resolvers merely issued earlier and then short-circuited by them. Counting technique: PROTECTED SEAMS counted from a CountingStagingLiveHitLeader subclass. DB::listen never fires for the CH driver (DashboardCardMetricsTest.php:838). The pgsql-bridge 'stray query throws' trick is INVALID here -- the CH correctness tests require real clarity.* tables, so a stray query succeeds silently and such a test cannot fail. system.query_log is unusable too: the local CH is the shared literal clarity/zod instance every worktree points at, so org ids collide across worktrees.",
+      "agreement": "candidate 2 (technique) + candidate 3 (reinterpretation), driver-verified",
+      "superseded_note": "Rewritten at RN4 after all three RN3 lanes plus the RN4 lane flagged the stale round-trip count and the invalid technique."
+    }
+  ],
+  "missed_caller_candidates_resolved": [
+    {
+      "file": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php",
+      "finding": "REQUIRED TARGET FILE that ALL THREE candidates missed. Line 144 hard-asserts assertCount(7, CompanyMetricsOverview::cards()) and must become 8 regardless of the Pro-gate answer. Separately, its lines 45-64 loop asserts EVERY card in cards() is ungated ('is gated, but no card should be gated yet'), with the comment 'If this ever fails, a card was gated without the ticket that did it updating this expectation' \u2014 so gating this card (Q1 option A) REQUIRES updating that test too, by its own design.",
+      "source": "grep backstop -> driver-verified"
+    },
+    {
+      "file": "app/Filament/Pages/Dashboard.php",
+      "finding": "reads CompanyMetricsOverview::expandableCards(); needs no change \u2014 resolves the new key generically.",
+      "source": "grep backstop"
+    },
+    {
+      "file": "app/Filament/Widgets/Dashboard/KitUsers.php",
+      "finding": "references CompanyMetricsOverview but is no longer a registered card (moved to HotlistCount's header row in DEV-2460); no change.",
+      "source": "grep backstop"
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardMetricsTest.php, DashboardMonthLabelsTest.php, DashboardWidgetTest.php",
+      "finding": "reference RecoveryLeader/SharedHitStatsData but their assertCount()s are on 13-month series lengths and colour tuples, not the cards() array \u2014 no change expected; re-run to confirm.",
+      "source": "grep backstop -> driver-verified"
+    }
+  ],
+  "questions": [
+    {
+      "id": "Q1",
+      "q": "Which FeatureEnum gates AC-5 ('Non-Pro orgs do not see the value'), and is it per-card or epic-wide across all 9 DEV-2409 cards?",
+      "answered": true,
+      "answer": "Add a NEW epic-wide flag: FeatureEnum::COMPANY_METRICS = 'platform_repo_pro_company_metrics'. Feature::define() it in PennantServiceProvider (isInsightLpr() || isProEnabled() shape, NO experimental config gate), add it to the CLARITY_PRO and CLARITY_PRO_PLUS lists in ProTierEnum::features(), and override this card's canViewCardData() as Feature::active(FeatureEnum::COMPANY_METRICS->slug()) || session()->has('admin_impersonator'). Epic-wide name so the other 8 DEV-2409 sibling cards reuse the same flag. Entirely in-repo: Org::isProEnabled() falls back to tier membership, so no Backyard write is required.",
+      "source": "human:Dalton 2026-09-03",
+      "why_material": "Candidate 2 claimed the default seam suffices; candidates 1 and 3 disagreed and candidate 3's reasoning is decisive and driver-verified: canViewCardData() falls back to canView(), which is the same hasAnyRole(ADMIN, USER) check the whole grid already enforces \u2014 it has nothing to do with Pro tier. So the default seam CANNOT satisfy this AC. A real FeatureEnum override is required, and none exists for Company Metrics. This card would be the FIRST genuinely gated card in the epic, so the decision sets precedent for the other 8. Reusing FeatureEnum::CLICKHOUSE_HITS is a trap: it is additionally gated behind config('app.experimental.clickhouse.hits'), which defaults to false, so the card would be locked for everyone.",
+      "driver_recommendation": "Add FeatureEnum::COMPANY_METRICS = 'platform_repo_pro_company_metrics' (epic-wide name so the 8 siblings reuse it), Feature::define() it in PennantServiceProvider, add it to the CLARITY_PRO and CLARITY_PRO_PLUS tier lists in ProTierEnum::features(), and override canViewCardData() as Feature::active(FeatureEnum::COMPANY_METRICS->slug()) || session()->has('admin_impersonator') per the RendersDashboardStat implementer contract. This is entirely in-repo: Org::isProEnabled() falls back to tier membership, so no Backyard write is needed."
+    },
+    {
+      "id": "Q2",
+      "q": "The ticket says to add an explicit getStatColor() arm in DashboardWidget, but the correct card base (RecoveryLeader-shaped) never calls that method. Hardcode the colour, or add the unreachable arm anyway?",
+      "answered": true,
+      "answer": "Hardcode ->color('warning') in the card's own toStat(), matching the RecoveryLeader/KitUsers precedent and the staging-live-* colour family. Do NOT add a dead arm to DashboardWidget::getStatColor(). The deviation from the literal AC wording must be recorded in the Build Record.",
+      "source": "human:Dalton 2026-09-03",
+      "why_material": "3/3 candidates confirmed, and the driver verified by grep, that getStatColor() is called from exactly two places (DashboardWidget::toStat() and SharedHitStatsData::toStat()), both reachable only by classes extending DashboardWidget. RecoveryLeader and KitUsers both hardcode their own ->color() instead, and DashboardWidget's own docblock says so. So the ticket's literal instruction would add dead code.",
+      "driver_recommendation": "Hardcode ->color('warning') in the card's own toStat() (matching the staging-live-* colour family and the RecoveryLeader precedent) and do NOT add a dead arm to DashboardWidget. Record the deviation from the literal AC text in the Build Record."
+    },
+    {
+      "id": "Q3",
+      "q": "Batching's LIMIT 10 BY month makes this card's sparkline under-read the org's true staging-live total by 3.5%-68.8% (measured) versus the sibling Staging Live Hits card on the same dashboard. Accept, or make the sparkline agree?",
+      "answered": true,
+      "answer": "Make the sparkline AGREE with the sibling Staging Live Hits card, at zero extra ClickHouse cost: feed it from the per-month staging_live_hit_count buckets that StagingLiveHits already caches via HitPlateStatsBatchQuery, rather than summing each month's top-10 kits. The leaderboard body still shows top-10. This removes the 3.5%-68.8% undercount by construction.",
+      "source": "human:Dalton 2026-09-03",
+      "why_material": "This is a measured, previously-reviewed figure from the reference branch (commit 6cf34e9b corrected an earlier sign error: 'LIMIT 10/month means the shipped series UNDER-reads by -3.5%..-68.8%'). It bites orgs with more than 10 scanning kits, because the sparkline sums only each month's top-10 kits. Two cards on the same dashboard showing materially different staging-live trends is a user-visible inconsistency, and no AC addresses it.",
+      "driver_recommendation": "Make the sparkline agree, using the data already on the page: the sibling StagingLiveHits card already fetches per-month staging_live_hit_count via HitPlateStatsBatchQuery, so reading those existing cached buckets for the sparkline costs ZERO extra ClickHouse round trips and makes the two cards agree by construction. The leaderboard body stays top-10. This is also the natural reading of the ticket's own cross-card cache-KEY rule."
+    }
+  ],
+  "blockers": [],
+  "acceptance_criteria": [
+    {
+      "item": "Card present in its mockup slot (row 3 col 2) with a trend sparkline matching existing card styling, and an explicit getStatColor() mapping",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Slot insertion and sparkline are direct. The getStatColor() half is Q2 \u2014 the arm is unreachable for the correct card base."
+    },
+    {
+      "item": "Respects the Today / Last 7d / This Month / Last Month filter",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "resolveCardRange() (BuildsDateFilterChartSeries) + per-date branching in leaderboardForSelectedRange(), mirroring RecoveryLeader."
+    },
+    {
+      "item": "The 13-month series is served by ONE batched ClickHouse call, not 13",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "handleMonthly() with GROUP BY month, kit_id + LIMIT 10 BY month, plus fill-only-the-gaps per-month caching. Measured on prod in the reference branch: 13 queries/1.93s -> 1 query/0.38s (5.1x)."
+    },
+    {
+      "item": "Per-render ClickHouse round-trip count does not regress (measure before/after, per DEV-2406)",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Reinterpreted for a NEW card: the obligation is that no existing card regresses. CORRECTED: warm cache = 0 ClickHouse calls; a fully cold entitled render = THREE sequential calls for this card (leaderboard batch + shared past-months batch + shared current-month range), fleet 5 vs 4 = net +1. Counted via PROTECTED SEAMS (fetchMonthlyLeaderboard / fetchSharedMonths / fetchSharedCurrentMonth) from a CountingStagingLiveHitLeader subclass against a fully cold cache. The pgsql-bridge 'stray query throws' technique is INVALID in this env -- the CH correctness tests require real clarity.* tables, so a stray query succeeds silently and such a test cannot fail. system.query_log is also unusable: the local CH is the shared literal clarity/zod instance every worktree points at, so org ids collide. DB::listen never fires for the CH driver."
+    },
+    {
+      "item": "Non-Pro orgs do not see the value",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Q1 answered: new epic-wide FeatureEnum::COMPANY_METRICS, defined in PennantServiceProvider, added to CLARITY_PRO + CLARITY_PRO_PLUS tiers, enforced via canViewCardData() override with the admin_impersonator bypass."
+    },
+    {
+      "item": "Existing metrics and their values are unaffected",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Additive: own query class, own cache namespace, own widget. Only shared touch is the read-only hits_cold table both cards already read."
+    },
+    {
+      "item": "Value definition of 'staging live hit' matches the existing StagingLiveHits card",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "hit_type='S', kit_org_id axis, uniqExactIf(ocr) \u2014 identical predicate to the staging_live_hit_count column StagingLiveHits already reads."
+    },
+    {
+      "item": "Card count and exact mockup order assertions updated in BOTH DashboardCardExpansionTest.php AND DashboardCardVisibilityTest.php:144; test_all_four_hit_cards_are_contiguous() keeps passing unmodified",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "The DashboardCardVisibilityTest assertCount(7) was missed by all three prep candidates and found by the grep backstop. The new card sits before all four hit cards, so their relative adjacency is unaffected."
+    },
+    {
+      "item": "This card's sparkline agrees with the sibling Staging Live Hits card (no LIMIT-10 undercount)",
+      "source": "derived (Q3)",
+      "decision": "implement",
+      "reason": "Q3 answered: read the per-month staging_live_hit_count buckets HitPlateStatsBatchQuery already caches for StagingLiveHits, instead of summing each month's top-10. CORRECTED: not zero -- the shared past-months batch and the current-month range are the four hit cards' OWN resolvers, merely issued earlier by this card and then short-circuited by them, so they are TRANSFERRED not added; the leaderboard batch is a genuine +1. Fleet cost for an entitled cold render is 5 vs 4 before. No existing card regresses."
+    }
+  ],
+  "data_impact": {
+    "pg_tables": [],
+    "ch_tables": [
+      "clarity.hits_cold"
+    ],
+    "mv_or_cdc_implications": "hits_cold is CDC-fed from Postgres via _peerdb (ReplacingMergeTree with _peerdb_is_deleted as the is-deleted engine arg). Its sort key includes the mutable hit_created_at, so FINAL cannot collapse duplicate rows for the same hit id \u2014 uniqExactIf(ocr, ...) is mandatory. No materialized view is created or touched. No new CDC concern beyond pre-existing hits_cold replication lag.",
+    "indexes_relied_on": [
+      "PARTITION BY toYYYYMM(hit_created_at) \u2014 the only pruning available to this query",
+      "ORDER BY (hotlist_org_id, toYYYYMM(hit_created_at), hit_created_at, id) \u2014 kit_org_id is NOT in the sort key, so a kit_org_id filter cannot prune by tenant; this is the structural reason batching helps every org equally",
+      "skip indexes idx_kit_id set(1000) and idx_hit_type set(10)"
+    ]
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "New ClickHouse query class (app/Clickhouse/Queries/StagingLiveHitLeaderQuery.php) executed on a Company Metrics dashboard page render",
+    "driving_tables": [
+      {
+        "table": "clarity.hits_cold",
+        "source": "ticket (measured on prod, org 1143 = largest)",
+        "prod_rows": null,
+        "group_by": "kit_org_id + month partition; leaderboard further groups by kit_id",
+        "largest_group_rows": 1514212,
+        "single_month_query_cost": "1,514,212 read_rows / 83.9 MiB read / 436.4 MiB peak / 69 ms server"
+      }
+    ],
+    "growth": "hits_cold has no TTL and is append-only. Because kit_org_id is not in the sort key, per-query cost tracks the MONTH PARTITION size rather than tenant size \u2014 a 2-row org measured ~1.6M rows read for the same window as the largest org. So hit-volume growth, not org count, drives future cost, and it affects every org equally.",
+    "schedule": null,
+    "schedule_note": "Explicitly none \u2014 this is a page-render query, not a scheduled command or job. No interval or overlap window applies.",
+    "allocation_sketch": "CORRECTED after the RN2/RN3 fix cycles (all three RN3 lanes flagged the stale record). Warm render: 0 ClickHouse calls. FULLY COLD entitled render: THREE sequential calls, not the 1 this sketch originally claimed -- (1) StagingLiveHitLeaderQuery::handleMonthly() over the 13-month leaderboard gap; (2) HitPlateStatsBatchQuery::handle() over the 12 past shared months; (3) HitPlateStatsBatchQuery::handleRange() for the current shared month (added by the RN2 current-month fix). They are SEQUENTIAL within one request, so the instantaneous per-request peak is max(...) ~1.22 GiB, NOT the sum. FLEET delta: calls (2) and (3) are the four hit cards' own resolvers, merely issued earlier by this card and consequently short-circuited by them -- both guards traced by two lanes -- so the fleet cost for an entitled cold render is 5 vs 4 before, i.e. NET +1 (the leaderboard batch), and 0 delta for a non-entitled org. No existing card regresses, which is AC-4's actual obligation, but the earlier claims 'cold cache = exactly 1 batched call' and 'zero extra ClickHouse round trips' were both literally false and are withdrawn.",
+    "oracle_status": "ticket-supplied",
+    "unresolved": [
+      "The BATCHED LEADERBOARD query's peak is UNMEASURED, and the acceptance recorded here leaned on a shape-equivalence with HitPlateStatsBatchQuery that does not hold: adding kit_id to the GROUP BY materialises one uniqExact state per (month, kit) -- 13*K for a K-kit org instead of 13 -- and LIMIT 10 BY month runs POST-aggregation so it cannot bound that. read_rows is partition-sized either way (idx_hit_type is set(10) on a ~5-value LowCardinality column, so hit_type='S' prunes no granules); only the state count differs. Two lanes judged it plausibly at or below the sibling's 1.22 GiB (this query aggregates ONE state per group where the sibling aggregates four, and it does filter hit_type where the sibling does not), but that is inference. No kit count for the largest org is recorded anywhere. MEASURE THIS IN QA.",
+      "No concurrent-cold-render ceiling is established for the Cloud cluster. A local QA container died at 5.21 GiB (~12 concurrent 436 MiB renders, CH error 241). Going from 1 to 3 sequential heavy queries per cold render roughly triples the window in which one render holds a >1 GiB query open, which raises the expected number of simultaneous heavy queries at a fixed arrival rate even though the per-request peak is unchanged. The 1.22 GiB envelope itself is operator-accepted per the ticket; this is the amplification the acceptance did not cover.",
+      "The QA resource lane must therefore report: the measured peak of handleMonthly() at production cardinality, the largest org's kit count, and the observed per-render round-trip count -- not just restate the ticket's sibling figures."
+    ],
+    "allocation_sketch_SUPERSEDED_rn2_rn3": "Warm render: 0 ClickHouse calls. Steady state (only the current month stale): ~443 MiB peak, ~69 ms server, 1 round trip. Fully cold render (13 months uncached, once per org per cache generation \u2014 past months cache ~1 year, current month ~15 min): ~1.22 GiB peak, 1 round trip, versus 13 round trips at ~443 MiB and ~1.93 s client wall in the un-batched shape. Measured RN5 trade: peak 443 -> 1248 MiB (2.82x) but rows read -21%, server time -2.1x, client wall -5.1x, memory-time integral -44%, cold-cache only. Single-request allocation, so risk scales with CONCURRENT cold renders, not steady traffic."
+  },
+  "tests": [
+    {
+      "file": "tests/Feature/Clickhouse/StagingLiveHitLeaderQueryTest.php",
+      "what_it_pins": "uniqExactIf dedup vs bare count() on a duplicate-hit_id/differing-hit_created_at fixture; deterministic ranking with kit_id tiebreak; hit_type and kit_org_id (not hotlist_org_id) filtering; _peerdb_is_deleted filtering; handleMonthly() month bucketing with LIMIT 10 BY month; handleMonthly() agreeing with handle() over an identical single-month window; malformed datetime rejected. Uses RequiresClickhouse."
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/StagingLiveHitLeaderTest.php",
+      "what_it_pins": "getCardKey(); collapsed-stat headline + colour + sparkline; date-filter round trip across all four options; lockedStat() computes no value and emits no chart; warm cache = 0 ClickHouse calls and a fully cold render = exactly ONE call per series (1/1/1 across the three seams), counted from a CountingStagingLiveHitLeader subclass -- NOT the pgsql-bridge technique, which is invalid here; ClickHouse-failure containment \u2014 no fabricated empty leaderboard cached, negative marker set and respected, already-cached months still render."
+    },
+    {
+      "file": "tests/Filament/Pages/DashboardCardExpansionTest.php",
+      "what_it_pins": "cards() count 7 -> 8; exact mockup-relative order with the new key at slot 10; card key matches getCardKey(); test_all_four_hit_cards_are_contiguous() still passing unmodified."
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php",
+      "what_it_pins": "assertCount(7) -> 8 at line 144 (unconditional); and, IF Q1 gates this card, the every-card-is-ungated loop assertion updated to expect exactly this card gated \u2014 the test's own comment requires the gating ticket to do so."
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC-1 mockup slot + sparkline + colour",
+        "kind": "agent",
+        "intent": "Render /app Company Metrics; assert the card sits between Total Repossessions and LPR Recovery Leaderboard, has a visible sparkline, and its colour matches the staging-live family."
+      },
+      {
+        "ac": "AC-2 date filter",
+        "kind": "agent",
+        "intent": "Toggle Today / Last 7d / This Month / Last Month; assert leader and count change consistently with the seeded fixture."
+      },
+      {
+        "ac": "AC-3 one batched call",
+        "kind": "agent",
+        "intent": "Cold cache, render once, assert exactly ONE batched call per series (1/1/1) via the protected seams on a CountingStagingLiveHitLeader subclass. The pgsql-bridge technique is invalid in this env and system.query_log is unusable against the shared literal clarity/zod databases."
+      },
+      {
+        "ac": "AC-4 round-trip count",
+        "kind": "agent",
+        "intent": "Warm cache render issues zero ClickHouse calls; confirm no other card's call count changed."
+      },
+      {
+        "ac": "AC-5 non-Pro sees no value",
+        "kind": "human",
+        "intent": "Depends on Q1. Verify a non-entitled org gets lockedStat() with no value and no sparkline, and that an admin impersonator still sees it."
+      },
+      {
+        "ac": "AC-6 existing metrics unaffected",
+        "kind": "agent",
+        "intent": "Run the dashboard test groups; confirm no other card's value, colour, or position changed."
+      },
+      {
+        "ac": "Q3 sparkline agreement",
+        "kind": "human",
+        "intent": "If Q3 chooses agreement, eyeball this card's sparkline against the Staging Live Hits card on an org with more than 10 scanning kits."
+      }
+    ],
+    "seed_scenario": "One org with hit_type='S' hits in clarity.hits_cold across MORE THAN 10 distinct kits and at least 3 of the last 13 months including the current month; one kit renamed between an earlier and a later month (to exercise anyLast(kit_name) label resolution); one duplicate hit id with a differing hit_created_at (to prove uniqExactIf dedup survives FINAL); plus a second org on a different kit_org_id with staging-live hits to prove tenant scoping excludes it. More than 10 kits is required to make the Q3 sparkline undercount observable.",
+    "personas": [
+      "Clarity org ADMIN viewing /app Company Metrics",
+      "a non-Pro / non-entitled org viewer (for AC-5, once Q1 is answered)"
+    ],
+    "pg_tables": [],
+    "ch_tables": [
+      "clarity.hits_cold"
+    ]
+  },
+  "notes": [
+    "REFERENCE BRANCH TRAP, driver-verified: the tip of claude/DEV-2409 is the UN-BATCHED version. Commit db605df1 was an operator-directed MVP cut that 'Reverted batching (collapsing the namespace/timezone/throttle cascade it forced)' and put the leaderboard 'back to RecoveryLeader's shipped 13-query shape'. The batched design this ticket asks for is at commit 3aef4158 (see also 7f647d05 for the measured memory trade and 6cf34e9b for the corrected sparkline-undercount figures). Read those commits, NOT the branch tip.",
+    "Because the ticket asks for batching from the start, it inherits the cascade the MVP cut collapsed: a distinct cache namespace, timezone-keyed month buckets, and the fetch-failure throttle. That is real scope, not gold-plating.",
+    "The four-hit-card contiguity invariant (test_all_four_hit_cards_are_contiguous) is measured on ARRAY adjacency. The new card is slot 10 and all four hit cards are slots 13-16, so inserting before them leaves their adjacency intact \u2014 verify, do not edit that test.",
+    "Run composer format (Pint) before finishing, per CLAUDE.md.",
+    "Full-suite runs must use php -d memory_limit=2G vendor/bin/phpunit \u2014 php artisan test OOMs during discovery at the default 128M yet still exits 0, so it reports a clean pass on a suite that never ran. Expect ~1668 tests and ~8 pre-existing failures.",
+    "Local ClickHouse test DBs must use the LITERAL names clarity and zod (RequiresClickhouse TRUNCATEs hardcoded clarity.*/zod.* literals), and .env.testing must have CLICKHOUSE_DRIVER=clickhouse or every CH test silently skips.",
+    "okf wiki edits (e.g. a page for this card) are POST-APPROVAL only per CLAUDE.md \u2014 queue them, do not write during the build.",
+    "Q3's answer creates a genuine CROSS-CARD cache read: the sparkline must read the SAME cache keys SharedHitStatsData/HitPlateStatsBatchQuery already write for StagingLiveHits \u2014 it must NOT invent parallel keys, or the two cards will diverge again and the read will cost an extra ClickHouse call on a cold cache. This is exactly the case the ticket's cross-class cache-KEY rule (sharedUniqueRangeMemoKey()) exists for, so use that seam and never a static::$memo array (the DEV-2406 trait-static hazard).",
+    "Q1's answer means DashboardCardVisibilityTest's every-card-is-ungated loop MUST be updated to expect exactly this card gated \u2014 its own comment ('If this ever fails, a card was gated without the ticket that did it updating this expectation') makes that the gating ticket's responsibility. Its assertCount(7) -> 8 at line 144 is required regardless.",
+    "Q1 defines the new Pennant feature WITHOUT an experimental config gate, unlike CLICKHOUSE_SCANS/CLICKHOUSE_HITS which are additionally wrapped in config('app.experimental.clickhouse.*') defaulting to false. Copy the SHARED_KITS/MISSED_OPPORTUNITY definition shape instead."
+  ],
+  "derivation_log": [
+    {
+      "query_shape": "awk/grep over database/schema/clickhouse-schema.sql for the clarity.hits_cold DDL",
+      "param_classes": [
+        "none \u2014 static schema file in the repo"
+      ],
+      "aggregate_result": "Confirmed columns kit_id Int32 and kit_name String exist (no join to clarity.kits needed); PARTITION BY toYYYYMM(hit_created_at); ORDER BY (hotlist_org_id, toYYYYMM(hit_created_at), hit_created_at, id) so kit_org_id is absent from the sort key; skip indexes idx_kit_id set(1000) and idx_hit_type set(10) present.",
+      "why": "To verify independently that a kit-grained leaderboard needs no join and that per-org pruning is genuinely impossible, rather than taking a sub-agent's word for either."
+    },
+    {
+      "query_shape": "git log/show over branch claude/DEV-2409 for app/Clickhouse/Queries/StagingLiveHitLeaderQuery.php",
+      "param_classes": [
+        "none \u2014 local git history"
+      ],
+      "aggregate_result": "7 commits; tip (db605df1) contains only handle() with GROUP BY kit_id and no handleMonthly/LIMIT 10 BY, confirming the tip is the reverted un-batched shape; batched form is at 3aef4158.",
+      "why": "To confirm which commit is the actual approach reference before the build session reads the wrong one."
+    },
+    {
+      "query_shape": "grep for assertCount(7 across tests/ and for getStatColor across app/",
+      "param_classes": [
+        "none \u2014 static repo grep"
+      ],
+      "aggregate_result": "Two cards()-coupled assertCount(7) sites: DashboardCardExpansionTest.php:93 and DashboardCardVisibilityTest.php:144 (the latter missed by all 3 prep candidates). getStatColor is called from exactly 2 sites, both requiring a DashboardWidget base.",
+      "why": "To complete the file inventory and settle whether the ticket's getStatColor instruction is reachable."
+    }
+  ],
+  "confidence": 88,
+  "escalated": true,
+  "escalation_triggers": [
+    "confidence 74 < 80 on the fast pass",
+    "2 questions answered:false",
+    "escalate.recommend true on all 3 candidates"
+  ],
+  "settled_by_answer": [
+    {
+      "item": "Pro gate = new epic-wide FeatureEnum::COMPANY_METRICS ('platform_repo_pro_company_metrics'), tier-resolved in-repo, enforced in canViewCardData() with the session('admin_impersonator') bypass.",
+      "source": "human:Dalton 2026-09-03"
+    },
+    {
+      "item": "Colour is hardcoded in the card's own toStat(); DashboardWidget::getStatColor() is NOT modified. Deviation from the literal AC text goes in the Build Record.",
+      "source": "human:Dalton 2026-09-03"
+    },
+    {
+      "item": "Sparkline is fed from HitPlateStatsBatchQuery's existing per-month staging_live_hit_count cache buckets so it agrees with the sibling card. Leaderboard body remains top-10 per month.",
+      "source": "human:Dalton 2026-09-03"
+    }
+  ]
+}

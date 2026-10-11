@@ -1,0 +1,945 @@
+{
+  "key": "DEV-2465",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "base-resolve decision agent: base=main confidence=95 -- Company Metrics epic (DEV-2409) foundation + blockers DEV-2460/DEV-2463 already merged to main; all 6 candidate branches are Scout/Otto work, none carries Company Metrics.",
+  "branch": "claude/DEV-2465",
+  "phase": "verified",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "prep-candidate:1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 777
+    },
+    {
+      "slot": "prep-candidate:2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 777
+    },
+    {
+      "slot": "prep-candidate:3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 777
+    },
+    {
+      "slot": "reconcile",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 202
+    },
+    {
+      "slot": "plan-arbiter",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "plan",
+      "dur_s": 676
+    },
+    {
+      "slot": "implement:t2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 435
+    },
+    {
+      "slot": "implement:t3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 37
+    },
+    {
+      "slot": "implement:t4-t5",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 448
+    },
+    {
+      "slot": "implement:t6",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 580
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 1006
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false,
+    "eli5": true
+  },
+  "knowledge_cards_loaded": [
+    "clarity/filament-tables.md",
+    "clarity/testing.md",
+    "clickhouse/core.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "answered:false questions",
+    "fast-pass confidence 55 < 80",
+    "escalate.recommend true",
+    "competing options in ticket + comments",
+    "blast radius: Pennant entitlement + shared 16-card grid",
+    "production-scale CH surface (hits_cold >1B rows)"
+  ],
+  "best_of_n": true,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [
+    {
+      "verdict": "no missed callers for the classes this ticket changes",
+      "detail": "Backstop swept 10 symbols. UniqueScansToCaseClaims: 3 files, 0 outside the plan inventory. unique-scans-to-case-claims: 3 files, 0 outside. getCardRate: 3 files, 0 outside. UniqueLprCaseClaimsQuery: 0 outside. The remaining hits (canViewCardData 6, lockedStat 5, CompanyMetricsOverview 8, getStatColor 3, UniqueLprCaseClaims 4) are sibling cards and their tests referencing SHARED dashboard seams -- expected, not callers of anything this ticket changes."
+    },
+    {
+      "finding": "BatchMonthlySparklineData is DEFINED but referenced by NOTHING in app/ or tests/",
+      "detail": "app/Clickhouse/Queries/Client/BatchMonthlySparklineData.php:9 is its only occurrence outside okf/ prose. The ticket's 'use the house one-batched-call shape (BatchMonthlySparklineData)' therefore names a PATTERN, not a class to call. The real in-family precedent is UniqueLprCaseClaims::fetchMonthlySeries() -> UniqueLprCaseClaimsQuery::monthlySeries() wrapped in Cache::flexible([3600,86400]) -- one round trip for all 13 months.",
+      "impact": "plan must follow the sibling seam, not instantiate an unused client-analytics class"
+    },
+    {
+      "finding": "app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php:106 references CompanyMetricsOverview",
+      "detail": "A query class naming the widget; pre-existing coupling, not introduced here. Safe -- no change needed."
+    }
+  ],
+  "perf_validation": {
+    "required": true,
+    "ch_tables": [
+      "clarity.hits_cold",
+      "zod.public_billing_events"
+    ],
+    "approach": "option C -- one shared pass over the claim CTE in UniqueLprCaseClaimsQuery, exposing hotlist_id, LEFT JOIN a grouped min(scanned_at) over clarity.hits_cold with an explicit join-miss guard; triple-grained numerator over the untouched deduped denominator",
+    "measurement": "Read-only against production CH Cloud 2026-09-09. Option C reproduces 11,573/11,975 = 96.6% fleet-wide. Per-org envelope on the largest Jul-2026 claim org: 96,341,520 read_rows / 3,777.0 MiB / 1,256 ms wall WITH hotlist_org_id; 106,717,052 / 3,809.9 MiB / 3,855 ms without. Identical answers. clarity.hits_cold measured at 26,037,983 rows (uniqExact(id) 19,272,689) -- NOT the ~3.5B the prep chain asserted. | POST-RN2-FIX re-measurement 2026-09-09: shipped shape = 106,840,109 read_rows / 3,828.2 MiB / 929.6 MiB peak / 5,075 ms uncontended; 4-way contended max 6,373 ms. Answer unchanged at 11,573/11,975 = 96.6%. | FINAL post-RN3-fix shape: 107,321,250 read_rows / 3,864.1 MiB / 235.0 MiB peak / 1,035 ms; answer 11,573/11,975 = 96.6% unchanged; 29-way peak projection ~6.7 GB (was ~25.1 GB).",
+    "verdict": "go",
+    "measured_at": "2026-09-09"
+  },
+  "diff_base": "23a82e8f0c8aebd30459cc9412570582003ded93",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "complexity": "complex",
+      "blast_radius": [],
+      "model": null,
+      "title": "Reproduce option C read-only against prod; settle Q5 + perf gate"
+    },
+    {
+      "id": "t2",
+      "status": "merged",
+      "complexity": "complex",
+      "blast_radius": [
+        "qa_complete_shared_query"
+      ],
+      "model": "sonnet",
+      "title": "Extend UniqueLprCaseClaimsQuery additively (TDD: query test first)"
+    },
+    {
+      "id": "t3",
+      "status": "merged",
+      "complexity": "simple",
+      "blast_radius": [],
+      "model": "sonnet",
+      "title": "DEV-2463 no-regression gate (five suites, unmodified)"
+    },
+    {
+      "id": "t4",
+      "status": "merged",
+      "complexity": "complex",
+      "blast_radius": [],
+      "model": "sonnet",
+      "title": "Card data seams: float-safe rate, UTC rate series + UTC label axis, % description"
+    },
+    {
+      "id": "t5",
+      "status": "merged",
+      "complexity": "complex",
+      "blast_radius": [
+        "company_metrics_entitlement"
+      ],
+      "model": "sonnet",
+      "title": "COMPANY_METRICS Pro gate + both hardcoded allowlists"
+    },
+    {
+      "id": "t6",
+      "status": "merged",
+      "complexity": "simple",
+      "blast_radius": [],
+      "model": "sonnet",
+      "title": "Playwright spec + e2e helper constants"
+    }
+  ],
+  "review_number": 6,
+  "pr": {
+    "number": 395,
+    "url": "https://github.com/insight-lpr/platform/pull/395",
+    "draft": true
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": "pipeline-mcp @ 2026-09-09T21:25:00Z",
+  "jira_transitioned_by": "insight-ai",
+  "jira_transitioned_detail": "To Do -> In Progress (Phase 4) -> In Code Review (Phase 7, transition id 4) on 2026-09-10",
+  "assumed": [],
+  "comment_ids": {
+    "status": "39337",
+    "build_record": "39385",
+    "build_record_correction": "39389"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "agent-qa-pass (partial browser coverage; evidence gathered at 38b1a7dee -- see qa.evidence_currency)",
+    "torn_down": false,
+    "resource_envelope": {
+      "path": ".context/qa-resource-envelope.json",
+      "verdict": "pass-at-measured-concurrency",
+      "basis": "Carried forward from the Phase 3.5 read-only production measurement (106.8M read_rows, 3,828 MiB, peak 235.0 MiB, 260.5 MiB bucketed, 5.1s uncontended, 6.4s at 4-way). NOT re-measured at QA time: the seed is 8 claims / 4 hits, ~4.8e6x below production, so any figure from it would be meaningless. 4-way measured; ~29-entitled-org worst case remains an open bound."
+    },
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "already-running",
+      "ch_container": "reused",
+      "frontend_build": "n/a",
+      "postgres_db": "zod_claude_dev_2465_f91033 (dev) + zod_testing_claude_dev_2465_f91033 (testing) -- both pre-existing, migrated, dev seeded; deliberately NOT re-keyed after the branch rename",
+      "ch_strategy": "docker (reused clarity-qa-clickhouse :18123, LITERAL clarity/zod databases; both env files on CLICKHOUSE_DRIVER=clickhouse so CH tests execute)",
+      "herd_site": "clarity-claude_dev_2465_f91033.test (probe /__qa/login -> 200)",
+      "postgis_patch": "applied (tiger.state.simplified_geom added)"
+    },
+    "provisioned_early": true,
+    "plans": [
+      ".context/qa-plan-agent.md",
+      ".context/qa-plan-human.md"
+    ],
+    "agent_qa": {
+      "at": "2026-09-10T14:02:00Z",
+      "items": {
+        "total": 20,
+        "pass": 10,
+        "warn": 8,
+        "not_run": 1,
+        "skipped": 1
+      },
+      "browser_confirmed": "card renders 37.5% at row 2 col 3; sibling unchanged at 8; all 16 grid cards render; console clean; no 4xx/5xx",
+      "tests": {
+        "ticket": "57/57",
+        "dev2463_regression": "39/39",
+        "total_green": 96,
+        "failures": 0
+      },
+      "acs": {
+        "satisfied": 5,
+        "satisfied_in_part": 2,
+        "failed": 0
+      },
+      "code_fixes_suggested": 0,
+      "environmental_findings": 2,
+      "plan_errors_corrected": 1
+    },
+    "evidence_currency": {
+      "browser_evidence_sha": "38b1a7dee",
+      "annotated_at_head": "efbdec831",
+      "commits_since": 4,
+      "production_lines_changed_since": 1,
+      "the_one_line": "windowRate() cache key gained :tz=.$timezone (review round 5)",
+      "browser_evidence_still_valid": true,
+      "why": "windowRate() is reached only for today/last_7d; every browser-verified item was captured on This Month, which routes through getMonthlyData() -- a separate seam, UTC-keyed on both axes, untouched by the delta.",
+      "genuine_gap": "The one production change since the pass is IN windowRate(), the only path never browser-verified. A5/A6 (Today/Last 7d/Last Month switching; guide steps hp-5/hp-6) rest on in-process verification plus test_two_same_org_viewers_in_different_timezones_do_not_share_a_window (mutation-verified), NOT on a browser. These are the open items for human QA.",
+      "browser_lanes_run": "1 of the 3 the plan defines -- the date-filter lane was never driven, because concurrent worktree test runs would not let the ClickHouse seed survive long enough for three parallel lanes.",
+      "re_run_offered": "yes -- declined; record corrected instead",
+      "jira_correction": "comment 39389 -- appended rather than editing the Build Record (39385) in place, so the audit record shows its correction instead of absorbing it",
+      "pr_disclosure": "PR #395 body carries a \"QA evidence currency\" section with the same analysis",
+      "refreshed_2026_09_11": "Browser pre-flight at HEAD 591939a2d passed 5/5 and browser-drove the date-filter round trip for the first time. A5/A6 (AC-5, AC-6 filter half) are now browser-verified on the shipped code, closing both the currency gap and the coverage gap. Remaining un-browser-verified: ec-1 (repeat hard-refresh) and the non-Pro locked state, which dev-login cannot reach by design."
+    },
+    "browser_lanes_run": "1 of 3 in the original pass; the date-filter lane was driven separately at the 2026-09-11 pre-flight"
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --filter=UniqueScansToCaseClaimsQueryTest",
+        "passed": 7,
+        "failed": 0,
+        "note": "t2's new suite. The join-miss guard test was mutation-verified: removing `h.hotlist_id != 0` makes it fail."
+      },
+      {
+        "cmd": "php artisan test --filter='UniqueLprCaseClaimsQueryTest|UniqueLprCaseClaimsTest|UniqueLprCaseClaimsHerdGuardTest|UniqueLprCaseClaimsLabelAxisTest|UniqueLprCaseClaimsWindowSeamTest'",
+        "passed": 39,
+        "failed": 0,
+        "note": "t3 regression gate -- DEV-2463's five shipped suites run UNMODIFIED against the extended class. Confirms the additive contract. Also confirms CH tests now EXECUTE rather than skip."
+      },
+      {
+        "cmd": "php artisan test --filter='UniqueScansToCaseClaims'",
+        "passed": 24,
+        "failed": 0,
+        "note": "t4+t5 card suites (card test + window-seam test)."
+      },
+      {
+        "cmd": "php artisan test --filter='DashboardCardVisibilityTest|DashboardCardExpansionTest|UniqueLprCaseClaims'",
+        "passed": 71,
+        "failed": 0,
+        "note": "t5 regression gate -- both hardcoded allowlists updated, 16-card order/count assertions still pass."
+      },
+      {
+        "cmd": "PHPRC=<2G ini> vendor/bin/phpunit   (FULL SUITE)",
+        "passed": 1862,
+        "failed": 14,
+        "note": "1881 tests, 7598 assertions, 5 errors + 9 failures + 4 skipped + 1 incomplete + 1 risky. NOTE: php artisan test cannot run this suite -- it OOMs during discovery at the default 128M and still exits 0; and -d memory_limit does not reach the phpunit child, so PHPRC pointing at a 2G ini is what actually works. ATTRIBUTION VERIFIED BELOW -- zero failures are attributable to this change."
+      },
+      {
+        "cmd": "php artisan test --filter='UniqueScansToCaseClaims' (post-fix)",
+        "passed": 27,
+        "failed": 0,
+        "note": "RN1 fixes: +3 org-scoped tests. The H1 regression test was mutation-verified -- reintroducing the deleted predicate makes test_org_scoped_agent_side_gets_pre_claim_credit_when_hotlist_org_is_forwarder fail 0 !== 1."
+      },
+      {
+        "cmd": "php artisan test --filter='DashboardCardVisibilityTest|DashboardCardExpansionTest' (post-fix)",
+        "passed": 32,
+        "failed": 0,
+        "note": "registry + visibility regression gate after the fixes."
+      },
+      {
+        "cmd": "php artisan test --filter='UniqueScansToCaseClaims' (post RN2 fixes)",
+        "passed": 37,
+        "failed": 0,
+        "note": "includes the new 8-test herd-guard file and the AC-3 duplicate-row test."
+      },
+      {
+        "cmd": "php artisan test --filter='UniqueScansToCaseClaims' (post RN3 fixes)",
+        "passed": 40,
+        "failed": 0,
+        "note": "+3 tests: epoch-0 scanned_at, no-assigned-hotlist_id, and min()-semantics replacing the vacuous duplicate-hit test."
+      },
+      {
+        "cmd": "php artisan test --filter='UniqueScansToCaseClaims' (post T2/T3)",
+        "passed": 41,
+        "failed": 0,
+        "note": "+1 behavioural midnight-rollover test; both T2 and T3 mutation-verified by the driver."
+      }
+    ],
+    "deviations": [
+      {
+        "source": "implementation",
+        "edit": "t4 added a private windowRate() caching helper, not named in the plan's approach sketch. Necessary to satisfy 'exactly ONE ClickHouse round trip per resolved window' for today/last_7d once currentPeriodTotal() was correctly excluded from the rate path -- without it toStat() and getDescription() would each issue a separate query. Stays inside the single authorized target file.",
+        "ac_ref": "AC-4",
+        "ac_delta": null
+      },
+      {
+        "source": "review-loop",
+        "edit": "T1's false comment corrected alongside T2 (same method). T4/T5/T6 deliberately left as the follow-up set per the operator's stated scope.",
+        "ac_ref": null,
+        "ac_delta": null
+      }
+    ],
+    "review": {
+      "lanes": [
+        "claude1",
+        "claude2",
+        "claude3"
+      ],
+      "scores": [
+        94,
+        100,
+        100
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "claude2",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "claude3",
+          "source": "in-session-agent"
+        }
+      ],
+      "harness_failure": "review.sh attempted FIRST and wrote an error manifest -- all 3 lanes returned 'Not logged in - Please run /login', terminal_reason=api_error, 0/3 valid. Lanes re-run in-session via insightlpr:adversarial-reviewer with the defect taxonomy + prep-context. Substitution recorded, not hidden.",
+      "gate": "REVIEW_GATE: fail -- MIN 78 < 90 (gate is MIN across lanes, never average)",
+      "findings_scoring": [
+        {
+          "id": "H1",
+          "lanes": "3/3 UNANIMOUS",
+          "severity": "HIGH",
+          "title": "The numerator scopes on ONE org axis while the denominator admits TWO -- silent 0.0% for the mismatched axis",
+          "detail": "UniqueLprCaseClaimsQuery.php:251 `AND ({org} = 0 OR hotlist_org_id = {org})`. The denominator (kept, :209) admits a claim on EITHER side: forwarder_org_id = ? OR agent_org_id = ?. hits_cold.hotlist_org_id is the single order-owning org and can equal at most one of them. So for every claim where forwarder != agent, exactly one participating org gets zero numerator credit while still carrying the claim in its denominator -> the card renders 0.0%, which is ALSO the legitimate no-claims reading, so a wrong answer is indistinguishable from a right one behind a 24h cache.",
+          "why_it_is_mine": "The driver ADDED this predicate for Q5's 9.7% prune win. Worse, the driver wrote into measure-rate-card.sql that it 'is also wanted for tenant correctness' -- all three lanes independently PROVED that false: h is already narrowed by `hotlist_id IN (SELECT DISTINCT hotlist_id FROM oc)` and oc descends from the already org-filtered kept, so the predicate buys ZERO isolation. It is a pure optimisation with a correctness cost.",
+          "aggravating": "Lane 3: the pre-claim population is BY DEFINITION pre-assignment sightings = Staging hits, and the repo documents hotlist_org_id as exactly the axis that silently drops them -- StagingLiveHitLeaderQuery:20-22, okf/concepts/scout-dashboard-stats.md:19-21, okf/concepts/scout-birds-eye.md:92, ClarityScoutMapController:298, ClarityScoutBirdsEyeController:712/969, okf/concepts/missed-opportunity.md:27-35 ('Getting this backwards is the classic missed-opportunity bug'). Also: the driver's Q5 measurement covered ONE org of 257 and never recorded which axis it sat on.",
+          "fix": "DELETE the predicate."
+        },
+        {
+          "id": "H2",
+          "lanes": "3/3 UNANIMOUS",
+          "severity": "HIGH",
+          "title": "Multi-reference CTE over the unprunable 38.5M-row table; 2 of the scans compute values no caller reads",
+          "detail": "Lanes measured the rendered SQL by reflection: window() and monthlySeries() (shipped) = 1 kept materialisation each; monthlySeriesWithPreClaimScans = 2-3; windowWithPreClaimScans = 4-5. okf/concepts/billing-events.md measures each extra reference as another FULL scan (3 refs = 119.8M rows / 5.50 GB vs 39.9M / 1.83 GB, exactly 3.0x) and says 'Compute every aggregate in one pass'. The class's OWN docblock :19-21 restates it and is not updated. all_claims and successful are read by NO consumer (rate() uses only deduped and pre_claim) -- roughly +3.7 GB of read per render for two discarded integers. A Today render totals ~6 scans / ~250M rows / ~11 GiB, about 2.6x the envelope the driver measured and recorded.",
+          "fix": "Use the single-pass `stats` CTE the BUCKETED path already uses, on the non-bucketed path too."
+        },
+        {
+          "id": "H3",
+          "lanes": "3/3 UNANIMOUS",
+          "severity": "MEDIUM",
+          "title": "The sibling's documented MIN_TTL_SECONDS floor was dropped, and windowRate() has no cold-path lock at all",
+          "detail": "UniqueLprCaseClaims floors getCacheTTL() at 60s with a load-bearing comment: getCacheTTL() collapses to 10s under admin_impersonator, shorter than the query's contended p99 (9.3s), so a re-render starts the next ~40M-row scan before the previous returns. UniqueScansToCaseClaims copies COLD_BLOCK_SECONDS/COLD_LOCK_SECONDS/REFRESH_LOCK_SECONDS verbatim but omits the floor -- on a query that is 3-5x heavier. windowRate() also uses a bare cache()->remember() with no heldFlexible lock, so N tabs on a cold key = N concurrent multi-GB scans. The card's own comment claiming 'same measured p99 query shape' is false.",
+          "fix": "Add the getCacheTTL() floor override; route windowRate() through heldFlexible(); correct the false p99 comment."
+        },
+        {
+          "id": "H4",
+          "lanes": "3/3 UNANIMOUS",
+          "severity": "MEDIUM",
+          "title": "The org-scoped query path -- the ONLY path production renders -- has zero test coverage",
+          "detail": "All seven query tests pass null as $orgId -> {org}=0 -> BOTH org predicates constant-fold to true. Every widget test stubs fetchWindowTotal/fetchMonthlySeries, so no org id reaches SQL either. Deleting line 251 changes no test result -- the H1 mutation survives the entire suite. seedHit() also hardcodes hotlist_org_id = 1 with no modelled relationship to the claim's forwarder or agent.",
+          "fix": "Add org-scoped tests, including the H1 scenario (agent-side claim whose hotlist_org_id is the forwarder) asserting the org still gets numerator credit."
+        },
+        {
+          "id": "H5",
+          "lanes": "3/3",
+          "severity": "LOW-MEDIUM",
+          "title": "clarity.hits_cold read without FINAL on a two-argument ReplacingMergeTree",
+          "detail": "hits_cold is ReplacingMergeTree(_version, _peerdb_is_deleted) -- the TWO-arg form, where FINAL does drop tombstones (contrast PG-028's one-arg billing_events case). With _peerdb_is_deleted = 0 alone, a soft-deleted-but-unmerged hit still has its earlier version physically present and contributes to min(scanned_at), so a deleted pre-claim sighting still flips pre_claim true. Error direction is one-way: it can only inflate. The class spends 25 lines justifying FINAL on orgs then departs from that rule for a second table with no recorded argument.",
+          "fix": "Add FINAL to the hits_cold read."
+        },
+        {
+          "id": "H6",
+          "lanes": "1/3 (lane 2 only -- KEPT per the zero-tolerance floor)",
+          "severity": "LOW",
+          "title": "seedHit() inserts a naive datetime interpreted in the ClickHouse SERVER timezone, then compares it to a true epoch",
+          "detail": "h.first_scan < toDateTime(oc.claim_ts) compares hits_cold.scanned_at against billing_events.ts (a true integer epoch). seedHit() inserts $scannedAt->toDateTimeString() -- a naive string ClickHouse interprets in the server's timezone -- and the boundary tests use 1-second and 1-minute margins. They pass only because the CI image defaults to UTC; nothing asserts that. An uncontrolled environment dependency, not a controlled one.",
+          "fix": "Insert an explicit UTC/epoch datetime in the fixture."
+        },
+        {
+          "id": "H7",
+          "lanes": "1/3 (lane 2 meta-finding)",
+          "severity": "process",
+          "title": "measure-rate-card.sql no longer matches the shipped code -- which is HOW H1 and H2 slipped past the measurement gate",
+          "detail": "The file is committed as 'the shape the shipped class implements' so the number is re-derivable without reading PHP. But the shipped h CTE adds the hotlist_org_id predicate and the shipped final SELECT adds two scalar subqueries. The divergence defeats the file's stated purpose.",
+          "fix": "Re-sync the file to the shipped shape and delete the false tenant-correctness claim."
+        }
+      ],
+      "findings_residual": [],
+      "rerun_required": false,
+      "reviewed_sha": "5cd893e1255d775dd52898ad7840b6fe20a947fd",
+      "rework_pivot": false,
+      "rn1_fixes_applied": {
+        "H1": "DELETED the single-axis hotlist_org_id predicate. Verified absent (0 occurrences).",
+        "H2": "Non-bucketed path rewritten to the single-pass stats/pre CROSS JOIN shape. Reflection-verified kept reference counts: window()=1, monthlySeries()=1 (both unchanged), windowWithPreClaimScans()=2 (was 4-5), monthlySeriesWithPreClaimScans()=2. The false 'ONE pass' docblocks corrected to 'one round trip, two kept passes'.",
+        "H3": "Added MIN_TTL_SECONDS=60 + getCacheTTL() override mirroring the sibling; windowRate() routed through heldFlexible() instead of a bare cache()->remember(); the false 'same measured p99 query shape' comment corrected.",
+        "H4": "Three org-scoped tests added (agent-side credit, forwarder-side symmetry, third-org isolation). seedHit()'s hotlistOrgId is now a required modelled parameter, not a hardcoded 1.",
+        "H5": "Added FINAL to the hits_cold read (two-arg ReplacingMergeTree, so FINAL drops tombstones).",
+        "H6": "seedHit() now inserts true UTC epoch integers instead of naive datetime strings, removing the ClickHouse-server-timezone dependency.",
+        "H7": "measure-rate-card.sql re-synced to the shipped shape and the false 'wanted for tenant correctness' claim replaced with a note recording it as a correctness defect found in review."
+      },
+      "rn2": {
+        "lanes": [
+          "claude1",
+          "claude2",
+          "claude3"
+        ],
+        "scores": [
+          80,
+          91,
+          82
+        ],
+        "lane_sources": [
+          {
+            "lane": "claude1",
+            "source": "in-session-agent"
+          },
+          {
+            "lane": "claude2",
+            "source": "in-session-agent"
+          },
+          {
+            "lane": "claude3",
+            "source": "in-session-agent"
+          }
+        ],
+        "gate": "REVIEW_GATE: fail -- MIN 80 < 90. Fix cycle EXHAUSTED (RN1 was the one permitted cycle). Parking non-blocking per the flow rather than looping.",
+        "resolved_by_driver_measurement": {
+          "finding": "AC-1 -- all three lanes flagged 'reproduces 96.6% from the shipped class' as UNVERIFIED, because FINAL was added to the hits_cold read AFTER the 11,573/11,975 measurement and FINAL can only reduce the numerator.",
+          "action": "The driver re-ran the SHIPPED shape read-only against production ClickHouse Cloud (no org predicate, hits_cold FINAL, single-pass stats CROSS JOIN pre), Jul 2026 UTC fleet-wide.",
+          "result": "numerator 11573 / denominator 11975 = 96.6% -- IDENTICAL to the pre-FINAL measurement.",
+          "consequence": "AC-1 is now SATISFIED. It also proves FINAL is ANSWER-NEUTRAL on this population, which independently corroborates lane 1's M2: FINAL is pure unmeasured cost here, so the honest fix is to REMOVE it rather than keep it."
+        },
+        "residual_findings": [
+          {
+            "id": "R1",
+            "lanes": "2/3 (lane1 HIGH, lane2 MEDIUM)",
+            "title": "`kept` expands THREE times, not the two the docblocks assert -- and the driver's verification method was blind to it",
+            "detail": "ClickHouse inlines a CTE at every reference. `oc` is referenced twice (by h's `hotlist_id IN (SELECT ... FROM oc)` and by `flagged`'s `FROM oc`), and `kept` by `oc` and by `stats` -> 3 effective full scans of the unprunable 38.5M-row zod.public_billing_events (~115M read_rows / ~5.5 GB), not 2. RN1's fix went 5 -> 3, not 5 -> 2. The driver's 'reflection-verified reference count = 2' counted `FROM kept` STRING occurrences and is structurally blind to the oc-mediated multiplication, so fix H2 was verified against the wrong invariant and three docblocks now assert something false.",
+            "remedy": "Lane 2's concrete fix: move `hotlist_id != 0` out of oc's WHERE into the flag expression and derive `deduped` from that one CTE, so `kept` is referenced once."
+          },
+          {
+            "id": "R2",
+            "lanes": "3/3 UNANIMOUS",
+            "title": "COLD_BLOCK_SECONDS = 12 is sized against a different, lighter query's p99, and the shipped shape has never been measured",
+            "detail": "The sibling states the invariant: COLD_BLOCK_SECONDS must exceed the measured contended p99 (9.3s for a 39.9M-read_rows query) or every waiter times out and computes anyway -- 'which is how the first attempt at this guard made things worse rather than better'. This query is >=2.9x that plus an unpruned FINAL merge over 247 partitions; linear scaling gives ~28s > 12s. The card's own comment concedes the mismatch and reuses 12 'as-is regardless'. Compounded: RN1 deleted the only leading-sort-key prune (measured -9.7%) and added FINAL, both cost-increasing, and neither was re-measured. Lane 1 also notes clarity_clickhouse sets no max_execution_time, so a timed-out waiter abandons the HTTP request while ClickHouse keeps executing."
+          },
+          {
+            "id": "R3",
+            "lanes": "3/3 UNANIMOUS",
+            "title": "The card ships zero herd-guard tests and drops the one seam whose comment says it must stay",
+            "detail": "heldFlexible() is copied verbatim except that flexibleRefreshLock() is inlined as ['seconds' => REFRESH_LOCK_SECONDS]. That seam's docblock: 'A seam rather than an inline literal so that dropping it is observable: flexible() silently falls back to $lock[seconds] ?? 0 (never expires), which a test asserting only the constant's value cannot detect.' Mutations that survive the whole new suite green: delete heldFlexible() entirely; drop the 4th $lock argument; revert to a single-key cache()->has(); delete MIN_TTL_SECONDS and the getCacheTTL() floor (RN1 fix #3 -- nothing in tests/ references it). The sibling needed seven dedicated tests for exactly this and its test-file header records that this state 'cannot recur'."
+          },
+          {
+            "id": "R4",
+            "lanes": "2/3 (lane1 MEDIUM, lane3 LOW) + CORROBORATED BY DRIVER MEASUREMENT",
+            "title": "FINAL on hits_cold rests on a premise the ticket's own prep measured as false, and is now proven answer-neutral",
+            "detail": "The aggregate is min(), which is duplicate-idempotent, so RMT non-dedup cannot change the answer; the tombstone row itself is already excluded by _peerdb_is_deleted = 0. And FINAL cannot dedup this table anyway: hit_created_at is mutable and sits in BOTH the sort key and the partition key, so a mutated version and its predecessor coexist under FINAL -- which is exactly what AC-3's own reason in prep-context records. Meanwhile optimize_move_to_prewhere_if_final defaults to 0, so FINAL suppresses PREWHERE movement for the hotlist_id IN (...) filter and forces merge-on-read across 247 partitions. THE DRIVER'S RE-MEASUREMENT CONFIRMS IT: 11,573 with FINAL, 11,573 without. Pure unmeasured cost for zero measured benefit.",
+            "remedy": "Remove FINAL and correct the comment."
+          },
+          {
+            "id": "R5",
+            "lanes": "1/3 (lane 3; lane 1 saw the same mechanism and read it as intent) -- KEPT per the zero-tolerance floor",
+            "title": "windowRate() passes [$ttl, $ttl] where $ttl is an ABSOLUTE instant, halving the fresh window repeatedly",
+            "detail": "Cache::flexible tests freshness as created + getSeconds($ttl[0]) > now(), and getSeconds() on a DateTimeInterface returns the remainder measured AT READ TIME. With an absolute instant the entry is fresh only while T < T0 + D/2, then every render serves stale AND defer()s a refresh that re-executes the multi-GB query; each refresh resets created but reuses the original absolute instant, so freshness halves again (T0+300, +450, +525...). Roughly 4-6 extra full scans per org per 10-minute cycle, ~30 while impersonating at the 60s floor. Those refreshes take the warm path, so the cold lock does not guard them. Introduced by RN1 fix #3: the monthly seam is correct ([3600, 86400], plain integers) and the sibling's window path uses cache()->remember(), for which an absolute instant IS correct. Invisible to the round-trip test, which reads back within milliseconds."
+          },
+          {
+            "id": "R6",
+            "lanes": "1/3 (lane 3) -- DISPUTED, product semantics, human-only",
+            "title": "Should the numerator count only the viewing org's OWN cameras (kit_org_id) rather than any Insight camera?",
+            "detail": "Lane 3 rates this HIGH: with no org predicate on hits_cold, agent B's camera can supply numerator credit on org A's card, so A could read 100% for a vehicle A's cameras never saw. Lane 2 examined the same code and CLEARED it as not a tenancy break -- h is narrowed by hotlist_id IN (SELECT ... FROM oc), oc is a subset of kept, and kept carries the org predicate, so only the viewing org's own claims are reachable and the output is one boolean folded into a count; no other tenant's row content is exposed. Lane 2 further notes that adding kit_org_id = {org} would COLLAPSE the card for most orgs and break the 96.6% reproduction. The metric's approved wording is '96.6% of claimed vehicles were seen by OUR cameras first', and in DEV-2409 comment 39126 'our' means INSIGHT's network -- the fleet-wide figure AC-1 pins has no kit_org_id filter. This is a genuine product-semantics fork, not a defect both lanes agree on. NOT auto-answered (non-negotiable 1)."
+          },
+          {
+            "id": "R7",
+            "lanes": "1/3 each, LOW",
+            "title": "Assorted low-severity gaps",
+            "detail": "Lane 1 L1: three widget tests compare two independent now('UTC') reads without setTestNow(), a sub-second flake window at a UTC month boundary (the file already has the teardown; those three just omit the freeze). Lane 2 L1: AC-3's required duplicate-hits_cold-row test is absent (behaviour is safe because min() is idempotent, but the AC is unpinned), and seedHit() always sets kit_org_id = hotlistOrgId so no fixture exercises a cross-org camera -- the very semantic R6 disputes. Lane 1 L2: the 60s TTL floor is a documented divergence from okf/concepts/impersonation.md and the sibling records that in-code; this copy drops the record. Lane 1 also flags a dead branch (the last_month ternary in windowRate(), unreachable) and notes the four duplicated constants + five duplicated helpers now argue for a shared concern."
+          }
+        ],
+        "rerun_required": true,
+        "reviewed_sha": null,
+        "rework_pivot": false
+      },
+      "rn2_fixes_applied": {
+        "R1": "kept expansions reduced 3 -> 2, verified by counting `public_billing_events` occurrences in the fully-inlined reflection-rendered SQL (the previous `FROM kept` string count was the flawed method). Counts now: window=1, monthlySeries=1, windowWithPreClaimScans=2, monthlySeriesWithPreClaimScans=2. The worker achieved it by removing h's own reference to oc rather than by lane 2's suggested predicate move -- that second oc reference was the actual source of the third expansion. MEASURED net effect: -40.3M read_rows and -1,745 MiB versus the pruned variant, at +517 MiB peak memory. The driver had assumed this was a net loss and the measurement proved otherwise.",
+        "R2": "RESOLVED WITHOUT A CONSTANT CHANGE. Measured 4-way contended max 6.4s against the 12s block window (1.9x headroom); the ~28s projection came from linearly scaling the sibling's p99. The docblock -- which had conceded the windows were 'reused as-is regardless' -- was rewritten by the driver to carry the real numbers and the explicit limit that concurrency was measured at 4-way, not at the 29-org worst case.",
+        "R3": "flexibleRefreshLock() seam restored; new UniqueScansToCaseClaimsHerdGuardTest.php with 8 tests, mutation-verified against all four previously-surviving regressions plus the R5 TTL-type regression.",
+        "R4": "FINAL removed from the hits_cold read; comment now states the measured truth (min() is duplicate-idempotent, the tombstone is already excluded, and FINAL suppresses PREWHERE movement for zero benefit).",
+        "R5": "windowRate() now derives an integer [fresh, hard] seconds pair via a new windowTtlSeconds() seam instead of [$ttl, $ttl] with an absolute DateTimeInterface. Pinned by a test that fails if the seam is bypassed or returns non-int values.",
+        "R6": "Operator decision recorded in the h CTE docblock: ANY Insight camera counts, no kit_org_id predicate, with both reasons (the approved 'our cameras' wording means Insight's network; it is the only reading reproducing the 96.6% AC-1 pin).",
+        "R7": "setTestNow() added to the 3 clock-loose tests; AC-3's duplicate-hits_cold-row test added; the impersonation-divergence record restored in-code; the dead last_month ternary removed."
+      },
+      "rn3": {
+        "lanes": [
+          "claude1",
+          "claude2",
+          "claude3"
+        ],
+        "scores": [
+          86,
+          86,
+          92
+        ],
+        "lane_sources": [
+          {
+            "lane": "claude1",
+            "source": "in-session-agent"
+          },
+          {
+            "lane": "claude2",
+            "source": "in-session-agent"
+          },
+          {
+            "lane": "claude3",
+            "source": "in-session-agent"
+          }
+        ],
+        "gate": "REVIEW_GATE: fail -- MIN 86 < 90. Trend across rounds: 78 -> 82 -> 86 (minimum).",
+        "no_unmet_ac": "All three lanes independently concluded NO AC is unmet. 7 of 7 applicable ACs SATISFIED in every lane's table.",
+        "residual_findings": [
+          {
+            "id": "S1",
+            "lanes": "3/3 UNANIMOUS",
+            "severity": "MEDIUM",
+            "title": "The `stats` CTE is dead weight -- a whole extra unprunable 38.5M-row scan for two values the card never reads",
+            "detail": "all_claims and successful are consumed by NOTHING: rate() reads only deduped and pre_claim, and every path routes through rate(). The stats CTE is the sole second reference to `kept`. DRIVER-MEASURED cost of removing it: -40.0M read_rows, -1,746 MiB read_bytes, AND -430 MiB peak memory (106.8M/3,828 MiB/929.6 MiB -> 66.8M/2,082 MiB/499.6 MiB). Pure win on BOTH axes, zero semantic change. Aggravated by a test at UniqueScansToCaseClaimsQueryTest.php:261 that PINS the waste ('floor is 2, not 1'), so fixing it requires deleting an assertion whose message claims the fix is impossible.",
+            "fix": "Delete `stats` from the pre-claim variants; return deduped/pre_claim only (drop all_claims/successful from those two methods' shape). Update the false 'two is the floor' docblock and the test."
+          },
+          {
+            "id": "S2",
+            "lanes": "1/3 (lane 3) -- DRIVER-VERIFIED, deterministic",
+            "severity": "MEDIUM",
+            "title": "My new e2e spec asserts a grid adjacency that is FALSE and would fail every run",
+            "detail": "tests/e2e/unique-scans-to-case-claims.spec.ts:177 and :300 take precedingAt = indexOf('lpr-repossessions') and assert ourAt === precedingAt + 1. Verified against the real cards() order: lpr-repossessions is index 3, this card is index 6, so the assertion is 6 === 4 -> DETERMINISTIC FAILURE in both the Pro and non-Pro tests. The actual predecessor is unique-scans-to-repo (index 5). The `followingAt` half is correct (7 === 7). The spec docblock repeats the same wrong claim.",
+            "fix": "Use 'unique-scans-to-repo' as the preceding key in both places and correct the docblock."
+          },
+          {
+            "id": "S3",
+            "lanes": "3/3 UNANIMOUS",
+            "severity": "LOW-MEDIUM",
+            "title": "The FINAL-removal comment is factually wrong in two independent ways",
+            "detail": "(a) `_peerdb_is_deleted = 0` WITHOUT FINAL excludes the tombstone VERSION but keeps the prior live version, so a deleted hit still contributes to min(scanned_at) -- and the same file proves this at :180-186 for `orgs` ('FINAL genuinely DOES drop tombstoned rows on this engine'). Two docblocks in one file now state opposite mechanics for the same predicate. (b) min() is duplicate-idempotent only if scanned_at is immutable across CDC versions; hits_cold carries _peerdb_scan_synced_at DEFAULT toDateTime('1970-01-01'), so a row synced before its scan facet lands has scanned_at at the 1970 column default -- min() then returns 1970, which precedes every claim. That is the SAME 1970 failure mode the h.hotlist_id != 0 guard exists for, arriving through a door the guard cannot cover (the join genuinely matches).",
+            "fix": "The DECISION (remove FINAL) was operator-sanctioned and measured answer-neutral; keep it. Correct the recorded REASON, and add `AND scanned_at > toDateTime(0)` to close the 1970-default path (one line, unconditionally safe -- a 1970 scan is not a real sighting)."
+          },
+          {
+            "id": "S4",
+            "lanes": "3/3 UNANIMOUS",
+            "severity": "MEDIUM",
+            "title": "Peak memory x concurrency at the documented 29-org cardinality is still unmeasured",
+            "detail": "h aggregates all 26.0M hits_cold rows into an un-spillable LEFT JOIN build side (max_bytes_in_join and join_algorithm are unset on clarity_clickhouse; max_bytes_before_external_group_by bounds only the GROUP BY). Cold locks are keyed per (card, date, org) so they never serialise across orgs, and getMonthlyData()'s key embeds Y-m so EVERY entitled org's key rotates simultaneously at each UTC month boundary -- in addition to every deploy/cache:clear. 29 orgs x ~930 MiB = ~27 GB, or ~54 GB if the window seam is cold too. Measured only at 4-way (max 6.4s). Because this query propagates by design, MEMORY_LIMIT_EXCEEDED 500s the whole 16-card grid.",
+            "fix": "S1 alone cuts peak to ~500 MiB (29-way ~14.5 GB). Restoring h's prune ON TOP of S1 cuts it to 234 MiB (29-way ~6.8 GB) at the cost of +40.5M read_rows -- DRIVER-MEASURED. Recommend taking both: same read volume as ships today, one quarter the memory."
+          },
+          {
+            "id": "S5",
+            "lanes": "2/3",
+            "severity": "LOW",
+            "title": "Three test gaps on lines this diff wrote",
+            "detail": "(a) `oc.hotlist_id != 0` -- the guard half RN2 introduced -- is untested; deleting it leaves the suite green. (b) windowRate()'s heldFlexible routing is unpinned: all four lock-probing tests drive getMonthlyData(), so replacing windowRate()'s heldFlexible with a bare Cache::flexible passes all 8 herd-guard tests -- and the window seam is the per-org-per-date-filter path with the largest cold-key population. (c) test_duplicate_unmerged_hits_cold_row_does_not_inflate_pre_claim is VACUOUS: pre_claim is uniqExactIf(trip, ...) over flagged, one row per (hotlist_id, trip), so a duplicate hit cannot inflate it under ANY hits-side aggregate -- substituting count()/max()/sum() for min() leaves it passing."
+          },
+          {
+            "id": "S6",
+            "lanes": "2/3",
+            "severity": "LOW",
+            "title": "Two more false comments (the recurring class -- a finding in all three rounds)",
+            "detail": "(a) The impersonation-divergence docblock justifies the 60s floor because '10s is shorter than this query's contended runtime' -- but the same file's COLD_BLOCK_SECONDS docblock measures 5.1s uncontended / 6.4s contended, both UNDER 10s. The divergence may still be defensible on duty-cycle grounds; the reason on record is refuted by the measurement ten lines away. (b) The R5 docblock's 'halves the fresh window each time (T0+300, +450, +525...)' is not derivable: windowTtlSeconds() re-derives getCacheTTL() every request, so getSeconds() returned ~600 each time. The REAL pre-fix defect was that $ttl[1] equalled $ttl[0], making flexible()'s deferred-refresh branch unreachable -- so every 10 minutes each org paid a full cold recompute instead of a background refresh. The fix is right; the recorded mechanism is not."
+          }
+        ],
+        "rerun_required": true,
+        "reviewed_sha": null,
+        "rework_pivot": false
+      },
+      "rn3_fixes_applied": {
+        "S1+S4": "stats CTE deleted from both pre-claim variants; the two new methods now return {deduped, pre_claim} via a new normalizePreClaimRow() (normalizeRow() untouched, so window()/monthlySeries() keep their exact three-key shape). h's prune restored as `hotlist_id IN (SELECT DISTINCT hotlist_id FROM oc WHERE hotlist_id != 0)`. MEASURED RESULT: read volume unchanged (107.3M vs 106.8M rows) with peak memory down 4.0x (929.6 -> 235.0 MiB); 29-way projection ~25.1 GB -> ~6.7 GB. The false 'two is the floor' docblock replaced with the true mechanic (kept expands twice via oc's two references).",
+        "S2": "The deterministic e2e failure is fixed: both adjacency assertions and the docblock now use unique-scans-to-repo (index 5), the real predecessor, instead of lpr-repossessions (index 3). Verified: 2 occurrences of the correct key, 0 of the wrong one.",
+        "S3": "AND scanned_at > toDateTime(0) added to h, closing the 1970-column-default path that min() would otherwise return as a pre-claim sighting (hits_cold.scanned_at is non-Nullable with no DDL default, and _peerdb_scan_synced_at defaults to 1970, so a row synced before its scan facet lands reads 1970). Pinned by test_epoch_zero_scanned_at_does_not_count_as_pre_claim. The FINAL comment rewritten to the true position: _peerdb_is_deleted=0 without FINAL drops only the tombstone VERSION, min() is duplicate-idempotent but not deletion-idempotent, and FINAL stays removed because it measured answer-neutral and suppresses PREWHERE movement.",
+        "S5": "Three gaps closed: test_claim_with_no_assigned_hotlist_id_is_not_counted_as_pre_claim (pins the oc.hotlist_id != 0 half); a window-seam lock-probing herd-guard test (the four existing ones all drove getMonthlyData(), leaving the window seam's heldFlexible routing unpinned); and the VACUOUS duplicate-hit test replaced with test_pre_claim_uses_the_earliest_hit_not_any_hit, which pins min() specifically -- two distinct hits either side of the claim, so max() would flip the answer.",
+        "S6": "Both false comments corrected: the impersonation-divergence docblock now cites duty-cycle reasoning instead of the '10s < contended runtime' claim its own file refutes (measured 5.1s/6.4s), and windowTtlSeconds() now describes the real pre-fix defect ($ttl[1] === $ttl[0] made flexible()'s deferred-refresh branch unreachable) instead of the halving narrative."
+      },
+      "rn4": {
+        "lanes": [
+          "claude1",
+          "claude2",
+          "claude3"
+        ],
+        "scores": [
+          89,
+          92,
+          94
+        ],
+        "lane_sources": [
+          {
+            "lane": "claude1",
+            "source": "in-session-agent"
+          },
+          {
+            "lane": "claude2",
+            "source": "in-session-agent"
+          },
+          {
+            "lane": "claude3",
+            "source": "in-session-agent"
+          }
+        ],
+        "gate": "REVIEW_GATE: fail -- MIN 89 < 90, one point short. Trend 78 -> 82 -> 86 -> 89.",
+        "no_unmet_ac": "All three lanes again concluded NO AC is unmet; 7 of 7 applicable SATISFIED in every lane's table. Two lanes ran the suites themselves (71 tests / 329 assertions green unmodified for DEV-2463 + registry) and mutation-tested the guards.",
+        "closed_by_driver_measurement": {
+          "finding": "Lane 2 M2 -- every cost measurement on this ticket was the one-month WINDOW shape, but the 13-month BUCKETED variant runs on every render.",
+          "result": "Measured: bucketed peak 260.5 MiB vs window 235.0 MiB (1.11x); 29-way ~7.4 GB vs ~6.7 GB. Real gap, correctly identified, and it does not change the verdict."
+        },
+        "residual_findings": [
+          {
+            "id": "T1",
+            "lanes": "1/3 (lane 1) -- SELF-INFLICTED BY THE RN3 S6 FIX",
+            "severity": "MEDIUM",
+            "title": "My S6 'correction' replaced a CORRECT mechanism account with a false one",
+            "detail": "Lane 1 verified against Illuminate\\Cache\\Repository (:622-662, :810-821) with concrete arithmetic. With the pre-fix [$abs,$abs]: putMany uses getSeconds($ttl[1]) = ~600, so hard expiry is created+600 -- NOT 'the same instant' as the new comment claims. Freshness is created + getSeconds($ttl[0]) > now(), and getSeconds() re-measures a DateTimeInterface AT READ TIME, so at offset d it is fresh iff 600-d > d, i.e. d < 300. So for 300 <= d < 600 the entry was present-but-stale and defer() DID run. The deferred branch was REACHABLE and the original RN3 lane-3 'halving' account was RIGHT. I instructed the worker that the real defect was $ttl[1] === $ttl[0] making the branch unreachable; that is false, and it now ships in app code while the CORRECT account survives in the herd-guard test -- two comments in one change giving mutually exclusive mechanisms.",
+            "fix": "Restore the halving account (fresh window collapses to D/2 and re-halves on each deferred refresh) in the widget docblock; reconcile with the test comment."
+          },
+          {
+            "id": "T2",
+            "lanes": "1/3 (lane 1) -- SELF-INFLICTED BY THE RN2 R5 FIX, user-visible",
+            "severity": "MEDIUM",
+            "title": "'Today' can serve the PREVIOUS local day's rate for ~40 minutes after midnight, and my R5 fix quadrupled the exposure",
+            "detail": "windowRate()'s key is buildWidgetCacheKey('today', $orgId) -- NO day component -- and windowTtlSeconds() now returns [600, 2400]. Cached at 23:55 local, hard expiry is 00:35 the next day. At 00:20 both keys are present, the freshness test fails, so Cache::flexible defers a refresh and RETURNS THE STALE VALUE: yesterday's full-day rate rendered as this morning's 'Today'. Every sibling card is bounded at 10 minutes because DashboardWidget::currentPeriodTotal() uses cache()->remember() with an absolute 600s expiry and no serve-stale branch. The pre-R5 [$abs,$abs] pair hard-expired at created+600, so MY R5 REPAIR QUADRUPLED THIS on a day-scoped key. getMonthlyData() gets it right (its key carries Y-m) and UniqueLprCaseClaims documents at length that 'the key MUST carry the window's identity'.",
+            "fix": "Add a day component to the window key (NOT a shorter hard TTL -- that trades directly against the cold-miss envelope)."
+          },
+          {
+            "id": "T3",
+            "lanes": "3/3 UNANIMOUS",
+            "severity": "MEDIUM",
+            "title": "oc.hotlist_id != 0 is dead code, its comment claims it is load-bearing, and the S5(a) test written to pin it is vacuous",
+            "detail": "All three lanes proved it independently, two by mutating the rendered SQL against a live ClickHouse fixture including a hostile hotlist_id=0 hit. S4's restored prune (hotlist_id IN (SELECT ... FROM oc WHERE hotlist_id != 0)) means h can never hold a hotlist-0 row, so the join always misses and h.hotlist_id != 0 rejects it alone. Deleting oc.hotlist_id != 0 leaves the entire suite green. Same defect class as the vacuous test S5(c) repaired -- reintroduced by S5(a) in the same commit. Lane 1's mutation table also confirms h.hotlist_id != 0 and scanned_at > toDateTime(0) ARE genuinely load-bearing, and that S4's prune is answer-neutral as documented.",
+            "fix": "Either drop WHERE hotlist_id != 0 from the IN subquery so the conjunct becomes load-bearing and bind the test to it, or delete the conjunct and the coverage claim in both the SQL comment and the test docblock."
+          },
+          {
+            "id": "T4",
+            "lanes": "3/3 UNANIMOUS",
+            "severity": "LOW",
+            "title": "The two guard-constant docblocks cite the pre-RN3 shape's measurements as this shape's",
+            "detail": "They state 106.8M read_rows / 3,828 MiB / 5.1s uncontended. The shipped shape measures 107,321,250 / 3,864.1 MiB / 1,035 ms -- a 5x difference in wall time. The 4-way contended run was also of the earlier heavier shape. Qualitative conclusions hold (12s still clears 6.4s), but the record is wrong -- and the single most decision-relevant number, the 235.0 MiB peak driving the ~6.7 GB projection, appears only in the query class, not in the widget an engineer reads when re-sizing these constants."
+          },
+          {
+            "id": "T5",
+            "lanes": "2/3",
+            "severity": "LOW",
+            "title": "The epoch-0 guard's stated mechanism is a non-sequitur",
+            "detail": "The comment attributes scanned_at's 1970 value to _peerdb_scan_synced_at's explicit DEFAULT toDateTime('1970-01-01'). A default on one column does not populate another. The real mechanism is ClickHouse's implicit zero for a non-Nullable DateTime omitted from an INSERT. This matters for a future reader: toDateTime('1970-01-01') is parsed in the SERVER timezone, so anyone 'correcting' the guard to match the quoted default would make it timezone-dependent. The guard as written (> toDateTime(0)) is correct and mutation-verified; only the reason is wrong."
+          },
+          {
+            "id": "T6",
+            "lanes": "1/3 each",
+            "severity": "LOW",
+            "title": "Remaining low-severity items",
+            "detail": "(a) No differential test pins that the re-derived deduped equals the shipped deduped -- the substance of AC-2. Two lanes verified the equality empirically across adversarial fixtures (blank VIN, failed claim, absent hotlist_id, insightlpr forwarder, cross-month, both org axes) and it holds; nothing keeps it holding. (b) The e2e test TITLE still names 'LPR Repossessions' though the assertions and docblock were corrected -- it is what CI prints on failure. (c) ~70 lines of herd-guard machinery duplicated from the sibling, and the copy dropped the sibling's rationale that both flexible keys must be checked because they land in different prod-Redis-cluster slots -- exactly the counter-evidence a future 'this looks redundant' simplification should trip over. (d) DashboardMetricCard's docblock now says 3 overriders of 7 cards; it is 5 of 16."
+          }
+        ],
+        "rerun_required": true,
+        "reviewed_sha": null,
+        "rework_pivot": false
+      },
+      "rn4_fixes_applied": {
+        "scope": "Operator authorised T2 and T3 only. T1's false comment was corrected too because it sits on windowTtlSeconds(), the very method T2 edits -- leaving a provably false comment on a line being changed would be poor work. T4, T5 and T6 are deliberately NOT fixed and are the follow-up set.",
+        "T2": "windowRate()'s cache key now carries the VIEWER-LOCAL DAY ($this->date.':'.now(tz: $timezone)->toDateString()). Because windowTtlSeconds() returns [600, 2400], a value cached at 23:55 local previously outlived its fresh window and Cache::flexible served it at 00:20 as the new day's 'Today' -- yesterday's full-day rate. PINNED by a new behavioural test (test_today_is_recomputed_after_the_viewer_local_midnight_not_served_stale) plus a new ScanCasesWindowCountingWidget double, and MUTATION-VERIFIED: reverting the key change makes it fail. The herd-guard windowKey() helper was co-varied so the lock-probing tests still probe the key the code uses.",
+        "T2_process_note": "My FIRST T2 test was vacuous -- it compared windowKey() before/after, but windowKey() is a test-side mirror I had also changed, so it passed with the fix reverted. The mutation check caught it. Rewritten to assert BEHAVIOUR (does a second compute happen across midnight?). This is the second vacuous test I have written on this ticket; mutation-testing every guard fix is what caught both.",
+        "T3": "Resolved by option (b): DELETED the redundant `oc.hotlist_id != 0` conjunct. My first attempt was option (a) -- drop `WHERE hotlist_id != 0` from the prune so the conjunct became load-bearing -- and MUTATION PROVED IT WRONG: the join is an equality on hotlist_id, so even a real hits_cold row with hotlist_id = 0 matching 0 => 0 still yields h.hotlist_id = 0, which h.hotlist_id != 0 rejects. The conjunct is redundant UNCONDITIONALLY, for any data; option (a) was never achievable. The prune filter was restored, the conjunct removed, and both comments rewritten to state that h.hotlist_id != 0 is sufficient on its own and why. Mutation-verified: removing h.hotlist_id != 0 now fails TWO tests.",
+        "T1": "windowTtlSeconds()'s docblock restored to the TRUE mechanism. RN4 lane 1 verified against Illuminate\\Cache\\Repository that getSeconds() re-measures a DateTimeInterface at read time, so the pre-fix [$abs,$abs] pair made the fresh window halve (fresh only while 600-d > d, i.e. d < 300) and re-halve on each deferred refresh. My RN3 S6 instruction had replaced that correct account with a false 'deferred branch was unreachable' story -- I was wrong and the comment now says so explicitly."
+      },
+      "rn5": {
+        "at": "2026-09-10T14:40:00Z",
+        "lanes": 3,
+        "lane_sources": "in-session-agent:3 (review.sh/rigor is not installed on this machine; substitution recorded, not silent)",
+        "scores": {
+          "claude1": 94,
+          "claude2": 92,
+          "claude3": 94
+        },
+        "min_score": 92,
+        "threshold": 90,
+        "gate": "REVIEW_GATE: pass min=92 lanes=3 rn=5",
+        "reviewed_sha": "38b1a7deef6de45103e7b79bac1e3bf7e9adfbec",
+        "rerun_required": false,
+        "unanimous_finding": "windowRate() cache key carried the viewer-local day but not the viewer timezone -- two same-org viewers in different zones shared one key for different windows. Found independently by all 3 lanes; fixed with a :tz= segment plus a mutation-verified two-viewer behavioural test.",
+        "m2_resolved_by_measurement": "Numerator counted operator-rejected (Invalid Scan/Invalid) and Probable-Match (hit_type=P) hits. Measured read-only against production, Jul 2026 fleet-wide, both variants rendered from the shipped class: as-built 11,573/11,975 = 96.64%; quality-filtered 11,571/11,975 = 96.63%. Delta -0.01pp (2 of 11,573 orders). USER DECISION: measure first, then decide -> kept as built; question + measurement recorded in measure-rate-card.sql.",
+        "ac1_re_measured_post_t3": "96.64% (11,573/11,975) from the shipped class, unchanged -- T3 is answer-neutral. Closes the gap lane 3 flagged (the post-T3 shape had never been re-measured).",
+        "fixes_applied": 7,
+        "code_lines_changed": "one production line (the :tz= segment); everything else is docblocks, tests and the SQL artifact",
+        "verified_not_changed": "lane 3 suggested softening the byte-identical claim; checked empirically (2921/2960 bytes both branches) and the claim is correct, so no edit was made"
+      },
+      "rn6": {
+        "at": "2026-09-10T15:20:00Z",
+        "lanes": 3,
+        "scores": {
+          "claude1": 94,
+          "claude2": 100,
+          "claude3": 100
+        },
+        "min_score": 94,
+        "gate": "REVIEW_GATE: pass min=94 lanes=3 rn=6",
+        "reviewed_sha": "5cd893e12",
+        "subject": "the RN5 fix delta, which rework-gate.sh refused to let ship un-reviewed",
+        "lane_disagreement": "claude2 and claude3 endorsed RN5s guard-sizing re-anchor (it pins COLD_BLOCK_SECONDS at 12 where the old > 9.3 admitted 10 and 11); claude1 disputed the ANCHOR, citing okf/concepts/billing-events.md:92-93 that 9.3s is CLOUD CONTENTION on this table and the pages own rule is to size against the tail. Arbiter read the wiki directly and found claude1 correct on substance -- lanes 2 and 3 judged the assertions form, not the anchors validity. Synthesis shipped: tight form, anchored on 9.3 at 1.25x, mutation-verified (11 fails, 12 passes).",
+        "fixes_applied": 6,
+        "production_code_changed": "none -- docblocks and test assertions only",
+        "new_guard": "test_the_pre_claim_numerator_contains_no_bare_count_aggregate makes AC-3 mutation-proof for the first time (it was review-enforced only); verified by swapping uniqExact(trip) for count(trip), which now fails."
+      },
+      "rework_gate_override": {
+        "at": "2026-09-10T15:30:00Z",
+        "gate_output": "REWORK_GATE: fail 4 files changed since the last passing review (> materiality threshold 3) and were never re-reviewed",
+        "decision": "ACCEPTED BY THE USER, explicitly, after being shown the gate failure and three options (accept / run RN7 / raise the threshold).",
+        "threshold_not_raised": "TICKET_REWORK_MATERIALITY_FILES was deliberately LEFT AT 3. The gate still fails on this delta; the failure is recorded rather than engineered away, so a future reader sees the real signal.",
+        "reviewed_sha": "5cd893e1255d775dd52898ad7840b6fe20a947fd",
+        "unreviewed_delta": {
+          "files": 4,
+          "production_lines_changed": 0,
+          "verified_how": "git diff -U0 5cd893e12..HEAD -- app/ filtered to non-comment lines returns EMPTY; only docblock text changed in app/",
+          "contents": [
+            "app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php -- docblock only: memory projection restated in GiB (233.9 MiB x 29 = ~6.6 GiB, correcting a MiB x 29 / 1000 slip)",
+            "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php -- docblock only: COLD_BLOCK_SECONDS rationale rewritten (RN5 had asserted the sibling 9.3s figure does not transfer, which inverts okf/concepts/billing-events.md:92-93 -- that 9.3s is CLOUD CONTENTION, shape-independent); honest 1.29x margin replaces a claimed ~1.9x; TWO heavy keys -> UP TO TWO",
+            "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsHerdGuardTest.php -- guard bound re-anchored 6.4 -> 9.3 at 1.25x (mutation-verified: 11 fails, 12 passes); a false comment claiming the two viewers windows do not overlap corrected",
+            "tests/Feature/Clickhouse/UniqueScansToCaseClaimsQueryTest.php -- monthly bucket key-sets now asserted equal in BOTH directions; NEW test_the_pre_claim_numerator_contains_no_bare_count_aggregate makes AC-3 mutation-proof for the first time (mutation-verified: uniqExact(trip) -> count(trip) fails)"
+          ],
+          "risk_assessment": "The risk rework-gate.sh exists to catch is an unreviewed re-architecture mislabeled as a light-path edit (DEV-2116 Rev-2, DEV-2176 Approach B). That risk is absent by construction here: zero production behaviour changed, and the delta strictly INCREASES test coverage. Every change was either mutation-verified or is prose accuracy. The gate cannot see the distinction because its materiality test is a file count.",
+          "net_effect_on_coverage": "positive -- AC-3 went from review-enforced to mutation-proof, and the monthly comparison went from one-directional to bidirectional"
+        }
+      },
+      "round": 6
+    },
+    "ac": [
+      {
+        "item": "Card at row 2 col 3 rendering a percentage, reproducing 96.6% for Jul 2026 fleet-wide from the shipped class",
+        "status": "SATISFIED",
+        "evidence": "Slot pre-registered by DEV-2409 (CompanyMetricsOverview::cards() entry 7 of 16 = row 2 col 3 at lg). toStat() renders number_format(getCardRate(), 1).'%', pinned by test. Driver re-measured the SHIPPED shape read-only against production 2026-09-09: 11,573 / 11,975 = 96.6%, identical to pre-FINAL. In-process render confirms '0.0%' formatting on empty local CH."
+      },
+      {
+        "item": "Denominator comes from DEV-2463's UniqueLprCaseClaimsQuery, not a re-port",
+        "status": "SATISFIED",
+        "evidence": "stats.deduped is character-identical to the shipped sql()'s deduped stage over the untouched kept CTE; two lanes verified window()/monthlySeries() emit byte-identical SQL by reflection; pinned by test_window_and_monthly_series_still_return_exactly_the_original_three_keys; DEV-2463's 39 tests pass unmodified."
+      },
+      {
+        "item": "Every aggregate uses uniqExact; a bare count() in the numerator is a defect",
+        "status": "SATISFIED",
+        "evidence": "Numerator chain is min(ts) -> min(scanned_at) -> uniqExactIf(trip, pre_claim). The count()/countIf() are the pre-existing all_claims/successful stages the rate never reads. UNPINNED: AC-3's required duplicate-row test is absent (residual R7)."
+      },
+      {
+        "item": "Exactly one query per resolved window; the 13-month sparkline is one batched call of per-month rates, not a summed series",
+        "status": "SATISFIED",
+        "evidence": "One DB::select per resolved window, pinned across all four filter states; getMonthlyData() stores the RATE per bucket so nothing sums a rate series. CAVEAT: one round trip still contains three scans of billing_events (residual R1) -- the AC is met as worded, the cost contract behind it is not."
+      },
+      {
+        "item": "Zero-denominator orgs render without a division error",
+        "status": "SATISFIED",
+        "evidence": "rate() early-returns 0.0 on deduped === 0; pinned at both the query layer and the widget layer ('0.0%'). Lane 1 confirmed the CROSS JOIN pre cannot yield zero rows, and that the zero-denominator test genuinely discriminates."
+      },
+      {
+        "item": "Respects the Today / Last 7d / This Month / Last Month filter. Non-Pro orgs do not see the value",
+        "status": "SATISFIED",
+        "evidence": "All four options route through getCardRate() as floats, asserted per option. canViewCardData() is the canonical gate shape; the six-row tier matrix is pinned; lockedStat() runs no query; getStats() gates BEFORE toStat() so a withheld metric is never computed; both hardcoded allowlists updated."
+      },
+      {
+        "item": "Existing metrics and their values are unaffected",
+        "status": "SATISFIED",
+        "evidence": "Strictly additive -- both legacy SQL shapes byte-identical (independently reflection-verified by two lanes), normalizeRow() adds pre_claim only when present, registry assertions untouched and still green (32 tests)."
+      },
+      {
+        "item": "Consider whether 'unique' still belongs in the card label",
+        "status": "N/A",
+        "evidence": "Framed as 'consider', not an AC; deferred at prep. Heading unchanged and the e2e constant matches."
+      }
+    ],
+    "test_attribution": {
+      "verdict": "ZERO failures attributable to DEV-2465. Verified by measurement, not by inspection of names.",
+      "method": "Three steps. (1) No failing test names any class this ticket touches. (2) Ran all 9 failing classes IN ISOLATION on the branch -- 5 passed clean (ScoutRecordCheckInsCommandTest 30/154, ClarityScoutBirdsEyeControllerTest 50/229, ClarityScoutMapControllerTest 65/363, LeaderboardTableWidgetTest 4/13, ScoutUsersResourceTest 35/133 risky-only), so those 5 batch errors are ordering artifacts of the SHARED literal clarity/zod ClickHouse databases, a documented property of this repo. (3) Checked out the pre-change base commit 23a82e8f0 (detached; .env and vendor are gitignored so they persisted) and re-ran the 4 classes that still failed in isolation.",
+      "pre_existing_confirmed_at_base": {
+        "CloseInactiveShiftsCommandTest": "2 failures at base, 2 on branch -- identical",
+        "EnsureOpenShiftTest": "1 failure at base, 1 on branch -- identical",
+        "HasStatDrillDownTest": "7 failures at base, 7 on branch in isolation (6 in the batch) -- identical"
+      },
+      "investigated_and_cleared": "ClarityScoutDashboardControllerTest initially looked like a REGRESSION -- OK (48 tests/240 assertions) at base but 1 error on the branch. Re-ran it cleanly on the branch: OK (48 tests/240 assertions), byte-identical to base. The single error was a transient from running several CH-touching classes back to back against the shared literal clarity/zod databases. Not a regression. Chased rather than assumed, precisely because that test reads hits_cold and this ticket's new tests seed hits_cold.",
+      "risky": "ScoutUsersResourceTest::test_cross_org_kit_cannot_be_edited_via_direct_url performs no assertions -- pre-existing test hygiene, present at base, out of scope here."
+    },
+    "handoff": {
+      "at": "2026-09-10T15:05:00-04:00",
+      "build_record_comment": "39385",
+      "status_mirror_comment": "39337 (edited in place, never duplicated)",
+      "pr": {
+        "number": 395,
+        "url": "https://github.com/insight-lpr/platform/pull/395",
+        "draft": false,
+        "head": "f18005bbc"
+      },
+      "ci_trigger": "boundary checkpoint f18005bbc carries a clean message with NO [skip ci], pushed BEFORE the undraft -- the DEV-2426 failure mode where undrafting on a skip-ci head leaves Pint & Tests never running",
+      "jira_status": "In Code Review",
+      "human_qa_guide": ".context/qa-human-guide.html",
+      "teardown": "NOT performed, deliberately -- the operator needs this environment for manual QA. qa-complete is manual-only and runs when they say they have completed QA."
+    }
+  },
+  "intake_notes": [
+    "Route=feature (Story, no Spike/Hotfix/Bug keyword). Parent epic DEV-2409. Blocked-by DEV-2460 + DEV-2463, both QA Complete.",
+    "REPO_PATH is the harness worktree /Users/daltonmccleery/Herd/platform/.claude/worktrees/dev-2414-b4229e; the main checkout is on claude/DEV-2409-stubs and dirty, so the worktree branch claude/dev-2465-f91033 was renamed to claude/DEV-2465 (known-good pattern).",
+    "Reverted pre-existing boost-regen drift in CLAUDE.md / AGENTS.md / .junie/guidelines.md (npm run build rewrites these; not this ticket's change).",
+    "Archived prior-ticket QA artifacts to .context/_archive-pre-DEV-2465 and stale review lanes to .ai/_archive-pre-DEV-2465 so no DEV-2467 artifact can false-pass a DEV-2465 gate.",
+    "INTAKE FINDING: DEV-2409 already shipped a UniqueScansToCaseClaims STUB registered at cards()['unique-scans-to-case-claims'] (row 2 col 3). Scope is replacing the stub body IN PLACE -- the key is both the toggle key and the cache namespace and must not be re-inserted or reordered.",
+    "Verified UniqueLprCaseClaimsQuery's public API directly: window(?int $orgId, CarbonInterface $start, CarbonInterface $end): array and monthlySeries(?int $orgId, CarbonInterface $through): array -- both public static, both directly callable for the denominator with no re-port."
+  ],
+  "env_facts": {
+    "clickhouse_host": "zd69ju2h8d.us-east-2.aws.clickhouse.cloud:8443 (ClickHouse CLOUD = production), CLICKHOUSE_DRIVER=clickhouse, CLICKHOUSE_USERNAME=readonly_user -- so a live read-only prod measurement IS reachable from this worktree.",
+    "clickhouse_db_names_are_broken": "CLICKHOUSE_DATABASE_CLARITY and CLICKHOUSE_DATABASE_ZOD are BOTH set to zod_claude_dev_2465_f91033 -- a per-worktree name that does not exist on Cloud. So static::clarityDb() resolves to a nonexistent database and any card query fails. A read-only prod verification must target the LITERAL clarity / zod databases instead.",
+    "env_keyed_to_the_OLD_branch": "These names derive from the pre-rename branch claude/dev-2465-f91033; the run branch is now claude/DEV-2465. Phase 3.5 qa-prep will re-key the DB names off the new branch -- expect the dev-login/seed mismatch this repo has hit before, and re-verify dev-login after provisioning.",
+    "testing_driver_skips_all_ch_tests": ".env.testing has CLICKHOUSE_DRIVER=pgsql. tests/Concerns/RequiresClickhouse markTestSkipped()s unless the driver is 'clickhouse', so every CH test would report green having executed NOTHING. Must be set to clickhouse against LITERAL clarity/zod databases before any CH test result is trusted.",
+    "postgres": "DB_HOST=127.0.0.1 DB_DATABASE=zod_claude_dev_2465_f91033; APP_URL=https://clarity-claude_dev_2465_f91033.test; APP_ENV=local (so deferLoading is ON -- verify card values in a browser or in-process, never by curl)."
+  },
+  "driver_verified_findings": [
+    {
+      "finding": "The base class's total methods are int-typed and CANNOT be widened to float on override.",
+      "evidence": "DashboardWidget.php:321 getCardTotal(): int, :344 currentPeriodTotal(): int, :367 getRangeTotal(string,string): int. PHP fatals at class-load on an int->float return-type override.",
+      "consequence": "A rate card must compute its float end-to-end inside getCardRate() (the stub's own new seam, UniqueScansToCaseClaims.php:45) and must NOT route today/last_7d through currentPeriodTotal()/getRangeTotal()/getModelQueryForDates() -- all of which return int and would TRUNCATE the rate to 0 or 1. The Phase 1 fast pass proposed exactly that truncating wiring; candidate 3 caught it.",
+      "source": "candidate 3, verified by driver"
+    },
+    {
+      "finding": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php carries TWO hardcoded gated-card allowlists that MUST gain 'unique-scans-to-case-claims'.",
+      "evidence": "Allowlist 1 at :59-64 ($expectedGated = staging-live-hit-leader, missed-opportunities, unique-lpr-case-claims, unique-scan-counts). Allowlist 2 at :481 (the array_diff inside test_can_view_card_data_is_total_with_no_authenticated_user). The file's own comment: 'Keep this an explicit allowlist, not a \"whatever cards() says\" tautology: gating a card is a deliberate, reviewed act and never an accident.'",
+      "consequence": "Adding the required canViewCardData() Pro-gate WITHOUT updating both allowlists turns both tests RED. The fast pass and candidate 1 both declared this file out of scope -- a genuine miss that would have shipped a failing suite.",
+      "source": "candidate 3, verified by driver"
+    },
+    {
+      "finding": "The stub has NO canViewCardData() override -- all three candidates agree, driver confirmed.",
+      "evidence": "grep of app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php returns no canViewCardData; it inherits RendersDashboardStat's role-only default. Siblings UniqueLprCaseClaims / UniqueScanCounts / StagingLiveHitLeader each override it.",
+      "consequence": "Unanimous, and required by the AC 'Non-Pro orgs do not see the value'. Not called out anywhere in the ticket text."
+    },
+    {
+      "finding": "The sibling card HAS an e2e spec.",
+      "evidence": "tests/e2e/unique-lpr-case-claims.spec.ts exists alongside missed-opportunities.spec.ts, staging-live-hit-leader.spec.ts, gl-kits.spec.ts.",
+      "consequence": "Candidate 1 proposed a matching tests/e2e/unique-scans-to-case-claims.spec.ts; candidate 3 called e2e out of scope. Real precedent exists, so it is in scope as an additive item -- recorded as a disagreement resolved toward the sibling precedent."
+    },
+    {
+      "finding": "RequiresClickhouse already truncates both tables this ticket reads.",
+      "evidence": "tests/Concerns/RequiresClickhouse.php:21,39 list clarity.hits_cold and zod.public_billing_events.",
+      "consequence": "No test-infra change needed -- but the .env.testing CLICKHOUSE_DRIVER=pgsql skip still makes any CH test green-but-unexecuted until fixed."
+    },
+    {
+      "finding": "In-process render verification of the finished card (deferLoading makes any HTTP check useless -- it returns an empty skeleton).",
+      "evidence": "Authenticated as user 1 (org 2), instantiated the card as CompanyMetricsOverview does and called toStat(): value='0.0%', label='Unique Scans to Case Claims', 13 monthly points all numeric, 13 graph labels (aligned), getStatColor()='success' (explicit, not the silent gray default), getDescription()=\"Sep '26: 0.0% | Aug '26: 0.0%\" (%-suffixed), canViewCardData()=false for that non-entitled org.",
+      "consequence": "Demonstrates AC-1 (renders a percentage), AC-5 (zero denominator renders without a division error -- local CH has 0 hits_cold rows so 0.0% is the CORRECT reading) and AC-6 (the Pro gate, which was entirely absent before this ticket). PHPStan clean on both changed PHP files."
+    },
+    {
+      "finding": "The card's unguarded auth()->user()->org_id is the SHIPPED house pattern, not a defect this ticket introduces.",
+      "evidence": "Calling toStat() with no authenticated user TypeErrors in buildWidgetCacheKey(): Argument #2 ($orgId) must be of type int, null given. The shipped sibling UniqueLprCaseClaims.php:124 does the identical unguarded auth()->user()->org_id. The guest path never reaches toStat() because canViewCardData() checks auth()->check() first and CompanyMetricsOverview::getStats() calls lockedStat() instead -- which is exactly what DashboardCardVisibilityTest's no-authenticated-user test pins, and it passes.",
+      "consequence": "Deliberately NOT 'fixed'. Adding a null guard here would diverge from the shipped sibling for a path that cannot occur. Recorded so a review lane flagging it can be answered with evidence rather than re-litigated."
+    }
+  ],
+  "sizing_gate": {
+    "tripped": true,
+    "distinct_target_files": 9,
+    "recommendation": "do not split",
+    "decision": "human:dalton.mccleery 2026-09-09 -- SHIP WHOLE, do not split",
+    "rationale": "Only 2 of the 9 files are app code (UniqueLprCaseClaimsQuery.php additive, UniqueScansToCaseClaims.php stub->real). The rest are 4 pinning tests, a 3-line allowlist edit in DashboardCardVisibilityTest.php, a Playwright spec, 3 additive e2e helper constants, and one committed measurement SQL artifact. Every split point ships something broken: t2 without t4 is dead code, t4 without t5 leaks a Pro-only metric to non-Pro orgs. The only clean severance (t6, the e2e spec) still leaves 7 files and so does not clear the gate, and it would diverge from the 3 sibling cards that each shipped their spec in-ticket. In-family precedent DEV-2463 (#392) shipped this same card shape across 47 files."
+  },
+  "plan_additions_beyond_prep": [
+    "t4 must ALSO override getGraphLabels() and getHighlightedMonthsFromFilter() to UTC. VERIFIED: UniqueLprCaseClaims.php:225-233 documents that getMonthlyData() buckets in UTC while the base builds labels from auth()->user()->timezone, so a Chicago viewer between 00:00 and 05:00/06:00 UTC on the 1st sees every bar labelled a month early and 'Current Month' showing the new UTC month's near-zero figure. The sibling ships UniqueLprCaseClaimsLabelAxisTest.php for exactly this. Prep missed it.",
+    "t6 must touch tests/e2e/helpers/company-metrics.ts. VERIFIED: the file exists with 63 assignments and carries unique-lpr-case-claims and unique-scan-counts but NOT unique-scans-to-case-claims, so the new spec has no constant to import.",
+    "t1 commits docs/investigations/DEV-2465/measure-rate-card.sql. Prep held the option-C numbers only in derivation_log; DEV-2463 by contrast shipped measure-claims-card.sql and reused its body verbatim. t1 also runs the EXPLAIN / X-ClickHouse-Summary pair with and without hotlist_org_id, which is simultaneously the Q5 answer and the recorded WS6 perf evidence.",
+    "The Cache herd guard is a DELIBERATE COPY rather than a shared-trait extraction, to keep t2's edit to UniqueLprCaseClaimsQuery strictly additive. DEV-2464 would become the third caller and should trigger the extraction then."
+  ],
+  "blast_radius_approval": {
+    "approved_by": "human:dalton.mccleery",
+    "approved_at": "2026-09-09",
+    "nodes": {
+      "t2": "APPROVED -- app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php (QA-Complete, merged #392). Constraint: strictly ADDITIVE, window() and monthlySeries() keep their exact {all_claims, successful, deduped} return shape; guarded by t3 re-running DEV-2463's five suites UNMODIFIED before t4/t5 land.",
+      "t5": "APPROVED -- COMPANY_METRICS Pennant entitlement gate. Adds the canViewCardData() Pro gate the stub is missing today (a live Pro-leak) plus the card key in BOTH hardcoded allowlists in DashboardCardVisibilityTest.php (:59-64 and :481)."
+    }
+  }
+}

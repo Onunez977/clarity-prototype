@@ -1,0 +1,114 @@
+{
+  "ticket": "DEV-2614",
+  "uat_needed": true,
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Add Hit::scopeForHotlistOrgs and give CH forDispositions PG parity for 'New Hit' (Scout validDisposition SQL pinned)",
+      "approach": "In app/Clickhouse/Models/Hit.php add scopeForHotlistOrgs(Builder $query, array $orgIds): Builder mirroring Scan::scopeForOrgs (Scan.php:53-62): int-cast, unique, array_values; an empty set gives whereRaw('0 = 1'), otherwise whereIntegerInRaw('hotlist_org_id', $orgIds). Bare column, no FINAL. Separately, AC-7: CH scopeForDispositions (Hit.php:141-160) currently turns NEW_HIT into 'disposition IS NULL' only and drops the literal, while PG (app/Models/Hit.php:474-490) matches NULL OR the literal. Change the CH scope so a NEW_HIT selection keeps 'New Hit' in the IN-list: '(disposition IS NULL OR disposition IN ('New Hit', ...others))'. The null/[] branch stays unchanged. Caller check (grep): the CH Hit::forDispositions callers are Hit.php:68 (scopeValidDisposition) and HitsResource.php:429 (Hits list filter, both models). HitSearchTool.php:244 is the PG branch; its CH branch (:236-241) already uses actionableDisposition(), which includes the literal, so Otto already meets AC-7 and only needs a pin (t2). MissedOpportunityResource.php:278 runs on MissedOpportunity models (app/Models/MissedOpportunity.php:109, app/Clickhouse/Models/MissedOpportunity.php:98) and is unaffected. To keep Scout's canonical DEV-2080 rule identical, rewrite scopeValidDisposition as a direct whereRaw that emits exactly the SQL it emits today, '(disposition IS NULL OR disposition IN ('Valid'))', instead of routing through forDispositions. Trim the now-false sentence in the scopeActionableDisposition docblock (:88-92) that says forDispositions drops the literal. Keep docblocks sparse. Test first in the new CH-free ClickhouseHitQueryShapeTest (scope section).",
+      "target_files": [
+        "app/Clickhouse/Models/Hit.php",
+        "tests/Filament/Resources/ClickhouseHitQueryShapeTest.php"
+      ],
+      "intended_diffs": "Hit.php: (+) scopeForHotlistOrgs with a 1-line docblock ('Prune by hotlist_org_id, the leading hits_cold/hits_hot sort key. Not a tenancy boundary.' + @param array<int,int>); (~) scopeForDispositions: when $hasNewHit, prepend 'New Hit' to $safe and always emit '(disposition IS NULL OR disposition IN (...))', so the NEW_HIT-only early return becomes the same shape; (~) scopeValidDisposition: whereRaw(\"(disposition IS NULL OR disposition IN ('\".addslashes(DispositionEnum::VALID->value).\"'))\"); (~) scopeActionableDisposition docblock: drop the 'Built directly rather than via scopeForDispositions...' paragraph. ClickhouseHitQueryShapeTest.php (NEW, extends Tests\\TestCase, no RequiresClickhouse, #[Group('clickhouse')]): forHotlistOrgs([]) -> '0 = 1' and never 'in (0)'; forHotlistOrgs(['5', 5, 7]) -> 'hotlist_org_id in (5, 7)'; forDispositions(['New Hit']) and (['New Hit','Accessible']) SQL contain 'disposition IS NULL' and the literal 'New Hit'; forDispositions(['Accessible']) has no IS NULL; validDisposition()->toSql() assertSame the pre-change string and does not contain 'New Hit'; no 'final' in any of them.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "ClickhouseHitQueryShapeTest|ClarityScoutDashboardControllerTest|ClarityScoutMapControllerTest|ClarityScoutBirdsEyeControllerTest",
+      "ui_impact": true,
+      "blast_radius": ["tenant-scope"],
+      "complexity": "complex"
+    },
+    {
+      "id": "t2",
+      "title": "Route HitsListQuery by config and prune the CH query by hotlist_org_id (ship together)",
+      "approach": "HARD STOP: routing and prune land in this one node. In app/Support/Hits/HitsListQuery.php, shouldUseClickhouse() (:19-23) becomes config('app.experimental.clickhouse.hits', false) || session()->has('admin_impersonator'), the DEV-2591 idiom from ListScans.php:306-309. Keep the Pennant import because the PG path still uses HIT_ADDRESS_DISTANCE. In buildClickhouseQuery() (:36-46), chain ->forHotlistOrgs(self::hotlistOrgIds($user)) before the kept ->forKits($kitIds), and leave notNicb, the select list and the hit_type clauses unchanged. Add private static hotlistOrgIds(User $user): array returning the positive ints of {(int) $user->org_id} ∪ $user->org?->stagingOrgIds()->all() (Org::stagingOrgIds() reused UNCHANGED, 2h cache accepted per Q2) ∪ self::silentOrgIds(). Add private static silentOrgIds(): array as Cache::remember(self::SILENT_ORG_IDS_CACHE_KEY, now()->addMinutes(10), fn () => Org::query()->where('silent_hit_generation', true)->pluck('id')->map(intval(...))->all()), with a public const cache key so tests can forget it. The 10-minute TTL is global, not per-org: orgs has ~729k rows and 1 silent org, the flag rarely changes, and the Hits page polls every 10s. The user org is used instead of kits->pluck('org_id') because they are equivalent on this path (Q8, Kit.php:252-266, withShared=false). An empty kit list still gives '0 = 1' via forKits, and the predicate is AND-only, so it can never widen beyond PG (Q10). Never use forOrg()/forKitOrg(), and no FINAL. Tests: extend the CH-free ClickhouseRoutingTest with a HitsListQuery suite (drop the :20-22 'ListHits deliberately not covered' paragraph); add baseQuery-level cases to ClickhouseHitQueryShapeTest (hot and cold); in OttoSearchToolsTest add the CH-mode sibling plus the Otto AC-7 pin.",
+      "target_files": [
+        "app/Support/Hits/HitsListQuery.php",
+        "tests/Filament/Resources/ClickhouseRoutingTest.php",
+        "tests/Filament/Resources/ClickhouseHitQueryShapeTest.php",
+        "tests/Feature/Otto/OttoSearchToolsTest.php"
+      ],
+      "intended_diffs": "HitsListQuery.php: (~) shouldUseClickhouse body; (~) buildClickhouseQuery adds ->forHotlistOrgs(self::hotlistOrgIds($user)) above ->forKits; (+) public const SILENT_ORG_IDS_CACHE_KEY = 'hits_list:silent_hit_generation_org_ids'; (+) private static hotlistOrgIds(User): array<int,int> (collect, map intval, filter >0, unique, values); (+) private static silentOrgIds(): array<int,int> (Cache::remember 10 min); (+) imports App\\Models\\Org, Illuminate\\Support\\Facades\\Cache. ClickhouseRoutingTest.php: (~) class docblock loses the ListHits exclusion paragraph and names both pages; (+) test_hits_route_to_clickhouse_when_the_config_is_on / _stay_on_postgres_when_off / _do_not_depend_on_the_pro_tier / admin_impersonation_reaches_clickhouse_with_config_off / pennant_clickhouse_hits_is_not_consulted (Feature::for(user)->deactivate(FeatureEnum::CLICKHOUSE_HITS->slug())); (~) test_the_old_literals_match_no_defined_feature also asserts 'clickhouse:hits' is not in FeatureEnum::slugs(). HitsListQuery::shouldUseClickhouse is public static, so call it directly (no reflection). ClickhouseHitQueryShapeTest.php: (+) setUp does Kit::forgetCachedKits + Cache::forget(SILENT key) + Cache::forget('staging_org_ids:'.org); (+) Config::set('app.experimental.clickhouse.hits', true); user + kit + ApprovalList::query()->create(['agent_org_id'=>user org,'staging_org_id'=>$staging->id]) + Org::factory()->create(['silent_hit_generation'=>true]) + unrelated org; baseQuery($user, now()->subDays(7)->toDateTimeString()) -> 'hits_hot', baseQuery($user) -> 'hits_cold'; the WHERE contains 'hotlist_org_id in' with user org, staging and silent ids, 'kit_id in' with the kit id, '_peerdb_is_deleted', no 'final', and not the unrelated org id; a zero-kit user gives '0 = 1'; config off gives PG SQL with no hotlist_org_id in the WHERE (the regex from OttoSearchToolsTest:407). OttoSearchToolsTest.php: (+) test_hits_list_query_is_kit_and_hotlist_org_scoped_on_clickhouse (config on; SQL has 'hotlist_org_id in' AND 'kit_id in'; zero kits -> '0 = 1'); (+) test_hit_search_actionable_filter_keeps_literal_new_hit_on_clickhouse (reflect HitSearchTool::constrainActionable on (new ClickhouseHit)->newQuery(); SQL contains 'disposition IS NULL' and the literal 'New Hit'). The existing PG test_hits_list_query_is_kit_scoped stays untouched and pins config off.",
+      "depends_on": ["t1"],
+      "parallelizable": false,
+      "test_filter": "ClickhouseRoutingTest|ClickhouseHitQueryShapeTest|OttoSearchToolsTest",
+      "ui_impact": true,
+      "blast_radius": ["tenant-scope"],
+      "complexity": "complex"
+    },
+    {
+      "id": "t3",
+      "title": "Live-CH row-set test: Staging Live survives the prune, and literal 'New Hit' shows on the Hits list",
+      "approach": "New RequiresClickhouse class tests/Filament/Resources/HitsResourceClickhouseRowSetTest.php extending Tests\\ResourceTestCase, in its own class because CH-free guarantees live in t1/t2 classes (memory: class-level RequiresClickhouse hides tests). Mirror the HitsResourceMetricCardsClickhouseTest harness (setupRequiresClickhouse, seedHit into the connection's hits_hot anchored to now()->subHours(2), and its hitsPage()/metricCards() helpers at :161-178). Route through config (Config::set('app.experimental.clickhouse.hits', true)), NOT admin_impersonator, so the real routing is exercised end to end. Seed per prep qa_hint.seed_scenario: an approved staging org S1 (ApprovalList on zod), a silent org S2 (Org::factory silent_hit_generation=true), and a foreign org X with its own kit. Then assert the ListHits table record ids equal exactly {L own, S via S1, Z via S1, S via S2, literal-'New Hit' row}. Absent: the X-kit hit, an out-of-set hotlist-org hit on the user's kit (the documented Q3 gap), O, NICB and an 'Invalid' disposition row. Also assert the metric cards count the S/Z rows. Flush the Kit, staging and silent caches in setUp. This needs t1 (the scope and the disposition parity) and t2 (the wiring).",
+      "target_files": [
+        "tests/Filament/Resources/HitsResourceClickhouseRowSetTest.php"
+      ],
+      "intended_diffs": "NEW file only: class docblock (2 lines: DEV-2614 row set on the CH Hits list); setUp + seedHit(array $overrides) copied from HitsResourceMetricCardsClickhouseTest:180-258 with hotlist_org_id/kit_id/kit_org_id overridable and unique ids; test_staging_live_and_silent_org_hits_survive_the_hotlist_org_prune; test_foreign_kit_and_out_of_set_hotlist_org_hits_are_absent; test_literal_new_hit_disposition_is_listed_under_the_default_filter (default dispositions filter; seeds NULL, 'New Hit', 'Accessible', 'Invalid'); test_metric_cards_count_staging_rows. All #[Group('resources')] and #[Group('clickhouse')].",
+      "depends_on": ["t2"],
+      "parallelizable": false,
+      "test_filter": "HitsResourceClickhouseRowSetTest|HitsResourceMetricCardsClickhouseTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple"
+    }
+  ],
+  "excluded_sites": [],
+  "site_coverage": [
+    {"site": "app/Support/Hits/HitsListQuery.php:21", "verdict": "buggy", "covered_by": "t2"},
+    {"site": "app/Support/Hits/HitsListQuery.php:45", "verdict": "buggy", "covered_by": "t2 (wiring) + t1 (scope)"},
+    {"site": "app/Clickhouse/Models/Hit.php:141-160 (forDispositions drops literal 'New Hit'; derived AC-7)", "verdict": "buggy", "covered_by": "t1"},
+    {"site": "app/Filament/Resources/HitsResource.php:429", "verdict": "safe after t1", "covered_by": "inherits t1; pinned by t3"},
+    {"site": "app/Ai/Tools/HitSearchTool.php:236-247", "verdict": "safe (CH branch already actionableDisposition)", "covered_by": "pin in t2"},
+    {"site": "app/Clickhouse/Models/Hit.php:66-69 scopeValidDisposition", "verdict": "must not change", "covered_by": "t1 SQL-identity pin"},
+    {"site": "app/Filament/Resources/MissedOpportunityResource.php:278", "verdict": "safe (MissedOpportunity models, own scopes)", "covered_by": "none needed"}
+  ],
+  "ship_gates": [
+    "AC-6: prod CLICKHOUSE_HITS_ENABLED confirmed true (Dalton 2026-09-29) and left on, so the deploy flips every org and Otto to the CH Hits path. No staged rollout.",
+    "AC-8: merge/deploy only after DEV-2739's Path B (recovery_address) distance fix is live in prod (Q4.5).",
+    "QA before merge (Q3): read-only prod measurement for one representative org over 30d of hit ids on its kits whose hotlist_org_id falls outside the prune set (moved kits, revoked approvals, de-flagged silent orgs).",
+    "QA before merge (Q5): read-only prod EXPLAIN indexes=1 / read_rows on hits_cold before vs after the prune, interleaved, which also confirms the prod sort key (hotlist_org_id, toYYYYMM(hit_created_at), hit_created_at, id).",
+    "AC-3/AC-4 human QA: read-only PG-vs-CH aggregate comparison for a Staging-Live-bearing org, with every difference written up in the PR/build record (matrix below)."
+  ],
+  "ac4_difference_matrix_document_only": [
+    "4.1 Hit types: CH keeps only L/H/Z/S; F/M/A/P/W exist only on PG under Type=All. Accepted, not wanted on the list.",
+    "4.3 Duplicates: no FINAL and no dedup. A hit id can list twice when hit_created_at moved (cards use uniqExact(id), so list rows can differ from card totals). Otto hydration limit(count($hitIds)) can be crowded. Documented, not fixed.",
+    "4.4 Status: CH hotlist_status is re-emitted by the MV with lag; PG reads live hotlist.status. Accepted.",
+    "4.5 Distance columns: CH lacks distance_from_given_miles/nearest_given_address, so Pro HIT_ADDRESS_DISTANCE orgs move to async Path B. Gated by AC-8.",
+    "4.6 Join differences: measured tiny (PG-only 0.009%, CH-only 0.11% over 7d).",
+    "Q3 prune drift: current-value prune drops hits whose derivation changed (moved kit, revoked approval, de-flagged silent org). Accepted like DEV-2615, and the new 10-min silent-org cache adds up to 10 min of lag on (de)flagging.",
+    "Staging lag: Org::stagingOrgIds() 2h cache means a new approval's S/Z hits can take up to 2h to appear on CH (Q2 accepted).",
+    "kit_org_id is scan-time on CH vs current on PG (the dispositionable check differs for moved kits)."
+  ],
+  "docs_to_queue_post_approval": [
+    "okf/concepts/hit.md:66 (hotlist_status 'never back-updated' vs MV re-emit)",
+    "okf/concepts/feature-flags.md:36-37 (clickhouse:hits gate is gone; config-only routing)",
+    "okf/concepts/hit-address-distance.md:52,98 (old gate wording; Path B on the CH flip)",
+    "okf/concepts/otto.md (Otto hit search/hydration now on CH with hotlist_org_id prune)",
+    "docs/plans/otto.md:160 (old gate wording)",
+    "tests/Filament/Resources/HitsResourceMetricCardsClickhouseTest.php:22 docblock still says 'clickhouse:hits flag' (test-code wording, fold into the same pass; not edited in flight to keep the diff to 6 files)",
+    "New okf note: CH Hits forDispositions now matches PG for the literal 'New Hit'; scopeValidDisposition (Scout) intentionally does not"
+  ],
+  "ac_coverage": [
+    {"ac": "AC-1 routing reads config('app.experimental.clickhouse.hits')", "subtasks": ["t2", "t3"], "how": "shouldUseClickhouse() = config || admin_impersonator; ClickhouseRoutingTest HitsListQuery suite (on/off, Pro-independent, impersonator, Pennant row ignored, slug assertion); t3 routes via config end to end."},
+    {"ac": "AC-2 CH query filters sort-key-leading hotlist_org_id", "subtasks": ["t1", "t2"], "how": "Hit::scopeForHotlistOrgs + HitsListQuery wiring; ClickhouseHitQueryShapeTest asserts 'hotlist_org_id in' (user + staging + silent) on hot and cold."},
+    {"ac": "AC-3 Staging Live present after the predicate", "subtasks": ["t2", "t3"], "how": "Shape test asserts the staging and silent ids are in the IN-list; t3 asserts S/Z rows (approved and silent) are listed and counted. Human read-only aggregate in QA."},
+    {"ac": "AC-4 same rows or every difference documented", "subtasks": ["t3"], "how": "t3 pins the intended row set, including the documented out-of-set gap; ac4_difference_matrix_document_only goes into the PR/build record; the human QA comparison is a ship gate."},
+    {"ac": "AC-5 no FINAL on hits_cold/hits_hot", "subtasks": ["t1", "t2"], "how": "assertStringNotContainsString('final') on scope SQL and on baseQuery SQL for both tables."},
+    {"ac": "AC-6 confirm prod CLICKHOUSE_HITS_ENABLED", "subtasks": [], "how": "Ship gate. Confirmed true, left on (Q1)."},
+    {"ac": "Derived: prune never widens beyond PG", "subtasks": ["t1", "t2", "t3"], "how": "AND-only with forKits kept; empty sets give '0 = 1'; unrelated org id absent from SQL; t3 foreign-kit row absent."},
+    {"ac": "Derived: Otto HitSearchTool + InvestigationDataController work on CH", "subtasks": ["t2"], "how": "Both call HitsListQuery::baseQuery (HitSearchTool.php:142, InvestigationDataController.php:133) and inherit the change; OttoSearchToolsTest CH-mode sibling asserts both predicates."},
+    {"ac": "Derived AC-7: CH 'New Hit' filter = NULL OR literal on Hits list + Otto; Scout unchanged", "subtasks": ["t1", "t2", "t3"], "how": "t1 fixes CH forDispositions (HitsResource.php:429) and pins scopeValidDisposition SQL byte-identical; t2 pins Otto's CH actionableDisposition (already correct); t3 shows a literal-'New Hit' row on the Hits list."},
+    {"ac": "Derived AC-8: merge after DEV-2739", "subtasks": [], "how": "Ship gate, not code."}
+  ],
+  "sizing": {
+    "files": 6,
+    "app_files": 2,
+    "test_files": 4,
+    "concerns": 2,
+    "split_recommended": false,
+    "reason": "Two concerns: (a) routing + hotlist_org_id prune and (b) AC-7 'New Hit' parity, across 6 files (2 app, 4 test). That sits at the file threshold and over the concern threshold, but a PR split is wrong here. (a) is a hard stop: routing and prune must ship together. With prod CLICKHOUSE_HITS_ENABLED=true, the deploy moves every org onto the CH path, so shipping (a) without (b) would regress the Hits list 'New Hit' filter for all orgs. (b) is a ~10-line scope change the human put in this ticket. It stays one PR, split into 3 serial subtasks. Org.php is NOT touched: the silent-org lookup is a private static in HitsListQuery."
+  },
+  "approvals": [
+    {"what": "blast radius: tenant-scoped Hits CH query change + all-org ClickHouse routing (Hits page, metric cards, Otto)", "by": "human:Dalton McCleery 2026-09-29"}
+  ]
+}

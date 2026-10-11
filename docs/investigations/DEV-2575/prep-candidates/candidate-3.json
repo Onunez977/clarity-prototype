@@ -1,0 +1,348 @@
+{
+  "synthesis": "Scout drivers authenticate via email+password (ClarityScoutAuthController, Sanctum bearer token). Initial onboarding uses a 7-day signed URL → set-password flow (ScoutSetPasswordController) that becomes one-shot once `email_verified_at` is set (line 71-73 guard). If a user forgets their email OR password post-onboarding, they have ZERO recovery path—neither self-serve nor admin-assisted. The admin 'resend onboarding' action (ScoutUsersResource:356-412) is explicitly hidden once `email_verified_at` exists (line 368-369), and no password-reset mechanism exists. Clarity's admin/client panels use a fully-built passwordless OTP system (CustomLoginPage + OneTimePassword class, 6-digit cache-backed code with password_timeout TTL). The ticket requests adding Scout account recovery, preferring OTP/magic-link (Clarity-consistent) with an admin backstop so users are never permanently locked out. Critical architectural gap: Clarity's OTP returns a JWT token (OneTimePassword::attempt line 70), but Scout needs Sanctum bearer tokens; the OTP flow would need adaptation. prior onboarding signed-URL work precedent shows Scout's signed-URL infrastructure is robust (absolute+relative validation, friendly error pages), making a signed reset-link approach viable.",
+  "scope": {
+    "in_scope": [
+      "Add OTP-based passwordless login to Scout PWA (parallel to existing email+password, not replacing it unless Q2 = replace)",
+      "Modify ClarityScoutAuthController to accept OTP verification as an alternative authentication path",
+      "Add Scout-specific OTP send/verify API endpoints under /api/scout/auth/* (throttled: send-otp, verify-otp)",
+      "Extend Clarity's OneTimePassword class or create ScoutOneTimePassword to return Sanctum token instead of JWT",
+      "Add 'Forgot Password?' link to Scout Login.vue → OTP send flow",
+      "Add admin password-reset action to ScoutUsersResource, visible for verified users, sends signed URL or triggers OTP",
+      "Optionally extend ScoutSetPasswordController to handle both onboarding (email_verified_at IS NULL) and password-reset (email_verified_at NOT NULL) via a 'mode' parameter",
+      "Add ScoutPasswordResetNotification (or reuse ScoutOnboardingNotification with different copy)",
+      "Update Scout Login.vue to support OTP entry UI (similar to Clarity CustomLoginPage two-step flow)",
+      "Add tests for OTP send/verify, admin reset action, signed URL reset flow, org-scoping"
+    ],
+    "out_of_scope": [
+      "Replacing password-based login entirely (ticket says PREFERRED not REQUIRED; Q2 unresolved)",
+      "Migrating existing Scout users to OTP-only (breaking change, not requested)",
+      "Adding OTP to Clarity admin/client (they already have it)",
+      "Changing Clarity's OTP TTL or JWT behavior (don't touch CustomLoginPage/OneTimePassword if possible)",
+      "Rewiring Laravel's password_reset_tokens table (it exists but unused; don't couple to it unless adopting Laravel's ForgotPasswordController)",
+      "Admin bulk password reset (single-user admin action is enough per AC2)",
+      "SMS/phone-based OTP (ticket says 'magic-link' implying email)",
+      "Force-login as recovery mechanism (it's impersonation, not user-owned recovery; prior force-login org-scoping work scoping risk)"
+    ],
+    "open_questions": [
+      {
+        "id": "Q1",
+        "question": "AC1 says 'without remembering email' but OTP/magic-link both require an email to receive the code/link. Interpretation: user remembers email (self-serve OTP) OR contacts admin (admin-assisted reset via force-login or signed link) if email is forgotten?",
+        "answered": false,
+        "answer": null,
+        "blocker": false,
+        "why": "AC1 'self-serve without remembering email or password' is contradictory for email-based recovery. Need confirmation: is 'forgot email' an explicit requirement (needs phone number or username fallback) or is it acceptable to say 'user must remember email OR contact admin'?"
+      },
+      {
+        "id": "Q2",
+        "question": "Should OTP be an alternative to password (keep both, user chooses at login) or a replacement (password field removed from login, onboarding still sets password for admin/Filament access)?",
+        "answered": false,
+        "answer": null,
+        "blocker": true,
+        "why": "Impacts scope: alternative = add OTP endpoints + UI toggle, replacement = remove password field from Scout login + migrate existing users. Ticket says 'PREFERRED' for magic-link but doesn't mandate removing password. Both Clarity panels use OTP-only, so consistency suggests replacement, but Scout users may already have passwords memorized."
+      },
+      {
+        "id": "Q3",
+        "question": "Admin password-reset action: (A) signed URL that bypasses the one-shot guard and allows re-setting password, or (B) admin directly updates user password + sends email with new temp password (insecure), or (C) admin triggers OTP send so user can login via OTP then change password in-app?",
+        "answered": false,
+        "answer": null,
+        "blocker": true,
+        "why": "Three viable approaches: (A) reuses ScoutSetPasswordController infra + signed URL pattern (prior onboarding signed-URL work precedent), needs mode param to bypass hasVerifiedEmail guard; (B) violates best practice (admin shouldn't know user passwords); (C) cleanest UX but requires in-app password change UI (not mentioned in ticket). Need product decision."
+      },
+      {
+        "id": "Q4",
+        "question": "What TTL for OTP codes? Clarity uses config('auth.password_timeout') (default 900s = 15min). Scout onboarding uses 7 days for signed URLs. Should Scout OTP match Clarity's 15min or use a different value?",
+        "answered": false,
+        "answer": null,
+        "blocker": false,
+        "why": "Consistency favors 15min (matches Clarity), but if Scout users are in vehicles/field they may have sporadic connectivity. Could use 15min for in-app OTP, 7-day for admin-triggered signed reset link."
+      },
+      {
+        "id": "Q5",
+        "question": "Should the admin password-reset action be visible only to InsightLPR staff (admin_impersonator) or to all org admins? prior force-login org-scoping work precedent shows org-scoping is critical for Scout admin actions.",
+        "answered": false,
+        "answer": null,
+        "blocker": false,
+        "why": "Org admins being able to reset their drivers' passwords is reasonable (they already have force-login access), but needs confirmation. Ensure org-scoping: admin can only reset users in their own org (unless admin_impersonator)."
+      },
+      {
+        "id": "Q6",
+        "question": "Non-production OTP bypass: Clarity's CustomLoginPage bypasses OTP in non-production (line 73-83). Should Scout's OTP flow also bypass in non-prod, or always require OTP (more realistic testing)?",
+        "answered": false,
+        "answer": null,
+        "blocker": false,
+        "why": "Consistency suggests bypass in non-prod, but Scout already requires password in all envs (no bypass). If OTP replaces password, bypass would be useful for local dev."
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC1",
+      "text": "Scout users can recover access via self-serve flow without remembering email OR password (magic-link/OTP preferred)",
+      "interpretation": "If Q1 = 'email must be remembered', this AC becomes: user enters email → receives OTP → can login. If Q1 = 'email can be forgotten', needs fallback (phone, username, or admin assist). Ticket says 'without remembering email' but OTP/magic-link both require email to send code/link. Likely intent: user remembers email OR contacts admin.",
+      "testable": true,
+      "dependencies": ["Q1", "Q2"],
+      "notes": "Testable once Q1 resolved. If email is required, test: enter email → OTP sent → enter OTP → logged in. If email can be forgotten, test: contact admin → admin sends reset link → user clicks → logged in."
+    },
+    {
+      "id": "AC2",
+      "text": "Admins can assist locked-out Scout users from the admin panel (password reset or magic-link resend)",
+      "interpretation": "ScoutUsersResource needs a new admin action (like resend_onboarding but for verified users) that either (A) sends a signed reset-link, (B) triggers OTP send, or (C) directly updates password. Design choice needed (Q3).",
+      "testable": true,
+      "dependencies": ["Q3"],
+      "notes": "Testable with feature test: admin clicks reset action → user receives email → user follows link/OTP → can login. Must verify org-scoping (prior force-login org-scoping work): admin can only reset users in their own org (unless admin_impersonator)."
+    },
+    {
+      "id": "AC3",
+      "text": "Recovery flow is consistent with Clarity's authentication (OTP/passwordless preferred over password reset)",
+      "interpretation": "Clarity admin/client use passwordless OTP. Consistency suggests Scout should also use OTP. But Q2 unresolved: is password kept as alternative or removed entirely? If removed, Scout becomes OTP-only like Clarity.",
+      "testable": true,
+      "dependencies": ["Q2"],
+      "notes": "Subjective 'consistent with Clarity' AC. Testable as: Scout OTP flow matches Clarity's CustomLoginPage flow (email → send OTP → enter OTP → login). Use OneTimePassword class or equivalent."
+    },
+    {
+      "id": "AC4",
+      "text": "No permanent account lockout without an admin recovery path",
+      "interpretation": "Currently, a verified Scout user who forgets password is PERMANENTLY locked out (no self-serve, no admin action visible post-verification). After this ticket, either (1) self-serve OTP recovery OR (2) admin reset action must exist.",
+      "testable": true,
+      "dependencies": [],
+      "notes": "Testable by verifying: user forgets password → can recover via OTP (self-serve) OR admin can send reset link (admin-assisted). No scenario should result in 'call InsightLPR support to manually update DB'."
+    }
+  ],
+  "questions": [
+    {
+      "question": "Q1: Does 'without remembering email' mean email is optional for recovery (requires phone/username fallback) or is 'user must remember email OR contact admin' acceptable?",
+      "answered": false,
+      "blocker": false
+    },
+    {
+      "question": "Q2: Should OTP be an alternative to password (keep both) or a replacement (remove password from Scout login)?",
+      "answered": false,
+      "blocker": true
+    },
+    {
+      "question": "Q3: Admin password-reset action: (A) signed URL + re-use set-password flow, (B) direct password update (insecure), or (C) trigger OTP send?",
+      "answered": false,
+      "blocker": true
+    },
+    {
+      "question": "Q4: What TTL for OTP codes? 15min (Clarity standard) or custom for Scout?",
+      "answered": false,
+      "blocker": false
+    },
+    {
+      "question": "Q5: Should admin password-reset action be visible to all org admins or only InsightLPR staff?",
+      "answered": false,
+      "blocker": false
+    },
+    {
+      "question": "Q6: Should Scout OTP bypass in non-production like Clarity does?",
+      "answered": false,
+      "blocker": false
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Q2 unanswered: OTP as alternative or replacement for password? Impacts scope (add vs migrate)",
+      "severity": "high",
+      "resolution": "Product decision required. Recommendation: keep password as alternative initially (lower risk, no migration), add OTP as parallel path. Scout Login.vue shows 'Email + Password' OR 'Email + Get OTP' toggle."
+    },
+    {
+      "description": "Q3 unanswered: Admin reset mechanism design (signed URL, OTP trigger, or direct password update)?",
+      "severity": "high",
+      "resolution": "Product decision required. Recommendation: signed URL (reuses ScoutSetPasswordController + prior onboarding signed-URL work validation infra, matches onboarding UX). Add 'mode' param: onboarding vs reset."
+    },
+    {
+      "description": "Architectural mismatch: OneTimePassword::attempt returns JWT (Auth::refresh line 70), Scout needs Sanctum token",
+      "severity": "medium",
+      "resolution": "Create ScoutOneTimePassword wrapper or add optional 'sanctum' mode to OneTimePassword::attempt. Precedent: ClarityScoutAuthController already mints Sanctum tokens (line 66), ScoutSetPasswordController also mints (line 44). Pattern exists."
+    }
+  ],
+  "notes": {
+    "current_scout_auth": "Email+password via /api/scout/login (ClarityScoutAuthController:21-87). Returns Sanctum bearer token ('clarity-scout-token', line 66). Checks: user exists, password valid, hasPermissionTo('clarity-scout'), kit_id not null, CLARITY_SCOUT feature active. Login throttled 5 attempts/minute (routes/api.php:29-33).",
+    "current_onboarding": "Admin grants clarity-scout permission → ScoutUserProvisioner sends ScoutOnboardingNotification (7-day signed URL) → user visits /scout/set-password/{user} → ScoutSetPasswordController shows form (GET) → user submits password (POST) → password saved, email_verified_at set (line 39-41), Sanctum token minted (line 44), user auto-logged into PWA. Signed URL becomes one-shot: guardUser() rejects if email_verified_at NOT NULL (line 71-73, 'reason: used').",
+    "resend_onboarding_action": "ScoutUsersResource:356-412. Visible ONLY if user has clarity-scout permission AND email_verified_at IS NULL (line 368-369). Sends fresh ScoutOnboardingNotification. Once user verifies, action disappears—this is the gap DEV-2575 addresses.",
+    "clarity_otp_reference": "CustomLoginPage (app/Filament/Auth/CustomLoginPage.php): two-step flow (email → send OTP button → OTP input field → login). OneTimePassword class (app/Filament/Auth/OneTimePassword.php): generates 6-digit code, caches as otp_{email} with TTL = config('auth.password_timeout') (default 900s = 15min). Non-production bypass: CustomLoginPage:73-83 skips OTP, logs in directly. OneTimePassword::attempt (line 59-75) returns JWT via Auth::refresh (line 70)—Scout needs Sanctum token instead.",
+    "scout_frontend_login": "resources/js/clarity-scout/views/Login.vue: simple email+password form (line 23-58), NO 'Forgot Password?' link. auth.login() calls /api/scout/login (stores/auth.js:93-125). Adding OTP flow requires: (1) 'Send OTP' button, (2) OTP input field (hidden until sent), (3) two-step form submission (send → verify).",
+    "signed_url_infrastructure": "ValidateScoutSignedUrl middleware (app/Http/Middleware/ValidateScoutSignedUrl.php) accepts both absolute and relative signed URLs (line 22: hasValidSignature(absolute: true) || hasValidSignature(absolute: false)). Renders friendly error pages (auth.scout.invalid-link) on failure. ScoutOnboardingNotification generates relative signature (line 28-33, absolute: false) to avoid TLS-termination issues (prior onboarding signed-URL work). Reusing this for password reset is viable.",
+    "org_scoping_requirement": "prior force-login org-scoping work precedent: Scout admin actions must stay org-scoped. Any password-reset action must ensure: (1) admin can only reset users in admin's org (unless admin_impersonator session), (2) ScoutSetPasswordController's guardUser() already checks org_id + clarity-scout permission (line 76-82). If reusing set-password route, no regression. If adding new admin action, must call setPermissionsTeamId($user->org_id) before permission checks.",
+    "password_reset_tokens_table": "Exists (database/migrations/0001_01_01_000000_create_users_table.php line 1) but UNUSED. Laravel's ForgotPasswordController / ResetPasswordController are NOT wired. Don't rely on this table unless adopting Laravel's password-reset flow (out of scope per precedent—Clarity uses OTP, not password_reset_tokens).",
+    "test_coverage": "ScoutSetPasswordControllerTest (13 tests): signed URL validation (absolute, relative, expired, unsigned), guardUser rejection (no permission, no org_id, already verified line 221-251), password submit success. ClarityScoutAuthControllerTest (20+ tests): login success, invalid credentials, missing permission, missing kit, throttling, logout, /me. No OTP tests exist yet—new tests required for OTP send/verify, admin reset action.",
+    "design_recommendation": "Recommend PHASED approach: (1) Phase 1: Add OTP as ALTERNATIVE to password (not replacement). Scout Login.vue shows toggle: 'Login with Password' or 'Login with OTP'. ClarityScoutAuthController gains /api/scout/auth/send-otp (throttled 5/min) and /api/scout/auth/verify-otp endpoints. OneTimePassword class extended or wrapped to return Sanctum token. (2) Phase 2: Admin reset action in ScoutUsersResource, visible for verified users, sends signed URL to /scout/reset-password/{user} (reuses ScoutSetPasswordController with mode=reset to bypass hasVerifiedEmail guard). (3) Phase 3 (optional, if Q2 = replace): remove password field from Scout Login.vue, keep password in onboarding so users still have password for admin/Filament if needed."
+  },
+  "tests": {
+    "new_tests_required": [
+      "Feature: Scout OTP send endpoint (/api/scout/auth/send-otp) requires email, returns success, caches OTP, sends OneTimePasswordNotification",
+      "Feature: Scout OTP send is throttled (5 attempts/minute per IP+email combo)",
+      "Feature: Scout OTP verify endpoint (/api/scout/auth/verify-otp) accepts email+OTP, returns Sanctum token + user + kit payload",
+      "Feature: Scout OTP verify rejects invalid OTP, expired OTP, wrong email",
+      "Feature: Scout OTP verify revokes prior clarity-scout-token (same single-token behavior as password login)",
+      "Feature: Admin password-reset action visible for verified Scout users with clarity-scout permission",
+      "Feature: Admin password-reset action sends ScoutPasswordResetNotification with signed URL",
+      "Feature: Admin password-reset action respects org boundaries (admin can only reset users in admin's org, unless admin_impersonator)",
+      "Feature: /scout/reset-password/{user} GET renders form for verified user (bypasses hasVerifiedEmail guard when mode=reset)",
+      "Feature: /scout/reset-password/{user} POST updates password, keeps email_verified_at, mints token, boots into PWA",
+      "Feature: Scout Login.vue OTP flow (Playwright/browser-use): click 'Send OTP' → OTP input appears → enter valid OTP → logged in",
+      "Feature: Scout Login.vue password flow still works (no regression)",
+      "Unit: ScoutOneTimePassword::attempt returns Sanctum token instead of JWT",
+      "Unit: ScoutSetPasswordController guardUser allows verified users when mode=reset"
+    ],
+    "existing_tests_to_update": [
+      "ScoutSetPasswordControllerTest: test_already_verified_user_cannot_reuse_link (line 221-251) — should still reject onboarding links (mode=onboarding) but allow reset links (mode=reset)",
+      "ClarityScoutAuthControllerTest: test_can_login_with_valid_credentials (line 30-48) — ensure password login still works if Q2 = alternative (not replacement)"
+    ]
+  },
+  "grounding": {
+    "scout_auth_controller": {
+      "file": "app/Http/Controllers/Api/ClarityScoutAuthController.php",
+      "lines": "21-87",
+      "why": "Current password-based login, returns Sanctum token. OTP path would parallel this (separate endpoint or alternate branch)."
+    },
+    "scout_set_password_controller": {
+      "file": "app/Http/Controllers/Auth/ScoutSetPasswordController.php",
+      "lines": "66-84",
+      "why": "guardUser() enforces one-shot via hasVerifiedEmail (line 71-73). Admin password-reset would reuse this flow with mode param to bypass guard."
+    },
+    "scout_onboarding_notification": {
+      "file": "app/Notifications/ScoutOnboardingNotification.php",
+      "lines": "17-45",
+      "why": "7-day signed URL, relative signature. Template for ScoutPasswordResetNotification (different copy, same mechanics)."
+    },
+    "scout_users_resource": {
+      "file": "app/Filament/Resources/ScoutUsersResource.php",
+      "lines": "356-412",
+      "why": "resend_onboarding action (line 356-412) is the precedent. Admin password-reset action would be sibling, visible for verified users (line 368-369 condition inverted)."
+    },
+    "one_time_password_class": {
+      "file": "app/Filament/Auth/OneTimePassword.php",
+      "lines": "14-76",
+      "why": "6-digit OTP, cache-backed, password_timeout TTL. ::attempt (line 59-75) returns JWT (Auth::refresh line 70). Scout needs Sanctum token—requires wrapper or mode param."
+    },
+    "custom_login_page": {
+      "file": "app/Filament/Auth/CustomLoginPage.php",
+      "lines": "58-156",
+      "why": "Clarity's two-step OTP flow: sendOtp() (line 134-155), authenticate() checks OTP (line 89-106). Scout Login.vue would replicate this UX."
+    },
+    "validate_scout_signed_url_middleware": {
+      "file": "app/Http/Middleware/ValidateScoutSignedUrl.php",
+      "lines": "20-33",
+      "why": "Accepts absolute or relative signed URLs (line 22). Friendly error pages on fail. Admin reset signed URLs would use this middleware."
+    },
+    "scout_login_vue": {
+      "file": "resources/js/clarity-scout/views/Login.vue",
+      "lines": "1-92",
+      "why": "Current email+password form, NO forgot password link (line 23-58). OTP flow requires: toggle button, OTP input field, two-step submission."
+    },
+    "scout_auth_store": {
+      "file": "resources/js/clarity-scout/stores/auth.js",
+      "lines": "93-125",
+      "why": "auth.login() calls /api/scout/login (ClarityScoutAuthController). OTP flow needs new sendOtp() and verifyOtp() methods."
+    },
+    "scout_api_routes": {
+      "file": "routes/api.php",
+      "lines": "29-33",
+      "why": "Scout login throttle:5,1 (5 attempts/minute). OTP endpoints need similar throttling (send-otp throttle:5,1, verify-otp inside existing group)."
+    },
+    "scout_web_routes": {
+      "file": "routes/web.php",
+      "lines": "108-111",
+      "why": "scout/set-password routes inside ValidateScoutSignedUrl middleware. Admin reset would add scout/reset-password/{user} in same group."
+    },
+    "scout_set_password_test": {
+      "file": "tests/Feature/Http/Controllers/Auth/ScoutSetPasswordControllerTest.php",
+      "lines": "221-251",
+      "why": "test_already_verified_user_cannot_reuse_link enforces one-shot. This test must continue passing for onboarding links but allow reset links (mode param)."
+    },
+    "scout_auth_controller_test": {
+      "file": "tests/Feature/Http/Controllers/Api/ClarityScoutAuthControllerTest.php",
+      "lines": "30-48",
+      "why": "test_can_login_with_valid_credentials. Ensure password login still works if OTP is alternative (Q2 unresolved)."
+    },
+    "precedent_dev_2246": {
+      "file": "docs/investigations/DEV-2575/precedents.json",
+      "lines": "3-9",
+      "why": "Scout onboarding set-password signed URL 403 Invalid signature. Signed URL infra is robust—reuse for password reset."
+    },
+    "precedent_dev_2168": {
+      "file": "docs/investigations/DEV-2575/precedents.json",
+      "lines": "11-17",
+      "why": "Scout force-login unscoped token. Admin password-reset action must respect org boundaries (no regression)."
+    }
+  },
+  "exhaustiveness": {
+    "codebase_coverage": "high",
+    "comment": "Read all Scout auth surfaces (ClarityScoutAuthController, ScoutSetPasswordController, ScoutUsersResource, Login.vue, auth.js store), Clarity OTP reference (OneTimePassword, CustomLoginPage), signed URL middleware (ValidateScoutSignedUrl), onboarding notification (ScoutOnboardingNotification), and precedents (prior onboarding signed-URL work, prior force-login org-scoping work). Checked for existing password-reset infra (password_reset_tokens table exists but unused, no ForgotPasswordController). Read test coverage (ScoutSetPasswordControllerTest, ClarityScoutAuthControllerTest). Checked okf/concepts/scout.md + scout-user-assignment.md for domain model. No unread auth-critical files."
+  },
+  "data_impact": {
+    "scale_relevant": false,
+    "tables_affected": [
+      {
+        "table": "users",
+        "operation": "read + write",
+        "volume": "low",
+        "notes": "Password reset updates users.password + keeps users.email_verified_at. Scout is Pro-only explicit-grant feature (small user subset). OTP send queries users.email (O(1) lookup)."
+      },
+      {
+        "table": "personal_access_tokens",
+        "operation": "write + delete",
+        "volume": "low",
+        "notes": "OTP verify mints new Sanctum token, deletes prior clarity-scout-token (same single-token behavior as password login, ClarityScoutAuthController:64-66)."
+      }
+    ],
+    "clickhouse_impact": false,
+    "notes": "Auth operations are O(1) per-user lookups/writes. No batch processing, no data iteration, no scheduled commands. OTP codes cached (cache driver, not DB). No ClickHouse involvement (users table is PostgreSQL platform schema)."
+  },
+  "resource_envelope": {
+    "files_to_create": [
+      "app/Http/Controllers/Api/ScoutOtpController.php (NEW) — send-otp + verify-otp endpoints",
+      "app/Notifications/ScoutPasswordResetNotification.php (NEW) — signed reset-link email (or reuse ScoutOnboardingNotification with different copy)",
+      "app/Support/Scout/ScoutOneTimePassword.php (NEW) — wrapper over OneTimePassword that returns Sanctum token",
+      "tests/Feature/Http/Controllers/Api/ScoutOtpControllerTest.php (NEW)",
+      "tests/Feature/Http/Controllers/Auth/ScoutPasswordResetControllerTest.php (NEW, if separate from set-password)"
+    ],
+    "files_to_modify": [
+      "app/Filament/Resources/ScoutUsersResource.php — add password_reset admin action (sibling to resend_onboarding, visible for verified users)",
+      "app/Http/Controllers/Auth/ScoutSetPasswordController.php — add mode param (onboarding vs reset) to bypass hasVerifiedEmail guard when mode=reset",
+      "resources/js/clarity-scout/views/Login.vue — add OTP UI (toggle, send button, OTP input field, two-step submission)",
+      "resources/js/clarity-scout/stores/auth.js — add sendOtp() and verifyOtp() methods",
+      "routes/api.php — add /api/scout/auth/send-otp + /api/scout/auth/verify-otp (throttled)",
+      "routes/web.php — optionally add /scout/reset-password/{user} routes (if separate from set-password)",
+      "tests/Feature/Http/Controllers/Auth/ScoutSetPasswordControllerTest.php — update test_already_verified_user_cannot_reuse_link to allow reset mode",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutAuthControllerTest.php — verify password login still works (no regression)"
+    ],
+    "precedent_files_to_reference": [
+      "app/Filament/Auth/CustomLoginPage.php — Clarity OTP two-step UI flow",
+      "app/Filament/Auth/OneTimePassword.php — 6-digit OTP, cache-backed, password_timeout TTL",
+      "app/Notifications/ScoutOnboardingNotification.php — 7-day signed URL pattern",
+      "app/Http/Middleware/ValidateScoutSignedUrl.php — signed URL validation"
+    ]
+  },
+  "derivation_log": [
+    "Read scout.md knowledge card → confirmed Scout rapid-iteration staleness risk, auth surfaces are stable (onboarding + force-login pre-date later Scout iteration work, set-password is from the prior onboarding signed-URL era). Scout uses Sanctum bearer token, admin uses Filament web session.",
+    "Read precedents.json → prior onboarding signed-URL work (Scout onboarding set-password 403 Invalid signature—CORRECTED, signed URL infra is robust), prior force-login org-scoping work (Scout force-login token scoping—admin actions must stay org-scoped), adjacent Scout impersonation work (force-login intermittent, don't fold in), the parent Scout epic (context only).",
+    "Read ClarityScoutAuthController:21-87 → password login (email+password validated, clarity-scout permission + kit_id + feature gates, Sanctum token minted line 66, prior token deleted line 64). No OTP path exists.",
+    "Read ScoutSetPasswordController:66-84 → guardUser() REJECTS if email_verified_at NOT NULL (line 71-73, 'reason: used')—one-shot onboarding link, cannot be reused for password reset unless mode param added.",
+    "Read ScoutOnboardingNotification:17-45 → 7-day signed URL (line 17), relative signature (line 28-33, absolute: false per prior onboarding signed-URL work fix). Template for password-reset notification.",
+    "Read ScoutUsersResource:356-412 → resend_onboarding action visible ONLY if email_verified_at IS NULL (line 368-369). This is the gap: once verified, no admin action exists to help locked-out user.",
+    "Read OneTimePassword class:14-76 → 6-digit OTP (line 44-45), caches as otp_{email} with TTL = config('auth.password_timeout') (line 16-19, default 900s = 15min). ::attempt (line 59-75) returns JWT via Auth::refresh (line 70)—Scout needs Sanctum token, requires wrapper.",
+    "Read CustomLoginPage:58-156 → Clarity's OTP flow: sendOtp() (line 134-155), authenticate() checks OTP (line 89-106). Non-production bypass (line 73-83). Scout would replicate this UX.",
+    "Read Scout Login.vue:1-92 → email+password form (line 23-58), NO 'Forgot Password?' link. OTP flow requires UI changes: toggle, send button, OTP input field.",
+    "Read Scout auth.js store → login() calls /api/scout/login (line 93-125). OTP flow needs new sendOtp() + verifyOtp() methods.",
+    "Read ValidateScoutSignedUrl middleware → accepts absolute or relative signed URLs (line 22). Friendly error pages (auth.scout.invalid-link). Admin reset signed URLs would use this.",
+    "Read ScoutSetPasswordControllerTest:221-251 → test_already_verified_user_cannot_reuse_link enforces one-shot. Must continue passing for onboarding links but allow reset links (mode param).",
+    "Read ClarityScoutAuthControllerTest:30-48 → test_can_login_with_valid_credentials. Ensure password login still works if OTP is alternative (Q2 unresolved).",
+    "Checked password_reset_tokens table → exists (database/migrations/0001_01_01_000000_create_users_table.php) but UNUSED. No ForgotPasswordController wired. Don't rely on this table.",
+    "Read okf/concepts/scout.md → Scout is Pro explicit-grant-only feature (line 40-46). Three surfaces: driver PWA (Sanctum), admin panel (Filament web session), Bird's Eye (Filament, reuses driver SPA). Auth gating (line 50-59).",
+    "Read okf/concepts/scout-user-assignment.md → kit ↔ user via kit_settings, clarity-scout permission. Onboarding sends ScoutOnboardingNotification (line 47), ScoutSetPasswordController enforces one-shot via hasVerifiedEmail. Resend onboarding only works pre-verification.",
+    "Analyzed AC1 'without remembering email' → OTP/magic-link both require email to receive code/link. Likely interpretation: user remembers email (self-serve OTP) OR contacts admin (force-login/reset) if email forgotten. Added Q1 to questions.",
+    "Analyzed AC3 'consistent with Clarity' → Clarity admin/client use passwordless OTP. Consistency suggests Scout should also use OTP. But Q2 unresolved: is password kept as alternative or removed? If removed, Scout becomes OTP-only like Clarity.",
+    "Flagged architectural mismatch → OneTimePassword::attempt returns JWT (Auth::refresh line 70), Scout needs Sanctum token. Resolution: wrapper (ScoutOneTimePassword) or mode param.",
+    "Flagged Q2 blocker → OTP as alternative or replacement? Impacts scope (add vs migrate). Recommendation: keep password as alternative initially (lower risk, no migration).",
+    "Flagged Q3 blocker → Admin reset mechanism design (signed URL, OTP trigger, or direct password update)? Recommendation: signed URL (reuses ScoutSetPasswordController + prior onboarding signed-URL work validation infra).",
+    "Determined scale_relevant = FALSE → auth flow, no data iteration, no scheduled commands. Scout is Pro explicit-grant feature (small user subset), auth operations are O(1) per-user lookups/writes.",
+    "Grounded all claims with file:line from /Users/daltonmccleery/Herd/platform/.claude/worktrees/DEV-2575 (verified this worktree IS branched from origin/main per task rules)."
+  ],
+  "qa_hint": "Auth changes require MANUAL browser testing in addition to PHPUnit: (1) spin up local Herd site, (2) create Scout user via admin, (3) test OTP flow end-to-end in REAL browser (send OTP email, check inbox, enter code, login to PWA), (4) test admin reset action (email arrives, link works, user can set new password), (5) verify existing password login still works if Q2 = support both (no regression). Use browser-use subagent or manual .test site. PHPUnit tests MUST cover: OTP send success, OTP send throttling, OTP verify success, OTP verify rejects invalid/expired/wrong email, admin reset action visible for verified users, admin reset action respects org boundaries (admin can only reset users in admin's org unless admin_impersonator), signed reset URL works, password login still works (if Q2 = alternative). Email testing: use Mailtrap or MailHog in local/CI, check email body contains correct link/code. Rate limiting: verify throttle kicks in after 5 attempts (send-otp, verify-otp, login). Org scoping: create two orgs, verify admin in org A cannot reset user in org B (403 or action hidden).",
+  "confidence": 0.80,
+  "escalate": true,
+  "escalate_reason": "Auth = escalate bias per task instructions. Q2 (OTP as alternative or replacement) and Q3 (admin reset mechanism design) are HIGH-severity blockers requiring product decisions before scoping. Recommendation: keep password as alternative (lower risk), use signed URL for admin reset (reuses prior onboarding signed-URL work infra). But ticket says 'PREFERRED' for magic-link/OTP without mandating password removal—ambiguous. AC1 'without remembering email' is contradictory for email-based OTP/magic-link recovery (Q1). Architectural mismatch (OneTimePassword returns JWT, Scout needs Sanctum) is medium-severity but solvable. Conservative on answered:true (all 6 questions unanswered). Escalate for product clarification on Q2 + Q3 before proceeding to implementation."
+}

@@ -1,0 +1,39 @@
+<?php
+
+namespace App\Horizon;
+
+use Laravel\Horizon\Console\WorkCommand as HorizonWorkCommand;
+
+/**
+ * Horizon 5.46's `horizon:work` signature omits `--stop-when-empty-for`,
+ * which Laravel 12.66+ `queue:work` always reads. Without this option the
+ * worker crashes on boot and jobs (including `{otto}`) sit pending forever.
+ *
+ * Remove this subclass once `laravel/horizon` is >= 5.47.
+ */
+class WorkCommand extends HorizonWorkCommand
+{
+    /**
+     * @var string
+     */
+    protected $signature = 'horizon:work
+                            {connection? : The name of the queue connection to work}
+                            {--name=default : The name of the worker}
+                            {--delay=0 : The number of seconds to delay failed jobs (Deprecated)}
+                            {--backoff=0 : The number of seconds to wait before retrying a job that encountered an uncaught exception}
+                            {--max-jobs=0 : The number of jobs to process before stopping}
+                            {--max-time=0 : The maximum number of seconds the worker should run}
+                            {--daemon : Run the worker in daemon mode (Deprecated)}
+                            {--force : Force the worker to run even in maintenance mode}
+                            {--memory=128 : The memory limit in megabytes}
+                            {--once : Only process the next job on the queue}
+                            {--stop-when-empty : Stop when the queue is empty}
+                            {--stop-when-empty-for=0 : Stop when no jobs have been processed for the given number of seconds}
+                            {--queue= : The names of the queues to work}
+                            {--sleep=3 : Number of seconds to sleep when no job is available}
+                            {--rest=0 : Number of seconds to rest between jobs}
+                            {--supervisor= : The name of the supervisor the worker belongs to}
+                            {--timeout=60 : The number of seconds a child process can run}
+                            {--tries=0 : Number of times to attempt a job before logging it failed}
+                            {--json : Output the queue worker information as JSON}';
+}

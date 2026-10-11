@@ -1,0 +1,194 @@
+{
+  "key": "DEV-2292",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "base-resolve surfaced only DEV-2246 signed-url hotfix branches (unrelated, already merged to main); DEV-2292 org-map modal work belongs on main",
+  "branch": "claude/DEV-2292",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [
+      "provision"
+    ],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "knowledge/clarity/scout.md"
+  ],
+  "escalated": false,
+  "escalation_triggers": [
+    "answered:false questions (2, design-only)",
+    "escalate.recommend=true"
+  ],
+  "escalation_note": "best-of-N deep prep skipped: single-file fully-grounded scope (non-exported component-local symbol); open questions are pure product decisions no prep candidate can resolve. Routed to Phase 2 gate interview; gate=BLOCKED.",
+  "best_of_n": false,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "0f3806eda0efc42e803851b95588ba073c3fa99f",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "simple",
+      "model": "opus (driver inline \u2014 single fully-specified simple node; ~18-line self-contained edit)",
+      "title": "Dismissible Org Map GPS notice (\u2715 on centered card, hides both surfaces, session-scoped)",
+      "target_files": [
+        "resources/js/clarity-scout/App.vue"
+      ]
+    }
+  ],
+  "review_number": 2,
+  "pr": {
+    "number": 300,
+    "url": "https://github.com/insight-lpr/platform/pull/300",
+    "draft": false
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": null,
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "No GH draft-aware action moved it (still In Progress after undraft); pipeline transitioned In Progress -> In Code Review via Atlassian MCP (id 4) 2026-08-03.",
+  "assumed": [],
+  "comment_ids": {
+    "status": "37965",
+    "build_record": "37967"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "already-running",
+      "ch_container": "created",
+      "frontend_build": "ran",
+      "postgres_db": "zod_claude_dev_2292",
+      "ch_strategy": "docker",
+      "herd_site": "clarity-claude_dev_2292.test"
+    },
+    "provisioned_early": false,
+    "human_guide": ".context/qa-human-guide.html"
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "none",
+        "passed": 0,
+        "failed": 0,
+        "note": "Vue-only change (App.vue); no JS test runner in repo. PHP suite unaffected and not auto-run per CLAUDE.md execution policy (CI runs it on push). npm run build succeeded; verified the dismiss control is present in the rebuilt clarity-scout + birdseye bundles."
+      }
+    ],
+    "deviations": [
+      {
+        "source": "qa-loop",
+        "edit": "Bottom amber pill un-gated from the dismiss flag (App.vue:90 back to v-if=noKitsReporting) so the \u2715 dismisses only the centered card; pill persists as the no-GPS signal. Rebuilt assets.",
+        "ac_ref": "AC-1/AC-2",
+        "ac_delta": "dismiss hides BOTH surfaces -> dismiss hides ONLY the centered card; the persistent pill stays"
+      }
+    ],
+    "review": {
+      "lanes": 1,
+      "scores": [
+        100
+      ],
+      "findings_fixed": [],
+      "findings_residual": [
+        "a11y nit: centered card not role=dialog/alert; icon SVGs lack aria-hidden (pre-existing, non-blocking)",
+        "a11y nit: \u2715 button lacks explicit focus-visible ring (browser default; non-blocking)"
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "in-session-agent"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "c06f9277ed3c93873eac61d7a10e81f51fb13fb9",
+      "rework_pivot": false,
+      "note": "RN1 100/100 (both-hide); RN2 100/100 after the QA-driven pill-persist refinement. reviewed_sha updated to the commit carrying the refinement."
+    },
+    "ac": [
+      {
+        "item": "User can dismiss the notice at any time",
+        "status": "SATISFIED",
+        "evidence": "agent-qa A1/A2: \u2715 (aria Dismiss) on the centered card; click dismisses."
+      },
+      {
+        "item": "After dismissal, the map is fully interactive with no obstruction",
+        "status": "SATISFIED",
+        "evidence": "agent-qa A2/A3: both surfaces gone; map center resolves to Maps pane, control clickable \u2014 no residual overlay."
+      },
+      {
+        "item": "If kits begin reporting GPS, the notice disappears automatically",
+        "status": "N/A",
+        "evidence": "Reactive noKitsReporting computed unchanged; not reproduced in-browser (needs live sc_positions injected mid-session). Regression guard covered by A4 + 100/100 review. Deferred to human QA (ec-1)."
+      },
+      {
+        "item": "Notice does not re-appear until next session or a meaningful state change",
+        "status": "SATISFIED",
+        "evidence": "agent-qa A4: reload re-shows the notice; session-scoped in-memory (not persisted)."
+      }
+    ]
+  },
+  "precedents": [
+    {
+      "key": "DEV-2197",
+      "applicable": "applicable",
+      "why": "Introduced the GPS-notice overlay in App.vue (commit 5b6a7acbb) \u2014 direct ancestor"
+    },
+    {
+      "key": "DEV-2116",
+      "applicable": "applicable",
+      "why": "Bird's Eye adminMode reuses the real Scout App.vue"
+    },
+    {
+      "key": "DEV-2075",
+      "applicable": "not-applicable",
+      "why": "Different (hit) modal"
+    }
+  ],
+  "provision_note": "Phase 3.5 standalone provisioning deferred to Phase 6 (lazy): frontend-only change runs no Phase-4 tests (no JS runner; PHP suite unaffected & not auto-run per CLAUDE.md), so pre-Phase-4 DB isolation has no purpose. The QA env is stood up at verify where it's actually used."
+}

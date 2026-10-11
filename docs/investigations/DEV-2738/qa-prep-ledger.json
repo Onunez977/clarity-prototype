@@ -1,0 +1,223 @@
+{
+  "version": 2,
+  "key": "DEV-2738",
+  "ticket": "DEV-2738",
+  "unblocks": [
+    "DEV-2738 Agent QA"
+  ],
+  "repo": "insight-lpr/platform",
+  "app": "clarity",
+  "status": "live",
+  "phase": "env_ready",
+  "phase_detail": "provisioned_fleet",
+  "scope": "Stand Path A keyed fleet twin for DEV-2738 (Unique residual Scan Counts / LPR Case Claims). Own containers/ports/DBs/network. Refuse reuse of clarity-qa-*-dev-2654 (:18082/:15434/:18124), SCHEMA-DRIFT (:18125), DEV-2659 torn (:18083/:15435/:18126). Mac Herd refused. Cloud CH READ-ONLY (cloud_touched=false). Path A live_ledger_count=2 (DEV-2736 + DEV-2738).",
+  "host": {
+    "machine": "fleet Linux box",
+    "hostname": "grok-bot-vm-403507934",
+    "note": "Mac Herd/Expose is NOT the live-QA host"
+  },
+  "path_a": {
+    "note": "Path A live twins for DEV-2736 and DEV-2738 only (max 2). mac_herd_refused; cloud_ch_writes=false; no_global_current_env.",
+    "soft_ok_vs": "SCHEMA-DRIFT-2657 / torn DEV-2654 / torn DEV-2659",
+    "live_ledger_count": 2,
+    "live_keys": [
+      "DEV-2736",
+      "DEV-2738"
+    ],
+    "no_global_current_env": true,
+    "mac_herd_refused": true,
+    "cloud_ch_writes": false
+  },
+  "other_live_fleet_ledgers": [
+    {
+      "key": "DEV-2736",
+      "path": "/workspace/docs/investigations/DEV-2736/qa-prep-ledger.json",
+      "status": "live",
+      "live": true,
+      "note": "Sibling Path A twin stood in same provision wave"
+    },
+    {
+      "key": "SCHEMA-DRIFT-2657",
+      "path": "/workspace/docs/investigations/SCHEMA-DRIFT-2657/qa-prep-ledger.json",
+      "status": "unknown_or_torn",
+      "live": false,
+      "note": "Do not reuse :18125"
+    },
+    {
+      "key": "DEV-2659",
+      "path": "/workspace/docs/investigations/DEV-2659/qa-prep-ledger.json",
+      "status": "torn_down",
+      "live": false,
+      "note": "Refuse reuse :18083/:15435/:18126"
+    },
+    {
+      "key": "DEV-2654",
+      "path": "/workspace/docs/investigations/DEV-2654/qa-prep-ledger.json",
+      "status": "torn_down",
+      "live": false,
+      "note": "Refuse reuse clarity-qa-*-dev-2654 and :18124"
+    }
+  ],
+  "live_fleet_ledger": {
+    "key": "DEV-2738",
+    "status": "live",
+    "site": "http://127.0.0.1:18085",
+    "postgres": "0.0.0.0:15437",
+    "clickhouse": "0.0.0.0:18128",
+    "live": true
+  },
+  "site": {
+    "local_url": "http://127.0.0.1:18085",
+    "login_path": "/app/login",
+    "fleet_reachable_url": "http://127.0.0.1:18085",
+    "container": "clarity-qa-app-dev-2738",
+    "image": "clarity-qa-dev-2652:latest",
+    "publish": "0.0.0.0:18085->80",
+    "http_probe": "GET /app/login -> 200",
+    "probe_passed": true,
+    "hard_stop": null,
+    "note": "Path A twin using clarity-qa-dev-2652:latest with DEV-2738 keyed env. Not Mac Herd. Refuse 2654/2659/SCHEMA-DRIFT port reuse.",
+    "qa_user": {
+      "id": 1,
+      "email": "test@tester.com",
+      "password_ref": "/workspace/first-glance/secrets/dev-2738-qa-user-password.txt"
+    }
+  },
+  "postgres": {
+    "container": "clarity-qa-postgres-dev-2738",
+    "image": "postgis/postgis:16-3.4",
+    "publish": "0.0.0.0:15437->5432",
+    "host": "0.0.0.0",
+    "host_from_box": "127.0.0.1",
+    "host_from_app_container": "172.21.0.1",
+    "port": 15437,
+    "dev_db": "zod_dev_2738",
+    "testing_db": "zod_testing_dev_2738",
+    "user": "clarity",
+    "password_ref": "/workspace/first-glance/secrets/dev-2738-pg-password.txt",
+    "superuser_password_ref": "/workspace/first-glance/secrets/dev-2738-pg-superuser-password.txt",
+    "env_ref": "/workspace/first-glance/secrets/clarity-qa-dev-2738.env",
+    "seed": "Restored sanitized fixture zod_schema_gate.restore.sql into zod_dev_2738 (139 public BASE TABLE; platform schema 41 tables); testing DB empty+postgis; QA user id=1 test@tester.com present",
+    "cloudagent_note": "Published 0.0.0.0:15437; CloudAgent on this box can use 127.0.0.1:15437; east-west from app container uses 172.21.0.1:15437 (clarity-qa-dev-2738 network gateway)",
+    "dsn_summary": "postgresql://clarity@127.0.0.1:15437/zod_dev_2738 (password via password_ref)",
+    "prove_public_base_tables": 139,
+    "prove_platform_base_tables": 41
+  },
+  "clickhouse": {
+    "strategy": "docker",
+    "container": "clarity-qa-clickhouse-dev-2738",
+    "image": "clickhouse/clickhouse-server:25.8.11.66",
+    "host": "127.0.0.1",
+    "http_port": 18128,
+    "publish": "0.0.0.0:18128->8123",
+    "https": false,
+    "username": "default",
+    "password_ref": "/workspace/first-glance/secrets/dev-2738-ch-password.txt",
+    "database": "clarity_dev_2738",
+    "database_clarity": "clarity_dev_2738",
+    "database_clarity_testing": "clarity_testing_dev_2738",
+    "database_zod": "zod_dev_2738",
+    "database_zod_testing": "zod_testing_dev_2738",
+    "databases": [
+      "clarity_dev_2738",
+      "clarity_testing_dev_2738",
+      "zod_dev_2738",
+      "zod_testing_dev_2738"
+    ],
+    "schema_applied": {
+      "source_remap": "/workspace/docs/investigations/DEV-2738/seed-work/schema_*_dev_2738.sql",
+      "source_from": "/workspace/docs/investigations/DEV-2659/seed-work/schema_*_dev_2659.sql (sed dev_2659->dev_2738)",
+      "billing_claim_source": "/workspace/docs/investigations/DEV-2738/seed-work/apply-three-dev-2738.sql",
+      "method": "clickhouse-client --multiquery on Docker; remapped tables + billing_claim_events/_v/_mv on clarity_dev_2738",
+      "clarity_tables_base": 28,
+      "clarity_tables_with_billing": 31,
+      "recovery_scans_present": true,
+      "billing_claim_events_on_main": true,
+      "billing_claim_note": "billing_claim_events + _v + _mv proven on Docker keyed clarity_dev_2738"
+    },
+    "tunnel_public_host": null,
+    "tunnel_tool": null,
+    "tunnel_status": "not_attempted — fleet reachable via 0.0.0.0:18128 publish",
+    "fleet_dsn_http": "http://127.0.0.1:18128/?database=clarity_dev_2738",
+    "http_port_path_notes": "ClickHouse HTTP on container 8123 published as 0.0.0.0:18128; auth via user=default&password=... query params; native TCP 9000 not published; refuse reuse of 2654 :18124, SCHEMA-DRIFT :18125, 2659 :18126",
+    "prove_select": {
+      "result": "PASS",
+      "probe": "recovery_scans + billing_claim objects + table_count",
+      "table_count": 31,
+      "recovery_scans": true,
+      "billing_claim": [
+        "billing_claim_events",
+        "billing_claim_events_mv",
+        "billing_claim_events_v"
+      ],
+      "query": "SELECT name FROM system.tables WHERE database='clarity_dev_2738' AND (name='recovery_scans' OR name LIKE '%billing_claim%')",
+      "local_http": "http://127.0.0.1:18128",
+      "tunnel_http": null,
+      "cloud_touched": false,
+      "at": "2026-09-25T10:43:19-05:00"
+    },
+    "cloud_touched": false,
+    "cloud_write_attempted": false,
+    "teardown_done": false,
+    "status": "live",
+    "network": "clarity-qa-dev-2738",
+    "network_gateway": "172.21.0.1",
+    "clickhouse_from_app": {
+      "CLICKHOUSE_DRIVER": "clickhouse",
+      "CLICKHOUSE_HOST": "172.21.0.1",
+      "CLICKHOUSE_PORT": 18128
+    }
+  },
+  "network": {
+    "name": "clarity-qa-dev-2738",
+    "gateway": "172.21.0.1",
+    "note": "Own dedicated docker network; DB_HOST/CLICKHOUSE_HOST set to gateway; DB_PORT/CLICKHOUSE_PORT use host publish ports (2659 pattern)"
+  },
+  "cloud_touched": false,
+  "prove_passed": true,
+  "mac_herd_refused": true,
+  "soft_ok_vs": "SCHEMA-DRIFT-2657 / torn DEV-2654 / torn DEV-2659",
+  "artifacts": {
+    "ledger_docs": "/workspace/docs/investigations/DEV-2738/qa-prep-ledger.json",
+    "ledger_first_glance": "/workspace/first-glance/docs/investigations/DEV-2738/qa-prep-ledger.json",
+    "seed_work": "/workspace/docs/investigations/DEV-2738/seed-work/",
+    "schema_remap_meta": "/workspace/docs/investigations/DEV-2738/seed-work/schema_remap_meta.json",
+    "billing_claim_ddl": "/workspace/docs/investigations/DEV-2738/seed-work/apply-three-dev-2738.sql",
+    "pg_fixture_source": "/workspace/docs/investigations/DEV-2653/seed-work/zod_schema_gate.restore.sql",
+    "restand_prove": "/workspace/docs/investigations/DEV-2738/restand-prove.md",
+    "stand_fleet_script": "/workspace/docs/investigations/DEV-2738/stand-fleet.sh"
+  },
+  "secrets": {
+    "dir": "/workspace/first-glance/secrets/",
+    "refs": [
+      "/workspace/first-glance/secrets/dev-2738-pg-password.txt",
+      "/workspace/first-glance/secrets/dev-2738-pg-superuser-password.txt",
+      "/workspace/first-glance/secrets/dev-2738-ch-password.txt",
+      "/workspace/first-glance/secrets/dev-2738-qa-user-password.txt",
+      "/workspace/first-glance/secrets/clarity-qa-dev-2738.env"
+    ]
+  },
+  "timestamp": "2026-09-25T10:43:19-05:00",
+  "timestamp_label": "2026-09-25 10:43:19 CDT (America/Chicago)",
+  "qa_log": [
+    {
+      "at": "2026-09-25T10:43:19-05:00",
+      "stage": "qa-prep",
+      "event": "provisioned_live",
+      "details": "DEV-2738 Path A fleet twin stood: Clarity :18085 login 200; PG zod_dev_2738+zod_testing_dev_2738 on :15437; Docker CH clarity-qa-clickhouse-dev-2738 keyed DBs; recovery_scans present; table_count=31; refuse reuse 2654/2659/SCHEMA-DRIFT ports; cloud_touched=false; mac_herd_refused=true; path_a live_ledger_count=2; teardown_done=false; gateway=172.21.0.1"
+    }
+  ],
+  "hard_stops": [],
+  "jira_provisioned": false,
+  "status_board_posted": false,
+  "baton": null,
+  "teardown_done": false,
+  "torn_down": false,
+  "notes": [
+    "Refuse reuse of clarity-qa-*-dev-2654 containers and SCHEMA-DRIFT :18125 / DEV-2659 :18126 leftovers",
+    "Ports dedicated: app 18085, PG 15437, CH 18128",
+    "Network clarity-qa-dev-2738 gateway 172.21.0.1",
+    "Cloud / production ClickHouse READ-ONLY — never write Cloud",
+    "Path A live_ledger_count=2 listing DEV-2736 and DEV-2738"
+  ]
+}

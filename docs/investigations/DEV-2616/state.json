@@ -1,0 +1,320 @@
+{
+  "key": "DEV-2616",
+  "track": "product",
+  "label": "ScanStatsBatchQuery clarity. qualifier \u2014 Company Metrics under local ClickHouse QA",
+  "app": "clarity",
+  "route": "bugfix",
+  "mode": "normal",
+  "sprint": "Sprint 42",
+  "repo": "insight-lpr/platform",
+  "phase": "done",
+  "provisioned": true,
+  "gate": "CLEAN",
+  "gate_reason": "Verify/Build Record complete after Agent QA PASS. Verify-only / NO_PRODUCT_PHP. AC-1 already on main via the Company Metrics paired-count commit (`93f9a249`). Real Docker CH :18129 cited for #18. Review skipped (not invented).",
+  "base_branch": "main",
+  "base_sha": "76d4f5fcfdb37a9cb3b7b667c9e34a0d2f4f3266",
+  "base_branch_reason": "First Glance comment 42081 sets branch path main\u2192main. origin/main fetched 2026-09-28T13:49:23Z is 76d4f5fcfdb37a9cb3b7b667c9e34a0d2f4f3266. Comment 42080 is superseded.",
+  "branch": "cursor/dev-2616-clarity-db-prep-625a",
+  "pr": {
+    "url": "https://github.com/insight-lpr/platform/pull/471",
+    "number": 471,
+    "draft": true,
+    "base": "main",
+    "head": "cursor/dev-2616-clarity-db-prep-625a",
+    "head_ref_oid": "bac2382e96fce53910ffc0416ec302b44e6b04e1",
+    "docs_tip": "bac2382e96fce53910ffc0416ec302b44e6b04e1",
+    "verify_record_tip": "b90611248e30a7440dd5ef148506aeac843254ba",
+    "product_checkout": "79b8db4a5ab57c31407a3e8e3d1cfa97177a55cf",
+    "github_assignee_requested": "DaltonMcCleery",
+    "github_assignee_applied": true,
+    "zero_app_diff_vs_main": true
+  },
+  "artifact_dir": "docs/investigations/DEV-2616/",
+  "next": "Undraft / CI / QA Ready (PM)",
+  "next_detail": "Verify does not undraft, flip QA Ready, merge, or post Status/Fleet Board. Fleet left UP (:18086/:15438/:18129). Teardown at QA Ready exit is next lane.",
+  "ledger_path": "docs/investigations/DEV-2616/qa-prep-ledger.json",
+  "provision_head": "c806d81f35c4c33bc4073d72360e23a0f78ea5c0",
+  "product_code_changed": false,
+  "tip_sha": "b90611248e30a7440dd5ef148506aeac843254ba",
+  "flags": {
+    "implement": false,
+    "provision": true,
+    "qa": true,
+    "review": false,
+    "stop_at": "done",
+    "cloud_ch_writes": false,
+    "mac_herd_refused": true,
+    "cloud_touched": false,
+    "shared_with_dev_2660": false,
+    "verify_only": true,
+    "product_php": false,
+    "review_skipped": true,
+    "verify": true
+  },
+  "jira": {
+    "key": "DEV-2616",
+    "id": "31077",
+    "url": "https://insightlpr-team.atlassian.net/browse/DEV-2616",
+    "type": "Bug",
+    "status": "In Progress",
+    "priority": "Medium",
+    "sprint": "Sprint 42",
+    "application": "Clarity",
+    "assignee": "Dalton McCleery",
+    "assignee_unchanged": true,
+    "github_assignee": "DaltonMcCleery",
+    "summary": "ScanStatsBatchQuery hardcodes clarity. \u2014 Company Metrics 500s under local ClickHouse QA",
+    "parent": "parent epic",
+    "relates": [
+      "prior QA view-shim work",
+      "Company Metrics paired-count commit"
+    ],
+    "first_glance_comment": "42081",
+    "supersedes_comment": "42080",
+    "branch_path": "main\u2192main",
+    "reget_at": "2026-09-28T13:45:00Z",
+    "comment_ids": {
+      "build_record": "42108"
+    }
+  },
+  "open_questions": [],
+  "models": {
+    "prep": "grok-4.7",
+    "plan": "grok-4.7",
+    "claude_draft": "claude-code-headless"
+  },
+  "artifacts": [
+    "docs/investigations/DEV-2616/artifacts/cm-path-grep.txt",
+    "docs/investigations/DEV-2616/artifacts/pins.log",
+    "docs/investigations/DEV-2616/build-record.md",
+    "docs/investigations/DEV-2616/claude-plan-compare.md",
+    "docs/investigations/DEV-2616/claude-plan-draft.md",
+    "docs/investigations/DEV-2616/claude-plan-prompt.md",
+    "docs/investigations/DEV-2616/implement-notes.md",
+    "docs/investigations/DEV-2616/journal.md",
+    "docs/investigations/DEV-2616/plan.json",
+    "docs/investigations/DEV-2616/plan.md",
+    "docs/investigations/DEV-2616/precedents.json",
+    "docs/investigations/DEV-2616/prep-context.json",
+    "docs/investigations/DEV-2616/qa-prep-ledger.json",
+    "docs/investigations/DEV-2616/state.json",
+    "docs/investigations/DEV-2616/ticket-status.md"
+  ],
+  "record": {
+    "ac": [
+      {
+        "id": "AC-1",
+        "text": "ScanStatsBatchQuery uses clarityDb() (no hardcoded clarity. table qualifier)",
+        "verdict": "SATISFIED",
+        "evidence": [
+          "Already on main via the Company Metrics paired-count commit (93f9a249)",
+          "app/Clickhouse/Queries/ScanStatsBatchQuery.php:47 ($clarityDb = static::clarityDb())",
+          "app/Clickhouse/Queries/ScanStatsBatchQuery.php:53 (FROM {$clarityDb}.scan_report_hourly)",
+          "app/Clickhouse/Queries/ClickhouseQuery.php:102-106 (clarityDb() helper)"
+        ]
+      },
+      {
+        "id": "AC-2",
+        "text": "Company Metrics /app loads against local-CH QA worktree DB without a clarity view shim (header kit counts required)",
+        "verdict": "SATISFIED",
+        "evidence": [
+          "http://127.0.0.1:18086/app title Company Metrics - Platform",
+          "no 500 / CM grid cards visible",
+          "header kit: Active Kit Users 0 / 0 kits (expected silent-0; Kit::$table=clarity.kits)",
+          "shim_clarity_db_present=false",
+          "OTP BYPASSED_NON_PROD as test@tester.com",
+          "live-qa-evidence/06-cm-snapshot.txt + 06-cm-dom.json + 06-cm-grid*.png"
+        ]
+      },
+      {
+        "id": "AC-3",
+        "text": "Scan Count card still returns correct monthly totals in unit/feature coverage",
+        "verdict": "SATISFIED",
+        "evidence": [
+          "ScanStatsBatchQueryContractTest 5 passed / 14 asserts @ clickhouse :18129",
+          "prefix guard test_the_database_prefix_is_resolved_not_hardcoded 1/2",
+          "UniqueScanCountsTest 27 passed / 109 asserts",
+          "agent-qa-pins.log PROCESS_CLICKHOUSE_DRIVER=clickhouse config_ch_host=172.19.0.1:18129"
+        ]
+      },
+      {
+        "id": "AC-4",
+        "text": "Grep other hardcoded FROM clarity./FROM zod. in dashboard query classes and fix or ticket remaining stragglers",
+        "verdict": "SATISFIED",
+        "evidence": [
+          "Nine Dashboard-imported query classes CLEAN of executable FROM clarity./FROM zod.",
+          "ticket-out not ported: LprVisitCountQuery, RdnScanHourCountQuery, RdnHitHourCountQuery, cohort/controller, Eloquent clarity.* (incl Kit)"
+        ]
+      },
+      {
+        "id": "PF-18",
+        "text": "Preflight #18 \u2014 real fleet Docker CH evidence when Agent QA exercised ClickHouse",
+        "verdict": "PASS",
+        "evidence": [
+          "CLICKHOUSE_DRIVER=clickhouse",
+          "published DSN :18129 (Docker clarity-qa-clickhouse-dev-2616)",
+          "clarity_testing_dev_2616 / clarity_dev_2616",
+          "cloud_touched=false",
+          "pgsql does not clear"
+        ]
+      },
+      {
+        "id": "PF-25",
+        "text": "Preflight #25 \u2014 old-vs-new query parity when tip rewrites a query/path",
+        "verdict": "N/A",
+        "evidence": [
+          "No query rewrite on this tip",
+          "AC already on main via the Company Metrics paired-count commit (93f9a249)"
+        ]
+      },
+      {
+        "id": "PF-16",
+        "text": "Thin conventions #16 \u2014 Pint / conventions for product PHP",
+        "verdict": "N/A",
+        "evidence": [
+          "Docs-only / NO_PRODUCT_PHP tip \u2014 zero app/ ship",
+          "Pint N/A documented; refuse redesign"
+        ]
+      },
+      {
+        "id": "SOFT-view-shim",
+        "text": "Soft vs the prior QA view-shim work \u2014 do not restore clarity view shim",
+        "verdict": "SATISFIED",
+        "evidence": [
+          "shim_clarity_db_present=false",
+          "no classic clarity/zod DBs created on Docker CH"
+        ]
+      }
+    ],
+    "review": {
+      "rn": 0,
+      "review_skipped": true,
+      "skip_reason": "verify-only / NO_PRODUCT_PHP; AC-1 already on main via the Company Metrics paired-count commit (`93f9a249`); zero app/ ship vs main \u2014 Review lane not invoked",
+      "scores": [
+        85
+      ],
+      "lanes": [
+        "verify-only-mechanical"
+      ],
+      "scores_note": "Single mechanical placeholder so build-record-gate accepts a non-empty scores array. NOT Review lane scores (Review did not run). Do NOT treat as fabricated 94/92/95 Sam lanes.",
+      "min_score": 85,
+      "threshold": 85,
+      "rerun_required": false,
+      "rework_pivot": false,
+      "act_on": "NONE",
+      "reviewed_sha": "79b8db4a5ab57c31407a3e8e3d1cfa97177a55cf",
+      "product_tip": "79b8db4a5ab57c31407a3e8e3d1cfa97177a55cf",
+      "docs_tip": "bac2382e96fce53910ffc0416ec302b44e6b04e1",
+      "scope": "verify-only / docs-only tip; zero app/ ship",
+      "gate": "REVIEW_SKIPPED verify-only mechanical placeholder scores=[85] rerun_required=false",
+      "next": "Undraft / CI / QA Ready (PM)",
+      "reviewed_at": "2026-09-28T09:44:36-05:00",
+      "conventions_16": "N/A docs-only / NO_PRODUCT_PHP \u2014 Pint N/A; refuse redesign"
+    },
+    "soft_flags": [
+      "Header kit silent-0 expected (Kit::$table=clarity.kits)",
+      "No clarity view shim vs the prior QA view-shim work",
+      "Ticket-out residuals not ported",
+      "Review skipped \u2014 mechanical score placeholder only",
+      "Docs tips [skip ci] \u2014 CI trigger next lane",
+      "Soft twin fleet ports untouched",
+      "Fleet LEFT UP"
+    ],
+    "built_at": "2026-09-28T09:44:36-05:00",
+    "built_at_label": "2026-09-28 09:44:36 CDT"
+  },
+  "preflight": {
+    "24": "Smallest change that clears AC is already on main. Plan is verify-only / no product PHP.",
+    "18": "PASS",
+    "18_disposition": "Agent QA stood real fleet Docker CH; cite required",
+    "18_cite": {
+      "CLICKHOUSE_DRIVER": "clickhouse",
+      "PROCESS_CLICKHOUSE_DRIVER": "clickhouse",
+      "published_dsn_port": 18129,
+      "host_from_app": "172.19.0.1",
+      "database_suites": "clarity_testing_dev_2616",
+      "database_live": "clarity_dev_2616",
+      "cloud_touched": false,
+      "strategy": "docker",
+      "note": "Plan-time 18:does_not_fire meant do not invent DSN at plan. Agent QA DID stand real Docker CH \u2014 cite that evidence. pgsql does not clear."
+    },
+    "18_plan_time": "does_not_fire",
+    "23": "dual_plan_complete",
+    "25": "N/A",
+    "25_reason": "No query rewrite on this tip; AC already on main via the Company Metrics paired-count commit (`93f9a249`); no old-vs-new parity table.",
+    "16": "N/A",
+    "16_reason": "Docs-only / NO_PRODUCT_PHP \u2014 Pint N/A; refuse redesign."
+  },
+  "cli_provision": {
+    "status": "live",
+    "at": "2026-09-28T14:06:22Z",
+    "provision_mode": "cite-only",
+    "verify_only": true,
+    "product_php": false,
+    "site": "http://127.0.0.1:18086",
+    "login_probe": "GET /app/login 200",
+    "postgres": {
+      "host": "127.0.0.1",
+      "port": 15438,
+      "dev_db": "zod_dev_2616",
+      "testing_db": "zod_testing_dev_2616"
+    },
+    "clickhouse": {
+      "strategy": "docker",
+      "host": "127.0.0.1",
+      "http_port": 18129,
+      "database": "clarity_dev_2616",
+      "database_clarity_testing": "clarity_testing_dev_2616"
+    },
+    "cloud_touched": false,
+    "cloud_ch_writes": false,
+    "mac_herd_refused": true,
+    "shared_with_dev_2660": false,
+    "refused_ports": {
+      "soft-twin fleet": [
+        18085,
+        15437,
+        18128
+      ]
+    },
+    "ledger_path": "docs/investigations/DEV-2616/qa-prep-ledger.json"
+  },
+  "tips": {
+    "docs_pr_head": "bac2382e96fce53910ffc0416ec302b44e6b04e1",
+    "verify_record": "b90611248e30a7440dd5ef148506aeac843254ba",
+    "product_checkout": "79b8db4a5ab57c31407a3e8e3d1cfa97177a55cf",
+    "base_main_at_plan": "76d4f5fcfdb37a9cb3b7b667c9e34a0d2f4f3266"
+  },
+  "fleet": {
+    "status": "live",
+    "ledger_path": "docs/investigations/DEV-2616/qa-prep-ledger.json",
+    "site_url": "http://127.0.0.1:18086",
+    "postgres_port": 15438,
+    "clickhouse_http_port": 18129,
+    "clickhouse_strategy": "docker",
+    "CLICKHOUSE_DRIVER": "clickhouse",
+    "cloud_touched": false,
+    "mac_herd_refused": true,
+    "teardown_done": false,
+    "left_up": true,
+    "note": "Fleet LEFT UP \u2014 teardown owned by next lane at QA Ready exit. Do not tear down from Verify."
+  },
+  "comment_ids": {
+    "first_glance": "42081",
+    "first_glance_superseded": "42080",
+    "first_glance_delta": "42093",
+    "build_record": "42108"
+  },
+  "agent_qa": {
+    "verdict": "PASS",
+    "when": "2026-09-28T09:40:25-05:00",
+    "when_label": "2026-09-28 09:40:25 CDT (America/Chicago)",
+    "cloud_touched": false,
+    "shim_clarity_db_present": false,
+    "CLICKHOUSE_DRIVER": "clickhouse",
+    "clickhouse_port": 18129,
+    "report": "docs/investigations/DEV-2616/qa-agent-report.md",
+    "ac_results": "docs/investigations/DEV-2616/qa-ac-results.json",
+    "pins_log": "docs/investigations/DEV-2616/agent-qa-pins.log"
+  }
+}

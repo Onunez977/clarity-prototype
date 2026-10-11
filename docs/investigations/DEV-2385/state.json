@@ -1,0 +1,341 @@
+{
+  "key": "DEV-2385",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "deploy",
+  "base_branch_reason": "Dalton 2026-08-18: branch off deploy and PR to deploy (prod incident on SendEndOfShiftSummary).",
+  "branch": "claude/DEV-2385",
+  "phase": "verified",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "prep-candidate:3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 242
+    },
+    {
+      "slot": "prep-candidate:1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 298
+    },
+    {
+      "slot": "prep-candidate:2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 510
+    },
+    {
+      "slot": "reconcile",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 0
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 1078
+    },
+    {
+      "slot": "arbitrate",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 345
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 649
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 331
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 679
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 658
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 886
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 620
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "clarity/analytics.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "unanswered product questions (skip vs bounded summary vs full-window)",
+    "fast-pass confidence 60; reconciled 72 (<80)",
+    "AC1 summary OR skip",
+    "scale_relevant queued job"
+  ],
+  "best_of_n": true,
+  "needs_human_interview": false,
+  "missed_caller_candidates": [
+    {
+      "file": "app/Dto/Scout/ShiftSummaryDto.php",
+      "symbol": "BuildShiftSummary",
+      "referenced_at": "DTO; truncated flag only if partial summary"
+    },
+    {
+      "file": "app/Mail/Scout/EndOfShiftSummary.php",
+      "symbol": "SendEndOfShiftSummary",
+      "referenced_at": "mailable; only if skip emails"
+    },
+    {
+      "file": "app/Models/KitShift.php",
+      "symbol": "summary_skipped_reason",
+      "referenced_at": "new reason string if skip"
+    },
+    {
+      "file": "database/factories/KitShiftFactory.php",
+      "symbol": "summary_skipped_reason",
+      "referenced_at": "factory states"
+    },
+    {
+      "file": "app/Console/Commands/CloseInactiveShiftsCommand.php",
+      "symbol": "SendEndOfShiftSummary",
+      "referenced_at": "dispatch only"
+    },
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutShiftController.php",
+      "symbol": "SendEndOfShiftSummary",
+      "referenced_at": "dispatch only"
+    }
+  ],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "643ba6b0fb71cee4f36b9ff0381e3ff887d90950",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "claude/DEV-2385",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 7,
+  "pr": {
+    "number": 348,
+    "url": "https://github.com/insight-lpr/platform/pull/348",
+    "draft": true
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": null,
+  "jira_transitioned_by": null,
+  "jira_transitioned_detail": null,
+  "assumed": [],
+  "comment_ids": {
+    "status": "38382"
+  },
+  "precedents": [
+    "DEV-2325",
+    "DEV-2309",
+    "DEV-1788"
+  ],
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "pass",
+    "torn_down": false,
+    "resource_envelope": {
+      "path": ".context/qa-resource-envelope.json",
+      "verdict": "PASS",
+      "peak_rss_bytes": 112361472,
+      "wall_clock_seconds": 0.43,
+      "plausible_concurrency": 1,
+      "projected_marginal_gb": 0.105,
+      "headroom_gb": 68,
+      "host_ram_gb": 68,
+      "extrapolation_factor": 27014.0,
+      "basis": "measured"
+    },
+    "provisioning": {
+      "bootstrap": "ran",
+      "deps": "via-bootstrap",
+      "migrations": "already-migrated",
+      "docker_daemon": "already-running",
+      "ch_container": "n/a",
+      "frontend_build": "not-needed",
+      "postgres_db": "zod_claude_dev_2385",
+      "ch_strategy": "pgsql-bridge",
+      "herd_site": "clarity-claude_dev_2385"
+    }
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact tests/Feature/Jobs/Scout/SendEndOfShiftSummaryTest.php",
+        "passed": 13,
+        "failed": 0,
+        "skipped": 0
+      }
+    ],
+    "deviations": [
+      "Post-approval wiki: okf/concepts/scout-shifts-and-trips.md still says 5 tries, skip reasons without build_failed, and empty-state copy without the last-8h branch."
+    ],
+    "review": {
+      "lanes": [
+        "claude1",
+        "claude2",
+        "claude3"
+      ],
+      "scores": [
+        86,
+        94,
+        78
+      ],
+      "min_score": 78,
+      "review_number": 7,
+      "findings_fixed": [
+        "DTO/email truncation disclosure",
+        "whereIntegerInRaw + production 70k pin",
+        "non-CH forShift wiring",
+        "$backoff = 30",
+        "last-scan window-end reverted; window is max(started_at, ended_at-8h) to ended_at",
+        "Log::warning when truncated last-8h window has no activity; email still sent",
+        "truncated stats/zones labelled last 8 hours, not Total"
+      ],
+      "findings_residual": [
+        "HIGH (1/3 lanes): tracked state.json/pr-status review scores scored as review-integrity contamination",
+        "HIGH (1/3 lanes): in-flight queued EndOfShiftSummary payloads lack windowStartedAt/windowEndedAt after deploy",
+        "HIGH/MEDIUM needs-verification: PHP hits round-trip / 128M peak unmeasured (PG-026/027)"
+      ],
+      "residual_jira": "DEV-2387",
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "harness-claude-p"
+        },
+        {
+          "lane": "claude2",
+          "source": "harness-claude-p"
+        },
+        {
+          "lane": "claude3",
+          "source": "harness-claude-p"
+        }
+      ],
+      "rerun_required": false,
+      "gate_overridden": true,
+      "gate_override_by": "Dalton",
+      "gate_override_at": "2026-08-18T19:17:00Z",
+      "gate_override_reason": "RN7 min 78; gating High is harness bookkeeping in state.json/pr-status, not the 8h clamp",
+      "reviewed_sha": "ba3fe279fd13006be6e711796495cf5109a260d8",
+      "rework_pivot": false
+    },
+    "ac": [
+      {
+        "ac": "AC-1",
+        "status": "SATISFIED",
+        "evidence": "hitsForScanIds(70_000 ids) no HY000; job handle on 17-day shift sent last-8h summary (0.105 GB / 0.43s)",
+        "items": [
+          "B4",
+          "R1"
+        ]
+      },
+      {
+        "ac": "AC-2",
+        "status": "SATISFIED",
+        "evidence": "summaryWindow on kit_shift 2 is ended_at-8h..ended_at; forShift isTruncated=true; zone CTE uses that window",
+        "items": [
+          "B2",
+          "B5",
+          "B6"
+        ]
+      },
+      {
+        "ac": "AC-3",
+        "status": "SATISFIED",
+        "evidence": "$tries=2 $backoff=30; truncated empty window logged warning and still sent; summary_skipped_reason null",
+        "items": [
+          "B3",
+          "B7"
+        ]
+      },
+      {
+        "ac": "AC-4",
+        "status": "SATISFIED",
+        "evidence": "70,000 integer scan ids through production hitsForScanIds (whereIntegerInRaw); PHPUnit BuildShiftSummaryWindowTest pins the same path",
+        "items": [
+          "B4"
+        ]
+      }
+    ]
+  }
+}

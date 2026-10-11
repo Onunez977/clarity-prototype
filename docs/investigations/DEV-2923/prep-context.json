@@ -1,0 +1,339 @@
+{
+  "key": "DEV-2923",
+  "app": "clarity",
+  "phase": "prep",
+  "gate": "CLEAN",
+  "question_gate": "CLEAN",
+  "branch_path": "main→main",
+  "base": "1eaf006989221ec50e29d1ef9b4956299fe50600",
+  "branch": "cursor/dev-2923-ch-timeout-log-context-4838",
+  "pr": {
+    "number": 502,
+    "url": "https://github.com/insight-lpr/platform/pull/502",
+    "draft": true,
+    "base": "main"
+  },
+  "github_assignee_result": "denied: Resource not accessible by integration (replaceActorsForAssignable)",
+  "first_glance_comment_id": "43033",
+  "authority": "Live Jira DEV-2923 and First Glance comment 43033. The uploaded judgment file is counsel and agrees.",
+  "cloud_clickhouse": "No reads and no writes in this phase.",
+  "product_php_this_phase": false,
+  "package_pr_this_phase": false,
+  "okf_write": "Do not edit okf/ while in flight. After approval, a short note on clickhouse-integration.md can say CH HTTP failures log truncated SQL on the db-error channel.",
+  "synthesis": "ClickhouseHttpClient::request() throws ClickhouseException with a parsed message and nothing else. The SQL is a local in select()/write(). ClickhouseException does not extend Illuminate QueryException, so HasRetryQuery's SQL log never runs for it. Org cache warms, hit metric cards, and ClickhouseQuery::query() each swallow or re-report the thin message. A platform subclass of the HTTP client, installed by re-extending the clickhouse driver from a booted() callback, can log truncated SQL and the App caller on db-error and rethrow the original exception. That covers select, statement, and insert without a laravel-clickhouse change. query_id is not on the exception; the ticket treats it as optional.",
+  "recommendation": {
+    "path": "platform-only",
+    "package_required": false,
+    "escalate_before_implement": false,
+    "escalate_if": "A later phase makes ClickHouse query_id mandatory. Capturing X-ClickHouse-Query-Id means editing private request() in insight-lpr/laravel-clickhouse. That is outside this prep and needs an explicit escalate before Implement.",
+    "why_not_package": "Public select() and write() still have the SQL and the bindings when request() throws. The platform already replaces the connection client in tests. Subclassing the client and re-registering the driver records every HTTP failure that uses the app connection, then rethrows so current catches keep working.",
+    "why_not_exception_handler_only": "Org.php, HasRetryQuery, HasHitMetricCards, and ClickhouseQuery::query() swallow ClickhouseException before or instead of a useful db-error line. bootstrap/app.php only special-cases PostgreSQL 57014. A report() hook misses the swallowed paths.",
+    "proposed_shape": [
+      "Add a platform subclass of LaravelClickhouseEloquent\\ClickhouseHttpClient. Override select() and write() only. insert() calls $this->write(), so one write() override covers inserts.",
+      "On ClickhouseException, log one db-error record and rethrow the same instance. Do not wrap it and do not change its message. getCode() stays 0; parse ch_code from the message.",
+      "Add a platform subclass of LaravelClickhouseEloquent\\Connection that overrides createWithClient() and assigns the logging client. Parent::createWithClient() uses new static and then overwrites client with the stock client, so the override is required.",
+      "Register the clickhouse driver again inside AppServiceProvider's booted() callback. ClickhouseServiceProvider is listed after AppServiceProvider in bootstrap/providers.php, so a boot() extend() would lose.",
+      "Leave timeout_query, timeout_connect, retries, settings, LprRepossessions, and HeldFlexibleCache unchanged. Read the numbers off the config array passed into the client constructor and copy them into the log.",
+      "Do not log on the success path.",
+      "Keep PHP 8.3-compatible. Production is 8.3 (okf/concepts/platform-gotchas.md PG-021)."
+    ]
+  },
+  "scout": {
+    "package": {
+      "composer_name": "insight-lpr/laravel-clickhouse-eloquent",
+      "constraint": "@dev",
+      "lock_version": "dev-main",
+      "lock_reference": "44d6db805435f63b63b7a11f903287af8a4d8b06",
+      "source_repo": "https://github.com/insight-lpr/laravel-clickhouse",
+      "installed_path": "vendor/insight-lpr/laravel-clickhouse-eloquent/src/ClickhouseHttpClient.php"
+    },
+    "throw_site": {
+      "file": "vendor/insight-lpr/laravel-clickhouse-eloquent/src/ClickhouseHttpClient.php",
+      "method": "request",
+      "line": 438,
+      "expression": "throw new ClickhouseException($lastError)",
+      "visibility": "private",
+      "exception_class": "LaravelClickhouseEloquent\\Exceptions\\ClickhouseException",
+      "exception_file": "vendor/insight-lpr/laravel-clickhouse-eloquent/src/Exceptions/ClickhouseException.php",
+      "exception_shape": "Empty subclass of RuntimeException. No SQL, query_id, or context properties. getCode() is 0.",
+      "parser": "parseClickhouseError lines 444-456. Pattern Code NNN / DB::Exception, else HTTP status plus body, else HTTP status only.",
+      "headers_discarded": ["X-ClickHouse-Query-Id"],
+      "credentials_in_headers_not_exception": ["X-ClickHouse-User", "X-ClickHouse-Key"]
+    },
+    "public_entrypoints": {
+      "select": "line 41. bindParams, then request(sql + ' FORMAT JSON'). JSON decode failure throws ClickhouseException in select() after a HTTP 200.",
+      "write": "line 57. bindParams, then request(sql).",
+      "insert": "line 72. Builds INSERT and calls $this->write() at line 93. Empty rows throw before write().",
+      "insertAssocBulk": "line 102. Delegates to insert().",
+      "timeouts": {
+        "url_max_execution_time": "buildUrl line 378, from timeout_query, then settings may overwrite",
+        "curl_connect": "line 407 timeout_connect",
+        "curl_total": "line 408 timeout_query + timeout_connect",
+        "retries": "attempts = 1 + retries. 4xx breaks. 5xx and curl errors retry. Logging at select/write sees one thrown exception after retries."
+      }
+    },
+    "call_chain": [
+      "LaravelClickhouseEloquent\\Builder::getRows line 231 → connection->select",
+      "LaravelClickhouseEloquent\\Connection::select lines 55-57 → client->select",
+      "LaravelClickhouseEloquent\\Connection::statement lines 61-63 → client->write",
+      "BaseModel::insert / insertBulk / insertAssoc → getThisClient() → client insert → write → request",
+      "ClickhouseServiceProvider::boot lines 22-25 extends driver clickhouse with Connection::createWithClient",
+      "createWithClient lines 24-29: new static, then client = new ClickhouseHttpClient"
+    ],
+    "db_error_channel": {
+      "config_key": "db-error",
+      "file": "config/logging.php lines 69-76",
+      "path": "storage/logs/db_error.log",
+      "rotation": "daily, days 5, so dated files look like db_error-YYYY-MM-DD.log",
+      "formatter": "App\\Log\\DataDogHandler JsonFormatter. On error, extra.user.id, name, email, and extra.user.org.id/name when authenticated.",
+      "sql_extractor": "scripts/extract_sql_queries.py reads context.sql and skips lines without it (lines 48-51)."
+    },
+    "existing_loggers": [
+      {
+        "file": "app/Filament/Concerns/HasRetryQuery.php",
+        "lines": "48-58 and 96-107",
+        "behavior": "QueryException context includes sql and bindings. ClickhouseException hits the generic catch: user email, message, code, file, line. No sql. Consumers: ListScans, ListHits, ListMissedOpportunities, ListAffiliateStats."
+      },
+      {
+        "file": "app/Models/Org.php",
+        "lines": "221-237 and 257-273",
+        "behavior": "Catch ClickhouseException. Outside debug: db-error with org_id, message, code; datadog clarity.query_timeout; return empty collection."
+      },
+      {
+        "file": "app/Filament/Concerns/HasHitMetricCards.php",
+        "lines": "389-403",
+        "behavior": "db-error with class, message, code, file, line. Metric clarity.query_error. No sql."
+      },
+      {
+        "file": "app/Clickhouse/Queries/ClickhouseQuery.php",
+        "lines": "12-37",
+        "behavior": "production and testing: report(Throwable) and return []. Default log gets the thin message. Not the db-error channel."
+      },
+      {
+        "file": "bootstrap/app.php",
+        "lines": "33-43",
+        "behavior": "report() hook counts Illuminate QueryException 57014 / statement timeout only."
+      }
+    ],
+    "timeout_settings_do_not_change": {
+      "clarity_clickhouse": "config/database.php timeout_connect default 2, timeout_query default 60, retries default 0. settings has max_bytes_before_external_group_by and validate_polygons, not max_execution_time.",
+      "clarity_clickhouse_write": "timeout_connect default 5, timeout_query default 60, retries default 1. DEV-2123. Do not retune.",
+      "public_clickhouse": "timeout_query default 60. settings.max_execution_time repeats CLICKHOUSE_TIMEOUT_QUERY.",
+      "client_effective": "URL max_execution_time starts as timeout_query. settings overwrite it. Curl budget is timeout_query + timeout_connect.",
+      "dashboard_collision": "LprRepossessions::QUERY_TIMEOUT_SECONDS = 60 (line 111), OBSERVED_MAX_LATENCY_SECONDS = 33.7 (line 99), COLD_LOCK_SECONDS and REFRESH_LOCK_SECONDS derived from that. HeldFlexibleCache documents the lock-vs-timeout rule. Do not retune."
+    },
+    "test_spies": [
+      "tests/Feature/Http/Controllers/KitUserPathControllerTest.php extends ClickhouseHttpClient and replaces connection client via reflection",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php same pattern",
+      "tests/Feature/Console/Commands/CloseInactiveShiftsCommandTest.php spyClickhouseSelects()",
+      "tests/Feature/Jobs/TrackAnalyticsTest.php already cites ClickhouseHttpClient.php:438"
+    ],
+    "env_testing_observed": "CLICKHOUSE_DRIVER=clickhouse, host 127.0.0.1, port 8123, HTTPS false. No CLICKHOUSE_TIMEOUT_QUERY override, so the 60 second config default applies. Not used in this phase."
+  },
+  "log_context_proposal": {
+    "channel": "db-error",
+    "message": "ClickHouse HTTP exception",
+    "when": "catch ClickhouseException around parent::select and parent::write only",
+    "rethrow": "the original exception, unchanged",
+    "fields": {
+      "sql": "The SQL argument, truncated. Use the key sql so extract_sql_queries.py sees it. For select, this is the statement before the client appends ' FORMAT JSON'.",
+      "sql_truncated": "bool",
+      "sql_original_length": "int",
+      "statement": "select or write",
+      "bindings_redacted": "list, capped, each string capped, credential values replaced",
+      "binding_count": "int",
+      "ch_code": "int parsed from /ClickHouse error (\\d+)/ or null for curl / undecoded bodies",
+      "exception_message": "original getMessage(), already free of the HTTP key",
+      "caller_class": "first App\\ frame that is not the logger",
+      "caller_function": "that frame's function",
+      "caller_file": "repo-relative path",
+      "caller_line": "int",
+      "route_name": "null in console. On HTTP, the route name. livewire.update is a weak name; caller_class is authoritative there.",
+      "route_uri": "request path when a request is bound",
+      "console": "bool",
+      "user_id": "auth id or null. Do not add email; DataDogHandler already does.",
+      "org_id": "auth user org_id or null",
+      "connection": "config name set by ClickhouseServiceProvider ($config['name'])",
+      "client_elapsed_ms": "hrtime around the parent call, failure path only",
+      "server_elapsed_ms": "parsed from /elapsed\\s+([0-9.]+)\\s*ms/i or null",
+      "timeout_query": "from the config array, not changed",
+      "timeout_connect": "from the config array",
+      "curl_timeout": "timeout_query + timeout_connect, matching line 408",
+      "max_execution_time": "settings override if present, else timeout_query",
+      "retries": "from the config array",
+      "query_id": "omit. The client does not have one."
+    }
+  },
+  "truncation_candidates": {
+    "plan_locks": true,
+    "recommended": 4096,
+    "candidates": [
+      {
+        "chars": 2048,
+        "note": "Names short list queries. Likely to clip company-metrics SQL before the WHERE."
+      },
+      {
+        "chars": 4096,
+        "note": "Recommended. Head-biased. Large enough for a typical dashboard statement, small enough that a polygon literal cannot fill the log file. Record sql_original_length either way."
+      },
+      {
+        "chars": 8192,
+        "note": "Use only if Plan measures a real product statement whose identifying WHERE starts after 4096 characters."
+      }
+    ],
+    "style": "Keep the head. Suffix with '…[truncated N chars]' when cut. Do not log head and tail unless 4096 clips the identifying predicate; that choice is Plan's.",
+    "bindings": {
+      "max_items": 32,
+      "max_string_chars": 200,
+      "overflow": "drop the tail and set bindings_truncated true"
+    }
+  },
+  "redaction_rules": {
+    "plan_locks": true,
+    "never_log": [
+      "connection password",
+      "connection username",
+      "host, port, or full URL",
+      "X-ClickHouse-Key",
+      "X-ClickHouse-User",
+      "HTTP headers"
+    ],
+    "sql_and_bindings": [
+      "Replace case-insensitive password, secret, token, api_key, api-key, and authorization assignments (key=value or key: value) with [redacted].",
+      "Replace bearer tokens with [redacted].",
+      "Do not interpolate bindings into the logged SQL. Log the placeholder statement plus bindings_redacted so a secret can be masked before it is written.",
+      "Do not redact plates, org ids, or other query predicates. The point of the line is to name the query.",
+      "whereRaw literals are already inside the SQL argument (the CH driver inlines some array literals). They are covered by truncation and the credential regex, not by a second pass that strips every string."
+    ],
+    "preexisting_pii": "DataDogHandler still adds user name and email on this channel. Out of scope to remove. New fields use ids only.",
+    "successful_queries": "No log line. No extra query. No settings write. A timer around the parent call is the only added work, and only the failure path writes."
+  },
+  "before_after_sample": {
+    "note": "Reconstructed from the code paths above. Not a copy of a production line. This phase did not read db_error-2026-10-02.log or Cloud ClickHouse. Implement replaces this with a forced local timeout.",
+    "before": {
+      "channel": "db-error",
+      "why": "HasRetryQuery generic catch plus DataDogHandler, which matches the ticket's 'org, user, elapsed, thin ClickhouseHttpClient line'. Elapsed is inside the message. code is 0.",
+      "line": {
+        "message": "Query Exception's Exception",
+        "context": {
+          "user": "<email already added by the catch>",
+          "message": "ClickHouse error 159: Timeout exceeded: elapsed 30001.5 ms, maximum: 30000. (TIMEOUT_EXCEEDED)",
+          "code": 0,
+          "file": "vendor/insight-lpr/laravel-clickhouse-eloquent/src/ClickhouseHttpClient.php",
+          "line": 438
+        },
+        "extra": {
+          "user": {
+            "id": 1090,
+            "org": {
+              "id": 469
+            }
+          }
+        }
+      },
+      "missing": ["sql", "caller class", "route", "query_id", "timeout settings as fields"]
+    },
+    "after": {
+      "channel": "db-error",
+      "line": {
+        "message": "ClickHouse HTTP exception",
+        "context": {
+          "ch_code": 159,
+          "exception_message": "ClickHouse error 159: Timeout exceeded: elapsed 30001.5 ms, maximum: 30000. (TIMEOUT_EXCEEDED)",
+          "sql": "SELECT … FROM clarity.hits_hot WHERE org_id = ? …[truncated 1200 chars]",
+          "sql_truncated": true,
+          "sql_original_length": 5296,
+          "statement": "select",
+          "caller_class": "App\\Clickhouse\\Queries\\ExampleQuery",
+          "caller_function": "handle",
+          "route_name": "filament.app.resources.hits.index",
+          "user_id": 1090,
+          "org_id": 469,
+          "client_elapsed_ms": 30120,
+          "server_elapsed_ms": 30001.5,
+          "timeout_query": 60,
+          "timeout_connect": 2,
+          "curl_timeout": 62,
+          "max_execution_time": 60,
+          "connection": "clarity_clickhouse"
+        }
+      },
+      "names_the_query_without_system_query_log": true
+    }
+  },
+  "forecast_gates": [
+    {
+      "id": 1,
+      "item": "Forced timeout on real Docker ClickHouse produces actionable SQL and caller in db_error.",
+      "status": "open for Implement",
+      "how": "Construct a test-local client config with timeout_query 1 against 127.0.0.1:8123 and run SELECT sleep(3). Do not change config/database.php defaults, .env, or the dashboard constants. Do not point the test at Cloud ClickHouse."
+    },
+    {
+      "id": 2,
+      "item": "Before/after sample on the pull request for an org-469-style code 159 line.",
+      "status": "shape proposed here; real sample waits for the forced timeout"
+    },
+    {
+      "id": 3,
+      "item": "Truncation and no-credentials redaction documented.",
+      "status": "candidates recorded; Plan locks 4096 unless a measured statement needs 8192"
+    },
+    {
+      "id": 4,
+      "item": "Successful queries unchanged beyond log I/O.",
+      "status": "design: log only in the catch. Proof waits for Implement."
+    },
+    {
+      "id": 5,
+      "item": "Plan cites platform-only vs package.",
+      "status": "platform-only. Package not required. No escalate unless query_id becomes mandatory."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "item": "Forced CH timeout: db_error and/or Laravel ERROR includes enough SQL and caller/route to name the query without system.query_log.",
+      "source": "jira",
+      "decision": "accept",
+      "approach": "db-error line from the client subclass. Uncaught exceptions still reach the Laravel log with the original thin message; the db-error line is the actionable one. Swallowed paths get the rich line before they catch."
+    },
+    {
+      "id": "AC-2",
+      "item": "Successful queries unchanged aside from log I/O.",
+      "source": "jira",
+      "decision": "accept",
+      "approach": "No log, no settings change, no SQL change on the success path."
+    },
+    {
+      "id": "AC-3",
+      "item": "SQL logging does not dump credentials. Truncation rules documented.",
+      "source": "jira",
+      "decision": "accept",
+      "approach": "Rules in redaction_rules and truncation_candidates. Plan locks the numbers."
+    },
+    {
+      "id": "AC-4",
+      "item": "Org-469-style TIMEOUT_EXCEEDED would have been actionable. Before/after sample on the PR.",
+      "source": "jira",
+      "decision": "accept",
+      "approach": "before_after_sample is the prep sketch. Implement attaches the forced-timeout line. Do not chase the org 469 query."
+    }
+  ],
+  "out_of_scope": [
+    "Fixing the org 469 / Reliable Recovery slow query",
+    "Enabling ClickHouse Cloud MCP",
+    "Datadog or RUM instrumentation",
+    "Changing timeout budgets or dashboard lock constants",
+    "Rewriting product queries",
+    "Editing insight-lpr/laravel-clickhouse",
+    "Reconfiguring DEV-2904",
+    "Removing email from DataDogHandler",
+    "okf/ edits before approval"
+  ],
+  "collisions": [
+    "Soft: held org 469 watch. Do not investigate that query here.",
+    "Soft: DEV-2904 Path A CH twin. Parallel work. This branch does not touch it.",
+    "Soft: LprRepossessions and HeldFlexibleCache timeout constants. Do not retune."
+  ],
+  "questions": []
+}

@@ -1,0 +1,216 @@
+{
+  "key": "DEV-2615",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "deploy",
+  "base_branch_reason": "human:Dalton chose deploy \u2014 DEV-2591 lives only on deploy (#417); main still has pre-2591 forOrg(current) path",
+  "branch": "claude/DEV-2615",
+  "main_checkout": "/Users/daltonmccleery/Herd/platform",
+  "run_root": "/Users/daltonmccleery/.cursor/worktrees/platform/pjxf",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "no_spawn": true,
+    "start_at": "verify",
+    "stop_at": "handoff",
+    "only": null,
+    "skip": [],
+    "force": false,
+    "eli5": true
+  },
+  "knowledge_cards_loaded": [
+    "knowledge/clickhouse/core.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "answered:false questions",
+    "resource_envelope.oracle_status=partial",
+    "scale_relevant"
+  ],
+  "best_of_n": false,
+  "needs_human_interview": false,
+  "missed_caller_candidates": [],
+  "perf_validation": {
+    "required": true,
+    "ch_tables": [
+      "clarity.scans_cold",
+      "zod.kit_last_scan"
+    ],
+    "approach": "forOrgs(current Kit::getKits org_ids) + forKits",
+    "measurement": "2026-09-18 Cloud EXPLAIN: kit_id-only 2,217,023,592 rows vs org+kit 24,542,538 (~90x). Kit 10044 COUNT parity 2,141,322=2,141,322 historical; naive 233,517. Wall 7.59s\u21920.56s.",
+    "verdict": "go",
+    "measured_at": "2026-09-18T17:32:00Z"
+  },
+  "diff_base": "94a21e60f1805bec5f7c3a6cca9ee70bd54f13a5",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "claude/DEV-2615",
+      "complexity": "complex",
+      "model": "composer-in-session"
+    }
+  ],
+  "review_number": 1,
+  "pr": {
+    "number": 424,
+    "url": "https://github.com/insight-lpr/platform/pull/424",
+    "draft": false
+  },
+  "pr_urls": {},
+  "spawned_sessions": [],
+  "jira_in_progress_by": "daltonmccleery@gmail.com @ 2026-09-18T16:26:27Z",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "Dalton/pipeline-mcp @ 2026-09-18T17:44:00Z \u2192 In Code Review",
+  "assumed": [],
+  "comment_ids": {
+    "status": "40213",
+    "build_record": "40239"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "resource_envelope": {
+      "path": ".context/qa-resource-envelope.json",
+      "verdict": "PASS",
+      "peak_rss_bytes": null,
+      "wall_clock_seconds": 0.56,
+      "plausible_concurrency": null,
+      "projected_marginal_gb": null,
+      "headroom_gb": null,
+      "host_ram_gb": null,
+      "extrapolation_factor": 90.3,
+      "basis": "measured"
+    },
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "ok",
+      "migrations": "ok",
+      "docker_daemon": "ok",
+      "ch_container": "{}",
+      "frontend_build": "skipped",
+      "postgres_db": "",
+      "ch_strategy": "docker",
+      "herd_site": "clarity-claude_dev_2615.test"
+    },
+    "provisioned_early": true,
+    "human_guide": ".context/qa-human-guide.html"
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact tests/Filament/Resources/ClickhouseScanQueryShapeTest.php",
+        "passed": 7,
+        "failed": 0
+      }
+    ],
+    "deviations": [
+      {
+        "source": "qa-loop",
+        "edit": "drop kit_last_scan historical org set; prune with current Postgres kit org_ids only",
+        "ac_ref": "AC-1,AC-3,AC-5",
+        "ac_delta": "historical lossless prune \u2192 current-owner prune; AC-3/AC-5 N/A"
+      }
+    ],
+    "review": {
+      "lanes": [
+        "insession"
+      ],
+      "scores": [
+        93
+      ],
+      "findings_fixed": [],
+      "findings_residual": [
+        "Post-deploy: confirm Scans p50 sub-second and error 159 stops",
+        "DEV-2614 Hits prune still open",
+        "Moved-kit historical scans deferred until customer report"
+      ],
+      "lane_sources": [
+        {
+          "lane": "insession",
+          "source": "in-session-agent"
+        }
+      ],
+      "gate_score": 93,
+      "gate_score_src": "arbitration",
+      "rounds": [
+        {
+          "rn": 1,
+          "reason": "gate",
+          "at": "2026-09-18T16:27:20Z"
+        }
+      ],
+      "unresolved_premises": [],
+      "rerun_required": false,
+      "reviewed_sha": "3f03dcd675ef4d59e1153eb23754e4c538823daf",
+      "rework_pivot": false
+    },
+    "ac": [
+      {
+        "item": "AC-1: org_id prune restored on Scans CH list from current Kit::getKits org_ids",
+        "status": "SATISFIED",
+        "evidence": "ListScans::buildClickhouseQuery forOrgs(current org_ids)+forKits; shape test asserts org_id and kit_id predicates"
+      },
+      {
+        "item": "AC-2: EXPLAIN tens of millions not billions with org predicate",
+        "status": "SATISFIED",
+        "evidence": "2026-09-18 Cloud EXPLAIN ~90x; see prod-cardinality.md"
+      },
+      {
+        "item": "AC-3: moved-kit historical parity vs kit_id-only",
+        "status": "N/A",
+        "evidence": "Deferred human:Dalton 2026-09-18 \u2014 no customer complaints; current-owner prune accepted"
+      },
+      {
+        "item": "AC-4: Scans-list p50 / error 159",
+        "status": "N/A",
+        "evidence": "Post-deploy observation required"
+      },
+      {
+        "item": "AC-5: dedicated org-set cache + forgetCachedKits",
+        "status": "N/A",
+        "evidence": "Removed with historical helper; getKits cache unchanged"
+      },
+      {
+        "item": "AC-6: 30s timeout source",
+        "status": "SATISFIED",
+        "evidence": "clarity_clickhouse has no max_execution_time; Cloud server default 30s"
+      },
+      {
+        "item": "AC-7: end-only date floor",
+        "status": "N/A",
+        "evidence": "Deferred Q1"
+      }
+    ]
+  }
+}

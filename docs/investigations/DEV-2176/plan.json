@@ -1,0 +1,31 @@
+{
+  "approach": "B: restore dual-write (re-add SyncDispositionToClickhouse dispatch); Approach A (repoint reads) reverted after review+prod-perf showed it too costly/incomplete",
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Restore the ClickHouse disposition sync dispatch (revert of 1b241ae1) + regression tests",
+      "approach": "Re-add the dispatch + helper + import in Scan::updateDisposition() so disposition writes dual-write PG + the flat CH columns; all read surfaces (MO/Hits/Scans/Scout/heatmaps) become correct with no read-side changes. Add Queue::fake regression tests (individual + shared-method-for-every-caller).",
+      "target_files": [
+        "app/Models/Scan.php",
+        "tests/Feature/Http/Controllers/DispositionControllerTest.php"
+      ],
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "DispositionControllerTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "Approach A repoint (app/Clickhouse/Models/*, list pages, ScansMetadataExtracted)", "reason": "Reverted — replaced by the dual-write restore."},
+    {"site": "Backfill of the outage window", "reason": "Dalton: no backfill."},
+    {"site": "SyncDispositionToClickhouse dead-code cleanup", "reason": "No longer dead — dispatched again."}
+  ],
+  "notes": [
+    "Faithful revert of the 3 hunks commit 1b241ae1 removed from app/Models/Scan.php.",
+    "Both write entrypoints (DispositionController + BulkDispositionAction) share Scan::updateDisposition(), so one dispatch covers both.",
+    "Prod queue is async (Horizon) so the dispatch never blocks/fails the disposition write; job retries on CH hiccups.",
+    "No blast-radius glob hits (Scan model + a test)."
+  ]
+}

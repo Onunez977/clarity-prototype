@@ -1,0 +1,264 @@
+{
+  "key": "DEV-2654",
+  "generated_at": "2026-09-24T16:45:00Z",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "gate_reason": "Option A satisfied by the shared cache-helper merge d8e70005. No new material question.",
+  "base_sha": "d8e70005479e14ba3ea4db1d194ab30a332e3e3e",
+  "jira": {
+    "url": "https://insightlpr-team.atlassian.net/browse/DEV-2654",
+    "summary": "Company Metrics leaderboards — reshape Staging Live Hit to the rollup pattern and audit recovery_scans accuracy",
+    "type": "Story",
+    "priority": "Medium",
+    "status": "To Do",
+    "sprint": "Sprint 41",
+    "application": "Clarity",
+    "assignee": "Dalton McCleery",
+    "parent": "the Company Metrics epic",
+    "links": {
+      "the ratio and claims timezone work": "QA Complete — ratio/claims TZ; Part 1b stays here",
+      "the shared cache-helper work": "QA Complete — merged d8e70005 / PR #450; helpers are on this base",
+      "the view-without-FINAL gap": "To Do — lpr_assists lacks FINAL; measure-first; do not implement here",
+      "the RecoveryCounts batching neighbor": "QA Ready — RecoveryCounts batching; soft-OK, separate claim"
+    },
+    "reget_at": "2026-09-24T16:40:00Z",
+    "comment_41604": "Progress note already on the issue (2026-09-24). Prep on 2026-09-22 recorded no comments.",
+    "drift_vs_prior_prep": "Status, type, priority, sprint, assignee, parent, and AC text match. The ratio and claims timezone work moved In Progress → QA Complete. The shared cache-helper work moved To Do → QA Complete and is merged. Description line numbers are still stale, and dashboardCacheTTL() no longer exists (the shared cache-helper work deleted it). The view-without-FINAL ticket ORDER BY (recovery_id, hit_id) still disagrees with schema ORDER BY (recovery_id, scan_id)."
+  },
+  "synthesis": "Part 1 reshapes StagingLiveHitLeader off a filter-independent 13-month top-10 onto the Unique Scans rollup: every date arm, including this_month, uses one window; GROUP BY kit_id WITH ROLLUP; key 0 is the org total; StagingLiveHits reads that key so the card headline and the ranking are one cached scan. Part 1b converts those window bounds viewer-local → UTC with ScanPlateStatsBatchQuery::toUtcDatetimeFor before interpolation, and uses safeTimezone() (UTC, no throw) for the month arms. The shared cache-helper work already replaced dashboardCacheTTL() with ResolvesDashboardCacheTtl::baseDashboardCacheTTL. AC5's remaining hand-roll is LEADER_CACHE_PREFIX / leaderCacheKey: replace the ranking cache with a class-neutral rememberedRange on StagingLiveHitLeaderQuery that calls baseDashboardCacheTTL(0). Do not call the scan-plate-stats keys. Part 2 writes an audit of RecoveryLeaderQuery against okf/concepts/lpr-assist.md and coordinates the view-without-FINAL gap to that Cloud measure without closing or implementing that bug. AC7: accept viewer-local Y-m-d against repo_date (it is a Date); replace addslashes with a Y-m-d assert; stop RecoveryLeader from using ClickhouseQuery::query() so a failure is not cached as an empty board.",
+  "scope": {
+    "summary": "Ship surface is the Staging Live rollup + TZ + shared range cache, the Staging Live Hits headline read of key 0, a written recovery_scans finding, and the Recovery Leader resolve-or-accept. No product code in this plan commit.",
+    "proposed_changes": [
+      {
+        "file": "app/Clickhouse/Queries/StagingLiveHitLeaderQuery.php",
+        "change": "Add handleRangeSql/handleRange: GROUP BY kit_id WITH ROLLUP, GROUPING(kit_id) AS is_rollup, totals[0] = org uniqExactIf. Convert start/end with ScanPlateStatsBatchQuery::toUtcDatetimeFor before interpolation. Add sharedRangeCacheKey + rememberedRange using ResolvesDashboardCacheTtl via a new instance's baseDashboardCacheTTL(0), same shape as ScanPlateStatsBatchQuery::rememberedRange. Keep uniqExactIf(ocr, hit_type = 'S'), kit_org_id, FINAL, kit_id. Drop the LIMIT 10 path and the 13-month LIMIT 10 BY month path once callers move.",
+        "reason": "AC1, AC2, AC3, AC4, AC5",
+        "ref": "StagingLiveHitLeaderQuery.php:37-113; ScanPlateStatsBatchQuery.php:105-112,164-169,264-334,476-488,640-643"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/StagingLiveHitLeader.php",
+        "change": "Every date arm, including this_month, calls the UniqueScansLeaderboard zone split and rememberedRange. Delete LEADER_CACHE_PREFIX, leaderCacheKey, and the 13-month per-kit batch. Keep the sparkline as the shared staging-live org-total series (not the sum of the top 10). Keep using baseDashboardCacheTTL for sparkline month puts. Do not restore dashboardCacheTTL.",
+        "reason": "AC1, AC2, AC5",
+        "ref": "StagingLiveHitLeader.php:49-52,313-333,378-385,422-425,716-734; UniqueScansLeaderboard.php:299-393"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/StagingLiveHits.php",
+        "change": "Override getCardTotal() so every date arm reads rememberedRange totals[0]. Do not edit SharedHitStatsData's four-prefix batch (Live / Historical / Staging Historical stay on HitPlateStatsBatchQuery).",
+        "reason": "AC2",
+        "ref": "StagingLiveHits.php:1-41; SharedHitStatsData.php:547-595"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/RecoveryLeader.php + app/Clickhouse/Queries/RecoveryLeaderQuery.php",
+        "change": "AC7 decisions are in plan.md. Date compare stays viewer-local Y-m-d against repo_date, with a Y-m-d assert instead of addslashes. queryClickhouse() stops calling ClickhouseQuery::query(); failures are reported and not cached. getGraphLabels() uses timezone ?? 'UTC'.",
+        "reason": "AC7",
+        "ref": "RecoveryLeaderQuery.php:9-55; RecoveryLeader.php:290-392; ClickhouseQuery.php:11-37; okf/concepts/platform-gotchas.md PG-029"
+      },
+      {
+        "file": "docs/investigations/DEV-2654/recovery-scans-audit.md",
+        "change": "AC6 written finding during implement. Accurate-as-is with the measurement, or a defect list. Cite the view-without-FINAL Cloud measure for that gap. Do not file a duplicate and do not change the view.",
+        "reason": "AC6",
+        "ref": "okf/concepts/lpr-assist.md:141-147; database/schema/clickhouse-schema.sql:37,88"
+      }
+    ],
+    "target_files": [
+      "app/Filament/Widgets/Dashboard/StagingLiveHitLeader.php",
+      "app/Clickhouse/Queries/StagingLiveHitLeaderQuery.php",
+      "app/Filament/Widgets/Dashboard/StagingLiveHits.php",
+      "app/Filament/Widgets/Dashboard/RecoveryLeader.php",
+      "app/Clickhouse/Queries/RecoveryLeaderQuery.php",
+      "tests/Feature/Clickhouse/StagingLiveHitLeaderQueryTest.php",
+      "tests/Filament/Widgets/Dashboard/StagingLiveHitLeaderTest.php",
+      "tests/Filament/Widgets/Dashboard/RecoveryLeaderTest.php",
+      "docs/investigations/DEV-2654/recovery-scans-audit.md"
+    ],
+    "pattern_only_do_not_modify": [
+      "app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php",
+      "app/Filament/Widgets/Dashboard/UniqueScansLeaderboard.php",
+      "app/Filament/Widgets/Dashboard/UniqueScanCounts.php",
+      "app/Filament/Widgets/Dashboard/Concerns/ResolvesDashboardCacheTtl.php",
+      "app/Clickhouse/Queries/ClickhouseQuery.php",
+      "app/Filament/Widgets/Dashboard/RecoveryCounts.php",
+      "app/Clickhouse/Queries/RecoveryTotalsBatchQuery.php"
+    ],
+    "out_of_scope": [
+      "Product code in this plan commit.",
+      "phase=provisioned. Fleet ledger is not published for this key.",
+      "Zod. Cloud ClickHouse writes.",
+      "Ratio numerators and claims timestamps from the ratio and claims timezone work.",
+      "The RecoveryCounts batching neighbor: RecoveryCounts / RecoveryTotalsBatchQuery.",
+      "Implementing or closing the view-without-FINAL gap. Redefining clarity.lpr_assists.",
+      "Changing uniqExactIf(ocr, hit_type = 'S'), kit_org_id scoping, or kit_id keying.",
+      "okf/ edits. company-metrics-dashboard.md still lists StagingLiveHitLeader as Pro-gated; the class has no canViewCardData(). Code wins. Land the wiki after approval.",
+      "Jira assignee or workflow transitions.",
+      "Live / Historical / Staging Historical headlines."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "AC1 The Staging Live Hit Leaderboard responds to the selected date filter for every arm, including this_month, with no fixed 13-month spread.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "this_month still returns getMonthlyLeaderData()'s last bucket (StagingLiveHitLeader.php:330-332). The ranked list becomes one window on every arm. The 13-point sparkline of org totals stays; that is the Unique Scans shape, not the spread AC1 removes."
+    },
+    {
+      "item": "AC2 One ClickHouse scan serves both the Staging Live Hit card and its leaderboard (rollup key 0 = org total).",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Ranking is StagingLiveHitLeaderQuery with no rollup. The card headline is HitPlateStatsBatchQuery through SharedHitStatsData. Both will read StagingLiveHitLeaderQuery::rememberedRange. Key 0 is the only org total. All four date arms share, including last_month."
+    },
+    {
+      "item": "AC3 Staging Live Hit windows are converted viewer-local → UTC before interpolation; invalid users.dti falls back to UTC without throwing.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Copy safeTimezone (L164-169, no throw) and toUtcDatetimeFor (L640-643). Month arms use currentMonthWindow / lastMonthWindow. today / last_7d keep the raw viewer zone, matching UniqueScansLeaderboard::resolveRangeAndTimezone."
+    },
+    {
+      "item": "AC4 uniqExactIf(ocr, …), kit_org_id scoping, and kit_id keying are preserved; verified by test.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Already the query contract and pinned by StagingLiveHitLeaderQueryTest. hits_cold ORDER BY leads with hotlist_org_id, so kit_org_id is a correctness choice. FINAL does not collapse duplicate ids when hit_created_at changed."
+    },
+    {
+      "item": "AC5 The hand-rolled leaderboard cache is replaced by the shared cache helpers, TTL ladder and impersonation collapse intact.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Helpers exist on d8e70005. Trait is already used. Remaining work is the class-neutral range key and rememberedRange calling baseDashboardCacheTTL(0). Impersonation is 10 seconds inside that method. Do not invent a second ladder."
+    },
+    {
+      "item": "AC6 recovery_scans audit produces a written finding: either accurate as-is with the measurement, or a defect list with a follow-up ticket per defect.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Written finding only. Measurement is read-only aggregates on the provisioned fleet Docker ClickHouse. A pgsql mirror is not the done-signal. Cloud ClickHouse is read-only and this plan does not query it for writes. The view-without-FINAL Cloud measure stays the owner of that gap."
+    },
+    {
+      "item": "AC7 The RecoveryLeaderQuery timezone gap and Throwable-swallow behaviour are each explicitly resolved or recorded as accepted, with the reason.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Plan decides both. Timezone: accept viewer-local Y-m-d vs repo_date Date; replace addslashes with a Y-m-d assert. Swallow: resolve on RecoveryLeader only by leaving ClickhouseQuery::query(). Do not change ClickhouseQuery."
+    }
+  ],
+  "questions": [
+    {
+      "id": "Q1",
+      "q": "AC5 needs the shared cache helpers. Which option?",
+      "options": {
+        "A": "Wait for the shared cache-helper work, then resume including AC5.",
+        "B": "Defer AC5.",
+        "C": "Inline the helpers here."
+      },
+      "answered": true,
+      "answer": "A",
+      "answer_source": "Dalton 2026-09-22",
+      "satisfied_by": "shared cache-helper work is QA Complete, merge d8e70005",
+      "material": true,
+      "blocks_gate": false
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "Ticket line numbers drifted again after the shared cache-helper work. Use grounding.line_drift.",
+    "dashboardCacheTTL() is gone. StagingLiveHitLeader uses ResolvesDashboardCacheTtl (line 49). The ticket text still names the deleted method.",
+    "Sparkline stays the shared staging-live org total, not the sum of the top 10. Per-kit uniqExactIf does not sum to the org total.",
+    "Unique Scans does not share last_month. AC2 does not grant that exemption. Staging Live Hits last_month headline reads the same rollup as the leaderboard.",
+    "New range payload is {totals, names}. Version the key (-v1). Do not reuse LEADER_CACHE_PREFIX entries.",
+    "RecoveryLeaderQuery::handle keys by kit name (L51). Audit seed. Not a required code change unless AC6 calls it a defect.",
+    "90-day assist window is in the Cloud scoring job (okf/concepts/lpr-assist.md), not in RecoveryLeaderQuery.",
+    "okf/concepts/company-metrics-dashboard.md:182 still lists StagingLiveHitLeader among the Pro-gated five. The class has no canViewCardData override. Code wins.",
+    "The RecoveryCounts batching neighbor (QA Ready) touches RecoveryCounts and RecoveryTotalsBatchQuery. Soft-OK. Do not edit those files.",
+    "Preflight note: Agent QA / Verify time caps apply later. Do not thrash them in this plan.",
+    "Fleet Docker ClickHouse is required before the AC6 measurement counts. This plan does not run that measurement."
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Filament/Widgets/Dashboard/Concerns/ResolvesDashboardCacheTtl.php:19 (CLOSED_MONTH_SETTLE_FULL_SECONDS), :28-43 (baseDashboardCacheTTL)",
+      "app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php:476-488 (rememberedRange), :603-609 (sharedClosedMonthTtl), :611-614 (openSharedTtl)",
+      "app/Filament/Widgets/Dashboard/StagingLiveHitLeader.php:49 (uses the trait), :52 (LEADER_CACHE_PREFIX), :313-333 (filter routing), :422-425 (leaderCacheKey)",
+      "app/Clickhouse/Queries/StagingLiveHitLeaderQuery.php:12-27, :49-67 (LIMIT 10, no rollup), :91-113 (13-month LIMIT 10 BY month)",
+      "app/Filament/Widgets/Dashboard/UniqueScansLeaderboard.php:299-324, :350-366, :390-393",
+      "app/Filament/Widgets/Dashboard/StagingLiveHits.php (card; SharedHitStatsData)",
+      "app/Filament/Widgets/Dashboard/Concerns/SharedHitStatsData.php:547-595 (currentPeriodUnique / getCardTotal)",
+      "app/Clickhouse/Queries/RecoveryLeaderQuery.php:9-55",
+      "app/Filament/Widgets/Dashboard/RecoveryLeader.php:290-392",
+      "app/Clickhouse/Queries/ClickhouseQuery.php:11-37",
+      "database/schema/clickhouse-schema.sql:37 recovery_scans ORDER BY (recovery_id, scan_id); :88 lpr_assists view without FINAL",
+      "okf/concepts/lpr-assist.md:43-78,141-147",
+      "okf/concepts/data-architecture.md",
+      "okf/concepts/platform-gotchas.md PG-029"
+    ],
+    "line_drift": [
+      {"ticket": "StagingLiveHitLeaderQuery.php:91-113 monthly spread", "main": "L91-113", "verdict": "matches"},
+      {"ticket": "StagingLiveHitLeader.php:330-350 this_month reads last 13-month bucket", "main": "L330-332", "verdict": "behaviour matches; lines shifted"},
+      {"ticket": "LEADER_CACHE_PREFIX L54", "main": "L52", "verdict": "drift"},
+      {"ticket": "leaderCacheKey() L466", "main": "L422-425", "verdict": "drift"},
+      {"ticket": "dashboardCacheTTL() L444-457", "main": "deleted by the shared cache-helper work; trait baseDashboardCacheTTL L28-43; widget uses the trait at L49", "verdict": "method gone"},
+      {"ticket": "UniqueScansLeaderboard::resolveRangeAndTimezone L363-378", "main": "L350-366", "verdict": "drift"},
+      {"ticket": "fetchRangeRollup L403-413", "main": "L390-393", "verdict": "drift; body is rememberedRange"},
+      {"ticket": "ScanPlateStatsBatchQuery rollup L272-277", "main": "handleRangeSql L286-293", "verdict": "drift"},
+      {"ticket": "safeTimezone L149-154", "main": "L164-169", "verdict": "drift"},
+      {"ticket": "toUtcDatetime L90-97", "main": "private L105-112; public toUtcDatetimeFor L640-643", "verdict": "drift"},
+      {"ticket": "currentMonthWindow L332 / lastMonthWindow L358", "main": "L347-353 / L373-381", "verdict": "drift"},
+      {"ticket": "RecoveryLeaderQuery L11-13 and L31-32", "main": "same", "verdict": "matches"},
+      {"ticket": "RecoveryLeader.php:293-330 and queryClickhouse L373-381", "main": "getDescription starts L290; queryClickhouse L373-381", "verdict": "close"},
+      {"ticket": "okf/concepts/lpr-assist.md:141-149", "main": "rules L141-147", "verdict": "close"}
+    ],
+    "helper_proof": {
+      "ancestor": "d8e70005479e14ba3ea4db1d194ab30a332e3e3e",
+      "present": [
+        "ResolvesDashboardCacheTtl::baseDashboardCacheTTL",
+        "ScanPlateStatsBatchQuery::rememberedRange",
+        "ScanPlateStatsBatchQuery::sharedClosedMonthTtl",
+        "ScanPlateStatsBatchQuery::rememberMonthSeries",
+        "ScanPlateStatsBatchQuery::rememberOpenMonthTotal",
+        "StagingLiveHitLeader uses ResolvesDashboardCacheTtl"
+      ]
+    },
+    "tables": [
+      "clarity.hits_cold",
+      "clarity.recovery_scans",
+      "clarity.recoveries",
+      "clarity.kits",
+      "clarity.lpr_assists (view)"
+    ]
+  },
+  "data_impact": {
+    "pg_tables": ["users (org_id and users.dti reads only)"],
+    "ch_tables": [
+      "clarity.hits_cold",
+      "clarity.recovery_scans",
+      "clarity.recoveries",
+      "clarity.kits",
+      "clarity.lpr_assists (view; read for the audit comparison, not redefined)"
+    ],
+    "writes": "None. Dashboard reads. AC6 is a written finding. No Cloud ClickHouse writes.",
+    "indexes_relied_on": [
+      "clarity.hits_cold ORDER BY (hotlist_org_id, toYYYYMM(hit_created_at), hit_created_at, id). kit_org_id does not lead. Keep it (AC4).",
+      "clarity.recovery_scans ORDER BY (recovery_id, scan_id), ReplacingMergeTree(_peerdb_version), no is-deleted engine argument.",
+      "clarity.recoveries.repo_date is a Date."
+    ]
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "oracle_status": "not-run",
+    "note": "No production probe in this refresh. A single-window rollup replaces the 13-month ranking spread. AC6 measurement waits for fleet Docker ClickHouse. Do not reuse scans_cold byte figures for hits_cold.",
+    "operator_accepted": false
+  },
+  "tests_to_keep_green": [
+    {
+      "file": "tests/Feature/Clickhouse/StagingLiveHitLeaderQueryTest.php",
+      "what_it_pins": "uniqExactIf vs bare count, kit_id, hit_type = 'S', kit_org_id. Rewrite the handleMonthly cases onto the rollup. Do not delete the file."
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/StagingLiveHitLeaderTest.php",
+      "what_it_pins": "Sparkline is the shared series, not the top-10 sum. Date filter. Impersonation TTL. Several cases assert the 13-month per-kit batch AC1 removes — rewrite those cases."
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/RecoveryLeaderTest.php",
+      "what_it_pins": "Recovery Leader rendering. In blast radius because AC7 changes the query path."
+    }
+  ],
+  "confidence": 84,
+  "escalate": {
+    "recommend": false,
+    "reason": "The parked question is answered and the helpers are on the base. AC7 resolve-or-accept is decided in the plan."
+  }
+}

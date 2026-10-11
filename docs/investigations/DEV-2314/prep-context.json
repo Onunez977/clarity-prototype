@@ -1,0 +1,87 @@
+{
+  "key": "DEV-2314",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "synthesis": "Scout map zoom-gated features (path/density layers, main-map hit-icon markers) currently only appear once the user zooms in to level 12. The ticket asks to move these 'back by 1 level' — i.e. make them appear one zoom step further out (constant 12 -> 11). The two behaviors named literally (path loading, hit icons) map cleanly to two named constants in ScannerMap.vue; the trailing 'etc' is an unresolved scope question (does it also include the map's default/boot view zoom and/or other zoom-gated detail?).",
+  "scope": {
+    "summary": "Single-file frontend constant change in resources/js/clarity-scout/components/ScannerMap.vue: lower the two zoom-floor constants from 12 to 11, then rebuild + commit the tracked Vite assets (public/build). Pending Dalton's answer on 'etc', the map's hardcoded default-view zoom (bootZoom/fallbackZoom = 12) may also move to 11.",
+    "proposed_changes": [
+      {"file": "resources/js/clarity-scout/components/ScannerMap.vue", "change": "PATH_LAYERS_MIN_ZOOM = 12 -> 11", "reason": "'path loading ... back by 1 level' — gates fetch+render of scan-path/order-density/hit-density layers (DEV-2185 shared floor).", "ref": "resources/js/clarity-scout/components/ScannerMap.vue:134"},
+      {"file": "resources/js/clarity-scout/components/ScannerMap.vue", "change": "RANGE_HIT_MARKERS_MIN_ZOOM = 12 -> 11", "reason": "'hit icons ... back by 1 level' — gates main-map hit-logo markers (DEV-2016). Comment already notes '11 would match the zone labels'.", "ref": "resources/js/clarity-scout/components/ScannerMap.vue:129"},
+      {"file": "public/build/**", "change": "npm run build; commit regenerated manifest.json + asset hashes", "reason": "public/build is tracked; source change is inert until assets rebuilt+committed.", "ref": "package.json:scripts.build"}
+    ],
+    "target_files": ["resources/js/clarity-scout/components/ScannerMap.vue", "public/build/manifest.json", "public/build/assets/*"],
+    "out_of_scope": [
+      "NO_SCAN_LABEL_MIN_ZOOM (already 11).",
+      "LIVE_ZOOM (=16, Live camera punch-in target, not a visibility gate).",
+      "TRAIL_ARROWS_MIN_ZOOM (=14, fine-detail gate) — CONFIRMED out of scope by Dalton (2026-08-07: 'just the 2 named gates').",
+      "bootZoom/fallbackZoom default-view literals (=12) — CONFIRMED out of scope by Dalton (2026-08-07): the default map VIEW zoom does NOT change.",
+      "focusOnHit/fitToDriverPositions/focusZoneFeature camera clamps (user-driven interactions, not defaults).",
+      "Any backend/ClickHouse/Postgres change — pure frontend constant tweak."
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "PATH_LAYERS_MIN_ZOOM lowered 12 -> 11 (path/density layers appear one zoom level further out).", "source": "ticket", "decision": "implement", "reason": "Directly named ('path loading'); single-point change."},
+    {"item": "RANGE_HIT_MARKERS_MIN_ZOOM lowered 12 -> 11 (hit-icon markers appear one zoom level further out).", "source": "ticket", "decision": "implement", "reason": "Directly named ('hit icons'); single-point change."},
+    {"item": "public/build rebuilt + committed so the change is live in the app.", "source": "derived", "decision": "implement", "reason": "Tracked build dir convention."},
+    {"item": "Scope of 'etc' confirmed: ONLY the two named gates change; default/boot view zoom and trail arrows unchanged.", "source": "ticket", "decision": "implement", "reason": "Resolved by Dalton 2026-08-07 ('just the 2 named gates')."}
+  ],
+  "questions": [
+    {"q": "Beyond the two named gates (path loading + hit icons, both 12->11), what does 'etc' cover? Options: (A) just those two; (B) also the map's default/boot view zoom (bootZoom/fallbackZoom 12->11); (C) also other zoom-gated detail like trail direction arrows (14->13).", "answered": true, "answer": "A — just the two named gates. Default/boot view zoom and trail arrows are NOT changed.", "source": "human:Dalton 2026-08-07"}
+  ],
+  "blockers": [],
+  "notes": [
+    "Pure frontend, ScannerMap.vue constant change; no PHP/migration/CH.",
+    "Both constants are shared by the driver PWA and admin Bird's Eye (same component) — the change auto-applies to both; QA should verify both surfaces.",
+    "Crash-risk to VERIFY (not a blocker): PATH_LAYERS_MIN_ZOOM's DEV-2185 comment warns a too-wide viewport at 15/30/60 days can crash the browser (scan-path fetch has no server-side row cap). Lowering to 11 roughly quadruples viewport area — QA at the widest (60-day) range.",
+    "No JS test runner in this repo (platform is PHPUnit-only) — pinning is manual/agent-browser QA at the map.",
+    "public/build is tracked (platform-commits-built-assets) — rebuild + commit assets."
+  ],
+  "tests": [
+    {"file": "N/A (no JS test runner)", "what_it_pins": "Manual/agent-browser QA: at zoom 11 in Historical mode with a long date range, path/density layers + hit-icon markers now render (previously hidden until 12); at zoom 10 both still hidden; verify in both driver and Bird's Eye; watch payload/responsiveness at 60-day range zoom 11."}
+  ],
+  "grounding": {
+    "key_files": [
+      "resources/js/clarity-scout/components/ScannerMap.vue:129 (RANGE_HIT_MARKERS_MIN_ZOOM=12 — hit icons)",
+      "resources/js/clarity-scout/components/ScannerMap.vue:134 (PATH_LAYERS_MIN_ZOOM=12 — path loading)",
+      "resources/js/clarity-scout/components/ScannerMap.vue:126 (NO_SCAN_LABEL_MIN_ZOOM=11, already lower)",
+      "resources/js/clarity-scout/components/ScannerMap.vue:138 (TRAIL_ARROWS_MIN_ZOOM=14), :141 (LIVE_ZOOM=16)",
+      "resources/js/clarity-scout/components/ScannerMap.vue:331,1545 (bootZoom/fallbackZoom hardcoded 12 — default view)",
+      "resources/js/clarity-scout/components/ScannerMap.vue:468-474 (rangeHitMarkersEligible consumer), 866-871 (pathLayersEligible consumer)",
+      "resources/js/clarity-scout/stores/map.js (pathLayersEligible flag — reads constant, no duplicate literal)",
+      "resources/js/clarity-scout/components/DateRangeControl.vue:70 (comment ref only), views/ScoutHome.vue:177,199 (reads derived store prop)"
+    ],
+    "code_flow": "map idle/pan -> map.getZoom() compared vs the two constants -> eligible flags flip -> fetch+render or clear the layer. Lowering the constants makes the comparison true at a wider viewport (larger bbox to backend).",
+    "tables": [],
+    "related_components": ["mapStore (Pinia)", "DateRangeControl.vue", "ScoutHome.vue", "ClarityScoutMapController (backend fetch, no change)"]
+  },
+  "exhaustiveness": {
+    "patterns": ["git grep -nE 'PATH_LAYERS_MIN_ZOOM|RANGE_HIT_MARKERS_MIN_ZOOM' -- resources/js", "git grep -nE 'MIN_ZOOM|minZoom' -- resources/js/clarity-scout", "git grep -nE 'pathLayersEligible|rangeHitMarkersEligible' -- resources/js"],
+    "sites": [
+      {"site": "ScannerMap.vue:129,134 (definitions)", "class": "buggy-relevant", "reason": "the two constants to change"},
+      {"site": "DateRangeControl.vue:70", "class": "unrelated", "reason": "comment reference only, no literal"},
+      {"site": "stores/map.js:216", "class": "unrelated", "reason": "comment reference; store uses pathZoomSnapRequest ref, no literal"},
+      {"site": "ScoutHome.vue:177,199", "class": "unrelated", "reason": "reads derived pathLayersEligible store prop, no literal"},
+      {"site": "ScannerMap.vue bootZoom/fallbackZoom=12 (331,1545)", "class": "buggy-relevant?", "reason": "candidate for 'etc' (default view) — pending Dalton"}
+    ],
+    "conclusion": "The two constants are the single source of truth; no duplicated floor literals elsewhere."
+  },
+  "data_impact": {"pg_tables": [], "ch_tables": ["clarity.kit_scan_paths (path layer source, read via existing endpoint — no change)", "clarity.hits_hot/hits_cold (hit markers source, read via existing endpoint — no change)"], "mv_or_cdc_implications": "none", "indexes_relied_on": "none"},
+  "derivation_log": [],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "path loading floor -> 11", "kind": "agent", "intent": "Historical + long range; confirm path/density layers show at zoom 11, hidden at 10."},
+      {"ac": "hit icons floor -> 11", "kind": "agent", "intent": "With range hits; confirm hit markers show at zoom 11, hidden at 10."},
+      {"ac": "Bird's Eye parity", "kind": "agent", "intent": "Repeat in admin Bird's Eye (shared component)."},
+      {"ac": "wide-viewport payload", "kind": "human", "intent": "60-day range at zoom 11 — load time/payload sanity vs crash risk."}
+    ],
+    "seed_scenario": "Scout-enabled org with a kit that has scan-path history + a handful of direct/staging hits spanning a 15/30/60-day window, so both path/density and hit-icon layers have data to toggle across the zoom-11 boundary.",
+    "personas": ["Scout driver (PWA)", "Admin (Bird's Eye)"],
+    "pg_tables": [],
+    "ch_tables": ["clarity.kit_scan_paths", "clarity.hits_hot", "clarity.hits_cold"]
+  },
+  "confidence": 90,
+  "escalate": {"recommend": false, "reason": "Fast-pass + grep backstop already exhaustively covered the code (2 constants, single source of truth). The remaining uncertainty is purely human intent ('etc' scope), which independent best-of-N prep passes cannot resolve — routed to the Phase 2 human gate instead."},
+  "missed_caller_candidates": [],
+  "escalation_triggers_fired": ["answered:false question (etc scope)", "fast-pass confidence 72 < 80", "fast-pass escalate.recommend=true"]
+}

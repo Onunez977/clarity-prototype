@@ -1,0 +1,35 @@
+{
+  "ticket": "DEV-2058",
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Backend: expose vehicle_year/make/model/hotlist_us_state in Scout day()/show() hits_detail + bump cache key",
+      "approach": "In ClarityScoutTripsController, expand the hits_cold .select([...]) in both day() and show() to add vehicle_year, vehicle_make, vehicle_model, hotlist_us_state. Map those into the hits_detail payload items alongside the existing ocr/hit_created_at/hit_type/lat/lng/scan_guid fields (nullable-safe). Bump the response cache key (append :v2 to scanner:day:{orgId}:{kitId}:{date} and the scanner:trip key) so post-deploy reads don't return stale cached payloads missing the new fields. No schema/migration work (fields already exist in hits_cold). Then extend the controller test: have insertHitCold()/insertHitHot() helpers populate the four new columns and assert hits_detail items carry them (nullable-aware) plus hit_type.",
+      "target_files": [
+        "app/Http/Controllers/Api/ClarityScoutTripsController.php",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutTripsControllerTest.php"
+      ],
+      "intended_diffs": "ClarityScoutTripsController.php day() (~line 295): add 'vehicle_year','vehicle_make','vehicle_model','hotlist_us_state' to the hits_cold .select([...]); in the hits_detail mapping (~lines 350-361) add vehicle_year/vehicle_make/vehicle_model/hotlist_us_state keys. show() (~line 446 select, ~461-469 payload): identical expansion. Cache key (~scanner:day:{orgId}:{kitId}:{date} and scanner:trip): append a version suffix (:v2). Test: extend insertHitCold()/insertHitHot() to write the four columns; add assertions on hits_detail[0] for vehicle_year/make/model/hotlist_us_state and hit_type.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "ClarityScoutTripsControllerTest",
+      "ui_impact": false,
+      "blast_radius": []
+    },
+    {
+      "id": "t2",
+      "title": "Frontend: replace inset-0 hit lightbox with BottomSheet + add type label and vehicle info row in DayOverlay.vue & TripOverlay.vue",
+      "approach": "In DayOverlay.vue, replace the Teleport `fixed inset-0 z-50 ... bg-black/70` hit-lightbox (lines 242-283) with the already-imported BottomSheet component (same usage as the 'Route Overview' sheet at line 103: bottom-28/z-30 above the bottom-nav pill, drag handle, light backdrop). Inside the sheet body keep plate + time + the two images, and ADD: (a) a type-label badge driven by selectedHit.hit_type via a hitTypeLabel computed copied from MapShell.vue (L->'Direct Live', S->'Staging Live', same badge classes); (b) a vehicle info row showing vehicle_year + vehicle_make + vehicle_model + hotlist_us_state (registration state), each v-if-guarded for nullable values. vehicle_color is DEFERRED (do NOT add a PG lookup or field). Wire BottomSheet open state off selectedHit (open when non-null, clear selectedHit on close). Apply the identical markup change to TripOverlay.vue (lines 156-197) to keep the two overlays in sync; confirm BottomSheet is imported there (add the import if missing).",
+      "target_files": [
+        "resources/js/clarity-scout/components/DayOverlay.vue",
+        "resources/js/clarity-scout/components/TripOverlay.vue"
+      ],
+      "intended_diffs": "DayOverlay.vue: remove the `fixed inset-0 z-50 flex items-center justify-center bg-black/70` Teleport lightbox; render `<BottomSheet :open=\"!!selectedHit\" @update:open=\"v => { if(!v) selectedHit=null }\" title=\"Hit detail\">` (or v-model bound to a derived ref) containing plate/time, a hitTypeLabel badge, a vehicle info row (year make model + state, v-if guards), then the two existing <img>. Add `hitTypeLabel` computed mirroring MapShell.vue (lines 118-129). TripOverlay.vue: same structural swap and additions across lines 156-197 (+ BottomSheet import if absent).",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": []
+    }
+  ]
+}

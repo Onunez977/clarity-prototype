@@ -1,0 +1,46 @@
+{
+  "key": "DEV-2199",
+  "route": "feature",
+  "sizing": "10 files, ONE cohesive concern (teammate overlay feature) — no ticket split (Dalton approved scope). Single-node DAG: backend<->frontend contract is tightly coupled and the frontend has no independent test harness, so one worker owning the full vertical slice keeps the endpoint contract consistent and avoids 2x worktree bootstrap. Serialized-anyway (frontend depends on backend), so fan-out would add no parallelism.",
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Teammate scan overlay — config flag, driver endpoint, and Map Layers PathLayer (lines only, cyan, viewport-bbox, last_7)",
+      "approach": "Backend first (TDD), then frontend, then build. (A) Config: add a single global flag read from env('CLARITY_SCOUT_TEAMMATE_OVERLAY_ENABLED', false) in the config file where existing Scout/experimental flags live (verify: config/app.php experimental block vs a scout config; grep for how CLARITY_SCOUT / trips config is read). Read via config() only. (B) me(): ClarityScoutAuthController::me() add 'teammate_overlay_enabled' => (bool) config('<key>'), mirroring trips_enabled. (C) Endpoint: ClarityScoutMapController::teammatePaths(Request) — if !config flag: return empty payload (or 403 — match sibling gating convention); else resolve the driver's ORG Scout kit set via the Bird's-Eye orgScoutKits/getKits cross-connection pattern (DEV-2182; resolve-then-key-by-id, NOT whereHas/join), EXCLUDE $user->kit_id, call KitScanPathsQuery(org_id, kit_ids=orgKitsMinusSelf, start/end=getDateRange('last_7', tz), bbox=resolveOptionalBbox($request)); return flat path rows (drop per-kit color/name). Use the controller's OWN private getDateRange/snapBbox/resolveOptionalBbox (it does not use ScoutMapHelpers). Wrap the CH read to degrade gracefully (empty + Log::warning) like sibling endpoints. (D) Route: routes/api.php add GET map/teammate-paths inside the throttle:120,1 driver map group (auth:sanctum + ClarityScoutMiddleware). (E) Backend tests (TDD, name methods with 'teammate' so filter catches them): ClarityScoutMapControllerTest — flag-off empty/gated; returns org kits' paths EXCLUDING self; last_7 window; bbox narrows; graceful CH-failure; payload has no live-position field / no per-teammate metric; uses RequiresClickhouse. ClarityScoutAuthControllerTest — me() teammate_overlay_enabled reflects config (true on / false off). (F) Frontend: stores/auth.js persist teammateOverlayEnabled from me() (mirror tripsEnabled); stores/map.js add teammatePaths ref + fetchTeammatePaths(bounds) (AbortController), wire 'teammates' into activeHeatmaps + refreshActiveHeatmaps, gate !adminMode, snapshot fetch (never on the 10s live-position poll); DashboardOverlay.vue add a 'teammates' heatmapLayers entry + cyan legend swatch gated v-if authStore.teammateOverlayEnabled && !mapStore.adminMode; ScannerMap.vue add a 'teammate-paths' deck.gl PathLayer reading mapStore.teammatePaths, color rgb(8,145,178) ~alpha 210, gated pathLayersEligible() (zoom>=12) + activeHeatmaps.has('teammates') + !adminMode. (G) Build: npm run build; revert any Boost-regenerated CLAUDE.md/AGENTS.md/copilot/junie/boost.json churn; commit public/build.",
+      "target_files": [
+        "config/app.php",
+        "app/Http/Controllers/Api/ClarityScoutAuthController.php",
+        "app/Http/Controllers/Api/ClarityScoutMapController.php",
+        "routes/api.php",
+        "resources/js/clarity-scout/stores/auth.js",
+        "resources/js/clarity-scout/stores/map.js",
+        "resources/js/clarity-scout/components/DashboardOverlay.vue",
+        "resources/js/clarity-scout/components/ScannerMap.vue",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutAuthControllerTest.php",
+        "public/build"
+      ],
+      "intended_diffs": "See approach A-G. Additive only; no changes to existing endpoints/stats/hits. KitScanPathsQuery is reused UNCHANGED (do not edit it — KitUserPathController is another consumer). No org_meta / Org accessor / migration. Config key read only inside a config file (never env() at call sites).",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "teammate",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "app/Models/Org.php isScoutTeammateOverlayEnabled accessor + org_meta", "reason": "Dropped — Dalton chose a global config flag, not per-org org_meta (Phase 2)."},
+    {"site": "zone_user / User::zones() membership resolution + polygon clip", "reason": "Dropped — Dalton chose org-wide kits + viewport bbox, not zone-assignment membership or polygon clipping."},
+    {"site": "OrgLivePathsQuery / OrgLivePositionsQuery", "reason": "Wrong fit (live 3s cursor, no bbox, conflicts with AC-5); all 3 prep passes + Dalton confirmed KitScanPathsQuery."},
+    {"site": "static teammate position dots", "reason": "Dropped — lines only for v1 (Dalton)."},
+    {"site": "DayOverlay.vue / TripOverlay.vue", "reason": "No direct edit needed — they render the shared heatmapLayers list, so adding the entry in the shared source surfaces it there automatically ('available on other views'). Worker verifies no per-view edit is required."},
+    {"site": "app/Http/Controllers/KitUserPathController.php", "reason": "Other KitScanPathsQuery consumer — untouched; query class is not modified."}
+  ],
+  "notes": [
+    "Single-node fast path: dispatch ONE worker on the ticket branch in REPO_PATH (no worktree). Capture DIFF_BASE before the worker runs. Model = complex tier (TICKET_IMPLEMENT_MODEL = sonnet).",
+    "CH is required by the endpoint + ClarityScoutMapControllerTest (RequiresClickhouse) — Phase 4 must lazily bring up Docker CH before the worker's tests run.",
+    "No blast_radius in the sensitive-globs set -> no Phase-3 human-approval gate; perf_validation not required (see prep-context).",
+    "STAGING ONLY: config flag default false; do NOT enable in any prod config."
+  ]
+}

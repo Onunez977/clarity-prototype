@@ -1,0 +1,28 @@
+{
+  "precedents": [
+    {
+      "key": "DEV-2102",
+      "relevance": "Propagate-and-retry: made CH write failures survivable (job retries 3x/10s, no longer swallowed). This ticket is its root-cause follow-up — reduce the connect timeouts themselves.",
+      "applicable": "applicable — must preserve the no-swallow + retry behavior; do not reintroduce silent catches",
+      "source": "ticket body + memory: clickhouse-connect-timeout-no-keepalive"
+    },
+    {
+      "key": "DEV-2003",
+      "relevance": "Dispatch-time UUID + dedup for analytics inserts (exactly-once). CH dedups byte-identical blocks silently.",
+      "applicable": "applicable — any change to retry/insert path must keep the client-generated id + dispatch-time created_at intact",
+      "source": "ticket body + knowledge/clarity/analytics.md"
+    },
+    {
+      "key": "memory:clickhouse-connect-timeout-no-keepalive",
+      "relevance": "Deeper root cause: clickhouse-eloquent does a fresh DNS+TCP+TLS per insert (2s budget) with no keep-alive, and discards curl timing. DEV-2102 only fixed the symptom.",
+      "applicable": "context — full keep-alive fix is larger than this ticket's env-driven scope; note as out-of-scope/follow-up unless prep escalates",
+      "source": "memory"
+    },
+    {
+      "key": "commit:92ec8301 'Bump timeout'",
+      "relevance": "Prior precedent of bumping a CH timeout via config.",
+      "applicable": "pattern reference for env-driven timeout config",
+      "source": "git log config/database.php"
+    }
+  ]
+}

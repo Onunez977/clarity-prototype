@@ -1,0 +1,14 @@
+{
+  "precedents": [
+    {"key": "DEV-2381", "status": "Done", "age": "14d", "relevance": "Added a lowercase sc_positions projection so Scout readers can prune by kit_mapping", "applicable": true, "why": "The 2-week reporting-status probe is exactly an sc_positions-by-kit_mapping read; the projection is the sanctioned pruning path"},
+    {"key": "DEV-2342", "status": "Done", "age": "10d", "relevance": "scout:record-check-ins took prod down (OOM); fixed the recorder's sc_positions primary-key bypass", "applicable": true, "why": "Establishes sc_positions structure + why an unbounded per-kit fan-out over it is blast-radius"},
+    {"key": "DEV-2222", "status": "Done", "age": "0d", "relevance": "Kit User Path: fall back to kit_scan_paths for scan-only kits", "applicable": true, "why": "Org-scoped kit UI + the 'kit has no data' fallback shape this ticket's last-AC (usable with no scans / no recent sc_positions)"},
+    {"key": "DEV-2197", "status": "Done", "age": "0d", "relevance": "Scout live-driver map empty because the clarity.sc_positions GPS feed went dark", "applicable": true, "why": "Motivates the reporting-status boolean; also the failure mode the column must surface"},
+    {"key": "DEV-2221", "status": "Done", "age": "42d", "relevance": "Kit User Path: bound memory for wide/long selections (All Kits + 30 days)", "applicable": true, "why": "Performance pattern for org-wide kit listings; informs whether the sc_positions probe is per-row or one batched query"}
+  ],
+  "siblings": [
+    {"key": "DEV-2447", "status": "To Do", "note": "Backyard counterpart — same GL-kits listing (owner, last scan, sc_positions reporting status last 2w). Does NOT define what 'GL kit' means; no shared spec exists yet."},
+    {"key": "DEV-2450", "status": "To Do", "note": "Kit Path Map switches to enriched data once DEV-2448 lands — downstream consumer, blocked by this ticket."}
+  ],
+  "git_keys": ["DEV-2441", "DEV-2414", "DEV-2406", "DEV-2381", "DEV-2374", "DEV-2342", "DEV-2313", "DEV-2253", "DEV-2177"]
+}

@@ -1,0 +1,208 @@
+{
+  "key": "DEV-2594",
+  "mode": "normal",
+  "route": "bug",
+  "gate": "CLEAN",
+  "gate_reason": "Root cause is grounded in file:line stacking/offset code that explains why only the topmost Live Hits card fails while lower cards work. No material design ambiguity; fix is a layout correction (reliable controls height publish + stacking), not a product decision. Confirm on desktop \u2265lg during QA.",
+  "missed_caller_candidates": [],
+  "synthesis": "On the Scout driver map, the Live Hits Pending Repossession list (top-left card stack) lets lower rows open Hit Details, but the newest (top) row often ignores clicks. Code shows the desktop controls chrome (ScoutControlsWidget) is fixed at left-5 with z-[25], while the Live Hits column is absolute at left-5 with z-20 and is only kept clear of the chrome by CSS var --scout-controls-h published from a ResizeObserver that attaches once in onMounted and bails if the desktop widget is not mounted yet. When that height is missing/stale/underestimated, the opaque z-25 controls card physically covers the top of the z-20 Live Hits list \u2014 exactly the newest row \u2014 and eats the click. Lower rows sit below the overlap and work. Handler selectHitFromCard \u2192 focusHit is fine; this is not a missing click binding or a data-shape bug.",
+  "scope": {
+    "summary": "Stop the desktop Scout controls chrome from intercepting clicks on the top of the Live Hits Pending Repossession list. Make --scout-controls-h tracking reliable across compact\u2194desktop and expand/collapse, and ensure the Live Hits panel stacks above the controls when both occupy the left rail (or otherwise cannot be covered).",
+    "proposed_changes": [
+      {
+        "file": "resources/js/clarity-scout/components/ScoutControlsWidget.vue",
+        "change": "Attach/detach ResizeObserver whenever the desktop rootEl becomes available (watch rootEl / isCompact / adminMode), not only in onMounted. Keep publishing --scout-controls-h on every size change including expand/collapse of the End Shift row.",
+        "reason": "onMounted early-returns when rootEl is null (compact or admin at mount). Later flipping to desktop driver never re-attaches the observer, so Live Hits keeps the 132px fallback while the real expanded widget is taller \u2014 overlap covers the newest card.",
+        "ref": "ScoutControlsWidget.vue:201-213"
+      },
+      {
+        "file": "resources/js/clarity-scout/components/DashboardOverlay.vue",
+        "change": "Raise the Live Hits panel stacking above the controls chrome (e.g. z-[26] on the expanded Live Hits card / left column while expanded), and/or keep the left-column top offset strictly below the published height with a small safety gap. Prefer stacking so a stale height cannot eat clicks.",
+        "reason": "Even with a correct height, z-20 under z-25 means any overlap (animation frame, font scaling, End Shift appearing) silently steals clicks from the newest row. Stacking makes the list win.",
+        "ref": "DashboardOverlay.vue:26-29,69; ScoutHome.vue:11-12"
+      },
+      {
+        "file": "resources/js/clarity-scout/components/DashboardOverlay.vue",
+        "change": "Use a stable :key on Live Hits rows (prefer scan_id ?? id) so a ~10s fetchRecentHits refresh does not remount the newest row mid-interaction more than necessary.",
+        "reason": "Secondary hardening for the ticket's live-update race hypothesis; newest row is the one whose identity changes most often on poll.",
+        "ref": "DashboardOverlay.vue:91-93; useKitPositionPolling.js:62-64"
+      }
+    ],
+    "target_files": [
+      "resources/js/clarity-scout/components/ScoutControlsWidget.vue",
+      "resources/js/clarity-scout/components/DashboardOverlay.vue"
+    ],
+    "out_of_scope": [
+      "Map marker / MarkerClusterer click handling (rangeHits) \u2014 different surface; ticket's 'same stack' matches the Live Hits list.",
+      "Bird's Eye admin Live Hits parity beyond shared DashboardOverlay (same component; fix applies).",
+      "Backend recentHits payload / ClickHouse query changes.",
+      "TripOverlay / DayOverlay hit lists (local selectedHit refs; not the Live Hits Pending Repossession stack)."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Reproduced in a Scout user session",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "QA must reproduce on desktop \u2265lg with controls expanded + Live Hits expanded before declaring fixed; seed \u22652 recentHits so the top row is the overlap victim."
+    },
+    {
+      "item": "Root cause identified, not worked around",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Root cause is z-25 controls covering z-20 Live Hits when --scout-controls-h is wrong/stale \u2014 fix the publisher + stacking, do not only enlarge hit targets."
+    },
+    {
+      "item": "Every card in the hit stack opens its detail view on click, including the most recent one",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "selectHitFromCard \u2192 focusHit \u2192 MapShell BottomSheet; after layout fix, top row must open Hit Details like lower rows."
+    },
+    {
+      "item": "Verified on desktop and on the in-vehicle form factor Scout users actually use",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Desktop (\u2265lg) is the defect surface (controls widget visible). Compact (<lg) hides the widget \u2014 still verify Live Hits rows open on a phone/tablet-portrait form factor so we do not regress the compact path."
+    }
+  ],
+  "questions": [
+    {
+      "q": "Was the Premier demo repro on a desktop-width browser (\u22651024px, controls chrome visible) or a compact in-vehicle viewport?",
+      "answered": true,
+      "answer": "Cover both \u2014 unknown which Matt used \u00b7 human:Dalton 2026-09-18",
+      "source": "human:Dalton 2026-09-18"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "Ticket hypotheses (z-index/overlay, live-update race, missing-field suppressing handler) \u2014 first is the primary match; second is secondary hardening; third ruled out (selectHitFromCard does not gate on fields; focusHit opens sheet even without lat/lng).",
+    "Shared DashboardOverlay is used by driver and Bird's Eye; Live Hits list is the DEV-1965 card stack Matt described (top-left, newest first).",
+    "npm run build + commit public/build required before ship (platform commits built assets).",
+    "No JS unit test runner for Vue; pin with agent/human QA + any existing Playwright scout coverage if present.",
+    "Gate answers: cover desktop+compact and list-row+map-marker paths (Dalton 2026-09-18)."
+  ],
+  "tests": [
+    {
+      "file": "N/A \u2014 no JS unit runner for clarity-scout Vue",
+      "what_it_pins": "Manual/agent QA: desktop Scout with \u22652 Live Hits, controls expanded; click newest row \u2192 Hit Details opens; click older row \u2192 still opens; compact viewport regression."
+    }
+  ],
+  "grounding": {
+    "key_files": {
+      "resources/js/clarity-scout/components/DashboardOverlay.vue:26-29": "Left column top offset uses var(--scout-controls-h, 132px) + 24px on desktop; z-20.",
+      "resources/js/clarity-scout/components/DashboardOverlay.vue:69-105": "Expanded Live Hits panel + v-for rows @click=selectHitFromCard.",
+      "resources/js/clarity-scout/components/DashboardOverlay.vue:594-597": "selectHitFromCard \u2192 mapStore.focusHit(hit) \u2014 handler itself is fine.",
+      "resources/js/clarity-scout/components/ScoutControlsWidget.vue:9-14": "Desktop controls fixed left-5 z-[25] (above Live Hits).",
+      "resources/js/clarity-scout/components/ScoutControlsWidget.vue:201-213": "ResizeObserver only in onMounted; early return if rootEl null.",
+      "resources/js/clarity-scout/views/ScoutHome.vue:9-16": "Documents intentional z-[25] over overlay cards z-20.",
+      "resources/js/clarity-scout/stores/map.js:1140-1145": "focusHit sets selectedHit + optional recenter.",
+      "resources/js/clarity-scout/components/MapShell.vue:19-24": "Hit Details BottomSheet bound to selectedHit.",
+      "resources/js/clarity-scout/composables/useKitPositionPolling.js:62-64": "~10s fetchRecentHits refresh while live."
+    },
+    "code_flow": "Driver opens Scout \u2192 ScoutControlsWidget (z-25) + DashboardOverlay Live Hits (z-20, offset by --scout-controls-h) \u2192 user expands Live Hits \u2192 taps newest row \u2192 selectHitFromCard \u2192 focusHit \u2192 MapShell BottomSheet. If controls overlap the top of the list, the click never reaches the row button.",
+    "tables": [],
+    "related_components": [
+      "useCollapsible",
+      "useViewport",
+      "MapShell BottomSheet",
+      "dashboard.recentHits"
+    ]
+  },
+  "exhaustiveness": {
+    "grep_patterns_used": [
+      "selectHitFromCard|focusHit\\(|@click=.*[Hh]it",
+      "z-\\[25\\]|scout-controls-h|ResizeObserver",
+      "v-for=\"hit in dashboard.recentHits\"",
+      "pointer-events-auto in ScoutHome/DashboardOverlay/ScoutControlsWidget"
+    ],
+    "sites": [
+      {
+        "site": "DashboardOverlay.vue:93 (Live Hits row @click)",
+        "status": "buggy",
+        "reason": "Click target can be covered by z-25 controls when height offset is wrong; symptom matches newest-only failure."
+      },
+      {
+        "site": "ScoutControlsWidget.vue:201-213 (ResizeObserver attach)",
+        "status": "buggy",
+        "reason": "Observer not re-attached when desktop widget appears after compact/admin mount \u2014 stale/missing --scout-controls-h."
+      },
+      {
+        "site": "ScoutControlsWidget.vue:12 (z-[25] chrome)",
+        "status": "buggy",
+        "reason": "Intentionally above overlay cards; becomes the click thief under overlap."
+      },
+      {
+        "site": "DashboardOverlay.vue:594-597 (selectHitFromCard)",
+        "status": "safe",
+        "reason": "Handler correctly calls focusHit; not field-gated."
+      },
+      {
+        "site": "map.js:1140-1145 (focusHit)",
+        "status": "safe",
+        "reason": "Always setSelectedHit; lat/lng only gates recenter."
+      },
+      {
+        "site": "MapShell.vue:19-24 (BottomSheet)",
+        "status": "safe",
+        "reason": "Opens whenever selectedHit is set."
+      },
+      {
+        "site": "TripOverlay.vue / DayOverlay.vue hit lists",
+        "status": "safe",
+        "reason": "Different surfaces; not the Live Hits Pending Repossession stack."
+      },
+      {
+        "site": "ScannerMap rangeHitMarkers click",
+        "status": "safe",
+        "reason": "Map markers, not the card stack named in the ticket."
+      }
+    ],
+    "confirmed": "Only one Live Hits Pending Repossession card stack exists (DashboardOverlay). selectHitFromCard has a single call site."
+  },
+  "data_impact": {
+    "pg_tables": [],
+    "ch_tables": [],
+    "mv_or_cdc_implications": "None \u2014 frontend layout/stacking only. recentHits API unchanged.",
+    "indexes_relied_on": []
+  },
+  "resource_envelope": {
+    "scale_relevant": false,
+    "reason": "Frontend Vue click/stacking fix; no command, job, query class, or migration; does not iterate production data."
+  },
+  "derivation_log": [],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "Reproduce newest card not clickable",
+        "kind": "agent",
+        "intent": "Desktop Scout, controls expanded, Live Hits expanded, \u22652 hits; elementFromPoint on newest row center should hit controls chrome before fix."
+      },
+      {
+        "ac": "Newest + older cards open Hit Details",
+        "kind": "agent",
+        "intent": "After fix, click newest and an older row; both open MapShell Hit Details."
+      },
+      {
+        "ac": "Compact form factor regression",
+        "kind": "human",
+        "intent": "Phone/narrow width: expand Live Hits pill, tap rows \u2014 still open."
+      }
+    ],
+    "seed_scenario": "Scout driver session with an open shift and \u22652 liveActionable recent hits (one very recent). Desktop viewport \u22651024px so ScoutControlsWidget mounts. Prefer controls expanded (default on desktop).",
+    "personas": [
+      {
+        "role": "Scout driver (desktop or in-vehicle wide)",
+        "why": "Live Hits Pending Repossession is the driver (and shared overlay) surface from the demo."
+      }
+    ],
+    "pg_tables": [],
+    "ch_tables": [
+      "clarity.hits (read via existing recentHits; no schema change)"
+    ]
+  },
+  "confidence": 78,
+  "escalate": {
+    "recommend": false,
+    "reason": "Single clear stacking/offset root cause with file:line grounding; no competing product options; verification is QA reproduce+fix."
+  }
+}

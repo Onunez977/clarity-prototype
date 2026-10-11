@@ -1,0 +1,125 @@
+{
+  "key": "DEV-2904",
+  "track": "feature",
+  "label": "VIN-level CSV export of the LPR Repossessions bar chart db_repos set.",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "sprint": "Sprint 42",
+  "repo": "insight-lpr/platform",
+  "phase": "implemented",
+  "fix_cycle": "K",
+  "base_branch": "main",
+  "base_sha": "b0c06779c6bcc19c78c804c628a183a012a1b701",
+  "base_branch_reason": "First Glance comment 42732: branch path main\u2192main. Company Metrics LPR Repossessions card. Not the scout stack.",
+  "branch": "cursor/dev-2904-lpr-repos-vin-export-24e1",
+  "artifact_dir": "docs/investigations/DEV-2904/",
+  "gate": "CLEAN",
+  "gate_reason": "Ultra-Plan sealed after CloudAgent REQUEST CHANGES; all four Changes and all Nits adopted in Opus reconcile. Gate remains CLEAN.",
+  "next": "Review",
+  "next_detail": "Review fix cycle K. ExportCsv resolves each chunk of string triple keys in sub-batches under ClickHouse max_query_size (262144). chunkSize stays 10000. Agent QA, Build Record, and CI on the previous tip are stale. Fleet env is torn; Agent QA needs re-provision.",
+  "open_questions": [],
+  "provisioned": true,
+  "product_php": true,
+  "implement_tip": "4f3e5824f80d255dc419d4dd52cd0fb77628b71b",
+  "flags": {
+    "implement": true,
+    "provision": true,
+    "qa": false,
+    "review": false,
+    "stop_at": "implemented",
+    "cloud_ch_writes": false,
+    "cloud_ch_reads": "not_run",
+    "cloud_touched": false,
+    "product_php": true,
+    "preflight_18": "noted_only",
+    "preflight_26": "main_to_main",
+    "preflight_27": "later",
+    "csv_locked": true,
+    "aggregate_unchanged": true
+  },
+  "jira": {
+    "key": "DEV-2904",
+    "url": "https://insightlpr-team.atlassian.net/browse/DEV-2904",
+    "id": "31444",
+    "type": "Task",
+    "status": "To Do",
+    "priority": "Medium",
+    "assignee": "Dalton McCleery",
+    "assignee_account_id": "712020:3ed4235b-e525-4dec-97c9-84f47098e1d2",
+    "assignee_unchanged": true,
+    "github_assignee": {
+      "requested": "DaltonMcCleery",
+      "set": false,
+      "via": "gh pr edit --add-assignee",
+      "error": "GraphQL: Resource not accessible by integration (replaceActorsForAssignable)"
+    },
+    "sprint": "Sprint 42",
+    "sprint_id": 909,
+    "reget_at": "2026-10-02T17:39:45Z",
+    "comment_ids": {
+      "first_glance": "42732"
+    },
+    "first_glance": {
+      "id": "42732",
+      "created": "2026-10-02T12:39:02.738-0400",
+      "verdict": "Ready",
+      "hardness": "Med",
+      "branch_path": "main\u2192main",
+      "author": "Dalton McCleery"
+    },
+    "status_unchanged": true
+  },
+  "pr": {
+    "number": 501,
+    "url": "https://github.com/insight-lpr/platform/pull/501",
+    "draft": true,
+    "base": "main",
+    "assignee": null,
+    "head": "cursor/dev-2904-lpr-repos-vin-export-24e1"
+  },
+  "preflight": {
+    "18": "noted_only",
+    "18_reason": "Agent QA and Verify need a real fleet Docker ClickHouse. Not provisioned in Ultra-Prep.",
+    "26": "main\u2192main",
+    "27": "later",
+    "27_reason": "Screenshots of the export control and a sample file belong on the PR after the control exists."
+  },
+  "provision": {
+    "at": "2026-10-02T15:20:00-05:00",
+    "ledger": "/workspace/docs/investigations/DEV-2904/qa-prep-ledger.json",
+    "prove_passed": true,
+    "site": "http://127.0.0.1:18090",
+    "pg": "127.0.0.1:15442",
+    "ch": "127.0.0.1:18133",
+    "driver": "clickhouse",
+    "mac_herd_refused": true,
+    "cloud_touched": false,
+    "fleet": "torn",
+    "note": "Agent QA needs re-provision after fix cycle K."
+  },
+  "tests": {
+    "at": "2026-10-05T17:52:11Z",
+    "clickhouse": "local docker 127.0.0.1:8123 max_query_size 262144",
+    "cloud_clickhouse": "not queried",
+    "pint": {
+      "command": "vendor/bin/pint --test app/Clickhouse/Models/LprRepossessionExportRow.php app/Clickhouse/Models/LprRepossessionExportRowBuilder.php tests/Feature/Clickhouse/LprRepossessionsQueryTest.php",
+      "result": "passed"
+    },
+    "boundary": {
+      "filter": "test_export_completes_for_ten_thousand_and_one_rows_when_one_in_list_exceeds_max_query_size",
+      "passed": 1,
+      "assertions": 15,
+      "rows": 10001,
+      "result": "passed"
+    },
+    "filter": {
+      "command": "php artisan test --compact --filter=LprRepossession",
+      "passed": 72,
+      "assertions": 325,
+      "failed": 0,
+      "duration_seconds": 34.24,
+      "result": "passed"
+    }
+  }
+}

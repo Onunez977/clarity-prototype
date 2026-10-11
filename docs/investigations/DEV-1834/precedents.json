@@ -1,0 +1,17 @@
+{
+  "precedents": [
+    {"key": "DEV-1835", "status": "Done", "relevance": "Defines the standardized SQS envelope (metric_type, metric_range_start/end, rdn_org_identifier, data array) that DEV-1834 must document", "applicable": "yes — directly specifies the payload structure"},
+    {"key": "DEV-1854", "status": "Done", "relevance": "Org-level feature switch for RDN metrics; references DEV-1834 in its AC for documentation", "applicable": "yes — feature gating / admin context for the provider docs"},
+    {"key": "DEV-1830", "status": "QA Ready", "relevance": "Parent epic; orchestrates the per-metric-type subtasks (scans/hh/lives/aa variants). Each child metric represents one metric_type to document", "applicable": "yes — enumerates the metric types"},
+    {"key": "DEV-2083", "status": "Done", "relevance": "Recovery Intelligence dedupe of Case Claims metric by VIN", "applicable": "no — tactical dedupe rule, not core payload structure"},
+    {"key": "DEV-1758", "status": "To Do", "relevance": "Auto-sync GPS updates to RDN as case update — a producer of data, not the metrics push", "applicable": "no — upstream source, not SQS payload docs"}
+  ],
+  "grounding_hint": [
+    {"file": "app/Enums/RdnMetricType.php", "why": "Authoritative metric-type list + per-type mapping", "verified": true},
+    {"file": "app/Services/Rdn/RdnMetricsPublisher.php", "why": "SQS publisher; holds rdn_org_identifier / metric_range_start / metric_range_end payload assembly", "verified": true},
+    {"file": "app/Jobs/Rdn/PublishRdnMetric.php", "why": "Per-metric dispatch job; builds the data payload", "verified": true},
+    {"file": "app/Jobs/Rdn/DispatchRdnMetricsHourly.php", "why": "Scheduler that fans out per-metric jobs", "verified": true},
+    {"file": "app/Services/Aws/Sqs.php", "why": "SQS transport", "verified": true},
+    {"file": "config/services.php", "why": "RDN metrics queue_url / aws_profile / aws_region config", "verified": true}
+  ]
+}

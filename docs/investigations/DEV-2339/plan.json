@@ -1,0 +1,34 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Rewrite ScoutOpenOrderAddressesQuery to prune-first (approach B)",
+      "approach": "Restructure the final SELECT so zod.public_address is read via id IN (address_links) first (load-bearing PK prune), then join that pruned set to address_links for is_staged/hotlist_id. Keep open_hotlists/address_links CTEs, argMin/min direct-preference, argMax(_peerdb_version) coords, and geo/zero guards. Update the class docblock to document that IN is the PK prune and JOIN carries metadata — keep BOTH; never drop IN (approach A timed out). Pin semantics via existing ScoutRecordCheckInsCommandTest (extend only if a gap appears).",
+      "target_files": [
+        "app/Clickhouse/Queries/ScoutOpenOrderAddressesQuery.php",
+        "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php"
+      ],
+      "intended_diffs": "ScoutOpenOrderAddressesQuery.php: replace inner FROM public_address JOIN address_links + redundant-looking IN with pruned_addresses CTE (IN prune) JOIN address_links; docblock notes DEV-2339 measure. Test file: only if coverage gap for CDC version pairing / prune-first shape — prefer existing tests green.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "ScoutRecordCheckInsCommandTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple",
+      "excluded_sites": [
+        {
+          "file": "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php",
+          "reason": "Intentional keep-BOTH sibling; no timeout evidence; out of scope"
+        },
+        {
+          "file": "routes/console.php",
+          "reason": "DEV-2342 lock expiry — separate ticket"
+        }
+      ]
+    }
+  ],
+  "perf_validation": {
+    "required": false,
+    "note": "Already measured on CH Cloud org 123 before plan: CURRENT 15.4s, A timeout, B 13.4s; EXPLAIN proves IN is PK prune"
+  }
+}

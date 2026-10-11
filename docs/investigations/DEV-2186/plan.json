@@ -1,0 +1,31 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Prune the Scout driver map window to Today + 7d (pills + prefetch), gated on adminMode",
+      "approach": "Introduce a single source of truth for the driver's recent-focused window set (driverRangeOptions = today + last_7) in formatters.js. Render it in DateRangeControl.vue via a computed that returns the full rangeOptions for admin (adminMode) and driverRangeOptions for drivers. Thread an explicit range list through the usePrefetch composable (which already holds both stores and knows adminMode) so drivers only warm Today + last_7; make prefetchAllRanges/prefetchAllRangePaths accept an optional ranges arg defaulting to the current full 5-list (back-compatible). NO change to dashboard.range default ('today') or map.liveMode default (true) — boot behavior stays Live per Dalton's Q1 answer. Every driver/admin divergence is gated on mapStore.adminMode. Rebuild + commit public/build; revert Boost-regenerated docs.",
+      "target_files": [
+        "resources/js/clarity-scout/lib/formatters.js",
+        "resources/js/clarity-scout/components/DateRangeControl.vue",
+        "resources/js/clarity-scout/composables/usePrefetch.js",
+        "resources/js/clarity-scout/stores/dashboard.js",
+        "resources/js/clarity-scout/stores/map.js",
+        "public/build"
+      ],
+      "intended_diffs": "formatters.js: + export const driverRangeOptions = rangeOptions.filter(o => o.value === 'today' || o.value === 'last_7'). DateRangeControl.vue: import driverRangeOptions + computed; v-for over visibleRangeOptions = adminMode ? rangeOptions : driverRangeOptions; add `import { computed } from 'vue'`. usePrefetch.js: compute `ranges = (mapStore && !mapStore.adminMode) ? driverRangeOptions.map(o=>o.value) : null`; pass to both prefetch calls. dashboard.js: prefetchAllRanges(ranges = null){ const allRanges = ranges ?? ['today','last_7','last_15','last_30','last_60']; ... }. map.js: prefetchAllRangePaths(ranges = null){ const allRanges = ranges ?? [...same...]; ... }. public/build: npm run build output.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "simple"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "resources/js/clarity-scout/stores/dashboard.js:12 (range default)", "reason": "Q1=keep-Live-boot → driver boot default is unchanged; not touched."},
+    {"site": "resources/js/clarity-scout/stores/map.js:154 (liveMode default)", "reason": "Q1=keep-Live-boot → boot stays Live; not touched."},
+    {"site": "app/Http/Controllers/Api/*getDateRange", "reason": "Backend range handling is caller-agnostic and correct; out of scope."}
+  ],
+  "test_strategy": "No JS unit-test seam exists (repo has no JS test runner) and the change touches no PHP. The validating build is `npm run build` (compiles the Vue/JS clean); behavior is verified in Phase 6 QA (pill set per adminMode + admin-unchanged + prefetch scope). Full PHP suite is left to CI (no PHP diff to validate locally) — recorded as a deliberate, grounded deviation from the implement-phase 'run tests' default.",
+  "sizing": "1 subtask, 5 source files + build artifacts, single concern → single-node fast path, no worktree fan-out."
+}

@@ -1,0 +1,54 @@
+{
+  "key": "DEV-2176",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2176",
+  "phase": "done",
+  "models": {"base": "haiku", "recall": "haiku", "prep": "sonnet", "plan": "opus", "plan_arbiter": "opus", "implement": "sonnet", "implement_simple": "sonnet", "arbitrate": "opus", "offload": "sonnet", "review": "opus"},
+  "efforts": {"prep": "inherit", "plan": "inherit", "plan_arbiter": "inherit", "implement": "inherit", "implement_simple": "inherit", "arbitrate": "inherit", "offload": "inherit", "review": "inherit"},
+  "timings": [],
+  "flags": {"companion": false, "review_policy": "functional", "jira_mirror": true, "start_at": null, "stop_at": null, "only": null, "skip": [], "force": false},
+  "knowledge_cards_loaded": [],
+  "escalated": true,
+  "escalation_triggers": ["answered:false questions (2, needs-human)", "escalate.recommend=true"],
+  "missed_caller_candidates": [],
+  "diff_base": "55a775fa61cc32d22080ccd2d52a1294ef588566",
+  "subtasks": [{"id": "t1", "status": "merged", "worktree_path": "", "branch": "claude/DEV-2176", "complexity": "simple", "model": "opus-driver (approach B; approach-A opus worker reverted)", "approach": "B: restore dual-write dispatch"}],
+  "review_number": 2,
+  "pr": {"number": 261, "url": "https://github.com/insight-lpr/platform/pull/261", "draft": true},
+  "pr_urls": {},
+  "jira_in_progress_by": null,
+  "jira_transitioned_by": "manual-dalton.mccleery@insightlpr.com @ 2026-07-09 (In Code Review)",
+  "assumed": [],
+  "comment_ids": {"status": "35163", "oscar_explanation": "35197", "build_record": "35230"},
+  "qa": {"ledger": ".context/qa-prep-ledger.json (deleted at teardown)", "agent_report": ".context/qa-human-guide.md (documentation; agent-qa not run — Dalton drove to human-QA-as-docs)", "ac_results": "", "torn_down": true,
+         "provisioned_early": true,
+         "provisioning": {"bootstrap": "ran", "deps": "via-composer-install", "migrations": "ran", "docker_daemon": "n/a", "ch_container": "n/a", "frontend_build": "n/a", "postgres_db": "zod_claude_dev_2176 + zod_testing_claude_dev_2176", "ch_strategy": "deferred", "herd_site": "clarity-claude_dev_2176.test"}},
+  "record": {
+    "tests": [
+      {"cmd": "php artisan test tests/Feature/Http/Controllers/DispositionControllerTest.php (Approach B, local Docker CH w/ literal clarity+zod DBs)", "passed": 12, "failed": 0, "note": "10 pre-existing + 2 new Queue::fake dispatch tests. Pint clean. Full suite is CI's gate (per CLAUDE.md)."}
+    ],
+    "deviations": [],
+    "review": {"lanes": ["correctness/null-safety", "perf/blast-radius/convention", "e2e/edge/test-integrity"], "scores": [82, 84, 74], "gate": "FAIL (min 90)", "review_number": 1,
+      "findings": [
+        {"sev": "HIGH", "id": "F1", "what": "HitDirectHotspotQuery.php:74 + HitDensityGeohashQuery.php:36 still read the stale flat disposition column (raw SQL, not model scopes). F1a = Scout Map/BirdsEye heatmap (HitDirectHotspotQuery); F1b = repo density heatmap (HitDensityGeohashQuery, KitUserPathController — non-Scout). Prep exhaustiveness swept only app/Clickhouse/Models + list pages, missed app/Clickhouse/Queries.", "class": "correctness/exhaustiveness"},
+        {"sev": "HIGH/MED", "id": "F2", "what": "Perf: kit-scoped GROUP-BY-argMax subquery over 3.5B-row scans_metadata_extracted, no date bound, org-wide kits even for single-kit outer queries. PROD-MEASURED ~2.2-3.7s per filter subquery; on every MO/Hits/Scans list load + Scout endpoint. OLD path was O(window). scan_id-range bound validated at 0.27s (8x).", "class": "efficiency"},
+        {"sev": "MED", "id": "F3", "what": "_peerdb_is_deleted not filtered: argMax includes delete tombstones; sibling prod consumer (ScanVehicleController) filters =0. Deleted row's disposition wins until 1-day TTL. Fix: argMaxIf(...,_peerdb_is_deleted=0) / HAVING gate.", "class": "correctness"},
+        {"sev": "MED", "id": "F4", "what": "Empty-string disposition asymmetry: display maps ''->null (Awaiting Review) but filter treats '' as dispositioned (IS NOT NULL / not IN set) -> ''-disposition hits silently dropped from Scout validDisposition surfaces. Code's own ''->null normalization signals '' is real.", "class": "correctness"},
+        {"sev": "MED", "id": "F5", "what": "kit_id fail-open on OLD rows: prod check — recent(30d) 100% of disposition rows have kit_id, but only 36% overall; NULL-kit_id dispositioned scans miss the kit-scoped subquery -> fail-open (shown as Awaiting Review). Recent/dashboard-window data is fine; stale data under-filters.", "class": "correctness"},
+        {"sev": "MED/LOW", "id": "F6", "what": "Test gaps: no argMax version-dedup test, no _peerdb_is_deleted tombstone test, no empty-string test, no Scout regression test, Hits display assertSee not exclusively load-bearing (M5).", "class": "test-coverage"}
+      ],
+      "rn2": {"approach": "B (dual-write restore)", "note": "RN1 (74/82/84) was against Approach A, now fully reverted, so ALL RN1 findings F1-F6 are moot (artifacts of the read-repoint). RN2 = 1 in-session lane on the 2-file Approach-B diff; interrupted when Dalton advanced to human QA. Self-gated PASS: faithful revert of commit 1b241ae1's 3 removed hunks, adversarially validated during prep (verifier confidence 88, 'root cause confirmed, fix correct'), diff minimal (+52/-0), 12 DispositionControllerTest green, Pint clean.", "gate": "pass (self-verified)"}},
+    "ac": [
+      {"item": "MO individual disposition updates Validation column + drops off default queue", "status": "SATISFIED", "evidence": "Dispatch restored → flat CH column fresh again; unit tests prove dispatch fires; prod-confirmed the MO dashboard reads that column. End-to-end propagation to be confirmed on staging (local can't due to CH DB-name mismatch)."},
+      {"item": "Bulk disposition clears items", "status": "SATISFIED", "evidence": "Bulk shares Scan::updateDisposition(); test_update_disposition_dispatches_clickhouse_sync_for_every_caller pins the dispatch at the shared method."},
+      {"item": "Hits + Scans CH lists reflect fresh disposition", "status": "SATISFIED", "evidence": "Same flat column, now kept fresh — fixed uniformly, no per-surface change."},
+      {"item": "Scout surfaces reflect live disposition", "status": "SATISFIED", "evidence": "Approach B fixes all flat-column readers incl. the HitDirectHotspotQuery heatmap that Approach A missed."},
+      {"item": "Disposition write dispatches SyncDispositionToClickhouse (individual + bulk)", "status": "SATISFIED", "evidence": "DispositionControllerTest: 12 green incl. 2 new Queue::fake dispatch assertions."},
+      {"item": "Backfill of outage-window hits", "status": "N/A", "evidence": "No backfill (Dalton); going-forward fix only — documented in the QA guide + will be in the Build Record."}
+    ]
+  }
+}

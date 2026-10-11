@@ -1,0 +1,92 @@
+{
+  "key": "DEV-2200",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "escalated": false,
+  "single_pass": true,
+  "synthesis": "The Scout 'Live Hits Pending Repossession' card omits the hotlist vehicle description because the card's data endpoint (recentHits) doesn't project vehicle_year/make/model + hotlist_us_state, while the map-pin endpoint (hits) does. Both endpoints read the same denormalized ClickHouse hit row and both already load every column via an unrestricted Eloquent ->get(); only the ->map() projection differs. MapShell.vue already renders those keys when present, so the fix is a pure additive projection change on the two recentHits() methods (driver + admin) — no Vue, no query, no schema change. Verified against current main (HEAD 0d332ac4): ticket is accurate, not stale.",
+  "scope": {
+    "summary": "Add vehicle_year, vehicle_make, vehicle_model, hotlist_us_state to the ->map() projection of both recentHits() methods, mirroring the already-correct hits() methods.",
+    "proposed_changes": [
+      {"file": "app/Http/Controllers/Api/ClarityScoutDashboardController.php", "change": "Add the 4 vehicle/state keys (plain $hit-> reads) to the recentHits() ->map() block after 'lng'.", "reason": "Driver card feed (GET /dashboard/recent-hits) omits the fields; MapShell hides the vehicle row when absent.", "ref": "L140-150"},
+      {"file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php", "change": "Add the same 4 keys to the recentHits() ->map() block after 'lng'.", "reason": "Admin/Bird's-Eye card feed (GET org-map dashboard/recent-hits) has the identical omission.", "ref": "L571-583"}
+    ],
+    "target_files": [
+      "app/Http/Controllers/Api/ClarityScoutDashboardController.php",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+      "tests/Feature/.../ClarityScoutDashboardControllerTest.php",
+      "tests/Feature/.../ClarityScoutBirdsEyeControllerTest.php"
+    ],
+    "out_of_scope": [
+      "hits() methods in MapController/BirdsEyeController (already emit the fields — reference pattern, do not touch)",
+      "MapShell.vue / any Vue (already renders the keys; no change, no rebuild)",
+      "Any ClickHouse query change (columns already loaded)",
+      "Disposition of live hit, lien holder / client name fields, list filtering, assign-hit-to-driver (Yolanda filing separately)",
+      "hotlist_status freshness / DEV-2117 (separate concern)"
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "Clicking a Live Hits Pending Repo card/pin shows the same hotlist vehicle description as the normal hit pin.", "source": "ticket", "decision": "implement", "reason": "Direct target of the projection fix."},
+    {"item": "Behavior consistent whether the hit is reached via the standard map pin or the Pending Repo list/card.", "source": "ticket", "decision": "implement", "reason": "recentHits now emits the same 4 keys hits() already does."},
+    {"item": "No regression to the normal hit-pin display.", "source": "ticket", "decision": "implement", "reason": "hits() untouched; change is purely additive to recentHits projections."}
+  ],
+  "questions": [],
+  "blockers": [],
+  "notes": [
+    "'Staging only — do NOT push to prod' is a rollout/QA-process instruction (QA: Yolanda), not a code gate. Base is main (staging-deployed); prod deploy is a separate branch, so merging to main does NOT auto-ship to prod. No code action required; carry as a handoff note.",
+    "Driver recentHits uses ->liveValid() (Direct Live only) and admin uses Direct+Staging with a live Open semi-join — this affects WHICH hits appear, not whether a shown hit displays its description. Do not alter row selection.",
+    "Fields are Nullable(String) columns on clarity.hits_hot/hits_cold; $hit->vehicle_year etc. may be null and MapShell already guards for that.",
+    "No frontend rebuild needed (source Vue unchanged) — public/build assets must NOT be touched."
+  ],
+  "tests": [
+    {"file": "tests/Feature/.../ClarityScoutDashboardControllerTest.php", "what_it_pins": "test_can_get_recent_hits (~L296-312) currently asserts the incomplete key list; extend it to assert vehicle_year/make/model + hotlist_us_state are present in the recentHits payload."},
+    {"file": "tests/Feature/.../ClarityScoutBirdsEyeControllerTest.php", "what_it_pins": "Add an equivalent recentHits key-list assertion (no existing coverage of the projection keys)."}
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Http/Controllers/Api/ClarityScoutDashboardController.php:140 (driver recentHits ->map)",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:571 (admin recentHits ->map)",
+      "app/Http/Controllers/Api/ClarityScoutMapController.php:262 (hits ->map, reference — already has the 4 keys)",
+      "resources/js/clarity-scout/components/MapShell.vue:47,145 (vehicleLabel + render gate; reads snake_case keys)",
+      "resources/js/clarity-scout/stores/map.js (focusHit/setSelectedHit passthrough, no transform)",
+      "routes/api.php:35 (driver route), routes/web.php:135 (admin route)"
+    ],
+    "code_flow": "Card/pin click -> stores/map.js setSelectedHit(hit) -> MapShell.vue selectedHit -> vehicleLabel computed reads hit.vehicle_year/make/model + hotlist_us_state. Card hit objects come from recentHits (missing keys); pin hit objects come from hits (has keys).",
+    "tables": ["clarity.hits_hot", "clarity.hits_cold (via ClickhouseHit hot/forWindow)"],
+    "related_components": ["DashboardOverlay.vue", "MapShell.vue", "ScannerMap.vue", "stores/map.js"]
+  },
+  "exhaustiveness": {
+    "sites": [
+      {"file": "ClarityScoutDashboardController.php", "symbol": "recentHits ->map", "buggy_or_safe": "buggy", "reason": "Omits the 4 fields (driver card feed) — FIX."},
+      {"file": "ClarityScoutBirdsEyeController.php", "symbol": "recentHits ->map", "buggy_or_safe": "buggy", "reason": "Omits the 4 fields (admin card feed) — FIX."},
+      {"file": "ClarityScoutMapController.php", "symbol": "hits ->map", "buggy_or_safe": "safe", "reason": "Already emits the 4 fields (pin feed) — reference pattern, do not touch."},
+      {"file": "ClarityScoutBirdsEyeController.php", "symbol": "hits ->map", "buggy_or_safe": "safe", "reason": "Already emits the 4 fields (admin pin feed)."},
+      {"file": "ClarityScoutTripsController.php", "symbol": "day/show hit builders", "buggy_or_safe": "safe", "reason": "Use ->select() and already emit the 4 fields."}
+    ],
+    "grep_patterns": ["function recentHits", "vehicle_image (projection builders)", "recent-hits|recentHits (routes)", "selectedHit|setSelectedHit|focusHit (frontend consumers)"]
+  },
+  "data_impact": {
+    "pg_tables": [],
+    "ch_tables": ["clarity.hits_hot", "clarity.hits_cold"],
+    "mv_or_cdc_implications": "None — read-only projection addition; no query, MV, or CDC change.",
+    "indexes_relied_on": "None new."
+  },
+  "derivation_log": [
+    {"query_shape": "ClickhouseHit::hot()->final()->forKitOrg(?)->where(kit_id,?)->liveValid()->forStatus(Open)->forCreatedBetween(?,?)->orderByDesc(hit_created_at)->limitBy(1,ocr)->get() (driver recentHits)", "param_classes": ["org_id:int", "kit_id:int", "date range"], "aggregate_result": "N/A — inspected projection shape only, no rows extracted", "why": "Confirm the ->get() is a full-row select (no ->select() restriction) so vehicle_* columns are loaded on $hit."},
+    {"query_shape": "clarity.hits_hot/hits_cold DDL columns vehicle_year/make/model, hotlist_us_state = Nullable(String)", "param_classes": [], "aggregate_result": "columns exist", "why": "Confirm the 'already loaded' claim — fields are real denormalized columns, no join needed."}
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "Card shows vehicle description matching the pin", "kind": "agent", "intent": "Hit GET /scout .../dashboard/recent-hits and assert the JSON now contains vehicle_year/make/model + hotlist_us_state; compare to /map/hits for the same hit."},
+      {"ac": "Consistent driver vs admin", "kind": "agent", "intent": "Assert both the driver dashboard/recent-hits and the admin org-map dashboard/recent-hits payloads carry the 4 keys."},
+      {"ac": "No regression to pin display", "kind": "human", "intent": "Open a normal hit pin and confirm the vehicle row still renders."}
+    ],
+    "seed_scenario": "One Scout-enrolled kit/org with an Open hotlist and a hot Live hit (hit_type L, today) whose row has non-null vehicle_year/make/model + hotlist_us_state, so both recentHits and hits return the same populated hit.",
+    "personas": ["Scout driver (kit user) — sees driver dashboard card", "Admin/impersonator — sees Bird's-Eye org-map card"],
+    "pg_tables": [],
+    "ch_tables": ["clarity.hits_hot", "clarity.hits_cold", "clarity.hotlist"]
+  },
+  "confidence": 93,
+  "escalate": {"recommend": false, "reason": "All claims re-verified vs current main; small additive projection fix; no blast radius; existing test harness."},
+  "missed_caller_candidates": []
+}

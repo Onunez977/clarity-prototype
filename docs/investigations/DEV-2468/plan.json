@@ -1,0 +1,118 @@
+{
+  "key": "DEV-2468",
+  "route": "feature",
+  "base_branch": "main",
+  "authored_by": "driver, in-session at opus (TICKET_PLAN_ARBITER_MODEL tier)",
+  "node_count": 1,
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Unique Scans Leaderboard: replace the stub with a real per-kit leaderboard riding DEV-2467's scan",
+      "approach": "Strictly sequential, single node. (1) Baseline the AC-relevant tests BEFORE touching anything. (2) TDD ScanPlateStatsBatchQuery: extend handleRange() with anyLast(kit_name) and return a richer payload; add a class-neutral sharedMonthCacheKey(); VERSION-BUMP sharedRangeCacheKey() so no old-shaped cache entry is ever read by new code. (3) Update UniqueScanCounts in lockstep for the new payload shape and to write/read its monthly buckets under the shared month key. (4) TDD the UniqueScansLeaderboard rewrite. (5) Remove the dead getStatColor() key. (6) Add the card key to the DashboardCardVisibilityTest gated allowlist. (7) composer format. (8) Full suite vs the step-1 baseline.",
+      "target_files": [
+        "app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php",
+        "app/Filament/Widgets/Dashboard/UniqueScansLeaderboard.php",
+        "app/Filament/Widgets/Dashboard/UniqueScanCounts.php",
+        "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+        "tests/Filament/Widgets/Dashboard/UniqueScansLeaderboardTest.php",
+        "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php",
+        "tests/Unit/Clickhouse/ScanPlateStatsBatchQueryContractTest.php",
+        "tests/e2e/helpers/company-metrics.ts"
+      ],
+      "intended_diffs": {
+        "app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php": "handleRange(): add `anyLast(kit_name) AS name` to the SELECT (the column is already in the table being scanned, so this costs ZERO extra round trips and ZERO extra rows read). Return shape becomes {'totals': array<int,int> with key 0 = org rollup, 'names': array<int,string>} -- the rollup row contributes no name. sharedRangeCacheKey(): bump the literal prefix to 'scan-plate-stats:unique-range-v2:' so a cache entry written in the OLD array<int,int> shape can never be deserialised by the new code. NEW sharedMonthCacheKey(int $orgId, string $monthKey, string $timezone): class-neutral per-month key ('scan-plate-stats:unique-month:org={id}:{Y-m}:tz={tz}'), mirroring sharedRangeCacheKey()'s docblock rationale.",
+        "app/Filament/Widgets/Dashboard/UniqueScanCounts.php": "LOCKSTEP, minimal. fetchRangeRollup(): read ['totals'][0] instead of [0]. resolvePastMonthsFromCold()/resolveCurrentMonthFromCold()/getMonthlyData(): write and read the 13 monthly buckets under ScanPlateStatsBatchQuery::sharedMonthCacheKey() instead of the class-prefixed buildWidgetCacheKey(), so the leaderboard can read the same series. Everything else -- bucketZone(), the no-lock decision, the failure marker, the raw-vs-allowlisted timezone split, the try/catch asymmetry -- is left EXACTLY as shipped.",
+        "app/Filament/Widgets/Dashboard/UniqueScansLeaderboard.php": "Full rewrite. `final class UniqueScansLeaderboard extends ChartWidget implements DashboardMetricCard` + use BuildsDateFilterChartSeries, RendersDashboardStat, StatHelper. canViewCardData() = the COMPANY_METRICS shape copied verbatim from UniqueScanCounts. getCardKey() returns 'unique-scans-leaderboard' UNCHANGED. toStat(): headline = the LEADER's count (top per-kit row), ->color('success') hardcoded, ->chart(chartSeries()). EXPLICIT chartSeries() override reading the shared MONTH keys (org-total series) -- never the inherited array_sum default. leaderboardForSelectedRange(): reads the shared window rollup, drops key 0 from the ranking, sorts by total DESC then kit_id ASC, caps at 10, labels from the 'names' map. getDescription(): leader / runner-up, mirroring RecoveryLeader.",
+        "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php": "One-token change at line 311: `'unique-scans-to-case-claims', 'unique-scans-leaderboard' => 'success',` becomes `'unique-scans-to-case-claims' => 'success',`.",
+        "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php": "Add 'unique-scans-leaderboard' to $expectedGated and extend the explanatory comment to say five cards are now gated.",
+        "tests/e2e/helpers/company-metrics.ts": "Additive: UNIQUE_SCANS_LEADERBOARD_CARD_KEY/_HEADING consts + an entry in COMPANY_METRICS_CARD_HEADINGS."
+      },
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {
+      "site": "CompanyMetricsOverview::cards() registration + DashboardCardExpansionTest order/count",
+      "reason": "already shipped correctly by DEV-2409 #394 (S1); must keep passing UNMODIFIED"
+    },
+    {
+      "site": "ScanPlateStatsBatchQuery::handle() kit dimension",
+      "reason": "Option C rejected by the operator; adding a kit dimension is forbidden by the docblock without a fresh measurement"
+    },
+    {
+      "site": "AffiliateStatsHourly / AffiliateStatsResource / AffiliateStatsExporter",
+      "reason": "the affiliate rollup fork is rejected (S4); the table cannot answer a period-distinct question"
+    },
+    {
+      "site": "Cache::lock / stampede mitigation on the shared keys",
+      "reason": "DEV-2467 attempted twice across four review rounds and withdrew both; deferred to its own ticket. This card must not re-attempt it."
+    },
+    {
+      "site": "The latent kit_id=0 sentinel collision in handleRange()",
+      "reason": "latent-not-live (kits.id is a Postgres serial from 1); inherited, Build Record note only"
+    },
+    {
+      "site": "The 5 pre-existing hardcoded 'clarity.' prefixes in other query classes, and App\\Clickhouse\\Models\\Kit's hardcoded $table",
+      "reason": "pre-existing drift outside this ticket; CLAUDE.md forbids silently fixing unrelated drift"
+    },
+    {
+      "site": "readonly_user's max_execution_time=20s profile cap",
+      "reason": "an infrastructure property, not this ticket's code; recorded as a residual with its measured cold-partition cause (D8)"
+    }
+  ],
+  "invariants": [
+    "NO FINAL on scans_cold for this aggregate. Justified on BOTH axes now: ocr immutability (DEV-2466 sec 5) and kit_id immutability (this ticket's D2/D3 measurement).",
+    "NO hardcoded 'clarity.' prefix -- static::clarityDb() only.",
+    "NO scans_hot -- measured 3.3x slower.",
+    "NO routing an org through kit_id -- org_id leads the sort key; kit_id filtering measured 6.7x rows / 3.8x time for an identical answer.",
+    "NO call through ClickhouseQuery::query() -- it swallows Throwable to [] in production|testing, caching a real outage as a confident zero. Call handle()/handleRange() directly inside the existing report()+60s-marker shape.",
+    "NEVER sum per-kit values to produce a displayed total. The kit_id=0 rollup row is the only org total. This is why chartSeries() MUST be overridden -- the inherited default array_sum()s each bucket (S6).",
+    "NEVER key a leaderboard result by kit_name -- names are not unique within an org and would silently collapse two kits. Key by kit_id; carry the name alongside.",
+    "The shared cache keys must be byte-identical across both cards. Any drift in the start/end/timezone strings makes both cards miss and each issue their own scan, silently defeating this ticket's entire purpose.",
+    "VERSION the shared range key when its payload shape changes. An in-flight entry in the old array<int,int> shape read by new code is a live production break, not a test failure.",
+    "Preserve DEV-2467's raw-vs-allowlisted timezone split EXACTLY: the RAW viewer zone converts bounds; only the safeTimezone() ALLOWLISTED zone is interpolated into SQL. Month keys, bar labels and highlighted-month labels must all be cut with the SAME zone the query groups by -- getData() zips labels to data POSITIONALLY, so a one-month skew mislabels all 13 bars silently.",
+    "getCardKey() must keep returning 'unique-scans-leaderboard' -- it is both the toggle key and the cache namespace, and DashboardCardExpansionTest pins it."
+  ],
+  "sizing_gate": {
+    "fired": true,
+    "file_count": 8,
+    "threshold": 6,
+    "recommendation": "do not split",
+    "reason": "One metric, one card, one concern. Four of the eight files are tests this ticket's own contract mandates, one is a single-token deletion, one is an optional additive e2e const, and one (UniqueScanCounts) is a small lockstep edit forced by sharing the payload. The DEV-2409 epic is already split one-metric-per-ticket, so this ticket IS the split unit -- splitting further would ship a query-class change with no consumer. DEV-2460 and DEV-2467 in this same epic each fired this gate at 8 files and recorded the same rejection.",
+    "operator_decision": "Do not split -- build it. Operator confirmed 2026-09-10, same rejection DEV-2460 and DEV-2467 recorded."
+  },
+  "perf_gate": {
+    "required": false,
+    "verdict": "go",
+    "reason": "Option A adopts NO new or deferred-perf query shape. Both shapes were re-measured warm by the driver on 2026-09-10 (D7, interleaved): 13-month org-total 1,056-1,152 ms; single-window WITH ROLLUP 584-676 ms. Adding anyLast(kit_name) reads a column already present in the rows already being scanned, so it adds no rows and no round trips."
+  },
+  "operator_decisions": [
+    {
+      "q": "Q1 -- 13-month shape",
+      "decision": "Option A: org-total sparkline behind a new class-neutral shared month key; ranked kit list covers the selected window only. Option C rejected for needing an unmeasured shape AND for a stacked bar visually overstating the org total."
+    },
+    {
+      "q": "Q2 -- envelope",
+      "decision": "Re-baseline first. Done: DEV-2466's envelope reproduces; the earlier 20s kill was a cold-partition first touch against a standing readonly_user cap, not a DEV-2467 regression. No Jira ticket filed."
+    },
+    {
+      "q": "Sizing gate (8 files vs threshold 6)",
+      "decision": "Do not split. Operator confirmed the gate is a false positive here: the epic is already split one-metric-per-ticket."
+    }
+  ],
+  "ordered_steps": [
+    "1. Baseline the AC-relevant tests BEFORE any edit; record counts.",
+    "2. TDD ScanPlateStatsBatchQuery: name column, payload shape, key version bump, new shared month key. Red then green.",
+    "3. Lockstep-update UniqueScanCounts for the payload + month key. Its own tests must stay green.",
+    "4. TDD the UniqueScansLeaderboard rewrite. Red then green.",
+    "5. Remove the dead getStatColor() key; add the card to the gated allowlist.",
+    "6. Mutation-verify the two trap tests: the chartSeries override must FAIL against the inherited array_sum default, and the ranking test must FAIL if kit_id=0 is left in.",
+    "7. composer format.",
+    "8. Full suite via `php -d memory_limit=2G vendor/bin/phpunit`, compared against the step-1 baseline."
+  ]
+}

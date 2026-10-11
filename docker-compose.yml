@@ -1,0 +1,63 @@
+# Detached Clarity prototype. No production databases, buckets, or queues.
+services:
+  postgres:
+    image: postgis/postgis:17-3.5
+    environment:
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: platform
+      POSTGRES_DB: zod
+    ports:
+      - "5432:5432"
+    volumes:
+      - prototype_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform -d zod"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  app:
+    build:
+      context: .
+      dockerfile: docker/prototype/Dockerfile
+    environment:
+      APP_ENV: local
+      APP_URL: http://127.0.0.1:8080
+      FORCE_HTTPS: "false"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_DATABASE: zod
+      DB_USERNAME: platform
+      DB_PASSWORD: platform
+      CLICKHOUSE_HOST: postgres
+      CLICKHOUSE_PORT: "5432"
+      CLICKHOUSE_DRIVER: pgsql
+      CLICKHOUSE_USERNAME: platform
+      CLICKHOUSE_PASSWORD: platform
+      CLICKHOUSE_WRITE_USERNAME: platform
+      CLICKHOUSE_WRITE_PASSWORD: platform
+      REDIS_HOST: redis
+      REDIS_HOST_1: redis
+      REDIS_HOST_2: redis
+      REDIS_STANDALONE: "true"
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: log
+      FILESYSTEM_DISK: local
+      AWS_BEDROCK_USE_DEFAULT_CREDENTIALS: "false"
+      RDN_CASE_INFO_ENABLED: "false"
+      DATADOG_FORWARDING: "false"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+volumes:
+  prototype_pg:

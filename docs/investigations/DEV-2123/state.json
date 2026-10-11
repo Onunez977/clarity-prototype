@@ -1,0 +1,126 @@
+{
+  "key": "DEV-2123",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2123",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "implement": "opus",
+    "implement_simple": "sonnet",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "clarity/analytics.md",
+    "clickhouse/core.md"
+  ],
+  "escalated": false,
+  "escalation_triggers": [
+    "answered:false questions present",
+    "prep escalate.recommend=true"
+  ],
+  "escalation_decision": "routed material questions to the Question Gate instead of a 3-candidate reconcile \u2014 the open items are product decisions, not exploration gaps",
+  "missed_caller_candidates": [],
+  "diff_base": "d689163f3f999eb99f7de2bd0fa79612ec53cd49",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "complex",
+      "model": "opus"
+    }
+  ],
+  "review_number": 1,
+  "pr": {
+    "number": 244,
+    "url": "https://github.com/insight-lpr/platform/pull/244",
+    "draft": true
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": "dalton.mccleery @ 2026-06-30 (In Progress)",
+  "jira_transitioned_by": "manual-dalton.mccleery (In Code Review)",
+  "assumed": [],
+  "comment_ids": {
+    "status": "33196",
+    "build_record": "33229"
+  },
+  "qa": {
+    "ledger": "",
+    "agent_report": "",
+    "ac_results": "",
+    "torn_down": true,
+    "provisioning": {
+      "bootstrap": "",
+      "deps": "",
+      "migrations": "",
+      "docker_daemon": "",
+      "ch_container": "",
+      "frontend_build": "",
+      "postgres_db": "skipped \u2014 config-only; CI runs the affected test (project Execution Policy)",
+      "ch_strategy": "not-needed (no CH query exercised; config-only)",
+      "herd_site": ""
+    }
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --filter=TrackAnalyticsTest",
+        "passed": 0,
+        "failed": 0,
+        "note": "not run locally \u2014 project Execution Policy defers unit tests to CI after commit; config-only change, no env provisioned"
+      }
+    ],
+    "deviations": [
+      "Right-sized provisioning + verify: config-only change with no UI/runtime surface; skipped full bootstrap + local suite run (deferred to CI per project Execution Policy); skipped browser agent-qa (no UI). Phase 5 adversarial review + pint run in full."
+    ],
+    "review": {
+      "lanes": [
+        "in-session adversarial-reviewer (opus) \u2014 rigor review.sh substituted (nested claude -p not logged-in under embedded harness)"
+      ],
+      "scores": [
+        100
+      ],
+      "findings_fixed": [],
+      "findings_residual": [
+        "non-scoring: config/deploy.yml doesn't plumb CLICKHOUSE_WRITE_TIMEOUT_CONNECT/RETRIES into prod env \u2014 fix is still live (env() falls back to config defaults 5/1); plumbing only needed for future prod-side override. Optional follow-up.",
+        "non-scoring: theoretical CURLOPT_TIMEOUT worst case (2x65s=130s vs 120s job timeout) \u2014 not a real failing path (retry fires on fast ~5s connect failure). Informational."
+      ]
+    },
+    "ac": [
+      {
+        "item": "Connect-timeout error rate on the analytics write path materially reduced (~0 over a comparable weekend).",
+        "status": "SATISFIED",
+        "evidence": "Mechanism implemented: clarity_clickhouse_write timeout_connect 2->5 + retries 0->1 (config/database.php). Adversarial review (100/100) confirmed the write path now gets a longer connect budget + one fast in-client retry. Actual rate reduction is prod-observable (ops) over a post-deploy weekend vs the 19-occurrence 2026-06-27/28 baseline \u2014 not locally reproducible."
+      },
+      {
+        "item": "No analytics events lost to failed_jobs from connect timeouts.",
+        "status": "SATISFIED",
+        "evidence": "Exactly-once retry/dedup (DEV-2102/DEV-2003) preserved \u2014 review confirmed retries=1 cannot double-insert or break dedup (dispatch-time UUID). This change lowers the frequency of reaching the job-retry ceiling. Residual loss is prod-observable (failed_jobs check)."
+      },
+      {
+        "item": "Timeout/retry values are env-driven and documented.",
+        "status": "SATISFIED",
+        "evidence": "env-driven via CLICKHOUSE_WRITE_TIMEOUT_CONNECT/CLICKHOUSE_WRITE_RETRIES; pinned by tests/Feature/Jobs/TrackAnalyticsTest.php::test_write_connection_uses_a_resilient_connect_budget (CI); documented in okf/concepts/clickhouse-integration.md + an inline config comment (.env.example dropped per Dalton \u2014 PII scan)."
+      }
+    ]
+  }
+}

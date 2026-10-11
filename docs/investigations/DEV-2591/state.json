@@ -1,0 +1,384 @@
+{
+  "key": "DEV-2591",
+  "app": "clarity",
+  "route": "hotfix",
+  "mode": "normal",
+  "base_branch": "deploy",
+  "base_branch_reason": "Hotfix route chosen by Dalton 2026-09-16. All five target files are byte-identical on origin/main and origin/deploy, so the base switch is clean. Branch was rebuilt off origin/deploy rather than rebased+force-pushed (checkpoint.sh forbids force-push); the main-based branch claude/dev-2591-651eed and its PR #416 are superseded.",
+  "branch": "claude/DEV-2591",
+  "main_checkout": "/Users/daltonmccleery/Herd/platform",
+  "run_root": "/Users/daltonmccleery/Herd/platform/.claude/worktrees/metric-cards-org-help-27a357",
+  "run_root_note": "Reused this session's pre-existing worktree per Phase 0 step 6 branch 1 (already a worktree of MAIN_CHECKOUT, not the main checkout itself). Directory name is not <KEY>; qa-prep may need REPO_PATH passed explicitly.",
+  "phase": "verified",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "no_spawn": true,
+    "start_at": "intake",
+    "stop_at": "handoff",
+    "only": null,
+    "skip": [],
+    "force": false,
+    "eli5": true,
+    "no_spawn_reason": "Driver stayed in-session instead of spawning the Phase 2.5 build segment: the operator was live-steering scope through the gate interview (three separate scope decisions mid-run), and the code change is small (3 call sites + one trait guard + one CH scope). A background session would have cost steerability for a context re-base this run does not need yet. Recorded, not silently skipped."
+  },
+  "knowledge_cards_loaded": [
+    "knowledge/clickhouse/core.md"
+  ],
+  "escalated": false,
+  "escalation_triggers": [
+    "fast-pass escalate.recommend=true",
+    "confidence 78 (<80)",
+    "unanswered questions",
+    "Pro-tier / CH capacity blast radius"
+  ],
+  "best_of_n": false,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [],
+  "perf_validation": {
+    "required": true,
+    "ch_tables": [
+      "clarity.scans_cold",
+      "clarity.scans_hot"
+    ],
+    "approach": "Route the existing ListScans/ListHits ClickHouse query path by config instead of a never-matching Pennant literal; add kit-list scoping. No new query shape is introduced.",
+    "measurement": "Reused the ticket's read-only ClickHouse Cloud measurement of 2026-09-16 against clarity.scans_cold (2.21B rows): query shape is org/kit + scanned_at >= X ORDER BY scanned_at DESC LIMIT 51, which is the table's sort key read backwards. Worst measured 1.11s warm / 3.12s cold, 1.1-2.5 GiB peak, against CLICKHOUSE_TIMEOUT_QUERY=20. Adding kit_id narrows further (kit_id is the 3rd sort-key component), so the adopted design is no slower than what was measured.",
+    "verdict": "go",
+    "measured_at": "2026-09-16"
+  },
+  "diff_base": "c9e62e80d6c6de3192605be47ede4fa2216ab512",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "complex",
+      "model": "opus (driver, in run root)"
+    },
+    {
+      "id": "t3",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "simple",
+      "model": "opus (driver, in run root)"
+    },
+    {
+      "id": "t2",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "complex",
+      "model": "opus (driver, in run root)"
+    },
+    {
+      "id": "t4",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "complex",
+      "model": "opus (driver, in run root)"
+    }
+  ],
+  "review_number": 2,
+  "pr": {
+    "number": 417,
+    "url": "https://github.com/insight-lpr/platform/pull/417",
+    "draft": false
+  },
+  "pr_urls": {
+    "deploy": "https://github.com/insight-lpr/platform/pull/417",
+    "main": "https://github.com/insight-lpr/platform/pull/418"
+  },
+  "spawned_sessions": [],
+  "jira_in_progress_by": null,
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "In Code Review via Atlassian MCP, transition id 4, 2026-09-17",
+  "assumed": [
+    "Q4 dedup guard: component property keyed on a hash of the filter state",
+    "Q5 retryUntil: 2 -> 1",
+    "Q6 QA: query-shape assertions rather than a live local ClickHouse row comparison"
+  ],
+  "comment_ids": {
+    "status": "40056",
+    "build_record": "40093"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "resource_envelope": {
+      "verdict": "not-measured",
+      "basis": "n/a",
+      "note": "Not a scheduled command. Production query envelope reused from the ticket's 2026-09-16 read-only measurement and this run's own interleaved benchmark (174-204 MiB peak, worst 3.12s vs a 20s timeout)."
+    },
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "n/a",
+      "ch_container": "reused",
+      "frontend_build": "n/a",
+      "postgres_db": "zod_claude_dev_2591_651eed (dev) + zod_testing_claude_dev_2591_651eed (testing)",
+      "ch_strategy": "docker (per-worktree dbs on clarity-qa-clickhouse:18123)",
+      "herd_site": "clarity-claude_dev_2591_651eed.test"
+    },
+    "provisioned_early": true
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "PHPRC=<2G> php artisan test --env=testing <5 ticket test files>",
+        "passed": 24,
+        "failed": 0
+      },
+      {
+        "cmd": "differential sweep: tests/Filament + tests/Unit + tests/Feature, new test files held aside, base c9e62e80d vs HEAD",
+        "passed": 0,
+        "failed": 0,
+        "note": "Two genuine regressions were found and fixed (ShareOrgKits cache invalidation orphaned by the v2 key bump). A third apparent regression (GlKitsResourceTest last_scan cross-org) was NOT this diff: ClickHouse test tables are not truncated between runs, so CH-dependent comparisons drift. With kit_last_scan truncated identically before each side, GlKitsResourceTest is 22 passed / 1 failed on BOTH base and HEAD (the failure is the pre-existing DEV-2486 pagination issue)."
+      }
+    ],
+    "deviations": [
+      {
+        "source": "implement",
+        "edit": "Implemented all four plan nodes serially in the run root instead of fanning out to per-node git worktrees.",
+        "ac_ref": null,
+        "ac_delta": null,
+        "why": "The fan-out path copies vendor/ and node_modules/ per node and runs the app bootstrap in each. For a change of this size (5 code files, ~90 lines) that cost exceeds the isolation benefit, and the driver already held verified grounding for every node. TDD discipline, the full-file blast-radius re-check, and a base-vs-change differential test run were all still performed."
+      },
+      {
+        "source": "implement",
+        "edit": "buildClickhouseQuery() filters org_id AND kit_id, not kit_id alone.",
+        "ac_ref": "AC-2",
+        "ac_delta": null,
+        "why": "First cut replaced ->forOrg() with ->forKits(). org_id leads the scans_cold sort key (org_id, scanned_at, kit_id, id), so dropping it would have removed the primary-key pruning the ticket's whole 0.1-1.1s measurement depends on - a silent perf regression that could have reintroduced the timeout on ClickHouse. Caught before review; both filters are now applied, org first."
+      },
+      {
+        "source": "implement",
+        "edit": "retryUntil = 1 means ZERO retries, not one.",
+        "ac_ref": null,
+        "ac_delta": null,
+        "why": "The driver told the operator that retryUntil=1 'keeps a single retry'. The real semantics are `if (retryCount >= retryUntil) stop`, so 1 stops on the first failure and 2 is what allows one retry. 1 was kept - it is what the ticket argues for ('retrying an unindexable scan unchanged cannot succeed') and it takes the log/metric amplification to 1x rather than ~2x - but the operator was told the wrong thing when they did not object, so it is recorded here and surfaced on the PR."
+      },
+      {
+        "source": "scope-narrow",
+        "edit": "Reverted the ListHits routing change; this hotfix is Scans-only.",
+        "ac_ref": "AC-1",
+        "ac_delta": "'ListScans (and ListHits, ScanVehicleController) check a defined feature name' -> ListScans + ScanVehicleController only; ListHits split to DEV-2614",
+        "why": "Operator decision 2026-09-17 after review round 2 (H-1). The ListHits routing fix is coupled to reconciling its ClickHouse query; shipping the name fix alone would turn an unvalidated query on for every org. ListHits is now byte-identical to deploy."
+      }
+    ],
+    "review": {
+      "lanes": [
+        "claude1",
+        "claude2",
+        "claude3"
+      ],
+      "scores": [
+        [
+          55,
+          62,
+          58
+        ],
+        [
+          90,
+          87,
+          78
+        ]
+      ],
+      "gate_score": 92,
+      "gate_score_src": "lane-min",
+      "rounds": [
+        {
+          "rn": 1,
+          "reason": "gate",
+          "at": "2026-09-16T22:30:00Z",
+          "scores": [
+            55,
+            62,
+            58
+          ],
+          "outcome": "FAIL (min 55 < 90)"
+        },
+        {
+          "rn": 2,
+          "reason": "gate",
+          "at": "2026-09-16T23:40:00Z",
+          "scores": [
+            90,
+            87,
+            78
+          ],
+          "outcome": "FAIL (min 78 < 90)"
+        },
+        {
+          "rn": 3,
+          "reason": "regression",
+          "at": "2026-09-17T00:20:00Z",
+          "outcome": "ABORTED by operator before any lane completed; artifacts cleared. RN3 has NOT run."
+        },
+        {
+          "rn": 3,
+          "reason": "scope",
+          "at": "2026-09-17T14:00:00Z",
+          "scores": [
+            92,
+            94,
+            94
+          ],
+          "outcome": "PASS on score (min 92 >= 90), but two lanes emitted HIGH findings; both were fixed afterwards, so RN3 does NOT cover the current HEAD"
+        },
+        {
+          "rn": 4,
+          "reason": "regression",
+          "at": "2026-09-17T16:30:00Z",
+          "outcome": "DECLINED by the operator before any lane ran; artifacts cleared. RN4 did NOT run."
+        }
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "harness-claude-p"
+        },
+        {
+          "lane": "claude2",
+          "source": "harness-claude-p"
+        },
+        {
+          "lane": "claude3",
+          "source": "harness-claude-p"
+        }
+      ],
+      "findings_fixed": [
+        "R1-H1 Kit::getKits() projected only id+name, so ListScans::buildClickhouseQuery() emitted `org_id in (0)` - the ClickHouse Scans list would have returned ZERO rows for every user. Fixed by hydrating org_id; cache keys bumped to v2.",
+        "R1-H2 ScanVehicleController's ClickHouse branch filtered on scan_id alone on a route with no OrgMiddleware - a cross-tenant read that this diff would have promoted from staff-only to every authenticated user. Now kit-scoped, with an empty-kit short circuit.",
+        "R1-H4 stale org-kits: cache entries would have survived the H1 fix for up to an hour.",
+        "R1-M getSharedKits() passed a Collection nested in an array to whereIntegerInRaw.",
+        "R1-M lastFailureKey was never cleared on success, so a repeat failure of a previously-failed search was dropped from both log and metric.",
+        "R1-M retryUntil 1 -> reverted to 2: the trait is shared by four list pages and the amplification AC is met by the dedup guard alone.",
+        "R1-M the shape test asserted strpos ordering (certifies nothing) and never called buildClickhouseQuery() - rewritten to drive the real query through a booted page.",
+        "R2-REGRESSION ShareOrgKits forgot the pre-v2 cache key, so share/unshare stopped taking effect. Cache keys centralised behind Kit::kitsCacheKey()/sharedKitsCacheKey()/forgetCachedKits().",
+        "R2-H2 REGRESSION from the R1-H2 fix: getUserKits() defaults withShared:false while ListScans includes shared kits, so a shared-kit scan silently resolved no vehicle (and cached the empty result 15 min). Now getUserKits(withShared: true), pinned by a test that fails without it.",
+        "R2-M2 the dedup key now folds in the SQLSTATE so a DIFFERENT error on the same search still reports.",
+        "R2-L1 ShareOrgKits busts the kit cache once, not once per kit.",
+        "R2-L4 the retry fixture's mutable static is reset in tearDown()."
+      ],
+      "findings_residual": [
+        {
+          "id": "R2-H1",
+          "severity": "resolved-by-scope",
+          "title": "ListHits' ClickHouse query has no sort-key-leading org predicate.",
+          "why_not_fixed": "RESOLVED BY NARROWING: ListHits was reverted to the deploy version on 2026-09-17, so this diff no longer makes that query reachable. Split to DEV-2614 (assigned to Dalton).",
+          "action": "Tracked in DEV-2614."
+        },
+        {
+          "id": "R2-H3 / R2-M1",
+          "severity": "high",
+          "title": "The routing rewrite drops the isInsightLpr() || isProEnabled() half of the gate documented in okf/concepts/feature-flags.md:36, widening the ClickHouse population from Pro orgs to all orgs, with no rollout knob finer than one global boolean. CLICKHOUSE_SCANS/CLICKHOUSE_HITS remain priced ProTierEnum entitlements that now gate nothing.",
+          "why_not_fixed": "This is the operator's explicit decision of 2026-09-16: these are not real Pro features, all orgs must follow one path, and changing ProTierEnum was rejected as too risky. Recorded as an accepted consequence, not an oversight.",
+          "action": "Accepted by the operator. The orphaned tier entries deserve a follow-up."
+        }
+      ],
+      "unresolved_premises": [
+        {
+          "claim": "This change stops the ~1,800 daily pg-read statement timeouts.",
+          "premise": "CLICKHOUSE_SCANS_ENABLED is true in production.",
+          "verify_by": "read CLICKHOUSE_SCANS_ENABLED from the prod .env (Dalton was verifying). If false, the change is inert and the timeouts continue until it is flipped."
+        },
+        {
+          "claim": "Enabling the ClickHouse Scans path is safe at the new population.",
+          "premise": "The measured envelope (1.1-2.5 GiB/query, 57.6 GiB ceiling breached once on 2026-09-11, ~25-30 concurrent searches to saturate) was sized against 4,102 Pro orgs; the adopted design moves every org.",
+          "verify_by": "watch ClickHouse memory after deploy; the only revert is the global env flip."
+        },
+        {
+          "claim": "Row-set parity between the Postgres and ClickHouse Scans paths.",
+          "premise": "is_visible parity was deferred by the operator to a follow-up ticket.",
+          "verify_by": "~5.36% of scans are hidden (905,913 of 16,916,753 over 2 days, measured read-only on prod). The ClickHouse path will surface them for all orgs."
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "86b2b82b6",
+      "rework_pivot": false,
+      "reviewed_sha_note": "Review round 3 (92/94/94) was launched against 86b2b82b6. Two HIGH findings from that round were fixed AFTERWARDS in 42a34459f and ecfe5ae18, which changed the core ClickHouse query shape and the retry-guard key. So no passing review round covers the current HEAD. rework-gate.sh is expected to fail on this, and that failure is correct.",
+      "rework_gate": {
+        "status": "fail",
+        "accepted_by": "human:Dalton 2026-09-17",
+        "detail": "5 files changed since the last passing review (86b2b82b6) and were never re-reviewed: app/Clickhouse/Models/Scan.php, app/Filament/Concerns/HasRetryQuery.php, app/Filament/Resources/ScansResource/Pages/ListScans.php, and 2 test files. These are the two round-3 HIGH fixes (the unbounded-retry key and the org_id removal). The operator declined round 4. The run therefore CANNOT reach phase=done: the gate is fail-closed by design and was NOT bypassed. Everything else in Phase 7 is complete."
+      }
+    },
+    "ac": [
+      {
+        "item": "AC-1",
+        "status": "SATISFIED",
+        "evidence": "Routing reads config('app.experimental.clickhouse.scans') directly at both remaining sites; nothing checks a name no Feature::define() can match. /app/scans loads 200 with no console errors, the scan detail modal opens cleanly, and artisan about + route:list both succeed. 7 unit tests pin the routing, including one asserting the old 'clickhouse:scans' literal matches no defined feature."
+      },
+      {
+        "item": "AC-2",
+        "status": "SATISFIED",
+        "evidence": "Exact parity measured through the app's own code: Postgres 45 rows vs ClickHouse 45 rows for the same user. Holds on both FlexSearch settings (off 25/25, on 0/0). The shared kit (id 16, owned by org 5) renders in the browser as 'QA DEV-2591 Shared Kit'. Counterfactual confirmed on seeded data: re-adding the org predicate drops it to 40, silently hiding the 5 shared-kit scans. is_visible parity is deferred by explicit decision and is NOT covered by this verdict."
+      },
+      {
+        "item": "AC-3",
+        "status": "SATISFIED",
+        "evidence": "Generated ClickHouse SQL for the Scans page contains no FINAL; pinned by ClickhouseScanQueryShapeTest for both scans_cold and scans_hot."
+      },
+      {
+        "item": "AC-4",
+        "status": "SATISFIED",
+        "evidence": "Searches complete promptly with no timeout and no 'Search Criteria is too broad' empty state; Livewire round trip ~170-180ms server time. FlexSearch ON returning 0 rows for 'NA' is correct behaviour (it matches whole-plate OCR variants, not substrings) and is IDENTICAL on both paths, so it is not a divergence. Production-scale timing is the ticket's own read-only measurement (worst 1.11s warm / 3.12s cold vs a 20s timeout), not re-run here."
+      },
+      {
+        "item": "AC-5",
+        "status": "SATISFIED",
+        "evidence": "Verified by unit test rather than in the browser: a real SQLSTATE 57014 cannot be reproduced against the seeded local dataset. HasRetryQueryTest asserts one db-error entry + one clarity.query_timeout increment per distinct search, re-arming on a filter change, on a different SQLSTATE, and on success; plus a regression test proving alternating error codes still exhaust the retry budget."
+      },
+      {
+        "item": "AC-6",
+        "status": "N/A",
+        "evidence": "'clarity.query_timeout drops to a level that reflects real distinct failures' is a post-deploy production observation. Deferred to the Datadog dashboard after release."
+      },
+      {
+        "item": "AC-7",
+        "status": "N/A",
+        "evidence": "'Org 2575 contacted about the automation' is a customer-success action, not an engineering deliverable."
+      }
+    ]
+  },
+  "superseded": {
+    "branch": "claude/dev-2591-651eed",
+    "pr": "https://github.com/insight-lpr/platform/pull/416",
+    "why": "main-based; hotfix route needs deploy"
+  },
+  "linked_issues": [
+    "DEV-2614"
+  ],
+  "phase_note": "NOT done, deliberately. rework-gate.sh fails: 5 files changed since the last passing review (86b2b82b6) and were never re-reviewed - the two round-3 HIGH fixes. The operator declined round 4 on 2026-09-17. The gate was NOT bypassed and no flag was flipped to force a pass. Everything else in Phase 7 is complete: PR #417 undrafted, PR #418 opened to main, Build Record posted (40093), ticket transitioned to In Code Review, QA env torn down."
+}

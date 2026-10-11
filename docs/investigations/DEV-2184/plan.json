@@ -1,0 +1,44 @@
+{
+  "key": "DEV-2184",
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Close Scout Bird's Eye admin-mode fetch leak (App.vue gate + JSON-404 route backstop + tests)",
+      "approach": "1) resources/js/clarity-scout/App.vue: in the watch(() => auth.isAuthenticated, ..., {immediate:true}) handler, gate shift.fetchStatus() + notifications.fetch() on !mapStore.adminMode (mirror the existing !mapStore.adminMode convention in MapShell.vue:12 / ScannerMap.vue:279). Do not change driver behavior. 2) routes/web.php: inside the scout/org-map `Route::prefix('api')->group(...)` block, AFTER all explicit admin api routes and BEFORE the group's `{any?}` SPA view catch-all, register `Route::get('{any}', fn () => response()->json(['message' => 'Not Found.'], 404))->where('any', '.*');` so any unmatched admin-api path returns JSON instead of the HTML shell. Verify exact placement: it must NOT shadow the real explicit routes and must be matched before the SPA `{any?}` view. 3) Tests in tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php mirroring sibling driver_paths tests. 4) npm run build and commit the rebuilt public/build assets (tracked in this repo).",
+      "intended_diffs": "App.vue: wrap the two fetch calls in `if (!mapStore.adminMode) { ... }` (confirm mapStore is already imported in App.vue; prep grounding shows adminMode used elsewhere in the file). routes/web.php: one new Route::get line inside the api group. Test file: 3 new test methods.",
+      "target_files": [
+        "resources/js/clarity-scout/App.vue",
+        "routes/web.php",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php",
+        "public/build"
+      ],
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "ClarityScoutBirdsEyeControllerTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex",
+      "tests": [
+        "GET /scout/org-map/api/shift/status as an authed Scout admin returns JSON 404 (Content-Type application/json, status 404), NOT the clarity-scout-birds-eye HTML view — pins the JSON-404 backstop and reproduces the exact bug mechanism.",
+        "A legitimate SPA deep link under /scout/org-map (e.g. /scout/org-map/some-client-route with no /api prefix) STILL returns the Blade shell (assertSee the app root) — proves the JSON-404 fallback does not shadow Vue Router deep links.",
+        "GET /scout/org-map/api/map/driver-positions as an authed Scout admin returns 200 JSON with the expected shape (previously zero coverage for driverPositions)."
+      ]
+    }
+  ],
+  "excluded_sites": [
+    {"site": "resources/js/clarity-scout/stores/map.js fetchKitPosition/fetchLivePath + useKitPositionPolling (LiveTracking)", "reason": "Already gated off admin mode on main by DEV-2164 (MapShell !adminMode) + DEV-2179 — the literal ticket symptom's sink; nothing to change."},
+    {"site": "resources/js/clarity-scout/views/ScoutHome.vue panel computed + ProfilePanel.vue + NotificationsPanel.vue + auth.js /me", "reason": "Latent query-param-only leaks (UI triggers already hidden in admin mode). Dalton (Q3) chose NOT to add an explicit gate — the new JSON-404 route backstop neutralizes them cleanly. Out of scope."},
+    {"site": "ClarityScoutBirdsEyeController::scopedKits()/orgScoutKits() called outside method try/catch", "reason": "A genuine unhandled exception there is rendered as JSON by Laravel's default handler (no custom exception override), so it does not cause the HTML fallback this ticket is about. Optional hardening; out of scope (grounded out by deep candidates 2/3)."}
+  ],
+  "ac_coverage": {
+    "AC1 (JSON incl. on error, no HTML fallback)": "t1 — App.vue gate removes the live leak; JSON-404 route backstop makes it a durable invariant.",
+    "AC2 (underlying server-side error identified + fixed)": "t1 — identified as a client-side routing leak (no server exception); fixed via the gate + backstop. Reframing to be confirmed in QA (Q1).",
+    "AC3 (all-driver positions render)": "verify-only in QA (Q2) — no code change scoped; escalate to a code fix only if QA shows dots genuinely don't render."
+  },
+  "sizing": "3 source files + rebuilt assets, one cohesive concern. Under the >6-file / multi-concern split threshold. Single-node DAG → Phase 4 single-node fast path (no worktree fan-out).",
+  "clickhouse_note": "data_impact.ch_tables = [clarity.sc_positions] AND ClarityScoutBirdsEyeControllerTest is gated by RequiresClickhouse (whole class skipped unless CLICKHOUSE_DRIVER=clickhouse). Phase 4 MUST ensure the Docker CH env (QA_PROVISION_CH=yes) so the new tests actually run — otherwise they silently skip.",
+  "notes": [
+    "public/build is committed — the App.vue change requires `npm run build` + committing rebuilt assets, or the fix won't ship (platform-commits-built-assets).",
+    "No JS test runner — the App.vue gate has no automated coverage; it is verified via QA Network tab (no 200 text/html under /scout/org-map/api/*). The route backstop IS PHPUnit-tested."
+  ]
+}

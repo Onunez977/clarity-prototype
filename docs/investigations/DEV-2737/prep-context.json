@@ -1,0 +1,167 @@
+{
+  "key": "DEV-2737",
+  "generated_at": "2026-09-28T14:19:42Z",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "confidence": 86,
+  "confidence_note": "Q1 and Q2 are locked. The default headline path is cited on origin/main. The Cloud count is not measured: Production refused MCP.",
+  "base": "main",
+  "base_sha": "76d4f5fcfdb37a9cb3b7b667c9e34a0d2f4f3266",
+  "prior_lpr_repossessions_coverage_sha": "1bc1a0cc00f971b76c15632155ed92f10846c35f",
+  "preflight_24": "verify_first_no_product_php",
+  "preflight_18": "noted_only",
+  "preflight_26": "main→main",
+  "provisioned": false,
+  "cloud_touched": false,
+  "synthesis": "Company Metrics LPR Repos is the lpr-repossessions card. The compact headline under the default this_month toggle is db_repos for the current UTC month bucket. That number comes from LprRepossessionsQuery, which reads clarity.billing_claim_events_v (is_internal = 0, event_type case-claim) and does not read clarity.orgs. The org id is auth()->user()->org_id, counted on either the forwarder or the agent side, then joined to a status-3 hotlist and a status-3 status-log row within claim_date - 7 days. Brad Webb's org id and the demo's exact UI count are not in the ticket or the repo. No Cloud measure was run.",
+  "card": {
+    "ticket_name": "LPR Repos",
+    "key": "lpr-repossessions",
+    "class": "App\\Filament\\Widgets\\Dashboard\\LprRepossessions",
+    "heading": "LPR Repossessions",
+    "heading_ref": "app/Filament/Widgets/Dashboard/LprRepossessions.php:163",
+    "registry": "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php:107",
+    "grid_docblock": "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php:68",
+    "headline_stage": "db_repos",
+    "not_the_headline": [
+      "deduped (Unique LPR Case Claims reads that stage)",
+      "description line: N scans per LPR repo (RatioAgainstUniqueScans)"
+    ]
+  },
+  "ui_path": {
+    "page_default_toggle": "this_month",
+    "page_default_ref": "app/Filament/Pages/Dashboard.php:293-298",
+    "overview_copies_date": "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php:237-242",
+    "stat": "LprRepossessions::toStat Stat::make(getCardLabel(), number_format(getCardTotal()))",
+    "stat_ref": "app/Filament/Widgets/Dashboard/LprRepossessions.php:429-437",
+    "this_month_total": "DashboardWidget::getCardTotal uses the last bucket of getMonthlyData(formatted: false). last_month uses the previous bucket. today and last_7d use currentPeriodTotal().",
+    "this_month_total_ref": "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php:356-367",
+    "series_call": "LprRepossessions::getMonthlyData → LprRepossessionsQuery::monthlySeries(auth()->user()->org_id, now('UTC')), then series[Y-m-01]['db_repos']",
+    "series_ref": "app/Filament/Widgets/Dashboard/LprRepossessions.php:225-260",
+    "org_binding": "auth()->user()->org_id. No org picker on this card. Impersonation changes the authenticated user.",
+    "org_binding_ref": "app/Filament/Widgets/Dashboard/LprRepossessions.php:233",
+    "cache_key": "lpr-repossessions-funnel:monthly-series-v1:org={orgId}:{Y-m}",
+    "cache_key_ref": "app/Clickhouse/Queries/LprRepossessionsQuery.php:248-250",
+    "cache_ttl": "Index 0 of the ladder: 10 minutes, or 10 seconds when session('admin_impersonator') is set. The series includes the open month, so the year arm is not used.",
+    "cache_ttl_ref": "app/Filament/Widgets/Dashboard/Concerns/ResolvesDashboardCacheTtl.php:28-32",
+    "sql_explainer": "getCardQueryStatements returns monthlySeriesSql for this_month and last_month, and windowSql for today and last_7d. The note says the card reads the db_repos column.",
+    "sql_explainer_ref": "app/Filament/Widgets/Dashboard/LprRepossessions.php:612-641"
+  },
+  "query_path": {
+    "class": "App\\Clickhouse\\Queries\\LprRepossessionsQuery",
+    "connection": "clarity_clickhouse",
+    "run_ref": "app/Clickhouse/Queries/LprRepossessionsQuery.php:151-155",
+    "extends_clickhouse_query": false,
+    "reads_clarity_orgs": false,
+    "reads_clarity_orgs_proof": "The class docblock states it does not read clarity.orgs. The SQL body has no clarity.orgs token. rg hits only that docblock and the MV sentence about zod.public_orgs.",
+    "billing_from": "{clarity_db}.billing_claim_events_v",
+    "billing_from_ref": "app/Clickhouse/Queries/LprRepossessionsQuery.php:188",
+    "predicates": [
+      "is_internal = 0",
+      "event_type = 'case-claim' (BillingEventType::CASE_CLAIM)",
+      "ts BETWEEN utc start epoch AND utc end epoch",
+      "event_date BETWEEN toDate(utc start) AND toDate(utc end)",
+      "({org} = 0 OR org_id = {org} OR agent_org_id = {org})"
+    ],
+    "predicate_ref": "app/Clickhouse/Queries/LprRepossessionsQuery.php:189-193",
+    "month_window": "monthlySeriesSql sets end to through UTC endOfMonth and start to that end minus 12 months, startOfMonth. through is now('UTC'). Bucket is toStartOfMonth(event_date).",
+    "month_window_ref": "app/Clickhouse/Queries/LprRepossessionsQuery.php:125-130",
+    "dedup": "BillingClaimDedup::dedupedCteSql groups claims where success and vin != '' by bucket, forwarder_org_id, agent_org_id, vin and takes min(claim_date). forwarder_org_id stays in the key.",
+    "dedup_ref": "app/Clickhouse/Queries/BillingClaimDedup.php:22-24",
+    "db_repos": "uniqExactIf((forwarder_org_id, agent_org_id, vin), toDate(hsl.created_at, 'UTC') >= d.claim_date - 7)",
+    "db_repos_ref": "app/Clickhouse/Queries/LprRepossessionsQuery.php:173",
+    "hotlist_join": "LEFT JOIN {zod}.public_hotlist FINAL WHERE _peerdb_is_deleted = 0 AND status = 3 ON org_id = agent_org_id AND vin, guarded by agent_org_id != 0",
+    "hotlist_join_ref": "app/Clickhouse/Queries/LprRepossessionsQuery.php:200-203",
+    "status_log_join": "LEFT JOIN {zod}.public_hotlist_status_log WHERE _peerdb_is_deleted = 0 AND new_status = 3 AND toDate(created_at, 'UTC') >= {floor}. No FINAL. Guard h.id != 0. {floor} is the UTC window start minus 7 days.",
+    "status_log_join_ref": "app/Clickhouse/Queries/LprRepossessionsQuery.php:211-215"
+  },
+  "schema": {
+    "file": "database/schema/clickhouse-schema.sql",
+    "billing_claim_events": {
+      "line": 18,
+      "order_by": "(event_date, id)",
+      "engine": "ReplacingMergeTree(_version, _peerdb_is_deleted)"
+    },
+    "billing_claim_events_v": {
+      "line": 85,
+      "body": "SELECT listed columns FROM clarity.billing_claim_events FINAL WHERE _peerdb_is_deleted = 0. Does not project _peerdb_is_deleted."
+    },
+    "clarity_orgs": {
+      "line": 89,
+      "body": "SELECT * FROM zod.public_orgs WHERE type IN (1, 2). No FINAL. Unused by LprRepossessionsQuery."
+    },
+    "billing_claim_events_mv": {
+      "line": 102,
+      "event_date": "toDate(fromUnixTimestamp(be.ts), 'UTC')",
+      "is_internal": "1 when the normalized zod.public_orgs FINAL name of the forwarder or the agent contains insightlpr. All org types. Frozen at MV refresh.",
+      "orgs_cte": "zod.public_orgs FINAL WHERE _peerdb_is_deleted = 0. Not clarity.orgs."
+    }
+  },
+  "either_side": {
+    "sql": "({org} = 0 OR org_id = {org} OR agent_org_id = {org})",
+    "recovery_join_is_agent_side": "The hotlist match is h.org_id = d.agent_org_id. A row kept because the viewer is only the forwarder still counts when the agent org's hotlist recovered.",
+    "not_a_verdict": "This is the shipped predicate. It is not evidence that the demo number is wrong."
+  },
+  "not_measured": {
+    "cloud_clickhouse": "not queried",
+    "ui_count": "not recorded",
+    "org_id": "not recorded",
+    "fleet_docker": "not provisioned"
+  },
+  "questions": [
+    {
+      "id": "Q1",
+      "blocking": false,
+      "answered": true,
+      "question": "What is the organization id for Brad Webb's org?",
+      "answer": "14. Brad Webb / premieradjusters.",
+      "source": "Question Gate lock, 2026-09-28."
+    },
+    {
+      "id": "Q2",
+      "blocking": false,
+      "answered": true,
+      "question": "What exact UI value should be reconciled, and under what viewing context?",
+      "answer": "About 509 on This Month. Production ClickHouse. Admin impersonating Brad Webb. Card is LPR Repos This Month, the db_repos headline on LprRepossessions. Do not replace ~509 with a tighter integer unless a Cloud measure returns one.",
+      "source": "Question Gate lock, 2026-09-28."
+    }
+  ],
+  "acs": [
+    {
+      "id": "AC-1",
+      "text": "Document the exact query path(s) that feed LPR Repos for the org/month in question.",
+      "prep": "Path documented. Q1 binds org 14. Q2 binds This Month db_repos, UI about 509, admin impersonation."
+    },
+    {
+      "id": "AC-2",
+      "text": "Reconcile the UI count vs the underlying query, and vs a Cloud measure if needed.",
+      "prep": "Measure SQL is in the plan. Production ClickHouse refused the MCP read. Count not recorded."
+    },
+    {
+      "id": "AC-3",
+      "text": "If the count is wrong, file follow-on fix ACs with evidence. If it is correct, close with proof notes.",
+      "prep": "Decision tree is in the plan. No follow-on AC is filed. No close proof yet."
+    }
+  ],
+  "out_of_scope": [
+    "Product PHP.",
+    "Retiring the status-log join.",
+    "Reopening the prior LPR Repossessions coverage work.",
+    "Hits distance N/A on the same demo day.",
+    "okf/ edits during this run.",
+    "Cloud ClickHouse writes. A read was attempted after Q1 and Q2 and the Production service refused MCP.",
+    "Fleet provision. Preflight 18 is a note for a later Agent QA pass."
+  ],
+  "wiki_queue": [
+    "okf/concepts/billing-events.md still teaches zod.public_billing_events as Clarity's only billing read.",
+    "okf/concepts/company-metrics-dashboard.md still shows getStats() without a per-card catch.",
+    "LprRepossessions docblock still says the org filter cannot prune because sources are ORDER BY id."
+  ],
+  "okf_read": [
+    "okf/index.md",
+    "okf/concepts/data-architecture.md",
+    "okf/concepts/company-metrics-dashboard.md",
+    "okf/concepts/billing-events.md",
+    "okf/concepts/platform-gotchas.md"
+  ]
+}

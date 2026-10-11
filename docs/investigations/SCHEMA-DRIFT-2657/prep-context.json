@@ -1,0 +1,68 @@
+{
+  "track": "SCHEMA-DRIFT-2657",
+  "phase": "gate",
+  "gate": "CLEAN",
+  "confidence": 93,
+  "questions": [],
+  "independence": "DDL was read from chlocal at the pinned commit in this same context. No second reviewer dispatched. Confidence is the pin match plus a mechanical splice, not independent corroboration.",
+  "decisions": [
+    {
+      "id": "D1",
+      "decision": "Mirror migration 116 sections 1, 3 (ADD PROJECTION only), and 4 (CREATE only) into database/schema/clickhouse-schema.sql.",
+      "rationale": "Those statements are the frozen shape. Section 2 MATERIALIZE COLUMN, MATERIALIZE PROJECTION, DROP VIEW, the commented DROP PROJECTION, and the backfill script are Cloud operations or data writes."
+    },
+    {
+      "id": "D2",
+      "decision": "Edit the existing CREATE TABLE clarity.hotlist line in place. Insert _peerdb_hsl_synced_at immediately after _peerdb_hm_synced_at. Insert the six Nullable(DateTime64(6)) columns immediately after close_date. Keep PROJECTION prj_id_lookup. Add PROJECTION prj_id_lookup_v2 with the migration's select list.",
+      "rationale": "The ALTER positions in section 1 and the ADD PROJECTION in section 3 are the physical order. Section 5's DROP PROJECTION is commented out, so the applied shape keeps both projections. The current dump line matches chlocal hotlist.sql at the pin except SharedReplacingMergeTree is already ReplacingMergeTree."
+    },
+    {
+      "id": "D3",
+      "decision": "Add CREATE MATERIALIZED VIEW clarity.hotlist_incremental_mv. The dump has zero matches for that name today.",
+      "rationale": "There is no existing line to edit. The frozen definition is section 4 of migration 116, not the pre-migration schema export."
+    },
+    {
+      "id": "D4",
+      "decision": "One line per statement. Strip line comments. Collapse whitespace. Remove space immediately inside parentheses. Keep DEFINER = default SQL SECURITY DEFINER. Do not copy the personal DEFINER from the schema export.",
+      "rationale": "Same transforms as the billing_claim_events mirror in platform PR 449. The migration's `-- replace;` semicolon sits inside a comment and is not a statement boundary."
+    },
+    {
+      "id": "D5",
+      "decision": "Leave existing hotlist column types, engine, partition, order, TTL, and settings unchanged. Header counts: tables 64 and views 13 stay; materialized views 5 become 6. Leave Generated: 2026-09-01.",
+      "rationale": "Migration 116 does not ALTER those existing columns. The file header says non-engine clauses stay verbatim."
+    },
+    {
+      "id": "D6",
+      "decision": "Do not copy database/schemas/clickhouse/clarity/tables/hotlist.sql or hotlist_incremental_mv.sql from a9e366bb.",
+      "rationale": "At the pin those files are the pre-migration Cloud export. hotlist.sql has neither the new columns nor prj_id_lookup_v2. The MV file still uses a personal DEFINER and omits the status-log arm."
+    },
+    {
+      "id": "D7",
+      "decision": "Path A soft-OK is versus the DEV-2555 SCHEMA-GATE twins on :18081 / :15433 / :18123. DEV-2654 is torn_down (~13:02 CT). Ports 18082, 15434, and 18124 are free and are not a live second ledger.",
+      "rationale": "This track does not reuse either stand. Provision waits for a fresh SCHEMA-DRIFT-2657 keyed Docker stand whose ledger will land under docs/investigations/SCHEMA-DRIFT-2657/. This run does not write that ledger."
+    }
+  ],
+  "soft_collision": {
+    "path": "A",
+    "dev_2654": "torn_down ~13:02 CT; ports 18082/15434/18124 free; not a live ledger",
+    "soft_ok_versus": "DEV-2555 SCHEMA-GATE on :18081 / :15433 / :18123",
+    "this_track_ledger": "docs/investigations/SCHEMA-DRIFT-2657/ when the fresh keyed Docker stand is published"
+  },
+  "current_hotlist_columns_absent": [
+    "first_open_at",
+    "first_hold_at",
+    "first_repossessed_at",
+    "first_declined_at",
+    "first_closed_at",
+    "first_invalid_at",
+    "_peerdb_hsl_synced_at"
+  ],
+  "current_projection": "prj_id_lookup only",
+  "target_projection": [
+    "prj_id_lookup",
+    "prj_id_lookup_v2"
+  ],
+  "ddl_source_commit": "a9e366bb21fee0702fd827a9d7c57488be57fc69",
+  "base_sha": "c811e34e482805df5e7795c118489d1e55c379f4",
+  "updated_at": "2026-09-24T18:48:59Z"
+}

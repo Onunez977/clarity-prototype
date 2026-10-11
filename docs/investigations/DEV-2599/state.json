@@ -1,0 +1,212 @@
+{
+  "ticket": "DEV-2599",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "phase": "done",
+  "diff_base": "71122f90f90ecef5a192264c996395e6b6470042",
+  "repo": "insight-lpr/platform",
+  "base_branch": "main",
+  "base_branch_reason": "Default main. Remote Scout branches (cursor/scout-recovery-probability-frontend-1c03, stack-otto-scout) do not carry DEV-2224 live-hit image work. Branched from origin/main @ 845f656c, which includes DEV-2594 hit-sheet stacking this plan depends on. Local snapshot was 3 commits behind; fetched before branching.",
+  "branch": "claude/DEV-2599",
+  "head": "df5e3490e3faf94fb2318de818b443ead5888072",
+  "started_at": "2026-09-22T18:42:00Z",
+  "knowledge_cards_loaded": [
+    "okf/index.md",
+    "okf/concepts/data-architecture.md",
+    "okf/concepts/scout-frontend.md",
+    "okf/concepts/scout-birds-eye.md",
+    "okf/concepts/scan.md"
+  ],
+  "open_questions": [],
+  "flags": {
+    "companion": false,
+    "start_at": "intake",
+    "stop_at": "planned",
+    "implement": false,
+    "qa": false,
+    "review": false
+  },
+  "record": {
+    "intake": {
+      "at": "2026-09-22T18:42:00Z",
+      "route": "feature",
+      "app": "clarity",
+      "parent": "DEV-2224",
+      "related": "DEV-2231"
+    },
+    "prep": {
+      "at": "2026-09-22T18:46:07Z",
+      "gate": "CLEAN",
+      "confidence": 88
+    },
+    "gate": {
+      "at": "2026-09-22T18:46:07Z",
+      "result": "CLEAN",
+      "open_questions": []
+    },
+    "plan": {
+      "at": "2026-09-22T18:46:07Z",
+      "nodes": [
+        "t1",
+        "t2"
+      ]
+    },
+    "tests": {
+      "at": "2026-09-22T19:13:48Z",
+      "cmd": "BASE_URL=https://clarity-claude_dev_2599.test ./node_modules/.bin/playwright test tests/e2e/dev-2599-enlarge-scan-image.spec.ts --reporter=line",
+      "result": "1 passed (3.6s)",
+      "filter": "tests/e2e/dev-2599-enlarge-scan-image.spec.ts"
+    },
+    "implement": {
+      "at": "2026-09-22T19:13:48Z",
+      "subtasks": {
+        "t1": "done",
+        "t2": "done"
+      }
+    },
+    "review": {
+      "lanes": [
+        "correctness",
+        "blast-radius",
+        "tests"
+      ],
+      "scores": [
+        90,
+        88,
+        87
+      ],
+      "min_score": 87,
+      "findings_fixed": [],
+      "findings_residual": [
+        "Focus trap / focus restore missing on lightbox (a11y Consider)",
+        "Escape does not stopPropagation; BottomSheet has no Escape handler today",
+        "Playwright covers vehicle enlarge + close button only (not plate, Escape, backdrop)",
+        "Driver view covered by shared MapShell binding, not a second E2E surface",
+        "assertSevenDaysStillSelected reaches into Pinia private $pinia.state",
+        "Body scroll not locked while dialog open"
+      ],
+      "lane_sources": [
+        {
+          "lane": "correctness",
+          "source": "in-session-sam"
+        },
+        {
+          "lane": "blast-radius",
+          "source": "in-session-sam"
+        },
+        {
+          "lane": "radius",
+          "source": "in-session-sam"
+        },
+        {
+          "lane": "tests",
+          "source": "in-session-sam"
+        }
+      ],
+      "gate_score": 87,
+      "gate_score_src": "lane-min",
+      "rounds": [
+        {
+          "rn": 1,
+          "reason": "gate",
+          "at": "2026-09-22T19:20:00Z"
+        }
+      ],
+      "unresolved_premises": [],
+      "rerun_required": false,
+      "reviewed_sha": "b6979439d50c712fcbf94548afadbe5de027e5df",
+      "rework_pivot": false,
+      "act_on": "NONE",
+      "scores_by_lane": {
+        "correctness": 90,
+        "blast-radius": 88,
+        "tests": 87
+      }
+    },
+    "ac": [
+      {
+        "item": "Clicking the scan thumbnail on a hit card opens a larger view",
+        "status": "SATISFIED",
+        "evidence": "Org map Hit Details for fixture ENL2599: Enlarge vehicle/plate opens role=dialog. Playwright tests/e2e/dev-2599-enlarge-scan-image.spec.ts 1 passed (vehicle enlarge+close). Pippin qa-ac-results AC-1; human QA done 2026-09-22."
+      },
+      {
+        "item": "The enlarged view supports zoom, or is served at full capture resolution",
+        "status": "SATISFIED",
+        "evidence": "Lightbox img uses hit capture URL unchanged with object-contain max viewport; no h-48/object-cover. Fixture data URLs this provision (ClickHouse down). Pippin AC-2; human QA done 2026-09-22."
+      },
+      {
+        "item": "Works on both the admin org map and the Scout driver view",
+        "status": "SATISFIED",
+        "evidence": "Org map verified. MapShell does not fork images on adminMode; birdseye mounts same MapShell. Driver /scout login not clicked this provision (redirect to /scout/login). Coverage = shared binding + residual note. Pippin AC-3; human QA done 2026-09-22."
+      },
+      {
+        "item": "Closing the enlarged view returns to the card without losing map state or the selected date range",
+        "status": "SATISFIED",
+        "evidence": "Close button, Escape, backdrop each dismiss dialog and leave selectedHit ENL2599; range last_7; liveMode false; Live Hits collapsed; hitFocusRequest null; map canvas attached. Pippin AC-4 + Playwright; human QA done 2026-09-22."
+      }
+    ],
+    "verify": {
+      "at": "2026-09-22T20:21:34Z",
+      "by": "Merry",
+      "verdict": "pass",
+      "reviewed_sha": "b6979439d50c712fcbf94548afadbe5de027e5df",
+      "head_at_verify": "df5e3490e3faf94fb2318de818b443ead5888072",
+      "rework_gate": "pass (2 files since review: .gitignore + .context/qa-prep-ledger.json)",
+      "non_blocking": [
+        "ClickHouse deferred \u2014 fixture ENL2599 / data URLs",
+        "Driver /scout login not clicked",
+        "Focus trap/restore missing",
+        "Body scroll lock missing"
+      ]
+    }
+  },
+  "qa": {
+    "status": "agent_pass_human_done",
+    "ledger": ".context/qa-prep-ledger.json",
+    "provisioned_early": true,
+    "provisioning": {
+      "provision_mode": "provision-only",
+      "plans_written": false,
+      "provisioned_phase": "3.5",
+      "bootstrap": "ran",
+      "bootstrap_cmd": "bash .claude/hooks/bootstrap.sh",
+      "deps": "via-bootstrap",
+      "migrations": "ran",
+      "docker_daemon": "n/a",
+      "ch_container": "n/a",
+      "frontend_build": "n/a"
+    },
+    "stubs": [
+      "AC-1: From a live hit, click the scan thumbnail on Hit Details and a larger view opens.",
+      "AC-2: Enlarged view shows the existing capture URL (images.insightlpr.io/{guid}-{c|p}.jpg) uncropped (object-contain), not the h-48 object-cover crop.",
+      "AC-3: Same control on admin org map (/scout/org-map) and the Scout driver view. Both mount MapShell; images are not forked on adminMode.",
+      "AC-4: Close returns to the open Hit Details sheet. dashboard date range stays on the selected pill. Map camera and the DEV-2594 focus marker stay. Live Hits list stays collapsed."
+    ],
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "human_qa": {
+      "done": true,
+      "at": "2026-09-22",
+      "signal": "Pippin handoff: Dalton completed human QA"
+    },
+    "torn_down": true
+  },
+  "cli_provision": {
+    "status": "done",
+    "phase_stopped": "provisioned",
+    "next": "sam",
+    "note": "Implemented. Playwright enlarge flow passed against clarity-claude_dev_2599.test. Next is Sam. PR stays draft."
+  },
+  "comment_ids": {
+    "build_record": "41090"
+  },
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "Merry \u2192 QA Ready (Fellowship terminal)",
+  "pr": {
+    "number": 433,
+    "url": "https://github.com/insight-lpr/platform/pull/433",
+    "draft": false
+  }
+}

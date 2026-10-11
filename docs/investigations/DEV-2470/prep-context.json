@@ -1,0 +1,164 @@
+{
+  "key": "DEV-2470",
+  "generated_at": "2026-09-14T20:40:00Z",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "gate_reason": "Both material questions answered by the operator on 2026-09-14. The resource envelope was MEASURED (read-only, production ClickHouse Cloud) and returned go, so the envelope-unresolved condition no longer holds. No blast-radius site in scope: target_files touch no migrations, billing, auth/Shield, or ClickHouse purge/cleanup globs.",
+  "synthesis": "DEV-2470 is the stub at Company Metrics grid row 2 col 2, 'Unique Scans to Repo'. Its written blocker -- that distinct ocr over clarity.recovery_scans lands within 0.3% of sibling DEV-2469 every month of 2026 -- was measured against DEV-2469's ORIGINAL count spec. DEV-2469 shipped 2026-09-14 (PR #400, bf1d398c) under a ratio definition Oscar gave on 2026-09-10, so the two cards no longer compute comparable quantities and that duplication premise is void for the shipped sibling. A candidate reading (org-wide unique scans divided by TOTAL repossessions) would make this card genuinely distinct from every sibling and is materially cheaper than DEV-2469 was. But Oscar has never been asked this specific question; DEV-2409's own decision table still records it 'Not answered'. This prep's deliverable is therefore a precisely costed, one-line-answerable question -- not a build.",
+  "questions": [
+    {
+      "q": "What is DEV-2470's definition? (A) COUNT -- distinct ocr over clarity.recovery_scans, the ticket's literal original spec. (B) RATIO -- org-wide unique scans (ScanPlateStatsBatchQuery, already shared by two shipped cards) over TOTAL repossessions (clarity.recoveries, the number RecoveryCounts already renders as 'Total Repossessions'); this is what Oscar's 'Repo is just the total repos that occurred for that company' supports, and it is distinct from every sibling. (C) RATIO using DEV-2469's denominator (db_repos, the case-claim funnel) -- same numerator AND same denominator as DEV-2469, so provably a duplicate; should almost certainly be rejected. (D) DROP the card, per the still-unanswered keep/drop question in DEV-2409 c39122.",
+      "answered": true,
+      "answer": "Option B \u2014 a RATIO: org-wide unique scans (ScanPlateStatsBatchQuery) divided by TOTAL repossessions (clarity.recoveries, the quantity RecoveryCounts renders as 'Total Repossessions'). Operator decided to build on the inference rather than wait for Oscar, after being shown that this is a product definition being settled by engineering inference and that a wrong guess means a card Oscar rejects. Decision reaffirmed.",
+      "source": "human:Dalton McCleery 2026-09-14"
+    },
+    {
+      "q": "If built: should the card be Pro-gated behind COMPANY_METRICS? Every sibling 'Unique Scans to X' card and the numerator's own source card (UniqueScanCounts) are gated; shipping this one ungated would be an inconsistency rather than a considered choice. Confirm alongside the definition.",
+      "answered": true,
+      "answer": "Yes \u2014 Pro-gate behind COMPANY_METRICS, consistent with every sibling 'Unique Scans to X' card and with UniqueScanCounts. Adds 'unique-scans-to-repo' to the DashboardCardVisibilityTest allowlist (eight cards -> nine).",
+      "source": "human:Dalton McCleery 2026-09-14"
+    }
+  ],
+  "blockers": [],
+  "scope": {
+    "summary": "Under candidate reading B: replace the UniqueScansToRepo stub body with the DEV-2469 ratio-card shape, and add ONE batched ClickHouse query for the denominator over clarity.recoveries (17,045,278 rows, ORDER BY (org_id, repo_date, id) -- org-prunable, ~34x fewer rows than the 584M-row funnel DEV-2469's denominator touches). Grid registration, card key, mockup slot, getStatColor() arm and the layout-order assertion are ALREADY shipped -- zero cost there.",
+    "target_files": [
+      "app/Filament/Widgets/Dashboard/UniqueScansToRepo.php",
+      "app/Clickhouse/Queries/<NewDenominatorQuery>.php",
+      "tests/Filament/Widgets/Dashboard/UniqueScansToRepoTest.php",
+      "tests/Feature/Clickhouse/<NewDenominatorQuery>Test.php",
+      "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php"
+    ],
+    "out_of_scope": [
+      "Any change to DEV-2469 (UniqueScansToLprRepossession.php), DEV-2465, or LprRepossessionsQuery.php -- they ship as-is.",
+      "Refactoring RecoveryCounts's existing 13-separate-queries pattern onto the new batched denominator class. Worth doing (it would let both cards share one ClickHouse round trip, the win DEV-2469 RN4 delivered for LprRepossessions) but a separate optional follow-up, not required for this card to be correct.",
+      "Changing CompanyMetricsOverview::cards(), DashboardWidget::getStatColor(), or DashboardCardExpansionTest's order assertion -- all three already account for this card.",
+      "Adding a cold-mutex guard to the new denominator query unless production measurement warrants it -- clarity.recoveries is ~34x smaller than the funnel that justified DEV-2469's guard machinery.",
+      "Fixing the numerator's missing cold mutex (inherited from DEV-2469, ~2.44 GB peak per unguarded concurrent copy). That is a disclosed DEV-2469 residual and belongs to its own follow-up ticket."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "The card's definition is confirmed by a human product decision before implementation begins.",
+      "source": "ticket",
+      "decision": "defer",
+      "reason": "The ticket's own gate; DEV-2409's decision table records it 'Not answered'."
+    },
+    {
+      "item": "The card renders in its existing grid slot (row 2 col 2, key 'unique-scans-to-repo').",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Already satisfied by shipped code -- CompanyMetricsOverview::cards() registers it at the correct position."
+    },
+    {
+      "item": "A genuine zero-denominator month renders 0.0, not an error.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "DEV-2469's self::ratio() guard is the established house pattern; reuse verbatim."
+    },
+    {
+      "item": "Numerator and denominator month buckets agree, so no bar silently mixes clocks.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "DEV-2469 hit this as a real defect. This card's denominator differs structurally: repo_date is a ClickHouse Date with no time-of-day, so SQL-native toStartOfMonth(repo_date) carries no timezone axis -- but only if a fresh query is written. Reusing RecoveryCounts's PHP-computed viewer-tz boundaries reintroduces a day-level version of the same hazard at month edges."
+    },
+    {
+      "item": "A non-Pro viewer does not see the card's value.",
+      "source": "derived",
+      "decision": "defer",
+      "reason": "Strongly implied by sibling convention but not literally specified; confirm with the definition (question 2)."
+    },
+    {
+      "item": "If interpretation 2 (a new data path) is chosen, its cost is measured before the build.",
+      "source": "ticket",
+      "decision": "defer",
+      "reason": "No production measurement exists yet for a batched clarity.recoveries monthly-series COUNT. Must be probed once the definition is confirmed and before the query class ships."
+    }
+  ],
+  "missed_caller_candidates": [
+    {
+      "file": "tests/e2e/unique-scans-to-case-claims.spec.ts",
+      "symbol": "unique-scans-to-repo",
+      "referenced_at": "grid-order assertion: indexOf('unique-scans-to-repo') must be >= 0 and immediately precede the Case Claims card",
+      "materiality": "Material to option D. DROPPING this card breaks a SHIPPED sibling's e2e spec -- the drop is not free, it requires editing DEV-2465's Playwright spec. Prep did not surface this; found by the grep backstop."
+    }
+  ],
+  "data_impact": {
+    "pg_tables": [],
+    "ch_tables": [
+      "clarity.scans_cold (numerator, any ratio option)",
+      "clarity.recoveries (candidate B denominator, 17,045,278 rows)",
+      "clarity.recovery_scans (candidate A only, 921,038 rows, no org_id column)",
+      "zod.public_billing_events / public_hotlist / public_hotlist_status_log (candidate C only)"
+    ],
+    "mv_or_cdc_implications": "clarity.recoveries rows genuinely mutate, so FINAL is required there (unlike uniqExact(ocr) on scans_cold, where DEV-2466 measured FINAL as +97% server time for zero answer change). _peerdb_is_deleted = 0 everywhere. Recovery's Eloquent model applies both via global scopes (ApplyFinal, FiltersCdcDeletes) -- raw SQL bypasses them and must replicate both manually.",
+    "indexes_relied_on": "clarity.recoveries ORDER BY (org_id, repo_date, id) -- org_id leads, so an org-scoped count prunes well (unlike the scans_cold/hits_cold kit_id trap)."
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "Any built version is a ClickHouse query class iterating a 13-month series grouped by org.",
+    "driving_tables": [
+      {
+        "table": "clarity.recoveries",
+        "source": "measured 2026-09-14 (live prod probe)",
+        "prod_rows": 17059091,
+        "bytes_on_disk": "776.25 MiB",
+        "sorting_key": "org_id, repo_date, id",
+        "group_by": "org_id (sort-key leading column -> prunes)",
+        "largest_group_rows": 240140,
+        "largest_group_basis": "largest single org over the 13-month window"
+      },
+      {
+        "table": "clarity.scans_cold",
+        "source": "recorded, DEV-2466 findings.md + DEV-2469 decisions.md",
+        "prod_rows": 60757669,
+        "group_by": "org_id (13-month single-org series)",
+        "largest_group_rows": 60757669,
+        "note": "numerator, unchanged and shared with two shipped cards"
+      }
+    ],
+    "growth": "29 orgs entitled to COMPANY_METRICS of 4,118 carrying any platform_repo_pro* key (recorded 2026-09-08).",
+    "schedule": null,
+    "allocation_sketch": "DENOMINATOR (measured, candidate B): a 13-month single-org series over clarity.recoveries with FINAL and _peerdb_is_deleted=0 reads 281,882 rows / 5.91 MB, peaks at 52.3 MB, and returns 13 rows in ~15 ms. Worst-case org over the same window is 240,140 rows. For scale: DEV-2469's denominator (the case-claim funnel) costs 584M rows / 2.79 GB with a 33.7s tail -- this denominator reads roughly 2,000x fewer rows. It needs no cold-mutex guard machinery. NUMERATOR: unchanged -- the same ~2.44 GB peak scans_cold pass two shipped cards already make; marginal cost is near zero if the same cache zone is reused, or one additional pass if a forced-UTC zone is required.",
+    "oracle_status": "measured",
+    "unresolved": [],
+    "measured_at": "2026-09-14",
+    "measurement_method": "read-only HTTPS probe against production ClickHouse Cloud as readonly_user, literal clarity database, X-ClickHouse-Summary envelope read per response. No writes. Credentials taken from the MAIN checkout .env (the worktree .env carries a bad password).",
+    "verdict": "go"
+  },
+  "notes": [
+    "The stub and grid contract are already fully wired and need no change under ANY option A/B/C: CompanyMetricsOverview::cards() row 2 col 2, DashboardWidget::getStatColor() 'unique-scans-to-repo' => 'info', and DashboardCardExpansionTest's layout-order assertion all already list this card.",
+    "ScanPlateStatsBatchQuery (numerator for B/C) is the SAME class UniqueScanCounts and UniqueScansToLprRepossession already call. No new numerator logic under any ratio reading.",
+    "Residual risk inherited 1:1 by any option reusing ScanPlateStatsBatchQuery: the numerator leg has NO cold mutex (bare cache get/put), concurrency is per-tab at ~2.44 GB server peak per copy on a ClickHouse server with max_memory_usage = 0. A THIRD card on this unguarded numerator increases the odds of concurrent scans_cold passes stacking on a busy org.",
+    "DEV-2469 needed FOUR review rounds (final 92/76/72 against a threshold of 90 -- it merged WITHOUT passing its gate) and adversarial review caught two real production-facing regressions: an RN2 ~900 GB/day history-rescan bug and an RN3 silent cross-card cache-shape collision. Any cache-key sharing here needs the same scrutiny on the PAYLOAD CONTRACT.",
+    "DEV-2469's QA ran on a 132-row local seed, not production scale. Any card sharing those tables inherits 'shape pinned, numbers not verified at scale'.",
+    "Correction to an earlier read: the no-hardcoded-'clarity.'-prefix rule binds QUERY-BUILDER classes (HitStatsBatchQuery pattern). Eloquent ClickhouseModel subclasses conventionally DO hardcode $table (Kit, HitStatsDaily, Recovery all do). Recovery is fine as-is; only a raw-SQL denominator would need dynamic resolution.",
+    "RecoveryCounts (the existing Total Repossessions card) is Eloquent-on-ClickhouseModel with no catch, so a query failure there already propagates and 500s all sixteen grid cards. A new denominator query must deliberately choose to inherit or diverge from that, not default into it."
+  ],
+  "confidence": 58,
+  "escalated": false,
+  "escalation_note": "escalate.recommend was TRUE and the deep best-of-N path was deliberately SKIPPED. The single unresolved question is explicitly needs-human (a product decision about what the metric means). Three additional blind prep candidates cannot answer 'what does Oscar want' -- they would re-derive the same question at materially higher cost and delay the human decision. Recorded as a deviation from the default escalation path. The grep backstop WAS run and found one site prep missed (the DEV-2465 e2e grid-order anchor).",
+  "blocker_disposition": "The ticket's 'Do not build until Oscar answers' blocker was explicitly overridden by the operator (reporter + assignee) on 2026-09-14 after being shown the risk in terms. Oscar has still NOT answered; this is an engineering decision to proceed on a reading his own words support ('Repo is just the total repos that occurred for that company', DEV-2409 c39277). Recorded so the Build Record and any reviewer can see the call was made deliberately and by whom, not assumed away.",
+  "measurements": {
+    "final_is_required_here": {
+      "finding": "FINAL materially changes the answer on clarity.recoveries, unlike uniqExact(ocr) on scans_cold (DEV-2466).",
+      "with_final": 39358,
+      "without_final": 46313,
+      "inflation_without_final_pct": 17.7,
+      "basis": "org 1271, 13-month window, _peerdb_is_deleted=0",
+      "implication": "FINAL is NOT optional on the denominator. Omitting it over-counts repossessions by ~18%."
+    },
+    "count_vs_uniqexact_drift": {
+      "finding": "count() FINAL still exceeds uniqExact(id) FINAL by a small margin -- the DEV-2406/hits_cold defect class (a mutable sort-key column, here repo_date, prevents FINAL collapsing every duplicate). Present but ~0.02%, not the ~30% seen on hits_cold.",
+      "per_org_drift": {
+        "14": 4,
+        "469": 2,
+        "541": 4,
+        "1143": 7,
+        "1271": 7
+      },
+      "implication": "Immaterial at the rendered precision -- a one-decimal ratio does not move. The live decision is whether the denominator should MATCH RecoveryCounts (which uses ->count(), so the ratio's denominator equals the Total Repossessions figure displayed on the same grid) or be strictly correct with uniqExact(id) (which would differ from the neighbouring card by a handful of rows). Recommend matching RecoveryCounts for grid self-consistency; flagged for review to challenge.",
+      "decision": "match RecoveryCounts (count()) \u2014 pending review"
+    }
+  }
+}

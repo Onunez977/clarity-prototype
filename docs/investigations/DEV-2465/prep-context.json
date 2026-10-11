@@ -1,0 +1,591 @@
+{
+  "key": "DEV-2465",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "reconcile": {
+    "technique": "insightlpr:multi-candidate-merge",
+    "candidates": 4,
+    "candidate_ids": [
+      "0-fastpass",
+      "1",
+      "2",
+      "3"
+    ],
+    "ran": "inline on the driver at opus (all four candidate JSONs were already in the driver's context; re-serialising them to a sub-agent of the same tier would have added cost and latency with no model benefit). Recorded here for honesty rather than reported as a separate dispatch.",
+    "rules_applied": "union additive content deduped; agreement = settled; disagreement = explicit open question, never silently picked; grounded beats confident; conservative on 'resolved'."
+  },
+  "synthesis": "Replace the DEV-2409 zero-query stub UniqueScansToCaseClaims (already registered at CompanyMetricsOverview::cards()['unique-scans-to-case-claims'], grid row 2 col 3) with a real card rendering a PERCENTAGE -- the share of case-claimed vehicles the fleet's cameras had already seen before the claim. Numerator: successful `case-claim` rows of zod.public_billing_events resolved to hotlist_id via JSONExtractInt(additional,'hotlist_id'), joined to clarity.hits_cold on hotlist_id keeping hits whose scanned_at precedes the claim's own epoch ts, counted with uniqExact. Denominator: claimed orders -- but WHICH claimed-order population is the ticket's central unresolved contradiction (see questions Q1/Q4). This is the FIRST non-integer card on the grid, which collides with int-typed base-class contracts, and it is the first card in the family to need a zero-denominator display convention.",
+  "scope": {
+    "summary": "Fill the stub's data seams in place, backed by a new ClickHouse query class; add the Pro gate the stub never got, and the two test-allowlist entries that gate requires. No registration, ordering, colour or card-count change -- all already shipped by DEV-2409 (#394).",
+    "proposed_changes": [
+      {
+        "file": "app/Clickhouse/Queries/UniqueScansToCaseClaimsQuery.php",
+        "change": "NEW query class. Mirrors UniqueLprCaseClaimsQuery's shape but is NOT a ClickhouseQuery subclass and does NOT swallow Throwable. Exposes window(?int $orgId, CarbonInterface $start, CarbonInterface $end) and monthlySeries(?int $orgId, CarbonInterface $through), each ONE round trip, returning per-bucket {denominator:int, numerator:int, rate:float}. Numerator uses uniqExactIf over hotlist_id; every aggregate uniqExact, never bare count(). Reuses the claim-side org axis (forwarder_org_id = ? OR agent_org_id = ?), the insightlpr-only exclusion against a FINAL public_orgs CTE, event_type='case-claim', _peerdb_is_deleted = 0, UTC calendar-month bucketing on the integer epoch ts, and static::clarityDb().",
+        "reason": "The numerator has no existing implementation and CANNOT be obtained from the shipped denominator class -- see the blocking finding below.",
+        "ref": "app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php:46,61,107-144 (shape to mirror); ticket comment 39127 (measured SQL shape)"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php",
+        "change": "Replace the stub bodies. Compute the rate END-TO-END inside getCardRate(): float -- the stub's own new seam -- for EVERY date option including today/last_7d. Override getMonthlyData() to return 13 per-month RATE floats from ONE batched monthlySeries() call wrapped in Cache::flexible([3600,86400]). Override getDescription() to emit a '%'-suffixed percentage. Keep the stub's existing toStat() override. Add canViewCardData() gated on FeatureEnum::COMPANY_METRICS with the admin_impersonator bypass, copying UniqueLprCaseClaims.php:101-106.",
+        "reason": "toStat()/getCardRate() is the seam the stub's own docblock says the card ticket fills; the Pro gate is missing entirely.",
+        "ref": "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php:31-66; app/Filament/Widgets/Dashboard/UniqueLprCaseClaims.php:101-106,116-151,225-277"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php",
+        "change": "MUST NOT route any rate through currentPeriodTotal(), getRangeTotal() or getModelQueryForDates().",
+        "reason": "HARD PHP CONSTRAINT, driver-verified: DashboardWidget declares getCardTotal(): int (:321), currentPeriodTotal(): int (:344) and getRangeTotal(string,string): int (:367). PHP fatals at class-load on an int->float return-type widening, and using them unwidened TRUNCATES 96.6 to 96 or 0. The Phase 1 fast pass proposed exactly this truncating wiring; candidate 3 caught it.",
+        "ref": "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php:321,344,367"
+      },
+      {
+        "file": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php",
+        "change": "Add 'unique-scans-to-case-claims' to BOTH hardcoded gated-card allowlists: $expectedGated at :59-64 and the array_diff literal at :481.",
+        "reason": "REQUIRED, driver-verified: both are deliberate explicit allowlists ('Keep this an explicit allowlist, not a \"whatever cards() says\" tautology: gating a card is a deliberate, reviewed act and never an accident'). Adding canViewCardData() without updating both turns both tests RED. The fast pass and candidate 1 both declared this file out of scope -- a genuine miss.",
+        "ref": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php:52-70,472-488"
+      },
+      {
+        "file": "tests/Feature/Clickhouse/UniqueScansToCaseClaimsQueryTest.php",
+        "change": "NEW. Mirrors UniqueLprCaseClaimsQueryTest.php.",
+        "reason": "Pins the query contract; RequiresClickhouse already truncates both tables (tests/Concerns/RequiresClickhouse.php:21,39) so no test-infra change is needed.",
+        "ref": "tests/Feature/Clickhouse/UniqueLprCaseClaimsQueryTest.php"
+      },
+      {
+        "file": "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsTest.php",
+        "change": "NEW. Pins getCardKey(), the non-gray getStatColor(), the full Pro-tier canViewCardData() matrix, a '%'-suffixed rendered value, and that a zero denominator renders without a division error.",
+        "reason": "Mirrors UniqueLprCaseClaimsTest.php; the only place that would catch the missing Pro gate.",
+        "ref": "tests/Filament/Widgets/Dashboard/UniqueLprCaseClaimsTest.php"
+      },
+      {
+        "file": "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsWindowSeamTest.php",
+        "change": "NEW. Pins that the today/last_7d path resolves through the rate seam (not a raw funnel stage) and that window bounds anchor correctly.",
+        "reason": "Candidate 2's grounding: DEV-2463's own history shows a stage-selection mutant survived 35 tests until a dedicated seam test existed.",
+        "ref": "tests/Filament/Widgets/Dashboard/UniqueLprCaseClaimsWindowSeamTest.php"
+      },
+      {
+        "file": "tests/e2e/unique-scans-to-case-claims.spec.ts",
+        "change": "NEW, additive. Mirrors the sibling spec.",
+        "reason": "DISAGREEMENT RESOLVED toward the grounded side: candidate 1 proposed it, candidate 3 called e2e out of scope; the driver verified tests/e2e/unique-lpr-case-claims.spec.ts EXISTS alongside missed-opportunities and staging-live-hit-leader specs, so the precedent is real.",
+        "ref": "tests/e2e/unique-lpr-case-claims.spec.ts"
+      }
+    ],
+    "target_files": [
+      "app/Clickhouse/Queries/UniqueScansToCaseClaimsQuery.php",
+      "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php",
+      "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php",
+      "tests/Feature/Clickhouse/UniqueScansToCaseClaimsQueryTest.php",
+      "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsTest.php",
+      "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsWindowSeamTest.php",
+      "tests/e2e/unique-scans-to-case-claims.spec.ts"
+    ],
+    "out_of_scope": [
+      "CompanyMetricsOverview::cards() -- already registers this card at row 2 col 3 (:99). Never re-insert or reorder; the key is both toggle key and cache namespace.",
+      "DashboardWidget::getStatColor() -- the 'unique-scans-to-case-claims' => 'success' arm already exists (:311).",
+      "tests/Filament/Pages/DashboardCardExpansionTest.php + the assertCount(16) assertions -- ALREADY at 16 and already listing this card. UNANIMOUS across all 4 candidates: the ticket's 'update the card-order assertion' and 'bump the card count' instructions are STALE, predating DEV-2409 #394.",
+      "The other 4 DEV-2409 stubs (LprRepossessions, UniqueScansToRepo, UniqueScansToLprRepossession, UniqueScansLeaderboard) -- confirmed still zero-query stubs, each its own ticket.",
+      "app/Clickhouse/Queries/Client/BatchMonthlySparklineData.php -- do NOT import. UNANIMOUS: it is a client-portal class for a different metric family with ZERO callers anywhere in app/ or tests/. The ticket cites it as the 'house one-batched-call shape', i.e. a PATTERN; the real in-family precedent is UniqueLprCaseClaimsQuery::monthlySeries().",
+      "Changing DashboardWidget's int-typed base signatures -- would ripple to every other card.",
+      "okf/concepts/company-metrics-dashboard.md's stale 10-card table -- correct it POST-merge per the CLAUDE.md WRITE rule, not now."
+    ]
+  },
+  "blocking_finding": {
+    "title": "Two acceptance criteria are arithmetically incompatible, and the shipped denominator class structurally cannot feed the numerator.",
+    "found_by": "candidate 2 (grain mismatch) and candidate 3 (no hotlist_id), independently; both driver-verified.",
+    "detail_1_grain": "AC-1 requires reproducing 96.6% for Jul 2026 fleet-wide. AC-2 requires the denominator come from DEV-2463's UniqueLprCaseClaimsQuery. Those cannot both hold. The ticket's own 96.6% is 11,449 / 11,855 where 11,855 = 'claimed orders (successful, hotlist_id != 0)'. UniqueLprCaseClaimsQuery returns {all_claims, successful, deduped} = 15,128 / 14,288 / 11,975 for that window (DEV-2409 comment 38583, screenshot-validated to the unit). 11,855 matches NONE of the three. Reusing 'deduped' yields 11,449 / 11,975 = 95.6%, one full point below the AC's target.",
+    "detail_2_dedup_key": "The mismatch is structural, not rounding. UniqueLprCaseClaimsQuery.php:107-108 computes deduped as uniqExactIf((forwarder_org_id, agent_org_id, vin), success AND vin != '') -- it dedups on the VIN TRIPLE and DROPS rows with an empty vin. The ticket's denominator dedups on hotlist_id and filters hotlist_id != 0. Different populations on two independent axes.",
+    "detail_3_no_join_key": "The string 'hotlist_id' appears ZERO times in app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php (driver-verified by grep -c). Its private sql() selects forwarder_org_id, agent_org_id, vin, success and bucket only. So the class cannot supply the hotlist_id the hits_cold join needs, and 'call it as a black box for the denominator' cannot answer the numerator at any price.",
+    "detail_4_cost": "Calling the shipped class for the denominator AND running a separate numerator query means TWO full scans of zod.public_billing_events per cache miss. That table is ORDER BY id with no skip index on ts, event_type or org, so nothing prunes: a 1-month and a 13-month window read byte-identical rows (~38.5M rows / ~1.83GB), and per-org scoping saves nothing (measured 0.00% spread across 11 orgs). The sibling's single-scan query already measures a contended p99 of 9.3s. That directly contradicts AC-4, 'exactly one query per resolved window'."
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Card present at row 2 col 3, rendering a percentage, reproducing 96.6% for Jul 2026 fleet-wide from the shipped class itself",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "ACHIEVABLE AS WRITTEN under option C: 11,573 / 11,975 = 96.6%. No amendment needed."
+    },
+    {
+      "item": "Denominator comes from DEV-2463's UniqueLprCaseClaimsQuery, not a re-port of the claim CTE",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "ACHIEVABLE AS WRITTEN under option C: the denominator IS the shipped `deduped` stage, unchanged. The class is extended only ADDITIVELY to expose hotlist_id for the numerator's hits join (operator's Q4 answer)."
+    },
+    {
+      "item": "Every aggregate uses uniqExact; a bare count() anywhere in the numerator is a defect",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "UNANIMOUS. hits_cold measured 1.543x over via bare count() on this exact population (186,683 vs uniqExact(id) 120,987); FINAL does not fix it because hit_created_at is mutable and in the sort key."
+    },
+    {
+      "item": "Exactly one query per resolved window; the 13-month sparkline is one batched call of per-month rates, not a summed series",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "One shared pass over the claim CTE inside UniqueLprCaseClaimsQuery supplies both halves -- one round trip, no second 1.83GB scan. Resolved by the Q4 answer."
+    },
+    {
+      "item": "Zero-denominator orgs render without a division error",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "The mechanical guard is settled and required. The DISPLAY value is Q3."
+    },
+    {
+      "item": "Respects the Today / Last 7d / This Month / Last Month filter. Non-Pro orgs do not see the value",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "UNANIMOUS: the Pro gate is entirely ABSENT from the stub today and must be added, plus both test allowlists. The date filter must be served without the int-typed base methods."
+    },
+    {
+      "item": "Existing metrics and their values are unaffected",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "No shared class is modified unless Q4 resolves toward extending UniqueLprCaseClaimsQuery -- in which case DEV-2463's shipped tests must be re-verified."
+    },
+    {
+      "item": "Consider whether 'unique' still belongs in the card label now that the number is a rate",
+      "source": "ticket",
+      "decision": "defer",
+      "reason": "Framed as 'consider', not an AC. Leave the heading unless a human specifies copy."
+    },
+    {
+      "item": "Update the card-order assertion and bump the card count in the two named test files",
+      "source": "ticket",
+      "decision": "already-satisfied",
+      "reason": "UNANIMOUS + driver-verified: both already read 16 and already list this card. Instruction is stale."
+    }
+  ],
+  "questions": [
+    {
+      "id": "Q1",
+      "q": "Which denominator -- and therefore which percentage does the card actually show?",
+      "answered": true,
+      "answer": "OPTION C -- grain-consistent on BOTH sides. Numerator = uniqExact of (forwarder_org_id, agent_org_id, vin) triples whose claimed order had at least one PRE-CLAIM hit in clarity.hits_cold. Denominator = UniqueLprCaseClaimsQuery's EXISTING `deduped` stage, unchanged. Fleet-wide Jul 2026: 11,573 / 11,975 = 96.6%. This satisfies AC-1 (reproduces 96.6%) AND AC-2 (denominator comes from the shipped class, untouched) with NEITHER needing amendment, and it is mathematically incapable of exceeding 100%. Supersedes the operator's earlier choice of option B (orders/deduped, 95.6%), which measurement showed would render above 100% for 16 of 257 orgs, worst at 200%.",
+      "source": "human:dalton.mccleery 2026-09-09 (revised after measurement)",
+      "why_material": "AC-1 (reproduce 96.6%) and AC-2 (reuse the shipped query) are arithmetically incompatible; see blocking_finding. This is a sharper question than the ticket's own 'Still open #1', which framed it as 96.6% vs 94.4%.",
+      "already_settled_part": "Oscar answered the SHAPE on 2026-09-09 (DEV-2409 comment 39274 'option 1 is fine' -- option 1 of comment 39126 was the 96.6% RATE -- plus 39276 giving the formula). Dalton then told Oscar in 39291 'building it as the rate ... the card will read 96.6% for July'. So: a rate, not a volume, and not the 9.97x reading. Settled. What is NOT settled is which claimed-order population divides it.",
+      "options": [
+        "A -- hotlist_id-grained denominator (11,855): reproduces the AC's 96.6% exactly, but the denominator is a NEW population computed inside the new query, so AC-2's 'comes from UniqueLprCaseClaimsQuery' becomes false as written and the ticket needs amending.",
+        "B -- reuse the shipped 'deduped' stage (11,975): honours AC-2 literally and keeps one grid-consistent claim count across the epic, but the card reads 95.6% and AC-1's 96.6% needs amending."
+      ]
+    },
+    {
+      "id": "Q2",
+      "q": "Should 'before the claim' be bounded, or does any sighting in the vehicle's history count?",
+      "answered": true,
+      "answer": "Ship UNBOUNDED -- any pre-claim sighting counts, however old. Matches the fallback already offered to Oscar in DEV-2409 comment 39291. Record as an explicit caveat on the PR and Build Record. The driver still measures the cost of having no date floor on the hits_cold side at the perf gate, and returns to the operator only if it is unaffordable.",
+      "source": "human:dalton.mccleery 2026-09-09",
+      "why_material": "UNANIMOUS across all 4 candidates that no code answers this. hotlist.lookback_days is real (int, default 270) but appears in app/ ONLY as a model property (Hotlist.php:41, Recoveries.php:28, RecoveriesKitUserScansReport.php:39,266) with ZERO query-time use anywhere in app/Clickhouse/. Per okf/concepts/lpr-assist.md:77 it governs only the Postgres find_historicals() trigger's H/Z historical-hit insertion and is explicitly 'not the assist attribution window'; it never applied to L/S live hits. Using it here would be a NEW use of the field, not reuse of a pattern.",
+      "performance_dimension": "Candidate 2's finding, and it upgrades this from a business rule to a cost driver: with no lower bound the hits_cold side of the join has no date floor, so it cannot be partition-pruned to the claim's own month and must consider every prior partition for each hotlist_id in the window. hits_cold is PARTITION BY toYYYYMM(hit_created_at) and its sort key is led by hotlist_org_id -- hotlist_id is only a minmax secondary index, so the join key itself prunes poorly.",
+      "declared_fallback": "Dalton already told Oscar the fallback in DEV-2409 comment 39291: 'If you have no strong view, say so and I'll ship it unbounded and we can tighten it later.' Oscar has not replied to that comment."
+    },
+    {
+      "id": "Q3",
+      "q": "What does the card display when the denominator is legitimately zero -- 0.0%, N/A, or hide it?",
+      "answered": true,
+      "answer": "Render 0.0% when the denominator is legitimately zero. Matches the already-shipped DEV-2463 and the HotlistCount.php:209-211 precedent. NOT N/A, NOT hidden. If Oscar later answers the epic-wide question with N/A, it is retrofitted across all the cards at once.",
+      "source": "human:dalton.mccleery 2026-09-09",
+      "disagreement_resolved": "The fast pass marked this answered:true (render 0.0%, citing HotlistCount.php:209-211). Candidates 1, 2 and 3 all independently marked it answered:false. Resolved 3-1 toward answered:false on the grounded reading: there is NO shared seam in DashboardWidget / RendersDashboardStat / DashboardMetricCard for an entitled viewer with a zero denominator. DashboardMetricCard::LOCKED_VALUE exists but is the ENTITLEMENT lock (lockedStat()), a different axis. HotlistCount's guard is real but is an ad hoc local default-to-0 in a different widget family, outside the cards() grid -- a precedent, not the 'seam' the ticket asserts. The mechanical divide-by-zero guard is settled and required; only the display value is open.",
+      "why_material": "Epic-wide: ~83% of orgs have no case-claim activity in a window. Oscar was asked twice (DEV-2409 comments 38625 and 39130, restated as item 3 of 39291) and has NOT answered. Dalton's stated preference on record is N/A. Meanwhile DEV-2463 has ALREADY SHIPPED, so whatever this card does either matches the shipped sibling or diverges from it.",
+      "options": [
+        "A -- render 0.0% now: matches the already-shipped DEV-2463 and the HotlistCount precedent; retrofit N/A epic-wide later if Oscar says so.",
+        "B -- build N/A now: matches Dalton's stated preference and avoids a retrofit, but invents the non-numeric card state ahead of an answer and diverges from the shipped sibling until it is backfilled."
+      ]
+    },
+    {
+      "id": "Q4",
+      "q": "One SQL statement computing both halves, or two round trips?",
+      "answered": true,
+      "answer": "EXTEND app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php to expose hotlist_id, so the numerator's hits_cold join and the existing deduped denominator come from ONE shared pass over the claim CTE -- one round trip, no re-port, no second 1.83GB scan. Constraints the driver imposes on itself: the change must be strictly ADDITIVE (window() and monthlySeries() keep their existing {all_claims, successful, deduped} shape byte-for-byte, since DEV-2463 is QA-Complete and merged in #392), and DEV-2463's shipped tests must be re-run and pass unmodified.",
+      "source": "human:dalton.mccleery 2026-09-09",
+      "found_by": "candidates 1, 2 and 3 independently -- NOT in the ticket.",
+      "why_material": "See blocking_finding detail_3 and detail_4. Two named resolutions, both with real cost: (a) one new self-contained query computing denominator and numerator in a single pass -- satisfies AC-4 and avoids the second 1.83GB scan, but re-derives the claim filter and so reads as the 're-port' AC-2 forbids; or (b) extend the shipped UniqueLprCaseClaimsQuery with a hotlist_id-bearing method sharing its CTEs -- one round trip and no duplication, but it modifies a QA-Complete, already-merged class (#392) from another ticket, which the inherited-decisions block never authorised, and would require re-verifying DEV-2463's shipped tests.",
+      "precedent": "Candidate 3 surfaced that sibling DEV-2464 (Unique Scans to Repo, still on HOLD/unmerged) independently hit the same hazard, recorded on that ticket as 'my port triple-scans billing_events'."
+    },
+    {
+      "id": "Q5",
+      "q": "Does a hit's hotlist_org_id always agree with the org axis the claim was scoped to, so the hits_cold side needs no separate org filter?",
+      "answered": true,
+      "answer": "YES -- include hotlist_org_id on the hits_cold side. Measured per-org (largest Jul-2026 claim org) against production: WITHOUT it read_rows=106,717,052 / 3,809.9 MiB / 3,855 ms wall; WITH it read_rows=96,341,520 / 3,777.0 MiB / 1,256 ms wall. Both returned IDENTICAL results (numerator 7,005 / denominator 7,230), so the predicate is result-neutral -- it is a pure prune win plus tenant correctness. hotlist_org_id is hits_cold's LEADING sort-key column; hotlist_id carries only a minmax secondary index. HONEST CAVEAT: the ~3x wall-clock gap is partly page-cache warming (variant A ran first), so the reliable cache-independent signal is the 9.7% read_rows reduction, not the 3x. Read BYTES barely move (-0.9%) because the ~3.8 GiB is dominated by the unprunable zod.public_billing_events, not by hits_cold.",
+      "source": "driver measurement against production 2026-09-09",
+      "why_material": "Correctness AND cost. hits_cold's sort key is (hotlist_org_id, toYYYYMM(hit_created_at), hit_created_at, id); filtering on hotlist_org_id is the only real prune axis, and it is also needed for tenant correctness. Candidate 2 notes it is plausible from Hotlist.php's org_id docblock ('Owning repo Organization') that hotlist_id alone already implies the org, but this was not confirmed against production. Verify with EXPLAIN / X-ClickHouse-Summary at build time rather than assuming."
+    },
+    {
+      "id": "Q6",
+      "q": "Can the card render MORE than 100% for a single org, given the operator's chosen grain mismatch?",
+      "answered": true,
+      "answer": "YES for the chosen option B. 16 of 257 orgs (6.2%) would render above 100%, the worst at 200%, on an org-scoped card. Option A and option C are both mathematically incapable of exceeding 100%. Re-raised to the operator with option C, which had not been measured when B was chosen.",
+      "source": "driver measurement 2026-09-09",
+      "why_material": "A DIRECT consequence of the Q1 decision, and the driver raised it rather than discovering it in production. The measurement showed 82 (forwarder, agent, vin) triples each span TWO different hotlist orders. Where both of those orders have a pre-claim hit, the numerator gains 2 while the denominator gains only 1. The card is ORG-SCOPED, so fleet-wide masking (95.6%) does not protect a small org: an org whose claims are concentrated in those 82 cases can compute a rate above 100%. Must be measured per-org before planning; if real, the design needs an explicit clamp or the operator needs to revisit Q1."
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "CRITICAL BUILD CONSTRAINT -- ClickHouse LEFT JOIN default-fill: join_use_nulls defaults to 0, so a LEFT JOIN miss fills non-Nullable scanned_at with 1970-01-01, not NULL. The naive predicate `first_scan < claim_ts` therefore counts every order with NO hit as pre-claim, inflating the card from 96.6% to 99.7% -- silently, and by including exactly the orders the metric excludes. The numerator MUST guard the join miss explicitly (h.hotlist_id != 0, or join_use_nulls=1, or an EXISTS/semi-join). Measured: naive 11,819 vs correct 11,449, the difference being exactly the 370 orders with no hit at all.",
+    "CHOSEN SHAPE (option C): numerator and denominator are BOTH counted on the (forwarder_org_id, agent_org_id, vin) triple. The numerator additionally requires the triple's order to have >=1 clarity.hits_cold row with scanned_at < the claim's own epoch ts, with the LEFT-JOIN-miss guard above. The denominator is the untouched `deduped` stage. Measured fleet-wide Jul 2026: 11,573 / 11,975 = 96.6%, zero orgs above 100%.",
+    "UNANIMOUS: the new query must PROPAGATE Throwable, not swallow it -- matching UniqueLprCaseClaimsQuery. A genuine zero is a normal reading for ~83% of orgs, so a swallowed failure would be indistinguishable from real data. Consequence, per okf/concepts/company-metrics-dashboard.md's blast-radius table: a ClickHouse failure on this card 500s the ENTIRE 16-card grid, in dev and in production. unique-lpr-case-claims is already in that set. This is a deliberate, pre-existing house pattern -- NOT a new risk from this ticket -- but it is easy for a build session to 'improve' with a try/catch that actually makes things worse.",
+    "zod.public_billing_events is the ONLY zod.public_* mirror on a ONE-argument ReplacingMergeTree(_peerdb_version). FINAL deduplicates but does NOT drop _peerdb_is_deleted=1 tombstones on this table (PG-028), so an explicit WHERE _peerdb_is_deleted = 0 is mandatory and NOT interchangeable with FINAL.",
+    "zod.public_orgs must be read FINAL for the insightlpr-exclusion join or a renamed org fans out 2x and corrupts the count (UniqueLprCaseClaimsQuery's own docblock).",
+    "NEVER filter titlemax in the counting path -- it is a display flag; only rejectInternalOrgs() (needle 'insightlpr') removes rows. Getting this backwards is a -2.6% error and is precisely what caused the DEV-2409 investigation.",
+    "Read hits_cold, never hits_hot: its ~90-day TTL would silently truncate, and 'pre-claim' can span years.",
+    "ENVIRONMENT -- this worktree's .env points CLICKHOUSE_HOST at ClickHouse CLOUD (production) as readonly_user with CLICKHOUSE_DRIVER=clickhouse, so a read-only prod measurement IS reachable. BUT CLICKHOUSE_DATABASE_CLARITY and CLICKHOUSE_DATABASE_ZOD are both set to zod_claude_dev_2465_f91033, a per-worktree name that does not exist on Cloud -- so static::clarityDb() resolves to a nonexistent database. A prod verification must target the LITERAL clarity / zod databases.",
+    "ENVIRONMENT -- .env.testing has CLICKHOUSE_DRIVER=pgsql. RequiresClickhouse markTestSkipped()s unless the driver is 'clickhouse', so every CH test would report GREEN having executed NOTHING. Must be set to clickhouse against LITERAL clarity/zod databases before any CH test result is trusted.",
+    "ENVIRONMENT -- the .env DB names derive from the PRE-RENAME branch claude/dev-2465-f91033; the run branch is now claude/DEV-2465. Phase 3.5 provisioning will re-key them; re-verify dev-login after, since this repo has broken it that way before.",
+    "APP_ENV=local, so deferLoading is ON: an HTTP/curl check of the dashboard returns 200 with an EMPTY SKELETON. Verify card values in a real browser or in-process, never by grepping HTML.",
+    "tests/Concerns/RequiresClickhouse.php:21,39 already truncates clarity.hits_cold and zod.public_billing_events -- no test-infra change needed.",
+    "The stub's toStat() already formats number_format(getCardRate(), 1).'%' -- keep that format string.",
+    "chartSeries() casts getMonthlyData(formatted:false) buckets to float, so a 0.0-100.0 rate series flows through the existing sparkline machinery unchanged.",
+    "okf/concepts/company-metrics-dashboard.md's cards() table lists 10 keys against the code's 16 -- stale. Code wins per CLAUDE.md precedence; correct the page post-merge."
+  ],
+  "tests": [
+    {
+      "file": "tests/Feature/Clickhouse/UniqueScansToCaseClaimsQueryTest.php",
+      "what_it_pins": "uniqExact-only aggregation (seed a duplicate hits_cold row and assert no inflation); org axis on either side; insightlpr exclusion; titlemax NOT excluded; the pre-claim scanned_at < ts boundary against at/after; zero-denominator without a division error; UTC calendar-month bucketing; ONE round trip per window() and per monthlySeries(); and that a genuine ClickHouse failure THROWS rather than returning a fabricated 0"
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsTest.php",
+      "what_it_pins": "getCardKey(); a non-default-gray getStatColor(); the full Pro-tier canViewCardData() matrix (guest / basic / pro_lite / clarity_pro / clarity_pro_plus / admin_impersonator); lockedStat() runs no query; a '%'-suffixed rendered value"
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/UniqueScansToCaseClaimsWindowSeamTest.php",
+      "what_it_pins": "today/last_7d resolves through the rate seam and NOT through the int-typed base totals; window bounds anchor correctly per date option"
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php",
+      "what_it_pins": "the two allowlists now include this card -- MUST be edited alongside the new Pro gate or both tests fail"
+    },
+    {
+      "file": "tests/Filament/Pages/DashboardCardExpansionTest.php",
+      "what_it_pins": "no change expected -- re-run to confirm test_company_metrics_cards_are_in_layout_order() and test_all_four_hit_cards_are_contiguous() still pass unmodified"
+    },
+    {
+      "file": "tests/e2e/unique-scans-to-case-claims.spec.ts",
+      "what_it_pins": "the compact card's heading, slot and percentage rendering, plus the locked placeholder for a non-Pro org"
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php:15-66 (the stub; toStat() at :35, getCardRate() at :45, no canViewCardData())",
+      "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php:99 (registration, already present)",
+      "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php:311 (getStatColor arm present), :321/:344/:367 (the int-typed totals a rate must bypass)",
+      "app/Filament/Widgets/Dashboard/Concerns/RendersDashboardStat.php:120-131 (canViewCardData default the stub currently inherits)",
+      "app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php:46 window(), :61 monthlySeries(), :107-108 the vin-triple dedup, zero occurrences of hotlist_id",
+      "app/Filament/Widgets/Dashboard/UniqueLprCaseClaims.php:101-106 (Pro gate to copy), :116-151 (UTC batched monthly), :311 fetchMonthlySeries seam",
+      "app/Filament/Widgets/Dashboard/HotlistCount.php:209-211 (the only existing zero-denominator percentage guard; different widget family)",
+      "database/schema/clickhouse-schema.sql:21 (hits_cold: ReplacingMergeTree(_version,_peerdb_is_deleted), PARTITION BY toYYYYMM(hit_created_at), ORDER BY (hotlist_org_id, toYYYYMM(hit_created_at), hit_created_at, id); hotlist_id only INDEX idx_hotlist_id minmax GRANULARITY 1)",
+      "database/schema/clickhouse-schema.sql:52 (public_billing_events: 1-arg ReplacingMergeTree, ORDER BY id, no skip index)",
+      "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php:59-64 and :481 (the two allowlists), :198 assertCount(16)",
+      "tests/Filament/Pages/DashboardCardExpansionTest.php:95 assertCount(16)",
+      "tests/Concerns/RequiresClickhouse.php:21,39",
+      "tests/e2e/unique-lpr-case-claims.spec.ts (e2e precedent)"
+    ],
+    "code_flow": "CompanyMetricsOverview::getStats() iterates cards() and builds each card as a mount-less adapter -> canViewCardData() (to be added) gates value vs lockedStat(), deliberately BEFORE toStat() so a withheld metric is never computed -> toStat() -> getCardRate(): float -> UniqueScansToCaseClaimsQuery::window() / ::monthlySeries() on DB::connection('clarity_clickhouse') -> Cache::flexible([3600,86400]) per resolved window -> sparkline via chartSeries()/getMonthlyData().",
+    "tables": [
+      "zod.public_billing_events",
+      "zod.public_api_keys",
+      "zod.public_orgs",
+      "clarity.hits_cold",
+      "zod.public_hotlist (only if Q2 resolves to a lookback bound)"
+    ],
+    "related_components": [
+      "Laravel Pennant FeatureEnum::COMPANY_METRICS",
+      "Cache::flexible + the cold-path held guard",
+      "BuildsDateFilterChartSeries::resolveCardRange",
+      "InsightLPR\\BlackAdam\\Enum\\BillingEventType::CASE_CLAIM"
+    ]
+  },
+  "exhaustiveness": {
+    "idiom": "a Company Metrics dashboard card plus its ClickhouseQuery",
+    "grep_patterns": [
+      "rg -n 'function toStat' app/Filament/Widgets/Dashboard/",
+      "rg -n 'canViewCardData' app/Filament/Widgets/Dashboard/",
+      "rg -l 'BatchMonthlySparklineData' app/ tests/",
+      "git grep -c hotlist_id -- app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php",
+      "grep -n 'function getCardTotal|function currentPeriodTotal|function getRangeTotal' app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+      "grep -rn 'assertCount(1[0-9]' tests/Filament/"
+    ],
+    "sites": [
+      {
+        "site": "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php",
+        "verdict": "must-touch",
+        "reason": "this ticket's card -- the only DEV-2409 stub with a percentage toStat()/getCardRate() seam already scaffolded, and the only one missing canViewCardData()"
+      },
+      {
+        "site": "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php:59-64,481",
+        "verdict": "must-touch",
+        "reason": "two explicit gated-card allowlists; adding the Pro gate without them turns both tests red"
+      },
+      {
+        "site": "app/Filament/Widgets/Dashboard/LprRepossessions.php",
+        "verdict": "safe",
+        "reason": "still a zero-query DEV-2409 stub, own ticket"
+      },
+      {
+        "site": "app/Filament/Widgets/Dashboard/UniqueScansToRepo.php",
+        "verdict": "safe",
+        "reason": "still a stub; its ticket DEV-2464 is on HOLD/unmerged"
+      },
+      {
+        "site": "app/Filament/Widgets/Dashboard/UniqueScansToLprRepossession.php",
+        "verdict": "safe",
+        "reason": "still a stub, own ticket"
+      },
+      {
+        "site": "app/Filament/Widgets/Dashboard/UniqueScansLeaderboard.php",
+        "verdict": "safe",
+        "reason": "still a stub; its own docblock says it needs a base-class swap to the RecoveryLeader shape"
+      },
+      {
+        "site": "app/Filament/Widgets/Dashboard/StagingLiveHitLeader.php toStat() + RecoveryLeader.php toStat()",
+        "verdict": "safe",
+        "reason": "the toStat()-override precedent the ticket cites, but both render INTEGER leaderboard totals -- confirming the ticket's claim that no grid card renders a non-integer today"
+      },
+      {
+        "site": "app/Filament/Widgets/Dashboard/Concerns/SharedHitStatsData.php:631 toStat()",
+        "verdict": "safe",
+        "reason": "shared trait for the 4 hit cards, all integer counts"
+      },
+      {
+        "site": "app/Filament/Widgets/Dashboard/HotlistCount.php:209-211,246",
+        "verdict": "safe",
+        "reason": "the repo's only other non-integer stat and the closest zero-guard precedent; cited for Q3, not a change target"
+      },
+      {
+        "site": "app/Clickhouse/Queries/Client/BatchMonthlySparklineData.php",
+        "verdict": "safe / do-not-import",
+        "reason": "zero callers in app/ or tests/; client-portal metric family"
+      },
+      {
+        "site": "app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php:106",
+        "verdict": "safe",
+        "reason": "references CompanyMetricsOverview; pre-existing coupling, unrelated"
+      },
+      {
+        "site": "app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php",
+        "verdict": "conditional",
+        "reason": "read-only reuse is safe; MODIFYING it (Q4 option b) touches a QA-Complete merged class and would require re-verifying DEV-2463's tests"
+      },
+      {
+        "site": "tests/Filament/Pages/DashboardCardExpansionTest.php:95, DashboardCardVisibilityTest.php:198",
+        "verdict": "safe (already correct)",
+        "reason": "16-card assertions already list this card; the ticket's bump instruction is stale"
+      }
+    ],
+    "missed_caller_candidates": "Backstop swept 10 symbols. Zero missed callers for anything this ticket changes (UniqueScansToCaseClaims 0 outside inventory; unique-scans-to-case-claims 0; getCardRate 0; UniqueLprCaseClaimsQuery 0). All other hits are sibling cards and their tests referencing shared dashboard seams."
+  },
+  "data_impact": {
+    "pg_tables": [
+      "zod.billing_events (Backyard-owned, read via CDC only)",
+      "zod.hotlist (only if Q2 resolves to a lookback bound)"
+    ],
+    "ch_tables": [
+      "zod.public_billing_events",
+      "zod.public_api_keys",
+      "zod.public_orgs",
+      "clarity.hits_cold"
+    ],
+    "mv_or_cdc_implications": "All reads are CDC mirrors or Clarity-native CH tables; Clarity never queries the source Postgres for this feature. public_billing_events rows are immutable post-sync but its 1-arg ReplacingMergeTree means FINAL does not drop tombstones -- _peerdb_is_deleted = 0 is mandatory. hits_cold rows ARE mutable (hit_created_at changes and is in the sort key), which is why FINAL does not fix its duplicates and every aggregate must be uniqExact.",
+    "indexes_relied_on": "hits_cold prunes only by hotlist_org_id (leading sort-key column) plus the toYYYYMM(hit_created_at) partition; idx_hotlist_id is a minmax-only secondary index on an unsorted column and prunes poorly for a scattered hotlist_id join. public_billing_events is ORDER BY id with no skip index on ts / event_type / org, so NOTHING prunes -- window width and org scoping both save zero."
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "New app/Clickhouse/Queries/UniqueScansToCaseClaimsQuery.php matches the app/Clickhouse/** query-class pattern, and it joins an unprunable ~38.5M-row table to clarity.hits_cold (~3.5B rows per the ticket).",
+    "driving_tables": [
+      {
+        "table": "billing_events",
+        "source": "zod.public_billing_events",
+        "prod_rows": 38488526,
+        "group_by": "api_key_id",
+        "largest_group_rows": 23565802,
+        "note": "measured live 2026-09-09 by three candidates independently (38,485,175 / 38,487,673 / 38,487,956 / 38,488,526 across the session -- append drift). 'Largest group' is the wrong lens here: the table does not prune by org or window, so TOTAL scan size (~1.83GB) is what every cache miss pays."
+      },
+      {
+        "table": "hits_cold",
+        "source": "clarity.hits_cold (CH-native)",
+        "prod_rows": 26037983,
+        "prod_rows_distinct": 19272689,
+        "duplicate_factor": 1.351,
+        "active_partitions": 247,
+        "group_by": "hotlist_org_id",
+        "largest_group_rows": null,
+        "correction": "MEASURED 2026-09-09 at ~26.0M rows. The prep chain's '~3.5B' was invented and is wrong by ~130x."
+      }
+    ],
+    "growth": "public_billing_events grew ~36.6M (2026-09-04, ticket) -> ~38.0M (2026-09-08, okf) -> ~38.49M (2026-09-09, measured) -- roughly +380k rows/day on the table this card scans in FULL on every cache miss, so growth inflates every future render regardless of window width.",
+    "schedule": {
+      "expression": null,
+      "interval_seconds": null,
+      "without_overlapping_minutes": null,
+      "note": "Not a scheduled command. The concurrency unit is concurrent dashboard page loads on a cache miss, fronted by Cache::flexible([3600,86400])."
+    },
+    "allocation_sketch": "No PHP-side accumulator over production-sized data -- ClickHouse aggregates server-side, so this is NOT the DEV-2342 memory-residency failure class. The residual risk is ClickHouse scan cost and duration. Per cache miss: at minimum ONE full ~1.83GB / ~38.5M-row scan of public_billing_events (the sibling's single-scan query already measures a contended p99 of 9.3s), DOUBLED if Q4 resolves toward calling the shipped class plus a separate numerator query, PLUS a hits_cold join that is partition-pruned only if the query bounds hotlist_org_id and a date floor -- and Q2 leaving the lookback unbounded removes that date floor entirely.",
+    "oracle_status": "ok",
+    "unresolved": [
+      "hits_cold's per-hotlist_org_id largest-group row count remains unmeasured (the zod.public_* oracle does not cover CH-native tables), but with the table at ~26.0M rows rather than the asserted ~3.5B this is no longer a material risk."
+    ],
+    "measured_envelope": "Per cache-miss render on the LARGEST Jul-2026 claim org: ~96.3M read_rows / ~3,777 MiB / ~1.3s wall, with hotlist_org_id included. Dominated by the unprunable zod.public_billing_events, not by hits_cold."
+  },
+  "derivation_log": [
+    {
+      "query_shape": "count() FROM zod.public_billing_events (via scripts/prod-cardinality.sh --app clarity --table billing_events)",
+      "param_classes": "table-wide count, no filters",
+      "aggregate_result": "~38.49M total rows (high tens of millions)",
+      "why": "verify rather than trust the ticket's ~36.6M and okf's ~38.0M figures at current production scale; do not guess a cardinality"
+    },
+    {
+      "query_shape": "SELECT api_key_id, count() ... GROUP BY api_key_id ORDER BY n DESC LIMIT 10 (via prod-cardinality.sh --table billing_events:api_key_id)",
+      "param_classes": "group-by column identifier only",
+      "aggregate_result": "largest group ~23.57M rows",
+      "why": "resource-envelope largest-group figure; recorded with the caveat that this table does not prune by org so the figure is not the cost driver"
+    },
+    {
+      "query_shape": "SELECT org_id, count() FROM zod.public_hotlist FINAL WHERE _peerdb_is_deleted=0 GROUP BY org_id ORDER BY n DESC LIMIT 10",
+      "param_classes": "group by org_id, top 10",
+      "aggregate_result": "~136.5M total rows; largest group ~17.3M (lifetime, all order types)",
+      "why": "attempted a per-org largest-group figure; recorded as a GAP rather than substituted as an answer, because it measures lifetime hotlist volume and not the case-claim population the card actually reads"
+    },
+    {
+      "query_shape": "arithmetic only, on figures already in the ticket and DEV-2409 comment 38583 -- no query run",
+      "param_classes": "n/a",
+      "aggregate_result": "11449/11855 = 96.6% vs 11449/11975 = 95.6%, a 1.0-point gap",
+      "why": "establish that AC-1 and AC-2 are arithmetically incompatible -- the blocking finding"
+    },
+    {
+      "query_shape": "WITH orgs(FINAL, _peerdb_is_deleted=0) + claims(public_billing_events be INNER JOIN public_api_keys FINAL ak ON ak.id=be.api_key_id, event_type='case-claim', be.ts BETWEEN toUnixTimestamp(toDateTime('2026-07-01 00:00:00','UTC')) AND toUnixTimestamp(toDateTime('2026-07-31 23:59:59','UTC'))) + kept(LEFT JOIN orgs twice, insightlpr needle on both sides) SELECT countIf(success), uniqExactIf((forwarder_org_id,agent_org_id,vin), success AND vin!=''), uniqExactIf(hotlist_id, success AND hotlist_id!=0), uniqExactIf(triple, success AND vin!='' AND hotlist_id=0), uniqExactIf(hotlist_id, success AND hotlist_id!=0 AND vin=''), countIf(success AND vin=''), countIf(success AND hotlist_id=0) FROM kept",
+      "param_classes": "fixed UTC calendar-month bounds as integer epoch; fleet-wide (no org predicate); literal event-type discriminator",
+      "aggregate_result": "successful_events=14288 (reproduces the screenshot-validated funnel exactly); deduped_vin_triples=11975; distinct_claimed_orders=11855; triples_missing_hotlist_id=0; orders_missing_vin=0; successful_events_empty_vin=0; successful_events_no_hotlist_id=0",
+      "why": "Decompose the 11,855-vs-11,975 denominator gap. RESULT: the empty-vin and missing-hotlist_id filters explain NONE of it -- every successful case-claim in the window carries both a vin and a hotlist_id. So the entire gap is the dedup KEY, not the exclusion filters."
+    },
+    {
+      "query_shape": "same orgs/claims/kept CTEs, then per_order (GROUP BY hotlist_id: uniqExact of the triple, of forwarder_org_id, of agent_org_id, of vin) and per_triple (GROUP BY forwarder_org_id, agent_org_id, vin: uniqExact(hotlist_id)); SELECT counts and countIf(>1) and sum(n-1) over each",
+      "param_classes": "same window and fleet-wide scope; grouping keys only",
+      "aggregate_result": "orders_total=11855; orders_with_multiple_triples=201; extra_triples_from_those_orders=202; orders_where_vin_varies=0; orders_where_agent_varies=201; orders_where_forwarder_varies=0; triples_total=11975; triples_spanning_multiple_orders=82; extra_orders_from_those_triples=82. Reconciles exactly: 11855 + 202 - 82 = 11975.",
+      "why": "Identify WHICH dedup component drives the gap. RESULT: agent_org_id is the ONLY varying component -- vin never varies within an order and forwarder never varies. 201 orders were claimed by more than one repo agency (+202 triples), and 82 (agency, vin) pairs span two different hotlist orders (-82). Establishes that 11449/11975 divides ORDERS by (agency,vin) PAIRS -- a malformed ratio, not merely a different one."
+    },
+    {
+      "query_shape": "oc(claim orders, min(ts)) LEFT JOIN h(SELECT hotlist_id, min(scanned_at) FROM clarity.hits_cold WHERE _peerdb_is_deleted=0 AND hotlist_id IN (...) GROUP BY hotlist_id); compared uniqExactIf(order, h.hotlist_id != 0) against uniqExactIf(order, h.first_scan < claim_ts)",
+      "param_classes": "same Jul-2026 UTC window, fleet-wide",
+      "aggregate_result": "denom_orders=11855 (matches ticket); orders_with_ANY_hit=11485 (matches ticket EXACTLY); total_hits uniqExact=135119 vs ticket 135008 (append drift); orders_with_PRE_claim_hit computed NAIVELY=11819 -- which is IMPOSSIBLE, being greater than the 11485 that have any hit at all. 11819 - 370 = 11449 and 11855 - 11485 = 370.",
+      "why": "CRITICAL BUILD FINDING -- the ClickHouse LEFT JOIN default-fill trap. join_use_nulls defaults to 0, so a LEFT JOIN miss fills the non-Nullable DateTime scanned_at with 1970-01-01 rather than NULL. 1970-01-01 is earlier than every claim timestamp, so the naive predicate (first_scan < claim_ts) counts EVERY order with NO hit at all as 'seen before the claim'. That inflates the card from 96.6% to 99.7% by including precisely the orders the metric exists to exclude, and it fails silently. The guard is an explicit h.hotlist_id != 0 (or join_use_nulls=1, or an EXISTS/semi-join). This also PROVES the ticket's 11,449 / 96.6% is correct and reproducible."
+    },
+    {
+      "query_shape": "per-org via exploded(arrayJoin(arrayDistinct([forwarder_org_id, agent_org_id]))) mirroring the card's (forwarder = ? OR agent = ?) predicate; corrected pre-claim guard; countIf(numerator > denominator) and max(rate) for each of three grain pairings",
+      "param_classes": "same window; per-org grouping; no raw org identifiers returned",
+      "aggregate_result": "257 orgs with claim activity, 1 with a zero denominator. A (orders/orders): 0 orgs over 100%, max 100.0%. B (orders/triples): 16 orgs over 100%, max 200.0%. C (triples/triples): 0 orgs over 100%, max 100.0%.",
+      "why": "Q6 -- measure whether the operator's chosen grain mismatch can render above 100% on an ORG-SCOPED card. CONFIRMED for option B: 16 of 257 orgs (6.2%) would render an impossible percentage, one at 200%. Mechanism is the 82 (forwarder, agent, vin) triples that each span two hotlist orders: where both have a pre-claim hit the numerator gains 2 and the denominator 1. An earlier run of this same check reported 39 orgs; that figure was contaminated by the LEFT JOIN default-fill bug above and is superseded by 16."
+    },
+    {
+      "query_shape": "fleet-wide numerator at BOTH grains under the corrected guard: uniqExactIf(hotlist_id, pre_claim) and uniqExactIf((forwarder_org_id,agent_org_id,vin), pre_claim)",
+      "param_classes": "same window, fleet-wide",
+      "aggregate_result": "num_orders=11449 (reproduces the ticket exactly); num_triples=11573. A = 11449/11855 = 96.6%; B = 11449/11975 = 95.6%; C = 11573/11975 = 96.6%.",
+      "why": "Give the operator exact figures for all three readings. KEY RESULT: option C (triple-grained on BOTH sides) satisfies AC-1 (96.6%) AND AC-2 (denominator is the shipped `deduped`, unchanged) AND is grain-consistent with zero orgs above 100%. It was not on the table when the operator chose B because it had not been measured."
+    },
+    {
+      "query_shape": "SELECT count(), uniqExact(id) FROM clarity.hits_cold; plus count() over system.parts WHERE active; plus count() FROM zod.public_billing_events",
+      "param_classes": "none -- table-wide totals",
+      "aggregate_result": "clarity.hits_cold bare count()=26,037,983 and uniqExact(id)=19,272,689 (a 1.351x duplicate factor, consistent with the ~1.33x documented fleet-wide); 247 active partitions. zod.public_billing_events=38,511,557.",
+      "why": "CORRECTION TO THE PREP RECORD. Every prep candidate carried 'clarity.hits_cold ~3.5B rows per the ticket'. The ticket says no such thing, and the real figure is ~26.0M -- wrong by roughly 130x. The number was invented in the fast pass and then repeated by the blind candidates and the reconcile. It materially OVERSTATED the perf risk this design carries. Recorded here rather than quietly fixed."
+    },
+    {
+      "query_shape": "per-org (largest Jul-2026 claim org) option-C query, run twice: hits_cold joined on hotlist_id only, vs the same plus AND hotlist_org_id = <org>. Server envelope read from the X-ClickHouse-Summary response header.",
+      "param_classes": "one org id (used in-session only, deliberately NOT recorded); fixed UTC month bounds as integer epoch",
+      "aggregate_result": "identical answers both ways (numerator 7,005 / denominator 7,230). Without the org predicate: read_rows=106,717,052, read_bytes=3,994,983,656 (3,809.9 MiB), wall 3,855 ms. With it: read_rows=96,341,520, read_bytes=3,960,483,240 (3,777.0 MiB), wall 1,256 ms.",
+      "why": "Q5 -- settle by measurement whether the hits_cold side needs its own hotlist_org_id filter. Answer: yes, include it (result-neutral, -9.7% read_rows). Also establishes the real per-render envelope for the card: ~96M rows / ~3.8 GiB / 1.3s on the largest claim org, fronted by Cache::flexible. The read bytes are dominated by the unprunable billing_events, confirming the KB's 'nothing prunes' finding is the cost driver rather than hits_cold."
+    },
+    {
+      "query_shape": "the SHIPPED post-RN2-fix window shape (no org predicate, hits_cold WITHOUT FINAL, oc serving both deduped and the hits join, stats CROSS JOIN pre), run read-only against production; X-ClickHouse-Summary captured",
+      "param_classes": "fixed Jul-2026 UTC bounds as integer epoch; fleet-wide",
+      "aggregate_result": "denominator 11,975 / numerator 11,573 / rate 96.6% -- IDENTICAL to every prior shape. Cost: read_rows=106,840,109, read_bytes=3,828.2 MiB, peak memory=929.6 MiB, wall 5,075 ms.",
+      "why": "Re-verify AC-1 and AC-2 against the restructured SQL. AC-1 holds (96.6% reproduced from the shipped shape). AC-2 holds NUMERICALLY: `deduped` moved from the shipped character-identical expression to uniqExact(trip) over the derived CTE, and it still returns exactly 11,975 -- so the re-derivation is proven equivalent, not merely argued."
+    },
+    {
+      "query_shape": "the same shape but with h's prune restored (hits_cold ... AND hotlist_id IN (SELECT DISTINCT hotlist_id FROM oc)) -- i.e. the variant the RN2 fix REMOVED",
+      "param_classes": "identical",
+      "aggregate_result": "same answer (11,975 / 11,573 / 96.6%). Cost: read_rows=147,189,746, read_bytes=5,573.6 MiB, peak memory=412.8 MiB, wall 3,964 ms.",
+      "why": "The RN2 fix dropped h's prune to eliminate the third `kept` expansion, and the driver suspected a net loss. MEASUREMENT CONTRADICTED THE DRIVER: the unpruned shape reads 40.3M FEWER rows and 1,745 MiB FEWER bytes, because removing a full billing_events expansion (~1.83 GB on a table that prunes on nothing) saves more than the unpruned hits_cold aggregation costs. The price is 2.25x peak memory (929.6 vs 412.8 MiB) from the larger LEFT JOIN hash table. Read volume is the dominant cost axis on this table, so the fix is correct and the driver's assumption was wrong."
+    },
+    {
+      "query_shape": "4 CONCURRENT copies of the shipped window query, read-only against production, wall clock per copy",
+      "param_classes": "identical; 4-way concurrency",
+      "aggregate_result": "1,572 / 2,918 / 3,204 / 6,373 ms -- contended max 6.4s, against a 5.1s uncontended baseline.",
+      "why": "R2 -- size COLD_BLOCK_SECONDS against a MEASURED contended figure rather than a scaled guess. Lane 1 projected ~28s by scaling the sibling's 9.3s p99 linearly from read volume; the real 4-way contended max is 6.4s, roughly 1.9x inside the existing 12s block window. So COLD_BLOCK_SECONDS = 12 is ADEQUATE and R2 resolves without a code change to the constant -- only the docblock needed correcting, since it had admitted the value was 'reused as-is regardless'. HONEST LIMIT: measured at 4-way (the DEV-2466 methodology), NOT at the ~29-entitled-org worst case; recorded in the docblock."
+    },
+    {
+      "query_shape": "the FINAL shipped shape after the RN3 fixes -- no stats CTE, h pruned by (SELECT DISTINCT hotlist_id FROM oc WHERE hotlist_id != 0), plus AND scanned_at > toDateTime(0); run read-only against production with the X-ClickHouse-Summary envelope",
+      "param_classes": "fixed Jul-2026 UTC bounds as integer epoch; fleet-wide",
+      "aggregate_result": "denominator 11,975 / numerator 11,573 / rate 96.6% -- unchanged across every shape tried this ticket. Cost: read_rows=107,321,250, read_bytes=3,864.1 MiB, PEAK MEMORY=235.0 MiB, wall 1,035 ms.",
+      "why": "Confirm the S1+S4 combination delivers what the pre-fix measurement projected. It does: read volume is unchanged versus the previous shipped shape (107.3M vs 106.8M rows) while peak memory drops 4.0x (929.6 -> 235.0 MiB), taking the 29-entitled-org concurrency projection from ~25.1 GB to ~6.7 GB. That is the single risk all three review rounds circled, and it is now the cheap axis rather than the fatal one. NOTE a harness bug worth recording: the driver's first attempt at this query aliased the aggregate AS pre_claim, so ClickHouse resolved a later reference to that UInt64 output instead of the flagged column and raised ILLEGAL_TYPE_OF_ARGUMENT. The shipped code is immune because it isolates the aggregate in its own `pre` CTE -- the bug was in the ad-hoc measurement, not the code."
+    },
+    {
+      "query_shape": "the BUCKETED 13-month variant of the shipped shape (oc grouped by bucket, 2025-08 through 2026-08), read-only against production with the summary envelope",
+      "param_classes": "13-month UTC span as integer epoch; fleet-wide; per-month grouping",
+      "aggregate_result": "13 months, total_deduped=129,520, total_pre_claim=125,826. Cost: read_rows=107,398,461, read_bytes=7,225.7 MiB, PEAK MEMORY=260.5 MiB, wall 1,418 ms. 29-way peak projection ~7.4 GB.",
+      "why": "RN4 lane 2 correctly observed that EVERY cost measurement taken on this ticket was the one-month WINDOW shape, while the 13-month BUCKETED variant runs on 100% of renders (this_month is the default filter and chartSeries() calls getMonthlyData() unconditionally). Measured: peak memory is 260.5 MiB against the window shape's 235.0 MiB -- only 1.11x, so the ~6.7 GB 29-way projection becomes ~7.4 GB. read_bytes roughly doubles (7,225.7 vs 3,864.1 MiB) at near-identical read_rows, i.e. wider granule reads from the larger hits_cold IN-list. CONCLUSION: the gap lane 2 identified was real and worth closing, and the answer is that it does not change the risk verdict."
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC-1 renders a percentage",
+        "kind": "agent",
+        "intent": "seed claims + hits with a hand-computable ratio and assert the rendered '%' string; do NOT assert the literal 96.6%, which is fleet-wide production data and not reproducible in a seeded env"
+      },
+      {
+        "ac": "AC-3 uniqExact only",
+        "kind": "agent",
+        "intent": "seed a duplicate hits_cold row (same id) and assert the figure is not inflated"
+      },
+      {
+        "ac": "AC-4 one query per window",
+        "kind": "agent",
+        "intent": "count clarity_clickhouse select() invocations for one render and for the 13-month series"
+      },
+      {
+        "ac": "AC-5 zero denominator",
+        "kind": "agent",
+        "intent": "an org with zero case-claim events renders the chosen zero-state value with no exception"
+      },
+      {
+        "ac": "AC-6 Pro gate + date filter",
+        "kind": "agent",
+        "intent": "the Pro-tier matrix, plus iterating Today / Last 7d / This Month / Last Month"
+      },
+      {
+        "ac": "AC-7 other metrics unaffected",
+        "kind": "human",
+        "intent": "confirm the other 15 cards render unchanged IN A BROWSER -- deferLoading hides values from any HTTP check"
+      },
+      {
+        "ac": "Q2 / Q3 outcomes",
+        "kind": "human",
+        "intent": "open product decisions QA cannot grade against an AC that does not specify them yet"
+      }
+    ],
+    "seed_scenario": "One Pro-entitled (clarity_pro) org with several successful case-claim billing_events in the current UTC month, each resolved through the additional JSON (claimed_by_org_id, vin, hotlist_id) to a distinct hotlist_id: most with a clarity.hits_cold row whose scanned_at precedes the claim ts (counts), some with a hit only at/after the claim (must not count), and at least one duplicated hits_cold row (same id) to pin uniqExact. Plus one Pro org with claims but zero matching hits (rate 0%), one Pro org with zero claims in window (denominator 0 -- the ~83% case), and one basic/pro_lite org (locked path, no query should run).",
+    "personas": [
+      "ADMIN/USER at a clarity_pro / clarity_pro_plus org -- sees the rate",
+      "ADMIN/USER at a basic / pro_lite org -- sees the locked placeholder and no query runs",
+      "admin_impersonator -- bypasses the Pro gate"
+    ],
+    "pg_tables": [],
+    "ch_tables": [
+      "zod.public_billing_events",
+      "zod.public_api_keys",
+      "zod.public_orgs",
+      "clarity.hits_cold"
+    ]
+  },
+  "blast_radius": [
+    "app/Clickhouse/Queries/UniqueScansToCaseClaimsQuery.php -- propagates Throwable by design, so a ClickHouse failure 500s the entire 16-card Company Metrics grid (accepted house pattern, matching unique-lpr-case-claims)",
+    "COMPANY_METRICS Pennant entitlement -- this change adds a Pro gate, touching the billing/entitlement axis",
+    "app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php -- ONLY if Q4 resolves toward option (b), which modifies a QA-Complete merged class"
+  ],
+  "confidence": 88,
+  "confidence_note": "Raised from 62 to 88 after the gate. All six questions are answered, the primary acceptance figure (96.6%) has been independently reproduced against production, the chosen grain has been measured to be free of the >100% defect, and the one silent-failure trap in the join has been found and characterised BEFORE any code was written. Residual risk is now execution, not definition.",
+  "escalated": true,
+  "escalation_triggers": [
+    "open questions with answered:false",
+    "fast-pass confidence 55 < 80",
+    "escalate.recommend true",
+    "competing options in the ticket and its comments",
+    "blast radius: Pennant entitlement + a shared 16-card grid",
+    "production-scale CH surface (hits_cold >1B rows)"
+  ]
+}

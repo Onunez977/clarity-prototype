@@ -1,0 +1,42 @@
+{
+  "key": "DEV-2652",
+  "generated_at": "2026-09-22T21:12:30Z",
+  "precedents": [
+    {
+      "id": "DEV-2651",
+      "use": "The three pre-merge ratio widgets are gone. Numerators live in RatioAgainstUniqueScans and are called with SERIES_ZONE = 'UTC' from UniqueLprCaseClaims, LprRepossessions, and RecoveryCounts. Do not re-open the merge. Review finding R4-F (window arm divides a timezone-scoped numerator by a timezone-blind denominator) was accepted and documented, not fixed. This ticket is that follow-on, and AC5 narrows it to numerators only.",
+      "status": "QA Complete",
+      "artifacts": "docs/investigations/DEV-2651/"
+    },
+    {
+      "id": "ScanPlateStatsBatchQuery",
+      "use": "Reference implementation. safeTimezone() allowlists ALL_WITH_BC and falls back to UTC without throwing. toUtcDatetime() converts naive local bounds before interpolation. handleSql() groups in the zone and filters raw UTC scanned_at. currentMonthWindow() / lastMonthWindow() are the month formulas. sharedMonthCacheKey() / sharedRangeCacheKey() already include :tz=. Do not re-derive any of these.",
+      "ref": "app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php"
+    },
+    {
+      "id": "DEV-2468",
+      "use": "Why the month window has one formula and why the cache key carries the zone. An earlier split between raw viewer zone and the sanitised bucket zone made two cards name different months. Callers of this ticket pass one sanitised zone into both the bound mint and the query.",
+      "ref": "ScanPlateStatsBatchQuery::currentMonthWindow() docblock"
+    },
+    {
+      "id": "DEV-2441",
+      "use": "safeTimezone() must not throw. A throw on users.dti took down every Company Metrics card, because CompanyMetricsOverview::getStats() has no per-card guard. CST / PST / +05:00 are the named legacy values.",
+      "ref": "ScanPlateStatsBatchQuery::safeTimezone() docblock"
+    },
+    {
+      "id": "DEV-2463",
+      "use": "UniqueLprCaseClaims headline months are UTC on purpose, to reproduce a UTC calendar figure. test_month_buckets_align_on_utc_not_the_viewers_timezone pins that. AC5 defer means those tests stay. Only the ratio numerator moves.",
+      "ref": "UniqueLprCaseClaims.php class docblock; tests/Filament/Widgets/Dashboard/UniqueLprCaseClaimsTest.php"
+    },
+    {
+      "id": "DEV-2555",
+      "use": "RecoveryCounts headline reads RecoveryTotalsBatchQuery. repo_date is a Date. sharedMonthCacheKey() has no timezone segment and the docblock forbids adding one.",
+      "ref": "app/Clickhouse/Queries/RecoveryTotalsBatchQuery.php"
+    },
+    {
+      "id": "DEV-2654",
+      "use": "Staging Live Hit leaderboard timezone is a different ticket. StagingLiveHitLeader interpolates start/end and buckets raw UTC hit_created_at, and DEV-2654 rewrites that window onto WITH ROLLUP. Do not touch it here.",
+      "status": "To Do"
+    }
+  ]
+}

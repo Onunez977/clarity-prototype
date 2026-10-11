@@ -1,0 +1,50 @@
+{
+  "key": "DEV-2304",
+  "resolution": "A — Clarity Pro Plus IS entitled to RDN Statistics Push",
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Entitle Clarity Pro Plus to RDN Statistics Push on both gates, and give the toggle real feedback",
+      "approach": "Add ProTierEnum::CLARITY_PRO_PLUS to the two hand-duplicated tier allow-lists that gate RDN Statistics Push — the write gate in Subscription::toggleRdnMetricsPush() and the read gate in DispatchRdnMetricsHourly::eligibleOrgs() — changed together so the toggle's promise is honored end-to-end. Independently, replace the action's silent `return;` rejections with visible feedback and add a success notification, using the app's existing Filament Notification::make()->title(...)->success()/->danger()->send() convention (app/Filament/Pages/Roles.php). TDD: write the failing Pro Plus toggle test and the failing dispatcher-eligibility test FIRST, confirm red, then make them green. The Blade needs no change: under Resolution A the entitled set is exactly the non-BASIC tiers, so the existing `$currentTier !== BASIC` render condition and the widened allow-list now agree in effect.",
+      "target_files": [
+        "app/Filament/Pages/Subscription.php",
+        "app/Jobs/Rdn/DispatchRdnMetricsHourly.php",
+        "tests/Filament/Pages/SubscriptionTest.php",
+        "tests/Feature/RdnMetrics/DispatchRdnMetricsHourlyTest.php"
+      ],
+      "intended_diffs": {
+        "app/Filament/Pages/Subscription.php": "Line 194: add ProTierEnum::CLARITY_PRO_PLUS to the in_array allow-list. Lines 186-217: send a Filament success Notification after the write ('RDN Statistics Push enabled/disabled'), and replace each bare `return;` with a ->danger() notification before returning (non-admin path at :188-190, non-entitled-tier path at :194-196) so no click is ever silent. Preserve the existing activity('rdn_metrics_toggle') audit entry and the $this->rdnMetricsPushEnabled assignment exactly as-is.",
+        "app/Jobs/Rdn/DispatchRdnMetricsHourly.php": "Lines 105-109: add ProTierEnum::CLARITY_PRO_PLUS to the PHP-side in_array tier filter in eligibleOrgs(). No other change — the SQL predicates, the rdn_id trim, and the pending-downgrade rationale comment all stay.",
+        "tests/Filament/Pages/SubscriptionTest.php": "Add to the existing #[Group('rdn-metrics')] block: (a) a CLARITY_PRO_PLUS admin can toggle on — asserts rdnMetricsPushEnabled flips, org_meta persists, and the rdn_metrics_toggle activity entry is written, mirroring test_admin_can_toggle_rdn_metrics_push_on; (b) the same for toggle off; (c) mount() reads the flag back for a Pro Plus org (AC4); (d) a successful toggle sends a success notification (assertNotified); (e) a non-admin's call sends a danger notification and does not write. Set the tier explicitly via org_meta platform_repo_pro_tier — createUser(pro: true) defaults to CLARITY_PRO and will NOT reach the Pro Plus path.",
+        "tests/Feature/RdnMetrics/DispatchRdnMetricsHourlyTest.php": "Add a CLARITY_PRO_PLUS case using the existing makeRdnEligibleOrg(ProTierEnum::CLARITY_PRO_PLUS, optedIn: true, rdnId: ...) helper, asserting the org IS included in the hourly dispatch — the read/write gate parity test that prevents this bug class from recurring."
+      },
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "SubscriptionTest|DispatchRdnMetricsHourlyTest",
+      "ui_impact": true,
+      "blast_radius": ["billing-adjacent: Subscription page / paid-tier entitlement (platform_repo_pro* org_meta keys)"],
+      "blast_radius_approved_by": "human:Dalton 2026-08-04 (Phase 2 interview — APPROVED)",
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [],
+  "deliberate_deferrals": [
+    {
+      "item": "De-duplicate the entitled-tier set into a single ProTierEnum helper (e.g. ProTierEnum::allowsRdnMetricsPush()) used by the write gate, the read gate, and the Blade render condition.",
+      "reason": "This is the durable structural fix for the bug class (two hand-maintained lists plus a third render condition that drifted), but it is not needed for any AC and would widen a 4-file bug fix into an enum + call-site refactor. Under Resolution A no user-visible divergence remains, and the new parity test catches future drift. Recorded here so review sees this as a considered decision, not an oversight; will be raised as a linked follow-up Jira task at handoff.",
+      "raise_as": "linked Jira task"
+    },
+    {
+      "item": "admin_impersonator bypass on the tier gate.",
+      "reason": "Explicitly declined by Dalton in the Phase 2 interview — an entitlement bypass on a paid-tier gate is its own ticket.",
+      "raise_as": "none (declined)"
+    }
+  ],
+  "notes": [
+    "Single-node DAG: every change lands in one method plus one job filter plus their two test files. Fanning out would put two workers in the same method — serialized by design, so Phase 4 takes the single-node fast path in REPO_PATH.",
+    "Sizing gate: 4 files, one concern (RDN toggle entitlement parity + its missing feedback). Under the 6-file threshold; no split recommended.",
+    "Perf gate: not required — perf_validation.required = false. No >1B-row ClickHouse surface is introduced or re-shaped; the only CH involvement is the existing hourly job's already-scoped reads.",
+    "Scale note for the Build Record: widening eligibility means more orgs enter the hourly dispatcher, which increases read volume against clarity.scan_report_hourly and clarity.hits_hot on the existing hourly cadence. Bounded by the number of Pro Plus orgs that opt in — a capacity footnote, not a design risk.",
+    "Review: escalate to 3 lanes — the diff touches paid-tier entitlement (auth/permission-adjacent territory) and carries a blast-radius tag."
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "key": "DEV-2309",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2309",
+  "phase": "done",
+  "models": {"base": "haiku", "recall": "haiku", "prep": "sonnet", "plan": "opus", "plan_arbiter": "opus", "implement": "sonnet", "implement_simple": "sonnet", "arbitrate": "opus", "offload": "sonnet", "review": "opus"},
+  "efforts": {"prep": "inherit", "plan": "inherit", "plan_arbiter": "inherit", "implement": "inherit", "implement_simple": "inherit", "arbitrate": "inherit", "offload": "inherit", "review": "inherit"},
+  "timings": [],
+  "flags": {"companion": false, "review_policy": "functional", "jira_mirror": true, "start_at": null, "stop_at": null, "only": null, "skip": [], "force": false},
+  "knowledge_cards_loaded": [],
+  "escalated": false,
+  "escalation_triggers": [],
+  "best_of_n": false,
+  "needs_human_interview": false,
+  "missed_caller_candidates": [],
+  "perf_validation": {"required": false, "ch_tables": [], "approach": "", "measurement": "", "verdict": "pending", "measured_at": null},
+  "diff_base": "42736f51d1914a3cba2ce7b2fe580caebbe9102f",
+  "subtasks": [{"id": "t1", "status": "merged", "worktree_path": "", "branch": "", "complexity": "simple", "model": "driver-inline (single-node fast path)"}],
+  "review_number": 2,
+  "pr": {"number": 309, "url": "https://github.com/insight-lpr/platform/pull/309", "draft": false},
+  "pr_urls": {},
+  "jira_in_progress_by": "already In Progress at intake (no transition needed)",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "In Code Review via Atlassian MCP (no GH action moved it); pipeline @ 2026-08-05T20:40Z",
+  "assumed": [],
+  "comment_ids": {"status": "38083", "build_record": "38086"},
+  "qa": {"ledger": ".context/qa-prep-ledger.json", "agent_report": ".context/qa-agent-report.md", "ac_results": ".context/qa-ac-results.json", "verdict": "PASS", "torn_down": true, "provisioned_early": true, "verify_mode": "real agent-qa backend lane — command run end-to-end vs seeded Postgres (no UI surface; browser lanes N/A)", "provisioning": {"postgres_db": "dev zod_claude_dev_2309_527310 + testing zod_testing_claude_dev_2309_527310 (warm — already provisioned + migrated); tiger.state PostGIS patch applied to dev DB this run", "ch_strategy": "deferred — change does not touch CH; no Docker CH stood up", "seed": "tinker: org5+kit16+open KitShift(8h)+visible scan(4h); .context/qa-seed.tinker.php", "herd_site": "clarity-claude_dev_2309_527310", "real_run": "scout:close-inactive-shifts closed the seeded shift, no SQLSTATE[57014], no timezones/ST_Within", "teardown": "dropped dev+testing DBs, unlinked Herd site, deleted ledger"}},
+  "record": {
+    "tests": [
+      {"cmd": "php artisan test --compact --filter=CloseInactiveShiftsCommandTest", "passed": 4, "failed": 2, "note": "4 passed incl. new pinning test latest_activity_lookup_does_not_join_timezones; 2 failed are PRE-EXISTING tz/Carbon-diff failures (A/B-proven on base 42736f51); 2 CH-GPS tests skipped (pgsql bridge)."},
+      {"cmd": "php artisan test --compact --filter=EnsureOpenShiftTest", "passed": 10, "failed": 1, "note": "10 passed incl. new pinning test scan_activity_lookups_do_not_join_timezones; 1 failed (test_current_open_opens_a_fresh_shift_after_a_confirmed_end) is PRE-EXISTING (A/B-proven on base — same Carbon-3 signed diffInMinutes/tz class the code's abs() guard acknowledges)."}
+    ],
+    "deviations": [
+      {"source": "review-driven scope extension", "edit": "Extended the fix beyond the ticket's named site to two sibling queries in the SAME Scout-shift subsystem — app/Services/Scout/EnsureOpenShift.php:131 (exists()) and :150 (pluck over up to 5000 rows on the driver /shift/status poll path) — which carried the identical pointless ScanTimezoneScope ST_Within join on the same zod read-replica. Flagged by 2/3 RN=1 review lanes as an incomplete fix. Added ->withoutGlobalScope(ScanTimezoneScope::class) to both + a pinning test. Provably behavior-preserving (LEFT JOIN all-in-ON never drops rows; exists()/max unaffected; pluck fan-out duplicates are no-ops in the gap logic and removal makes the 5000-row limit more accurate). Deliberate completion of the same defect class; surfaced for Dalton's review.", "ac_ref": null, "ac_delta": null},
+      {"source": "pre-existing", "edit": "3 pre-existing test failures (2 in CloseInactiveShiftsCommandTest, 1 in EnsureOpenShiftTest) fail on main independently of this change (A/B verified on base 42736f51). Same Carbon-3 signed diffInMinutes / timezone class. NOT caused by this change; flagged as a separate follow-up (task_99033909), not fixed here.", "ac_ref": null, "ac_delta": null}
+    ],
+    "review": {
+      "lanes": [{"rn": 1, "lanes": 3, "scores": [94, 94, 100]}, {"rn": 2, "lanes": 2, "scores": [100, 100]}],
+      "scores": [100, 100],
+      "findings_fixed": ["RN1 Medium (2/3 lanes): incomplete fix — sibling ScanTimezoneScope spatial joins in EnsureOpenShift.php :131 (exists) and :150 (pluck, 5000-row driver-poll path). Fixed by extending withoutGlobalScope(ScanTimezoneScope::class) to both + pinning test; RN2 both lanes 100/100 confirmed behavior-preserving.", "RN2 non-scoring: pinning-test method naming aligned to file convention (test_ prefix)."],
+      "findings_residual": ["Non-scoring (architectural note, out of scope): ScanTimezoneScope is a global scope with now 5 withoutGlobalScope opt-outs — the spatial join may be the wrong default for a global scope.", "Non-scoring latent (out of scope): scopeScanTimezone else-branch (Scan.php:416) never actually selects timezones.tzid when an explicit select() is present (Builder::select ignores its 2nd arg with an array first arg)."],
+      "lane_sources": [{"lane": "laneA", "source": "in-session-agent"}, {"lane": "laneB", "source": "in-session-agent"}],
+      "rerun_required": false,
+      "reviewed_sha": "56b961722359372b4d19f730d2853a8cad95b8bc",
+      "rework_pivot": false
+    },
+    "ac": [
+      {"item": "CloseInactiveShiftsCommand completes without SQLSTATE[57014] timeouts (verify against laravel.log post-deploy).", "status": "SATISFIED", "evidence": "Spatial join (timeout cause) removed; command boots/registers/runs with no exception in-test. Prod-scale timeout not locally reproducible → post-deploy laravel.log confirmation (AC says post-deploy)."},
+      {"item": "latestActivityFor() no longer joins timezones for the activity lookup.", "status": "SATISFIED", "evidence": "Pinning tests (both files) pass against real Postgres+PostGIS — executed scans activity queries carry no timezones/ST_Within; RED pre-fix."},
+      {"item": "kit_id = 10224's inactive shift is closed on the next scheduled run.", "status": "SATISFIED", "evidence": "Close behavior preserved (LEFT JOIN removal cannot change max(scanned_at); test asserts shift closes, end_type=Assumed). Kit-10224 prod confirmation is post-deploy."}
+    ]
+  }
+}

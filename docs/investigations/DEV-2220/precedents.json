@@ -1,0 +1,41 @@
+{
+  "recall": [
+    {
+      "key": "DEV-1898",
+      "status": "Done",
+      "resolved": "2026-06-17",
+      "age": "~36d",
+      "relevance": "Sibling ticket: statement_timeout in CacheOrgHotlistLienholders. Its fix (commit c744f887) pushed DISTINCT + WHERE NOT NULL into the hotlist subquery and removed the PHP-side pluck()->unique(), for BOTH getHotlistClients() AND getHotlistLienholders(). That is exactly the current code shape.",
+      "applicable": true,
+      "why": "DEV-1898 already shipped the query-rewrite half. DEV-2220 is the RECURRENCE after that fix — so the query rewrite alone was insufficient; the residual cost is the SQL itself. DEV-1898's AC left the index as an unresolved conditional ('add (org_id, lienholder_org_id) if EXPLAIN shows a seq scan'). It added Org.php + 2 job tests, NO migration/index."
+    },
+    {
+      "key": "DEV-2202",
+      "status": "To Do",
+      "age": "~6d",
+      "relevance": "Epic grouping pg-read replica statement timeouts (309 cancels in a 6h window, 2026-07-17); lists CacheOrgHotlistClients among affected jobs.",
+      "applicable": true,
+      "why": "Likely parent epic for DEV-2220. Strategic fix (index/schema) may be epic-level and cross-repo. Note: DEV-2220 has no parent/issuelink set in Jira."
+    },
+    {
+      "key": "DEV-2146",
+      "status": "To Do",
+      "age": "~22d",
+      "relevance": "Cache invalidation logic bug (array + union drops new hotlist IDs) affecting alert settings.",
+      "applicable": false,
+      "why": "Different bug class (logic, not perf/timeout)."
+    }
+  ],
+  "phase0_grounding": {
+    "note": "Driver-side intake investigation folded in for the prep candidates; NOT decisions.",
+    "target_methods": ["app/Models/Org.php:185 getHotlistClients()", "app/Models/Org.php:202 getHotlistLienholders()"],
+    "warm_jobs": ["app/Jobs/Org/CacheOrgHotlistClients.php", "app/Jobs/Org/CacheOrgHotlistLienholders.php"],
+    "existing_tests": ["tests/Feature/Jobs/Org/CacheOrgHotlistClientsTest.php", "tests/Feature/Jobs/Org/CacheOrgHotlistLienholdersTest.php"],
+    "consumers_of_methods": ["HitsResource.php:330/337", "HotlistResource.php:137", "MissedOpportunityResource.php:222/229", "ClientTable.php:88/300/354", "AlertSettingsForm.php:56", "IndividualClientAnalytics.php:48", "HasStatDrillDown.php:89", "CreateMissedOpportunityAlertSettings.php:91"],
+    "connections": "Org and Hotlist both use protected $connection = 'zod' (Postgres). Query hits the zod read replica by default (read PDO).",
+    "hotlist_columns": {"org_id": "integer NOT NULL", "client_org_id": "integer NOT NULL", "lienholder_org_id": "integer (nullable)", "note": "org_id has STATISTICS 5000 set"},
+    "existing_hotlist_indexes": ["ix_hotlist_org_id (org_id)", "ix_hotlist_client_org_id (client_org_id)", "ix_hotlist_lienholder_org_id (lienholder_org_id)", "hotlist_org_id_status_created_at (org_id,status,created_at)", "org_id_status_idx (org_id,status) INCLUDE (plate)", "NO composite (org_id,client_org_id) or (org_id,lienholder_org_id)"],
+    "schema_ownership": "public.hotlist / public.orgs schema+indexes are managed by the vendor package insight-lpr/laravel-zod-migrations (database/schema/zod-schema.sql). Platform has ONE zod-connection migration (add_plate_variants_function.php) and it GUARDS `config('app.env') !== 'production'` — i.e. platform zod migrations are dev-only; platform does not own the zod schema in production.",
+    "since_client_org_id_not_null": "whereNotNull('client_org_id') in getHotlistClients() is a functional no-op (column is NOT NULL). Harmless but dead."
+  }
+}

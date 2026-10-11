@@ -1,0 +1,26 @@
+[
+  {
+    "key": "DEV-2325",
+    "status": "Done",
+    "age_days": 4,
+    "relevance": "Same job and service: SendEndOfShiftSummary exhausted retries on a 30s statement timeout; shipped a MATERIALIZED CTE fence in BuildShiftSummary::buildZoneSummaries plus build_failed/mail_failed relabel.",
+    "applicable": "applicable",
+    "why": "This ticket is the next failure mode on the same path (HY000 65535-parameter whereIn on hits, plus remaining zone-query timeout on a 17-day never-closed shift). Reuse the failed()/retry taxonomy and existing tests; do not undo the CTE fence."
+  },
+  {
+    "key": "DEV-2309",
+    "status": "In Progress",
+    "age_days": 0,
+    "relevance": "Never-closing shifts (kit 175 is one of four chronic timeout kits) are the input that made shift 20 a 17-day scan window. Linked Relates, not Blocks.",
+    "applicable": "not-applicable as a base/stack",
+    "why": "DEV-2385 is independent robustness: the summary must survive pathological windows even if 2309 never ships. Do not stack on cursor/b139c1f9. 2309 shrinking the input is complementary, not a prerequisite."
+  },
+  {
+    "key": "DEV-1788",
+    "status": "Done",
+    "age_days": 49,
+    "relevance": "Original Clarity Scout end-of-shift summary feature that introduced SendEndOfShiftSummary + BuildShiftSummary.",
+    "applicable": "applicable",
+    "why": "Grounds the intended product behavior (email a workday-sized summary). Does not constrain the cardinality/timeout fix."
+  }
+]

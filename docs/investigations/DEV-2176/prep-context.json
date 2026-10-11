@@ -1,0 +1,142 @@
+{
+  "key": "DEV-2176",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "approach": "B: restore-dual-write (re-add SyncDispositionToClickhouse dispatch). NOTE: approach pivoted 2026-07-09 — the earlier 'repoint-reads-to-cdc' (Approach A) was implemented + 3-lane-reviewed, then REVERTED after review+live-prod-perf showed it carried a ~3.7s/query regression on a 3.5B-row table, missed 2 raw-SQL heatmap queries, and had tombstone/empty-string edges. Dalton chose the simpler uniform fix: restore the dual-write so all read surfaces work unchanged.",
+  "synthesis": "Setting a validation disposition on a scan in the Missed Opportunity dashboard (and, by the same latent bug, the ClickHouse-backed Hits and Scans lists) does not update the 'Validation' column or drop the item from the default queue. Root cause: those three surfaces read a flat `disposition` column on the wide ClickHouse tables (clarity.missed_opportunities, hits_hot/hits_cold, scans_hot/scans_cold) that stopped being written on 2026-04-14 when the SyncDispositionToClickhouse dispatch was removed from Scan::updateDisposition (commit 1b241ae1). Per the ticket owner, that flat column is being DEPRECATED — the fix is NOT to restore the job but to REPOINT the disposition reads (both the DEV-2033 default-view exclude/include filter AND the displayed value) onto the live PeerDB CDC mirror zod.scans_metadata_extracted (fresh disposition Nullable(String), keyed by scan_id), for all three surfaces. The Postgres write path (Scan::updateDisposition writes scans_metadata.meta, which CDC-syncs onward) is already correct and unchanged. No production backfill — repointed reads use the fresh source, so already-stuck hits resolve automatically. The Postgres-backed branches of Hits/Scans already read fresh data (direct scans_metadata join) and are unaffected; only the CH branches are broken.",
+  "scope": {
+    "summary": "Repoint the disposition READS for the 3 ClickHouse-backed list surfaces (Missed Opportunity, Hits, Scans) off the orphaned flat CH `disposition` column onto zod.scans_metadata_extracted. Two decoupled, no-JOIN mechanisms: (a) filter side — rewrite the disposition scopes on the CH MissedOpportunity/Hit/Scan models to use a kit-scoped, argMax-deduped NOT-IN/IN subquery against scans_metadata_extracted; (b) display side — per-page point-lookup hydration of $record->disposition in each page's paginateTableQuery(). Add a ScansMetadataExtracted CH model + factory. Add/adapt regression tests for all three surfaces. No write-path change, no backfill.",
+    "proposed_changes": [
+      {"file": "app/Clickhouse/Models/ScansMetadataExtracted.php (new)", "change": "New ClickhouseModel: connection='public_clickhouse', table='scans_metadata_extracted' (mirrors ZodPublicHotlist precedent — unqualified table on the zod-default connection). Do NOT apply FiltersCdcDeletes global scope (raw rows must not be pre-filtered before argMax dedup). Add HasFactory. Expose a single reusable helper producing the 'current disposition per scan_id' aggregation SQL (argMax(disposition,_peerdb_version) GROUP BY scan_id, kit_id-scoped) used by both the model scopes and the page hydration lookup, so the dedup logic is written once.", "reason": "No Eloquent model exists for this CDC table; needed for prod reads and for a factory to seed CDC-shaped rows in tests.", "ref": "app/Clickhouse/Models/ZodPublicHotlist.php:9-15 (precedent); database/schema/clickhouse-schema.sql:79"},
+      {"file": "database/factories/Clickhouse/ScansMetadataExtractedFactory.php (new)", "change": "Factory seeding scan_id, kit_id, disposition, _peerdb_version, _peerdb_is_deleted for tests (mirror the existing Clickhouse factory pattern used to seed the wide tables).", "reason": "CH-backed disposition tests need to seed the new source.", "ref": "database/factories/Clickhouse/ (existing CH factories)"},
+      {"file": "app/Clickhouse/Models/MissedOpportunity.php", "change": "Rewrite scopeForDispositions (98-107) and scopeExcludeDisposition (109-112) to build the predicate as a kit-scoped subquery against zod.scans_metadata_extracted (GROUP BY scan_id, argMax(disposition,_peerdb_version)) instead of whereRaw on the flat column. Add an explicit array $kitIds parameter (matching sibling scope convention) threaded from the caller.", "reason": "MO has no Postgres fallback — its disposition read is always broken.", "ref": "app/Clickhouse/Models/MissedOpportunity.php:98-112"},
+      {"file": "app/Clickhouse/Models/Hit.php", "change": "Rewrite scopeForDispositions (109-129, preserving the NEW_HIT⇄NULL equivalence at 115-125) and scopeExcludeDisposition (135-138) with the same kit-scoped subquery pattern, composing an IN-subquery for explicit values and a NOT-IN-subquery for the NEW_HIT/'no metadata row yet' branch. Add explicit $kitIds param.", "reason": "Hit.forDispositions has bespoke NULL-equivalence logic that must be preserved exactly.", "ref": "app/Clickhouse/Models/Hit.php:109-138"},
+      {"file": "app/Clickhouse/Models/Scan.php", "change": "Rewrite scopeForDisposition (67-70) and scopeExcludeDisposition (72-79) using the same kit-scoped IN/NOT-IN subquery pattern (single-value case). Add explicit $kitIds param.", "reason": "Scans' invalid-toggle filter depends on these scopes.", "ref": "app/Clickhouse/Models/Scan.php:67-79"},
+      {"file": "app/Clickhouse/Queries/ClickhouseQuery.php", "change": "Promote clarityDb() (102-107) and zodDb() (115-120) from protected static to public static so the model scopes (different namespace) can reuse the proven 3-environment DB-name resolution instead of duplicating it.", "reason": "Avoid drift in the prod/local-CH-QA/pgsql-bridge DB-name logic.", "ref": "app/Clickhouse/Queries/ClickhouseQuery.php:102-120"},
+      {"file": "app/Filament/Resources/MissedOpportunityResource/Pages/ListMissedOpportunities.php", "change": "getTableQuery() (62-100): drop 'missed_opportunities.disposition' from the select (85). paginateTableQuery() (109-116): after simplePaginate, collect the page's scan_ids (≤perPage) and hydrate $record->disposition via one point-lookup against scans_metadata_extracted (scan_id IN (:ids), argMax dedup). Pass resolved $kitIds into the disposition scopes.", "reason": "Repoints MO filter + display.", "ref": "app/Filament/Resources/MissedOpportunityResource/Pages/ListMissedOpportunities.php:62-116"},
+      {"file": "app/Filament/Resources/HitsResource/Pages/ListHits.php", "change": "buildClickhouseQuery() (95-137): drop 'disposition' from the select (120). paginateTableQuery() (288-302): when isClickhouseQuery($query) (213-216), hydrate $record->disposition from the CDC lookup. Pass $kitIds into the scopes.", "reason": "Hits' 'ClickHouse path: disposition is a flat column' fallback (HitsResource.php:159) becomes correct once hydrated from the CDC source.", "ref": "app/Filament/Resources/HitsResource/Pages/ListHits.php:95-137,213-216,288-302"},
+      {"file": "app/Filament/Resources/ScansResource/Pages/ListScans.php", "change": "buildClickhouseQuery() (303-321): drop 'disposition' from the select (319). paginateTableQuery() (421-434): when isClickhouseQuery($query) (406-409), hydrate $record->disposition from the CDC lookup. Pass $kitIds into the scopes.", "reason": "Scans' invalid-toggle filter + dispositionable UI read $record->disposition.", "ref": "app/Filament/Resources/ScansResource/Pages/ListScans.php:303-321,406-434"},
+      {"file": "tests/Concerns/RequiresClickhouse.php", "change": "Add 'zod.scans_metadata_extracted' to CLICKHOUSE_TABLES_TO_TRUNCATE (15-29).", "reason": "Prevent cross-test pollution once the new factory writes to this table.", "ref": "tests/Concerns/RequiresClickhouse.php:15-29"},
+      {"file": "tests/Filament/Resources/MissedOpportunityResourceTest.php", "change": "Update insertClarityMissedOpportunity (97-129) / add sibling helper to ALSO seed a matching ScansMetadataExtracted row so test_validation_filter (362-394) and test_default_view_excludes_only_invalid_dispositions (399-423) keep pinning DEV-2033 semantics against the new source.", "reason": "These two CH-backed tests break once the flat column stops being read; they are the highest-value regression pin.", "ref": "tests/Filament/Resources/MissedOpportunityResourceTest.php:97-129,362-423"},
+      {"file": "tests/Filament/Resources/HitsResourceTest.php", "change": "Add a NEW CH-backed test (activate clickhouse:hits feature or admin_impersonator) seeding a ClickhouseHit + ScansMetadataExtracted row; assert the Validation column renders the CDC disposition and the dispositions filter respects it.", "reason": "No CH-backed disposition coverage exists for Hits today (only Postgres-path).", "ref": "tests/Filament/Resources/HitsResourceTest.php:450-474"},
+      {"file": "tests/Filament/Resources/ScansResourceTest.php", "change": "Add a NEW CH-backed test (clickhouse:scans or admin_impersonator) seeding ClickhouseScan + ScansMetadataExtracted rows; assert the invalid-toggle filter and displayed disposition reflect the CDC value.", "reason": "No CH-backed disposition coverage exists for Scans today.", "ref": "tests/Filament/Resources/ScansResourceTest.php:229-247,251+"}
+    ],
+    "target_files": [
+      "app/Clickhouse/Models/ScansMetadataExtracted.php",
+      "database/factories/Clickhouse/ScansMetadataExtractedFactory.php",
+      "app/Clickhouse/Models/MissedOpportunity.php",
+      "app/Clickhouse/Models/Hit.php",
+      "app/Clickhouse/Models/Scan.php",
+      "app/Clickhouse/Queries/ClickhouseQuery.php",
+      "app/Filament/Resources/MissedOpportunityResource/Pages/ListMissedOpportunities.php",
+      "app/Filament/Resources/HitsResource/Pages/ListHits.php",
+      "app/Filament/Resources/ScansResource/Pages/ListScans.php",
+      "tests/Concerns/RequiresClickhouse.php",
+      "tests/Filament/Resources/MissedOpportunityResourceTest.php",
+      "tests/Filament/Resources/HitsResourceTest.php",
+      "tests/Filament/Resources/ScansResourceTest.php"
+    ],
+    "out_of_scope": [
+      "app/Jobs/SyncDispositionToClickhouse.php — now dead code given the flat-column deprecation; follow-up cleanup ticket, not required for this fix.",
+      "app/Http/Controllers/DispositionController.php + Scan::updateDisposition — write path already correct (writes Postgres scans_metadata); no change.",
+      "Postgres branches of ListHits::buildPostgresQuery()/ListScans::buildPostgresQuery() — already read fresh via direct scans_metadata join; unaffected.",
+      "Production backfill of the flat CH disposition column — explicitly NOT needed (reads repointed to the live source).",
+      "Extending the local pgsql-bridge schema (database/schema/local-clickhouse-schema.sql) with a zod schema — deferred; new CH tests are gated behind RequiresClickhouse (CI real-CH), matching existing MO test precedent.",
+      "clarity.scans_metadata view's org-type=1 semantics — not used (we query zod.scans_metadata_extracted directly, kit-scoped)."
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "Setting a disposition (e.g. Invalid) on an individual scan in the Missed Opportunity dashboard updates the Validation column (no longer 'Awaiting Review') after refresh.", "source": "ticket", "decision": "implement", "reason": "Approach B: the restored dispatch keeps the flat CH disposition column (read by the MO list) fresh."},
+    {"item": "After setting a disposition, the item drops off the default MO queue view on refresh.", "source": "ticket", "decision": "implement", "reason": "DEV-2033 exclude filter reads the now-fresh flat column."},
+    {"item": "Bulk disposition continues to work end-to-end and clears items.", "source": "derived", "decision": "implement", "reason": "Bulk funnels through the same Scan::updateDisposition() → same restored dispatch."},
+    {"item": "The Hits list and the ClickHouse-backed Scans list show fresh disposition / respect their filters.", "source": "derived", "decision": "implement", "reason": "Same flat column, now kept fresh — fixed uniformly with no per-surface change."},
+    {"item": "Scout surfaces (Trips/Dashboard/Birds-Eye/Map, incl. the HitDirectHotspotQuery heatmap) reflect live disposition again.", "source": "derived", "decision": "implement", "reason": "Approach B fixes ALL flat-column readers uniformly (incl. the raw-SQL heatmaps that Approach A missed) — no read-side change."},
+    {"item": "A disposition write dispatches SyncDispositionToClickhouse (individual + bulk).", "source": "derived", "decision": "implement", "reason": "Regression tests (Queue::fake) pin the dispatch at the shared model method — the coverage gap that hid the April regression."},
+    {"item": "Already-stuck hits dispositioned during the 2026-04-14→deploy outage.", "source": "derived", "decision": "defer", "reason": "NO backfill (Dalton 2026-07-09): they stay 'Awaiting Review' until re-dispositioned; the fix corrects going-forward only. N/A to the code change."}
+  ],
+  "questions": [
+    {"q": "Was removing the SyncDispositionToClickhouse dispatch in commit 1b241ae1 ('rely on PG entirely') an intentional migration toward Postgres/CDC as the disposition source, or an accidental removal to simply revert?", "answered": true, "answer": "INTENTIONAL migration. The flat CH `disposition` column on the wide tables is being deprecated; the correct fix is to repoint the MO/Hits/Scans disposition READS onto the live Postgres-backed source (PeerDB CDC mirror zod.scans_metadata_extracted / view clarity.scans_metadata, which already keeps disposition fresh), NOT to restore the orphaned ALTER-UPDATE job. Do not re-add the dispatch.", "source": "human:Dalton 2026-07-09"},
+    {"q": "Should this ticket include a one-off backfill of ClickHouse `disposition` for scans dispositioned during the outage window, or split it out?", "answered": true, "answer": "NO backfill. With reads repointed to the live CDC/PG disposition source there is no stale flat CH column to backfill — already-affected hits resolve automatically once reads use the fresh source.", "source": "human:Dalton 2026-07-09"},
+    {"q": "Should the fix/tests/QA explicitly cover the Hits list and the ClickHouse-backed Scans list too, or keep the PR MO-scoped?", "answered": true, "answer": "COVER ALL THREE explicitly — Missed Opportunity + Hits + Scans. All three read the same orphaned flat column and must be repointed; tests/QA must prove all three un-break.", "source": "human:Dalton 2026-07-09"},
+    {"q": "Is the 'Missed Opportunity Spotted & Closed' hit type special-cased anywhere (a guard skipping the status update for closed cases)?", "answered": true, "answer": "No. No hit-type guard exists in updateDisposition(), DispositionController, BulkDispositionAction, or the MO query path — both M and F hit types share the identical broken path.", "source": "code"},
+    {"q": "Perf of the unindexed kit-scoped subquery over scans_metadata_extracted at production scale?", "answered": true, "answer": "Proceed with the kit-scoped argMax subquery (mirrors the existing clarity.scans_metadata view's own kit_id IN filter). Verify at QA (Phase 6) against the largest available org; scan_id-range bound (scan_id is ~monotonic, derivable from the outer date filter) is the ready fallback if slow.", "source": "design-default (QA-gated)"},
+    {"q": "Extend the local pgsql-bridge schema for the new CH tests, or gate them behind RequiresClickhouse (real CH / CI only)?", "answered": true, "answer": "Gate behind RequiresClickhouse — matches existing MO CH-test precedent; CI (CLICKHOUSE_DRIVER=clickhouse) is the coverage gate. Keeps the diff focused.", "source": "design-default"},
+    {"q": "Pass kit_ids explicitly into the disposition scopes, or resolve via auth() inside the scope?", "answered": true, "answer": "Pass kit_ids explicitly — matches every sibling scope on these CH models (forOrg/forKits/etc take explicit params); update the 3 call sites to pass their already-resolved kit_ids.", "source": "design-default"}
+  ],
+  "blockers": [],
+  "notes": [
+    "zod.scans_metadata_extracted (clickhouse-schema.sql:79): scan_id Int64, kit_id Nullable(Int32), disposition Nullable(String), _peerdb_version, _peerdb_is_deleted; ENGINE ReplacingMergeTree(_peerdb_version,_peerdb_is_deleted) ORDER BY scan_id; idx_disposition set(20) but NO kit_id index. Dedup via argMax(_,_peerdb_version) — do NOT use FINAL on zod CDC tables.",
+    "No JOIN anywhere: every CH Eloquent model in app/Clickhouse/Models uses whereIntegerInRaw/whereRaw subqueries, zero ->join() — the custom Clickhouse builder's join compilation is unexercised. Filter = IN/NOT-IN subquery; display = per-page point lookup (ClickHouse has no correlated subqueries).",
+    "CRITICAL NULL-safety: express exclusion as NOT-IN over the EXCLUDED set, never IN over the passing set. Scans with zero metadata rows (never synced) or current NULL disposition are absent from any 'disposition = X' subquery; NOT-IN keeps them visible (correct: Awaiting Review), an IN-passing-set would drop them. The write path only ever writes a value, never NULL, so 'no row yet' is the common steady state for undispositioned scans.",
+    "Query zod.scans_metadata_extracted DIRECTLY (kit-scoped), not via the clarity.scans_metadata view (which pre-filters org type=1 with unclear semantics and is un-deduped).",
+    "CDC lag: PG write -> PeerDB CDC -> scans_metadata_extracted is the same pipeline other consumers use (seconds to low-single-digit minutes). Owner accepted this as the tradeoff for deprecating the flat column; it is a strict improvement over 'never updates' (permanently stale since 2026-04-14).",
+    "DEV-2033's scopeExcludeDisposition semantics (Awaiting-Review/NULL stays in default view; Invalid excluded) must be preserved exactly through the repoint.",
+    "Root cause / approach corroborated: fast-pass prep + adversarial verifier (confidence 88) + grep backstop (0 missed callers) + design pass (confidence 75, limited only by unverified prod-scale perf)."
+  ],
+  "tests": [
+    {"file": "tests/Filament/Resources/MissedOpportunityResourceTest.php", "what_it_pins": "test_validation_filter + test_default_view_excludes_only_invalid_dispositions against CDC-sourced disposition (seed ScansMetadataExtracted row); DEV-2033 semantics preserved. Real CH."},
+    {"file": "tests/Filament/Resources/HitsResourceTest.php", "what_it_pins": "NEW: CH-path Hits list shows CDC disposition + filter respects it. Real CH."},
+    {"file": "tests/Filament/Resources/ScansResourceTest.php", "what_it_pins": "NEW: CH-path Scans list invalid-toggle + displayed disposition reflect CDC value. Real CH."},
+    {"file": "tests/Filament/Resources/MissedOpportunityResourceTest.php (NULL case)", "what_it_pins": "A scan with NO scans_metadata_extracted row (never dispositioned) stays in the default view — NULL-safety of the exclude filter."}
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Clickhouse/Models/MissedOpportunity.php:98-112 (scopeForDispositions/ExcludeDisposition)",
+      "app/Clickhouse/Models/Hit.php:109-138 (forDispositions w/ NEW_HIT⇄NULL; ExcludeDisposition)",
+      "app/Clickhouse/Models/Scan.php:67-79 (forDisposition/ExcludeDisposition)",
+      "app/Clickhouse/Queries/ClickhouseQuery.php:102-120 (clarityDb/zodDb resolution)",
+      "app/Filament/Resources/MissedOpportunityResource/Pages/ListMissedOpportunities.php:62-116",
+      "app/Filament/Resources/HitsResource/Pages/ListHits.php:95-137,213-216,288-302",
+      "app/Filament/Resources/ScansResource/Pages/ListScans.php:303-321,406-434",
+      "app/Filament/Resources/MissedOpportunityResource.php:147-157 (Validation column, reads $record->disposition — no change)",
+      "app/Filament/Resources/HitsResource.php:154-169 (disposition column + 'ClickHouse path' comment:159 — no change)",
+      "database/schema/clickhouse-schema.sql:79 (scans_metadata_extracted), :179 (clarity.scans_metadata view)",
+      "app/Clickhouse/Models/ZodPublicHotlist.php:9-15 (public_clickhouse connection precedent)",
+      "app/Enums/DispositionEnum.php:14-42"
+    ],
+    "code_flow": "READ (broken): ListMissedOpportunities::getTableQuery() -> Clickhouse MissedOpportunity selecting flat missed_opportunities.disposition + scopeExcludeDisposition on flat column -> Validation column reads $record->disposition (stale/NULL). FIX: scopes filter via kit-scoped subquery on zod.scans_metadata_extracted (argMax dedup); paginateTableQuery() hydrates $record->disposition from a per-page point lookup on the same table. Same shape for ListHits (CH branch) + ListScans (CH branch). WRITE (correct, unchanged): DispositionController/BulkDispositionAction -> Scan::updateDisposition -> Postgres scans_metadata.meta -> PeerDB CDC -> scans_metadata_extracted.disposition.",
+    "tables": ["read: zod.scans_metadata_extracted (disposition)", "write (unchanged): postgres public.scans_metadata", "no-longer-read: clarity.missed_opportunities/hits_hot/hits_cold/scans_hot/scans_cold .disposition (flat, orphaned)"],
+    "related_components": ["ClickhouseMissedOpportunity/Hit/Scan models", "MissedOpportunityResource / HitsResource / ScansResource + their List pages", "DispositionEnum", "HitTypeEnum (M/F)", "MissedOpportunityPolicy", "FeatureEnum::MISSED_OPPORTUNITY / clickhouse:hits / clickhouse:scans", "FiltersCdcDeletes trait", "ZodPublicHotlist (connection precedent)"]
+  },
+  "exhaustiveness": {
+    "idiom": "Every ClickHouse read path that reads a scan's disposition for display or filtering must source it from zod.scans_metadata_extracted (kit-scoped, argMax-deduped) — NOT from the orphaned flat `disposition` column on the wide tables. The three CH-backed list surfaces (MO always; Hits/Scans behind their clickhouse:* flag or admin_impersonator) are the read sites.",
+    "grep_patterns": ["grep -rn \"disposition\" app/Clickhouse/Models/*.php", "grep -rn \"'disposition'\" app/Filament/Resources/**/Pages/*.php", "grep -rn \"scopeExcludeDisposition\\|scopeForDisposition\" app", "grep -rn \"->join(\" app/Clickhouse/Models (expect 0)", "grep -rn \"scans_metadata_extracted\" app database"],
+    "sites": [
+      {"site": "app/Clickhouse/Models/MissedOpportunity.php:98-112", "verdict": "buggy", "reason": "Filters flat orphaned column; repoint to CDC subquery."},
+      {"site": "app/Clickhouse/Models/Hit.php:109-138", "verdict": "buggy", "reason": "Same; preserve NEW_HIT⇄NULL."},
+      {"site": "app/Clickhouse/Models/Scan.php:67-79", "verdict": "buggy", "reason": "Same (single-value)."},
+      {"site": "ListMissedOpportunities.php:62-116 / ListHits.php:95-302 / ListScans.php:303-434 (CH branches)", "verdict": "buggy", "reason": "Select + display of flat column; drop select, hydrate from CDC lookup."},
+      {"site": "MissedOpportunityResource.php:147-157 / HitsResource.php:154-169 (column formatters)", "verdict": "safe", "reason": "Read $record->disposition; correct once hydration lands — no change."},
+      {"site": "ListHits::buildPostgresQuery / ListScans::buildPostgresQuery (PG branches)", "verdict": "safe", "reason": "Already join Postgres scans_metadata directly — fresh."},
+      {"site": "app/Jobs/SyncDispositionToClickhouse.php", "verdict": "dead (out-of-scope)", "reason": "Orphaned; flat column deprecated. Follow-up cleanup, not this ticket."},
+      {"site": "Scan::updateDisposition / DispositionController / BulkDispositionAction (write path)", "verdict": "safe", "reason": "Writes Postgres, CDC-syncs onward — unchanged."}
+    ]
+  },
+  "data_impact": {
+    "pg_tables": ["public.scans_metadata (write path, unchanged)"],
+    "ch_tables": ["zod.scans_metadata_extracted (new READ, via new ScansMetadataExtracted model)"],
+    "mv_or_cdc_implications": "Reads move onto the PeerDB CDC mirror (ReplacingMergeTree, argMax dedup, no FINAL). Flat disposition columns on the 5 wide tables become no-longer-read (and no-longer-written since 2026-04-14) — effectively deprecated. Expected freshness: existing PeerDB CDC lag (seconds to low-single-digit minutes).",
+    "indexes_relied_on": ["scans_metadata_extracted ORDER BY scan_id (point lookups by scan_id IN-list are cheap)", "NO kit_id index — filter subquery perf at scale is the one QA-verified risk"]
+  },
+  "derivation_log": [
+    {"query_shape": "grep scans_metadata_extracted / _peerdb_* across app+database", "param_classes": "static search", "aggregate_result": "zero existing app consumers; only schema DDL references it", "why": "Confirms net-new plumbing (new model+factory), not a rename."},
+    {"query_shape": "grep '->join(' across app/Clickhouse/Models", "param_classes": "static search", "aggregate_result": "0 matches", "why": "Codebase convention (not just institutional rule) is no CH JOINs → subquery mechanism chosen."},
+    {"query_shape": "targeted reads of CH disposition tests in MO/Hits/Scans test files", "param_classes": "static search + line reads", "aggregate_result": "MO has 2 CH-backed disposition tests (seed flat column); Hits/Scans have only Postgres-path disposition tests", "why": "Determines test plan: MO update 2 existing, Hits/Scans add new."}
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "MO individual disposition updates Validation column + drops off default queue on refresh", "kind": "agent", "intent": "Real-CH: seed MO hit + scans_metadata_extracted row, set disposition Invalid, verify column + default-view exclusion."},
+      {"ac": "Bulk disposition still clears items (regression)", "kind": "agent", "intent": "Bulk-set Invalid on multiple MO rows, confirm they clear."},
+      {"ac": "Hits + Scans CH lists reflect fresh disposition + filters", "kind": "agent", "intent": "Activate clickhouse:hits / clickhouse:scans; verify display + filters."},
+      {"ac": "NULL/never-dispositioned scans stay visible", "kind": "agent", "intent": "Seed a scan with no scans_metadata_extracted row; confirm it remains in default view."},
+      {"ac": "Kit-scoped CDC subquery perf on the largest org", "kind": "human", "intent": "Time-box the MO/Hits/Scans list load against the largest available org's kits; if slow, apply the scan_id-range bound fallback."}
+    ],
+    "seed_scenario": "Seed an org (MISSED_OPPORTUNITY + clickhouse:hits/clickhouse:scans features) with a kit; seed CH wide-table rows (missed_opportunities/hits/scans) AND matching zod.scans_metadata_extracted rows: one with disposition=Invalid, one with disposition=NULL/absent (never dispositioned), one Valid — so exclude/include filter transitions and NULL-safety are all observable.",
+    "personas": [{"role": "org admin/user with MISSED_OPPORTUNITY + clickhouse:hits/clickhouse:scans features and MissedOpportunityPolicy access", "why": "Surfaces are feature- and policy-gated; CH branches need the clickhouse:* flags (or admin_impersonator)."}],
+    "pg_tables": ["scans_metadata", "scans", "hits", "hotlist"],
+    "ch_tables": ["zod.scans_metadata_extracted", "clarity.missed_opportunities", "clarity.hits_hot", "clarity.hits_cold", "clarity.scans_hot", "clarity.scans_cold"]
+  },
+  "confidence": 84,
+  "escalate": {"recommend": false, "reason": "All material questions resolved (Dalton's 3 gate answers + 3 design defaults). Approach is grounded and convention-matching. Remaining risk (prod-scale subquery perf) is a QA-verified item with a ready fallback, not a design fork."},
+  "missed_caller_candidates": []
+}

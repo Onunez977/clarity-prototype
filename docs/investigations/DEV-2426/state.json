@@ -1,0 +1,583 @@
+{
+  "key": "DEV-2426",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "base-resolve.sh returned 6 candidates, none carrying DEV-2414 (all >=78 commits behind main; DEV-2414 merged to main via PR #367 today). DEV-2426 builds directly on DEV-2414's matcher, so main is the only base that contains the prerequisite.",
+  "branch": "claude/DEV-2426",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "prep-fast-pass",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 480
+    },
+    {
+      "slot": "prep-candidate:1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 566
+    },
+    {
+      "slot": "prep-candidate:2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 1050
+    },
+    {
+      "slot": "prep-candidate:3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 1050
+    },
+    {
+      "slot": "reconcile",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 937
+    },
+    {
+      "slot": "plan-arbiter",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "plan",
+      "dur_s": 379
+    },
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 322
+    },
+    {
+      "slot": "implement:t3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 336
+    },
+    {
+      "slot": "implement:t4+t5",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 1302
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 632
+    },
+    {
+      "slot": "review-2",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 597
+    },
+    {
+      "slot": "review-3",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 623
+    },
+    {
+      "slot": "review-4",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 744
+    },
+    {
+      "slot": "review-6",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 471
+    },
+    {
+      "slot": "review-7",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 1076
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "knowledge/clarity/scout.md",
+    "knowledge/clickhouse/core.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "confidence 63 < 80",
+    "escalate.recommend = true from the fast pass",
+    "open questions with answered:false (reconciliation mechanism, geo-key encoding, immutability-vs-AC2, backfill)",
+    "blast-radius surface: database/migrations/** is in target_files (new migration required)",
+    "resource_envelope oracle_status = unavailable for platform.scout_check_ins (not in the zod.public_* CDC mirror)"
+  ],
+  "best_of_n": true,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [
+    {
+      "file": "tests/Feature/Console/ScoutRecordCheckInsScheduleTest.php",
+      "symbol": "ScoutRecordCheckIns",
+      "referenced_at": "9,21",
+      "note": "runs the command end-to-end asserting the completed-log lookback_minutes; NOT in the fast pass inventory. Runs WITHOUT RequiresClickhouse, so it exercises the CH-unreachable path."
+    },
+    {
+      "file": "tests/Feature/Console/ScoutRecordCheckInsOverrunSignalTest.php",
+      "symbol": "ScoutRecordCheckIns",
+      "referenced_at": "15,32,46,70",
+      "note": "runs the command asserting the overrun warning/report; NOT in the fast pass inventory."
+    },
+    {
+      "file": "app/Seeders/ClarityScoutClickhouseSeeder.php",
+      "symbol": "scout_open_addresses",
+      "referenced_at": "69",
+      "note": "seeds the book for QA; a new address-geo column on the emitted shape may need seed coverage."
+    },
+    {
+      "file": "tests/Concerns/RequiresClickhouse.php",
+      "symbol": "scout_open_addresses",
+      "referenced_at": "27",
+      "note": "truncate list \u2014 already covers the book; confirms no new CH table is needed."
+    },
+    {
+      "file": "database/schema/local-clickhouse-schema.sql",
+      "symbol": "scout_open_addresses",
+      "referenced_at": "190,193",
+      "note": "local CH schema used by Docker QA; must already carry geo (it does, per DEV-2414) \u2014 verify no change needed."
+    },
+    {
+      "file": "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php",
+      "symbol": "ScoutCheckInMatchQuery",
+      "referenced_at": "37",
+      "note": "cross-references the matcher in its docblock; the deliberate grain divergence is asserted by the parity test. Docblock may need updating if the matcher's contract changes."
+    },
+    {
+      "file": "app/Clickhouse/Queries/HotlistAddressGeohashQuery.php",
+      "symbol": "hour_bucket",
+      "referenced_at": "58,76",
+      "note": "unrelated surface (hotlist geohash); safe \u2014 different table and grain."
+    }
+  ],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "9fb29854",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "jira/DEV-2426-t1",
+      "complexity": "complex",
+      "model": "sonnet"
+    },
+    {
+      "id": "t2",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "jira/DEV-2426-t2",
+      "complexity": "complex",
+      "model": "driver (opus) \u2014 single small file gated on human review"
+    },
+    {
+      "id": "t3",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "jira/DEV-2426-t3",
+      "complexity": "complex",
+      "model": "sonnet"
+    },
+    {
+      "id": "t4",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "jira/DEV-2426-t4",
+      "complexity": "complex",
+      "model": "sonnet"
+    },
+    {
+      "id": "t5",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "jira/DEV-2426-t5",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 8,
+  "pr": {
+    "number": 370,
+    "url": "https://github.com/insight-lpr/platform/pull/370",
+    "draft": false
+  },
+  "pr_urls": {
+    "main": "https://github.com/insight-lpr/platform/pull/370"
+  },
+  "jira_in_progress_by": "already In Progress at intake (no transition needed) @ 2026-08-25",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "No draft-aware GitHub Action fired on undraft for this repo, so the pipeline transitioned To Do->In Code Review via the Atlassian MCP (transition id 4) at 2026-08-26. This is the designed fallback, not a manual intervention.",
+  "assumed": [],
+  "comment_ids": {
+    "status": "38585",
+    "build_record": "38590"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": "(no browser lanes \u2014 backend-only change, UI flag-hidden; evidence is the resource-envelope + AC records)",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "provisioned_early": true,
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated (DEV-2426 migration verified applied in both branch DBs)",
+      "docker_daemon": "already-running",
+      "ch_container": "reused (clarity-qa-clickhouse)",
+      "frontend_build": "not-needed",
+      "postgres_db": "zod_claude_dev_2426 / zod_testing_claude_dev_2426",
+      "ch_strategy": "docker (clarity_claude_dev_2426 / zod_claude_dev_2426 on 127.0.0.1:18123)",
+      "herd_site": "clarity-claude_dev_2426.test",
+      "note": "up.sh failed its own schema verification and left .env on Cloud + .env.testing on the pgsql bridge; repointed by hand after backing both files up."
+    },
+    "resource_envelope": {
+      "path": ".context/qa-resource-envelope.json",
+      "verdict": "PASS",
+      "peak_rss_bytes": 92192768,
+      "marginal_rss_bytes": 3178496,
+      "wall_clock_seconds": 0.67,
+      "plausible_concurrency": 2,
+      "projected_marginal_gb": 0.18,
+      "headroom_gb": null,
+      "host_ram_gb": 68,
+      "extrapolation_factor": 42.5,
+      "basis": "measured"
+    }
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+        "passed": 29,
+        "failed": 0,
+        "note": "the change's own coverage: 22 pre-existing + 7 new (3 flip mechanisms + 4 Postgres-layer pins). Run under the CI-equivalent literal clarity/zod CH databases."
+      },
+      {
+        "cmd": "php artisan test --compact tests/Unit/Clickhouse/Queries/ScoutCheckInMatchQueryParityTest.php",
+        "passed": 11,
+        "failed": 0,
+        "note": "10 pre-existing + 1 new (address-geo vs fix-geo provenance at the query layer)."
+      },
+      {
+        "cmd": "individual sweep of all 54 Scout/CheckIn-touching test files",
+        "passed": 51,
+        "failed": 3,
+        "note": "3 files fail and are PRE-EXISTING + environmental, verified by attribution: CloseInactiveShiftsCommandTest (2 \u2014 timestamps exactly 3600s apart, a timezone offset; already a recorded known failure), ClarityScoutMapControllerTest (1), EnsureOpenShiftTest (1). All three contain ZERO references to ScoutCheckIn / scout_check_ins / record-check-ins / addr_lng / addr_lat, so they cannot be caused by this change. Separately proven: reverting ONLY the command test file to origin/main reproduced the same HitDirectHotspotQueryTest failure count, and repointing the CH testing databases to the literal names took 10 files from failing to green."
+      },
+      {
+        "cmd": "php artisan test --compact --filter='Scout|CheckIn' (combined)",
+        "passed": 0,
+        "failed": 0,
+        "note": "NOT a usable signal locally: the combined run exhausts the 128M memory_limit mid-run (a known local constraint; -d memory_limit does not reach test children). The full suite is CI's job per CLAUDE.md. Reported as unrun rather than passed."
+      }
+    ],
+    "deviations": [
+      {
+        "source": "driver",
+        "edit": "Reverted CLAUDE.md, AGENTS.md and .junie/guidelines.md to origin/main after a checkpoint committed boost-doc regeneration drift (the forbidden <laravel-boost-guidelines> block had reappeared in CLAUDE.md, which okf-lint fails on, and .junie had PHP downgraded from the documented 8.3 to the local 8.4.23).",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "driver",
+        "edit": "t4 and t5 were implemented by a single worker rather than two: they target the identical file and the plan already serialized them, so splitting would have added a round-trip with no parallelism.",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "driver",
+        "edit": "Repointed .env.testing ClickHouse databases from the per-worktree names to the literal clarity/zod after up.sh's schema verification failed and left the env mis-set. Environment only \u2014 no code change.",
+        "ac_ref": null,
+        "ac_delta": null
+      }
+    ],
+    "review": {
+      "lanes": [
+        "claude1",
+        "claude2",
+        "claude3"
+      ],
+      "rounds": [
+        {
+          "rn": 1,
+          "scores": [
+            92,
+            88,
+            91
+          ],
+          "min": 88,
+          "gate": "fail"
+        },
+        {
+          "rn": 2,
+          "scores": [
+            90,
+            92,
+            94
+          ],
+          "min": 90,
+          "gate": "pass"
+        },
+        {
+          "rn": 3,
+          "scores": [
+            94,
+            94,
+            94
+          ],
+          "min": 94,
+          "gate": "pass"
+        },
+        {
+          "rn": 4,
+          "scores": [
+            94,
+            94,
+            88
+          ],
+          "min": 88,
+          "gate": "fail"
+        },
+        {
+          "rn": 5,
+          "scores": [],
+          "min": null,
+          "gate": "killed mid-flight by session teardown \u2014 no lane output; not reused"
+        },
+        {
+          "rn": 6,
+          "scores": [
+            94,
+            92,
+            92
+          ],
+          "min": 92,
+          "gate": "pass"
+        },
+        {
+          "rn": 7,
+          "scores": [],
+          "min": null,
+          "gate": "killed mid-flight (background shell terminated); not reused"
+        },
+        {
+          "rn": 8,
+          "scores": [
+            92,
+            94,
+            90
+          ],
+          "min": 90,
+          "gate": "pass"
+        }
+      ],
+      "scores": [
+        92,
+        94,
+        90
+      ],
+      "findings_fixed": [
+        "claude3 H1 org_id in the unique key",
+        "claude2 D2/claude3 M1 migrate:rollback&&migrate re-runnability",
+        "claude2 D3 hand-apply runbook used DROP INDEX on a UNIQUE CONSTRAINT (would have errored in prod)",
+        "claude2 D1 deploy-boundary duplicate documented",
+        "claude1 M2 provenance test delta wider than the separation",
+        "claude1 L2 mechanism_1/2 lacked a positive control",
+        "claude1 L1 nullable @property",
+        "claude1 L3 precision-guard comment overstated",
+        "round2 claude3 D1/claude1 D3: docblocks justified org_id with an impossible mechanism",
+        "round2 claude1 D2: matcher docblock stated the key without org_id",
+        "round2 claude3 D2: down() unguarded where up() was guarded",
+        "round2 claude2 D1: deploy-boundary mitigation was arithmetically wrong",
+        "round2 claude2 D2/claude1 D1: documented the fourth (geo-mutation) residual with a measured bound",
+        "round2 claude3 D4: storage-layer provenance delta tightened to match its twin",
+        "round2 claude2 D3: plan.md up() snippet did not compile",
+        "round4 claude3 H1 (HIGH): up()'s column adds were unguarded while the drop was guarded \u2014 a partial up() wedged the next migrate; proven fixed against the actual wedged state",
+        "round4 claude3 M2: runbook had no pre-flight duplicate check before ADD CONSTRAINT",
+        "round4 claude3 M3: cross-org test name implied simultaneous sharing the schema forbids \u2014 renamed to the sequential mechanism",
+        "round4 claude3 H2: documented the guard-vs-command evaluation order in Schema::table closures"
+      ],
+      "findings_residual": [
+        "claude2 M2 (round 3): a data-level mitigation for the deploy-boundary duplicate is 'one statement away' \u2014 it would mean backfilling or deleting straddling rows, which is the backfill decision Dalton declined (Q3). Recorded, not actioned.",
+        "claude1 D8 (round 3): float over-collapse framed as a precision curiosity rather than a silent data-loss path. The measured boundary is ~1e-12 degrees (~0.1 micrometres) against a 1e-5 degree grain, so it is not reachable; geo-key-float-precision.md carries the arithmetic.",
+        "claude1 D4 (round 2): the guarded drop turns a constraint-name mismatch into a silent no-op. Not reachable \u2014 the name is the Laravel-derived one created by the same shipped migration (52 chars, under Postgres's 63-char limit).",
+        "round4 claude3 M1 (the 'null island') REFUTED, not deferred: zero-geo book rows are excluded by ScoutCheckInMatchQuery's addresses CTE (lines 188-189) and zero-geo fixes by position_window (167-168), so they never reach the (float) cast. Now pinned by test_a_zero_geo_book_row_is_never_elected_so_no_null_island_row_can_be_written rather than left as an argument."
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "harness-claude-p"
+        },
+        {
+          "lane": "claude2",
+          "source": "harness-claude-p"
+        },
+        {
+          "lane": "claude3",
+          "source": "harness-claude-p"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "a009246432624d897f6a4475e643b71f9bba7e36",
+      "rework_pivot": false,
+      "post_review_drift": {
+        "head": "a009246432624d897f6a4475e643b71f9bba7e36",
+        "reviewed_sha": "a009246432624d897f6a4475e643b71f9bba7e36",
+        "note": "HEAD == reviewed_sha: no code changed after the RN=8 pass, so the merged code IS the reviewed code."
+      },
+      "rounds_note": "8 numbered rounds, 6 with lane output: RN=1 fail(88), RN=2 pass(90), RN=3 pass(94), RN=4 fail(88), RN=6 pass(92), RN=8 pass(90). RN=5 and RN=7 were launched but their background shells were terminated before any lane wrote output ('[killed]' in the logs) \u2014 neither was reused, and RN=8 was launched with nohup+disown so a shell teardown could not take it. Every recorded round ran real harness-claude-p lanes; no in-session substitution."
+    },
+    "ac": [
+      {
+        "item": "Re-running scout:record-check-ins across an hour in which the elected address for a place changes produces exactly one row for that place in that hour",
+        "status": "SATISFIED",
+        "evidence": "Proven twice, at unit scale and at seeded scale. (a) Unit: mechanism_1/2/3 tests, each running the command twice with the book mutated between runs, each with a query-layer positive control proving the election actually flipped. (b) Live, 20,000 book rows / 5 geos: run 1 -> 5 rows; run 2 (no change) -> 0 recorded, still 5; run 3 after inserting 5 LOWER address_ids (flipping the winner at every geo) -> 0 recorded, still 5. Positive control: matcher now elects 100-104 while rows still hold frozen 900000-900004. The old key would have produced 10 rows."
+      },
+      {
+        "item": "All three flip mechanisms covered by tests, including the bucket-migration case, which must not strand a stale is_staged",
+        "status": "SATISFIED",
+        "evidence": "mechanism_1_a_lower_address_id_opening_at_the_same_geo_does_not_flip_the_winner; mechanism_2_the_winning_orders_closing_does_not_flip_the_winner; mechanism_3_an_address_moving_sides_between_rebuilds_preserves_the_frozen_staged_row_and_adds_a_direct_one. All three mutate clarity.scout_open_addresses between two command runs and carry positive controls. Mechanism 3 is modelled TEMPORALLY (delete the Staging book row, re-insert the same address_id on a Direct hotlist) because production measurement showed 0 of 4,519,947 book address_ids carry both is_staged values, so the simultaneous dual-listing the ticket described cannot occur. Its assertions are sharp enough to fail the real failure mode (two staging rows and no Direct row): total==2 AND exactly one per side AND the staged row's matched_at preserved AND both rows naming address_id 8000."
+      },
+      {
+        "item": "The measured recorded/kits_processed figure from the completed log line is reported before and after",
+        "status": "NOT SATISFIED \u2014 deferred by explicit decision",
+        "evidence": "Dalton decided 2026-08-25 that the 'after' figure is a POST-MERGE follow-up and does not gate this ticket. Neither figure arrives on its own because routes/console.php:59-65 has the schedule commented out, so both require a manual production run. The PR ships instead: (a) the measured exposure sizing in flip-risk-measurement.md (33.3% of (geo,is_staged) election groups hold >1 address; 59.2% of book rows); (b) a precise procedure in ac3-measurement-procedure.md including the corrected timing rule (start the after-run at least one full lookback_minutes PAST the hour boundary, not merely after the boundary) and the deploy-boundary duplicate that would otherwise inflate it."
+      },
+      {
+        "item": "No regression to DEV-2414's grain: N co-located addresses at one place still yield one row per is_staged side",
+        "status": "SATISFIED",
+        "evidence": "several_co_located_addresses_per_side_still_collapse_to_one_row_per_side (3 co-located Direct + 1 co-located Staging -> exactly 2 rows, one per side, correct lowest-address_id winner per side). All 10 pre-existing ScoutCheckInMatchQueryParityTest grain assertions remain green, including test_colocated_direct_and_staging_each_record_their_own_check_in. At seeded scale, 20,000 co-located book rows across 5 geos collapsed to exactly 5 rows."
+      },
+      {
+        "item": "The change must not regress the recorder's production resource footprint (DEV-2342 precedent)",
+        "status": "SATISFIED",
+        "evidence": "Marginal peak RSS 3.03 MB over the flag-off control, 0.67s wall clock against a 300s interval, at 20,000 book rows. Allocation is driven by match count (server-side filtering means only elected rows cross the PHP boundary), not book size, so it does not scale with production's larger book. Full figures and controls in .context/qa-resource-envelope.json."
+      }
+    ],
+    "ci": {
+      "workflow": "Pint & Tests",
+      "run_id": 32994752379,
+      "head_sha": "a0092464",
+      "conclusion": "success",
+      "shards": "3/3 green (PHP 8.4, shards 1-3)",
+      "also": "Kamal PR Preview / Deploy PR-370 preview successful; the Jira-comment step skipped",
+      "note": "Validated the FINAL head (a0092464 == origin/claude/DEV-2426), so it covers the round-6 fixes (guarded index build + corrected null-island test). Three earlier runs (0817d7b9, 82fad8d5, da495680) sat queued ~2h with zero jobs allocated \u2014 a GitHub runner-allocation stall, not a failure; they were superseded once capacity freed."
+    }
+  },
+  "derivation_log": [
+    {
+      "query_shape": "SELECT count() FROM clarity.scout_open_addresses",
+      "param_classes": "none",
+      "aggregate_result": "4,519,947 book rows (2026-08-25 snapshot)",
+      "why": "sizes the book; cross-checks DEV-2414's 4,534,601 from 2026-08-24 (book churns)"
+    },
+    {
+      "query_shape": "SELECT <cluster-size bucket>, count(), sum(n) FROM (SELECT count() AS n FROM clarity.scout_open_addresses WHERE geo != 0 GROUP BY tupleElement(geo,1), tupleElement(geo,2), is_staged) GROUP BY bucket",
+      "param_classes": "none",
+      "aggregate_result": "2,767,871 (geo,side) groups; 922,021 (33.3%) hold >1 address; 2,674,097 book rows (59.2%) sit in such a group",
+      "why": "the at-risk population for flip mechanisms 1 and 2 \u2014 the figure the ticket says is unmeasured"
+    },
+    {
+      "query_shape": "SELECT countIf(sides=2), count() FROM (SELECT uniqExact(is_staged) AS sides FROM clarity.scout_open_addresses WHERE geo != 0 GROUP BY address_id)",
+      "param_classes": "none",
+      "aggregate_result": "0 of 4,519,947 address_ids carry both is_staged values",
+      "why": "tests whether mechanism 3's simultaneous dual-listing variant occurs in production \u2014 it does not; mechanism 3 must be restated as a temporal label change"
+    },
+    {
+      "query_shape": "SELECT count(), uniqExact(address_id), uniqExact((hotlist_id,address_id)), uniqExact(hotlist_id) FROM clarity.scout_open_addresses",
+      "param_classes": "none",
+      "aggregate_result": "4,519,947 / 4,519,947 / 4,519,947 / 1,623,778",
+      "why": "confirms address_id is globally unique in the book snapshot (independent verification of the zero-dual-listing result)"
+    },
+    {
+      "query_shape": "SELECT countIf(sides=2), count() FROM (SELECT uniqExact(is_staged) AS sides FROM clarity.scout_open_addresses WHERE geo != 0 GROUP BY tupleElement(geo,1), tupleElement(geo,2))",
+      "param_classes": "none",
+      "aggregate_result": "404,786 of 2,363,085 geos (17.13%) carry both sides FLEET-WIDE",
+      "why": "the AC4 both-sides population; distinct from the docblock's ~0.27% per-org view-weighted figure and must not be conflated with it"
+    },
+    {
+      "query_shape": "SELECT status, count(), countIf(updated_at >= now() - INTERVAL 1 DAY), countIf(updated_at >= now() - INTERVAL 7 DAY) FROM zod.public_hotlist FINAL WHERE _peerdb_is_deleted = 0 GROUP BY status",
+      "param_classes": "status enum",
+      "aggregate_result": "Open(1): 46,059,715 rows, 1,015,874 updated in 24h; non-open statuses ~212,700 updated in 24h",
+      "why": "sizes the order-closure churn that drives flip mechanism 2, the one the ticket calls frequent"
+    },
+    {
+      "query_shape": "SELECT engine_full FROM system.tables WHERE database='clarity' AND name='scout_open_addresses'",
+      "param_classes": "none",
+      "aggregate_result": "SharedMergeTree ORDER BY (org_id, is_staged, hotlist_id, address_id)",
+      "why": "confirms no geo prefix in the sort key, so the bbox prefilter stays load-bearing (unchanged by this ticket)"
+    },
+    {
+      "query_shape": "prod-cardinality.sh --app clarity --table address",
+      "param_classes": "none",
+      "aggregate_result": "zod.public_address = 198,128,783 rows",
+      "why": "oracle liveness check; also confirms platform.scout_check_ins is NOT in the zod.public_* CDC mirror (UNKNOWN_TABLE), so its row count has no oracle"
+    }
+  ],
+  "oracle_notes": {
+    "ch_cloud_readonly_user": "BROKEN \u2014 the CLICKHOUSE_PASSWORD for readonly_user in .env (and in ~/Herd/clarity/projects/chlocal/.env, same value) is rejected by ClickHouse Cloud with AUTHENTICATION_FAILED (code 516). The credential appears rotated or revoked. Host is reachable (/ping = 200).",
+    "ch_cloud_working_credential": "CLICKHOUSE_CLOUD_BACKFILL_USER/_PASSWORD in ~/Herd/clarity/projects/chlocal/.env (user `default`) authenticates. All measurements in this run used it for SELECT statements ONLY. This is the same credential prod-cardinality.sh reaches CH with.",
+    "platform_scout_check_ins": "NO ORACLE. It is a platform-schema table and is not mirrored into zod.public_* (verified: UNKNOWN_TABLE, not an auth error). Its production row count is unknown."
+  }
+}

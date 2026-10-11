@@ -1,0 +1,90 @@
+{
+  "key": "DEV-2739",
+  "track": "bug",
+  "phase": "provisioned",
+  "gate": "CLEAN",
+  "authoritative": true,
+  "product_php": true,
+  "product_vue": false,
+  "input": "docs/investigations/DEV-2739/prep-context.json",
+  "base_sha": "e09b222e15b912bd59542e800e5e0171c08d82eb",
+  "branch": "cursor/dev-2739-hits-distance-na-prep-439d",
+  "branch_path": "main",
+  "pr": 469,
+  "first_glance": "41873",
+  "answers": {
+    "Q1": "org 14 Brad Webb impersonation \u00b7 Open \u00b7 Today \u00b7 New Hit+Accessible \u00b7 both columns N/A",
+    "Q2": "measure Cloud CH RO first \u2014 DONE (measure.md / q3 / path-b-gap)",
+    "Q3": "SUPERSEDED 2026-09-29 \u2014 Path A locked (was defer Path A vs B)",
+    "Given_path": {
+      "lock": "Path A",
+      "text": "Given = any geocoded hotlist address on the order (hotlist_address \u22c8 address with geo). No type_id filter. Not recovery_address / type_id=2 only.",
+      "source": "Dalton via Gandalf 2026-09-29; Galadriel Board reopen same day"
+    }
+  },
+  "preflight": {
+    "24": "smallest change \u2014 retarget CH/fallback Given source to Path A shape; no Hits rewrite",
+    "25": "does_not_fire for provision measure already done; implement must not write Cloud CH",
+    "26": "main"
+  },
+  "root_cause_class": "Path B Given source is recovery_address (type_id=2 MV). Org cohort geocoded addresses are almost all type_id NULL \u2192 B-miss while Path A would hit (~81% B-miss\u00b7A-hit across 5 orgs). Demo uses admin impersonation \u2192 always Path B blades.",
+  "files": [
+    {
+      "path": "app/Http/Controllers/NearestGivenAddressController.php",
+      "change": "Stop reading clarity.recovery_address FINAL. Resolve Given from Path A: zod public.hotlist_address \u22c8 public.address where a.geo IS NOT NULL (and scan lat/lng non-zero). Pick nearest Haversine (or equivalent PostGIS) among all geocoded linked addresses. No type_id filter."
+    },
+    {
+      "path": "tests/Feature/...NearestGivenAddress... (existing or new)",
+      "change": "Pin: type_id NULL geocoded address returns distance/address; type_id=2 still works; zero geo / no address \u2192 empty JSON \u2192 N/A; feature/impersonator gate unchanged."
+    },
+    {
+      "path": "okf/concepts/hit-address-distance.md",
+      "change": "Post-approval / WRITE-after-approval: Path A is product Given for both list modes; Path B recovery_address no longer the Hits distance source. Optional in implement if CLAUDE.md allows; else follow-up."
+    }
+  ],
+  "do_not_touch": [
+    "clarity.recovery_address_mv / PeerDB type_id=2 definition (out of scope \u2014 Scout already left RA for open-order)",
+    "ListHits::buildPostgresQuery Path A subqueries (already match the lock \u2014 keep)",
+    "public.recovery_address PG MV package",
+    "Cloud ClickHouse writes",
+    "DEV-1611 reopen / rewrite Hits resource"
+  ],
+  "steps": [
+    "1. Confirm ListHits admin-impersonation / clickhouse:hits still leaves distance columns unset \u2192 blades \u2192 NearestGivenAddressController (unchanged routing).",
+    "2. Retarget controller query to Path A Postgres: hotlist_address \u22c8 address, a.geo IS NOT NULL, no type_id predicate; keep lat/lng==0 short-circuit and feature/impersonator gate.",
+    "3. Nearest among all qualifying rows (same Haversine miles as today, or ST_DistanceSphere) \u2192 {address, distance_miles}.",
+    "4. Feature tests for NULL type_id geocoded hit, type_id=2 still ok, empty \u2192 [].",
+    "5. Manual QA: impersonate brad.webb@premieradjusters.com org 14 \u00b7 Open \u00b7 Today \u00b7 New Hit+Accessible \u2014 expect Distance/Nearest populated where Path A measure said A-hit; N/A only where Path A absent or scan geo missing.",
+    "6. Do not alter recovery_address_mv; do not wait on DEV-2736 FAIL (Galadriel reopen clears prior Provision HELD for this Path A retarget)."
+  ],
+  "evidence": {
+    "measure.md": "org 14: 1322 usable-geo hits; Path B qualifying RA on only 3 hotlists / 24 hits",
+    "measure-q3-contrast.md": "5 orgs \u03a3 5365/6624 hits (81%) B-miss\u00b7A-hit",
+    "measure-path-b-gap.md": "1100 B-miss\u00b7A-hit hotlists: 0 with type_id=2 geocoded; all NULL type_id; drop-type_id thought experiment would_pass=884"
+  },
+  "out_of_scope": [
+    "Widening recovery_address_mv to drop type_id=2",
+    "Selecting distance columns inside buildClickhouseQuery",
+    "Changing Path A PG list query field set",
+    "Inventing other address type_ids (Glorfindel: only 2+NULL proven)"
+  ],
+  "done_signal": [
+    "Admin-impersonation Hits (Path B UI path) returns Distance/Nearest from any geocoded hotlist address",
+    "Org 14 locked filters: rows that were A-hit in measure no longer all-N/A",
+    "N/A remains when no geocoded hotlist address or scan geo missing/zero",
+    "No Cloud CH write; no type_id=2-only filter on Given",
+    "Tests pin NULL-type_id geocoded success"
+  ],
+  "next": "Implement",
+  "provision": {
+    "path": "A",
+    "ledger": "docs/investigations/DEV-2739/qa-prep-ledger.json",
+    "site": "http://127.0.0.1:18089",
+    "pg": "127.0.0.1:15441 / zod_dev_2739",
+    "ch": "127.0.0.1:18132 / clarity_dev_2739",
+    "checkout": "/workspace/dev-2739-wt @ b0a89abdf",
+    "cloud_touched": false,
+    "at": "2026-09-29 08:21 CT",
+    "distinct_from": "DEV-2601 :18088/:15440/:18131"
+  }
+}

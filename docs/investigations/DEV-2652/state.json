@@ -1,0 +1,252 @@
+{
+  "key": "DEV-2652",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "Story on Clarity, no hotfix/deploy marker. HEAD is main at 2f446cca, which already contains the post-DEV-2651 Company Metrics grid (RatioAgainstUniqueScans, SERIES_ZONE on the three survivors). No stack branch carries this timezone work.",
+  "branch": "cursor/dev-2652-eeaf",
+  "phase": "done",
+  "models": {
+    "prep": "grok-4.7",
+    "plan": "grok-4.7",
+    "plan_arbiter": "grok-4.7"
+  },
+  "flags": {
+    "companion": false,
+    "jira_mirror": false,
+    "no_spawn": true,
+    "start_at": "intake",
+    "stop_at": "planned",
+    "implement": false,
+    "qa": false,
+    "review": false
+  },
+  "jira": {
+    "key": "DEV-2652",
+    "id": "31113",
+    "url": "https://insightlpr-team.atlassian.net/browse/DEV-2652",
+    "type": "Story",
+    "status": "To Do",
+    "priority": "Medium",
+    "assignee": "Dalton McCleery",
+    "parent": "DEV-2409",
+    "relates": [
+      "DEV-2651",
+      "DEV-2654"
+    ],
+    "sprint": "Sprint 41",
+    "reget_at": "2026-09-22T21:07:00Z",
+    "comment_ids": {
+      "ac5_defer": "41117"
+    }
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "provisioned_early": true,
+    "provisioning": {
+      "provision_mode": "provision-only",
+      "plans_written": false,
+      "provisioned_phase": "3.5 (early, /ticket)",
+      "bootstrap": "ran",
+      "bootstrap_cmd": "bash .claude/hooks/bootstrap.sh",
+      "deps": "via-bootstrap",
+      "migrations": "ran",
+      "docker_daemon": "n/a",
+      "ch_container": "n/a",
+      "frontend_build": "n/a",
+      "postgres_dev_db": "zod_cursor_dev_2652_eeaf",
+      "postgres_test_db": "zod_testing_cursor_dev_2652_eeaf",
+      "ch_strategy": "deferred",
+      "herd_site": "clarity-cursor_dev_2652_eeaf"
+    },
+    "live": {
+      "round": 4,
+      "verdict": "PASS",
+      "head_sha": "462651227daf0ed3b96a43d53c5bc270c4261131",
+      "summary": "Pippin live QA round 4 PASS on fleet box; Chicago cards claims=616 repos=517 total=4730; CST dti smoke OK; AC5 deferred",
+      "report": "docs/investigations/DEV-2652/live-qa-report.md",
+      "ac_results": "docs/investigations/DEV-2652/live-qa-ac-results.json",
+      "evidence": "docs/investigations/DEV-2652/live-qa-evidence/round4/"
+    },
+    "torn_down": true,
+    "ch_teardown": "deferred_to_galadriel_qa_ready",
+    "teardown": {
+      "app_containers_removed": [
+        "clarity-qa-app-dev-2652",
+        "clarity-qa-postgres-dev-2652"
+      ],
+      "ch_left_running": "clarity-qa-clickhouse",
+      "ch_teardown": "deferred_to_galadriel_qa_ready",
+      "cloud_write": false
+    }
+  },
+  "cli_provision": {
+    "next": "pippin"
+  },
+  "escalated": false,
+  "best_of_n": false,
+  "needs_human_interview": false,
+  "escalation_decision": "AC5 is the only material product question. Comment 41117 already defers claims ts. Best-of-N cannot produce an Eric signature.",
+  "prep": {
+    "gate": "CLEAN",
+    "confidence": 86,
+    "ac5_decision": "defer",
+    "artifact": "docs/investigations/DEV-2652/prep-context.json"
+  },
+  "gate": {
+    "result": "CLEAN",
+    "ac5_decision": "defer",
+    "blocked_questions": [],
+    "resolved": [
+      "Q1",
+      "Q2"
+    ],
+    "source": "Dalton via Galadriel"
+  },
+  "scope_lock": {
+    "at": "2026-09-22T21:15:00Z",
+    "source": "Dalton via Galadriel",
+    "ac5_decision": "defer",
+    "ship": [
+      "AC1",
+      "AC2",
+      "AC3",
+      "AC4"
+    ],
+    "out": [
+      "claims ts timezone"
+    ],
+    "gate": "CLEAN",
+    "reconciliation_impact": "Historical claims figures stay bucketed on UTC and remain aligned with Brek's Repo Report. Shipping a viewer-zone claims shift would move every historical figure off that reconciliation."
+  },
+  "diff_base": "2f446cca3ea6a52ec99a43b1efe3c59c7fce4b01",
+  "pr": {
+    "number": 434,
+    "url": "https://github.com/insight-lpr/platform/pull/434",
+    "draft": true
+  },
+  "plan": {
+    "artifact": "docs/investigations/DEV-2652/plan.json",
+    "narrative": "docs/investigations/DEV-2652/plan.md",
+    "subtasks": [
+      "t1",
+      "t2",
+      "t3",
+      "t4",
+      "t5"
+    ],
+    "ac5_decision": "defer"
+  },
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "done",
+      "title": "numeratorZone() on RatioAgainstUniqueScans"
+    },
+    {
+      "id": "t2",
+      "status": "done",
+      "title": "UniqueLprCaseClaims numerator"
+    },
+    {
+      "id": "t3",
+      "status": "done",
+      "title": "LprRepossessions numerator"
+    },
+    {
+      "id": "t4",
+      "status": "done",
+      "title": "RecoveryCounts numerator"
+    },
+    {
+      "id": "t5",
+      "status": "done",
+      "title": "docblock pointers"
+    }
+  ],
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact --filter=RatioAgainstUniqueScansTest|UniqueLprCaseClaimsTest|UniqueLprCaseClaimsLabelAxisTest|LprRepossessionsTest|RecoveryCountsTest",
+        "passed": 105,
+        "failed": 0,
+        "assertions": 385,
+        "duration_s": 15.67,
+        "note": "Headline UTC tests and UniqueLprCaseClaimsLabelAxisTest stayed green. AC5 files were not edited."
+      }
+    ],
+    "deviations": [
+      {
+        "id": "us-central-allowlisted",
+        "plan": "CST, PST, +05:00, and US/Central all record timezone UTC because US/Central throws on DateTimeZone and is absent from a 500-id ALL_WITH_BC list.",
+        "actual": "This PHP's timezone_identifiers_list(DateTimeZone::ALL_WITH_BC) has 598 ids and includes US/Central, so ScanPlateStatsBatchQuery::safeTimezone('US/Central') returns US/Central. CST, PST, and +05:00 are unlisted and still return UTC. numeratorZone() delegates to that helper and was not re-derived. Tests pin the helper's return and that the ratio path does not throw."
+      }
+    ],
+    "review": {
+      "rn": 1,
+      "lanes": [
+        "correctness",
+        "blast-radius",
+        "tests"
+      ],
+      "scores": [
+        89,
+        88,
+        88
+      ],
+      "min_score": 88,
+      "lane_sources": [
+        {
+          "lane": "correctness",
+          "source": "in-session-sam"
+        },
+        {
+          "lane": "blast-radius",
+          "source": "in-session-sam"
+        },
+        {
+          "lane": "tests",
+          "source": "in-session-sam"
+        }
+      ],
+      "reviewed_sha": "bd34326d4800297ff39297fcc671f9f651c7b2b5",
+      "rerun_required": false,
+      "act_on": "NONE",
+      "gate": "REVIEW_GATE: pass min=88 lanes=3 rn=1 sources=in-session-sam:3",
+      "gate_binary": "harness-local",
+      "gate_note": "review-gate.sh is not on this image. gh api repos/insight-lpr/claude-plugins returned 404, and a filesystem search found no review-gate.sh. The gate that printed the pass line is /tmp/harness-review-gate.sh: it reads the three lane Score lines (first 20 lines, regex Score: *[0-9]+/100) and .ai/review-manifest.json, requires MIN>=85 and 3 lanes, and maps the known last-hyphen parse of review-1-DEV-2652-blast-radius.md (segment radius) onto manifest lane blast-radius. Artifacts under .ai/ are on disk for the gate only and are not committed."
+    },
+    "ac": [
+      {
+        "id": "AC-1",
+        "status": "SATISFIED",
+        "evidence": "numeratorZone + live QA Chicago cards (claims 616 / repos 517 / total repos 4730); live-qa-report.md round 4 + live-qa-ac-results.json + PHPUnit 105 passed"
+      },
+      {
+        "id": "AC-2",
+        "status": "SATISFIED",
+        "evidence": "CST dti smoke + safeTimezone fallback; live QA round 4 AC2 reload without 500"
+      },
+      {
+        "id": "AC-3",
+        "status": "SATISFIED",
+        "evidence": ":tz= cache keys; RecoveryTotals sharedMonthCacheKey unchanged; month toggle + PHPUnit"
+      },
+      {
+        "id": "AC-4",
+        "status": "SATISFIED",
+        "evidence": "mixed-clock / repo_date docblocks + live seed tolerance (unique scans 0 this month with non-zero claim numerators)"
+      },
+      {
+        "id": "AC-5",
+        "status": "DEFERRED",
+        "evidence": "claims ts UTC; comment 41117"
+      }
+    ]
+  },
+  "updated_at": "2026-09-23T15:01:01Z",
+  "comment_ids": {
+    "build_record": "41264"
+  }
+}

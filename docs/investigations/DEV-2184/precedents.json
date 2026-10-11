@@ -1,0 +1,22 @@
+{
+  "precedents": [
+    {"key": "DEV-2116", "status": "Done", "relevance": "Introduced Bird's Eye org-wide admin view + OrgLivePositions/OrgLivePaths query classes the driverPositions endpoint uses", "applicable": "YES — the all-driver positions architecture originated here"},
+    {"key": "DEV-2061", "status": "Done", "relevance": "Map directional arrows on live positions; consumes heading from sc_positions via the kit-position endpoint", "applicable": "YES — exercises the endpoint; informs when it returns HTML vs JSON"},
+    {"key": "DEV-2012", "status": "Done", "relevance": "Smooth live path; merges intermediate sc_positions points", "applicable": "PARTIAL — live-path sibling; error path may be identical"},
+    {"key": "DEV-2117", "status": "Done", "relevance": "Aligned recentHits/heatmap to current hotlist status across Scout hit surfaces", "applicable": "PARTIAL — filtering patterns, not positions"},
+    {"key": "DEV-2130", "status": "Done", "relevance": "Scout analytics tracking + activity logging", "applicable": "PARTIAL — not root cause"}
+  ],
+  "endpoint_candidates": [
+    {"file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php", "line": 78, "role": "controller", "method": "driverPositions", "route": "GET /scout/map/driver-positions (web route — Filament scope)"},
+    {"file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php", "line": 140, "role": "controller", "method": "driverPaths", "route": "GET /scout/map/driver-paths (web route — Filament scope)"},
+    {"file": "app/Http/Controllers/Api/ClarityScoutMapController.php", "line": 366, "role": "controller", "method": "kitPosition", "route": "GET /api/scout/map/kit-position (api route)"},
+    {"file": "app/Http/Controllers/Api/ClarityScoutMapController.php", "line": 125, "role": "controller", "method": "livePath", "route": "GET /api/scout/map/live-path (api route)"},
+    {"file": "resources/js/clarity-scout/stores/map.js", "line": 372, "role": "js", "method": "fetchKitPosition — throws 'Failed to fetch kit position' at ~378"}
+  ],
+  "notes": [
+    "All-driver positions surface = Bird's Eye web routes (Filament middleware) → HTML error page on unhandled error, matching the ticket's 'it's a Filament endpoint' note.",
+    "OrgLivePositionsQuery/OrgLivePathsQuery (ClickHouse, sc_positions) are the likely server-side failure source; CH errors can propagate as 500 → Filament HTML page.",
+    "Compare api-route vs web-route exception rendering; api routes already return JSON.",
+    "Bird's Eye reuses the real Scout App.vue via adminMode (DEV-2116) — the same map store fetch may target the web route in admin mode."
+  ]
+}

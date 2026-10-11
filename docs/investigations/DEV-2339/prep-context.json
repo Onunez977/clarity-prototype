@@ -1,0 +1,342 @@
+{
+  "gate": "CLEAN",
+  "mode": "normal",
+  "best_of_n": true,
+  "escalated": true,
+  "escalation_triggers": [
+    "confidence_conflict_across_candidates",
+    "unanswered_material_questions",
+    "ticket_lead_conflicts_with_code_docs",
+    "CH_perf_requires_EXPLAIN_before_commit"
+  ],
+  "missed_caller_candidates": [
+    {
+      "file": "routes/console.php",
+      "symbol": "ScoutRecordCheckIns",
+      "referenced_at": "59-67 schedule withoutOverlapping(10) \u2014 owned by DEV-2342, not this fix"
+    },
+    {
+      "file": "app/Models/ScoutCheckIn.php",
+      "symbol": "ScoutRecordCheckIns",
+      "referenced_at": "docblock reference only \u2014 safe"
+    }
+  ],
+  "synthesis": {
+    "problem": "ScoutOpenOrderAddressesQuery hits ClickHouse max_execution_time (~30s, error 159) on cache-miss cycles. ClickhouseQuery swallows the exception to [], so scout:record-check-ins records zero check-ins for that org. Concurrent pile-up from withoutOverlapping(10) is tracked as DEV-2342 and is out of scope.",
+    "outcome": "Ship a measured query-shape fix for ScoutOpenOrderAddressesQuery that restores sub-30s enumeration under production-scale org address sets, without raising max_execution_time, while preserving Direct/Staging semantics (one row per address, direct-preferred, latest CDC coords)."
+  },
+  "scope": {
+    "summary": "Rewrite ScoutOpenOrderAddressesQuery to prune-first (B): public_address WHERE id IN (address_links) then join metadata. Do not delete IN. Leave Rollup/Geohash/DEV-2342 untouched.",
+    "proposed_changes": [
+      {
+        "file": "app/Clickhouse/Queries/ScoutOpenOrderAddressesQuery.php",
+        "change": "Restructure final SELECT to prune-first: subquery/CTE on public_address filtered by id IN (SELECT address_id FROM address_links), then join address_links for is_staged/hotlist_id; keep argMin/argMax/geo guards. Update docblock: IN is load-bearing PK prune; JOIN carries metadata \u2014 keep BOTH (A rejected).",
+        "reason": "Measured: B 13.4s vs CURRENT 15.4s; A full-scans public_address and times out.",
+        "ref": "measure-results.json; ScoutCheckInRollupQuery keep-BOTH docs; HotlistAddressGeohashQuery IN prune"
+      },
+      {
+        "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+        "change": "Rely on/extend existing CH recorder coverage for Direct/Staging, shared-address direct preference, geo guards, latest CDC coords.",
+        "reason": "Pin semantics after query-shape change.",
+        "ref": "ScoutRecordCheckInsCommandTest"
+      }
+    ],
+    "target_files": [
+      "app/Clickhouse/Queries/ScoutOpenOrderAddressesQuery.php",
+      "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php"
+    ],
+    "out_of_scope": [
+      "DEV-2342 withoutOverlapping(10) lock expiry / concurrent instance pile-up",
+      "Raising global or per-query max_execution_time before a query-shape fix",
+      "ScoutCheckInRollupQuery JOIN+IN (intentional keep BOTH; no timeout evidence)",
+      "HotlistAddressGeohashQuery (IN-only canonical; different payload needs)",
+      "CohortClosedQuery / CohortDeclinedQuery IN(cohort) patterns",
+      "Changing ADDRESS_CACHE_TTL_MINUTES (already 15 in code; ticket text said 30)",
+      "Schema/index/CDC/MV changes"
+    ],
+    "approach_options": [
+      {
+        "id": "A",
+        "title": "JOIN-only (ticket lead)",
+        "change": "Delete `AND a.id IN (SELECT address_id FROM address_links)`; keep INNER JOIN address_links.",
+        "risk": "May disable public_address PK prune and worsen the scan (Rollup header: IN is load-bearing; Geohash: JOIN hashes 100M+ public_address)."
+      },
+      {
+        "id": "B",
+        "title": "Prune-first then join metadata",
+        "change": "Subquery public_address WHERE id IN (address_links) first (Geohash-style prune), then join the small result to address_links for is_staged/hotlist_id.",
+        "risk": "Still one CH round-trip; needs EXPLAIN to confirm prune happens."
+      },
+      {
+        "id": "C",
+        "title": "Two-step: metadata + chunked id IN lookups",
+        "change": "Query address_links metadata once; chunk address ids; fetch public_address rows via explicit id IN lists (PK lookups); merge in PHP.",
+        "risk": "More round-trips; larger PHP change; likely most predictable under CH join quirks."
+      },
+      {
+        "id": "E",
+        "title": "PG hybrid \u2014 zod.hotlist_address metadata + CH public_address id IN",
+        "change": "Resolve open Direct/Staging address_ids + hotlist metadata from Postgres (indexed by hotlist_id); fetch coords from zod.public_address via chunked id IN. Avoids CH public_hotlist_address entirely.",
+        "risk": "Cross-store consistency/CDC lag; needs staging-org join parity with current CH filter."
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "ScoutOpenOrderAddressesQuery no longer exceeds ClickHouse's 30s max_execution_time under the affected production-scale workload.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Reported failure."
+    },
+    {
+      "item": "scout:record-check-ins receives open Direct + approved Staging addresses and can record matching check-ins again.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Timeouts currently empty the address set."
+    },
+    {
+      "item": "Results remain one row per address, direct-preferred, deterministic hotlist selection, coordinates from latest CDC version; invalid/zero geos excluded.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Existing recorder contract."
+    },
+    {
+      "item": "Do not increase ClickHouse max_execution_time as the primary fix.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Ticket + DEV-1858/1710 precedents: fix the plan first."
+    },
+    {
+      "item": "DEV-2342 lock-expiry remains untouched.",
+      "source": "ticket",
+      "decision": "defer",
+      "reason": "Sibling ticket."
+    },
+    {
+      "item": "Chosen approach is backed by before/after EXPLAIN and elapsed/read metrics (aggregates only) on a production-like org.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Candidates disagree; measurement is the arbiter (WWDD/CH discipline)."
+    }
+  ],
+  "questions": [
+    {
+      "q": "Which approach should we ship for ScoutOpenOrderAddressesQuery? A) JOIN-only (delete IN, ticket lead) \u00b7 B) prune-first subquery then join metadata \u00b7 C) two-step metadata + chunked id IN lookups \u00b7 D) measure A/B/C first then pick the winner (recommended)",
+      "answered": true,
+      "answer": "D \u2014 measure A/B/C first then pick",
+      "source": "human:Dalton 2026-08-12"
+    },
+    {
+      "q": "May the run run read-only EXPLAIN / timed SELECT aggregates against ClickHouse Cloud (prod-like) for a high-cardinality Scout org before implementing? (raw rows never leave derivation_log)",
+      "answered": true,
+      "answer": "Yes \u2014 human will run EXPLAIN/timed SELECTs on CH if we provide SQL; agent does not run Cloud queries directly",
+      "source": "human:Dalton 2026-08-12"
+    },
+    {
+      "q": "If measurement shows public_hotlist_address full-scan (~311M ORDER BY id) is the dominant cost \u2014 not the public_address join \u2014 should we still ship a public_address-side rewrite this ticket, or expand scope / split a follow-up?",
+      "answered": true,
+      "answer": "Cannot change public_hotlist_address. Suggested alternate: platform.hotlist in CH \u2014 note: no such table; clarity.hotlist already used; explore PG zod.hotlist_address hybrid if link-scan dominates",
+      "source": "human:Dalton 2026-08-12"
+    },
+    {
+      "q": "Which high-cardinality Scout org_id should we use as the EXPLAIN/timing subject?",
+      "answered": true,
+      "answer": "Used org_id=123 (largest Direct open-hotlist org: 118929 open hotlists; ~373k distinct address_ids). Aggregates only.",
+      "source": "code+CH Cloud measure 2026-08-12T15:49Z"
+    },
+    {
+      "q": "Paste back EXPLAIN indexes=1 + elapsed/read_rows for shapes CURRENT / A / B / C (aggregates only).",
+      "answered": true,
+      "answer": "org=123 Direct-only. CURRENT count: 15.4s, rows=313653. A JOIN-only: TIMEOUT at 20.0s (CLICKHOUSE_TIMEOUT_QUERY=20). B prune-first: 13.4s, rows=313655. stage link scan: 1.8s, address_count=372995. stage public_address IN: 3.1s, address_rows=367514. EXPLAIN public_address: CURRENT/B PrimaryKey (id in ~373k-set) granules~14679/23936; A PrimaryKey Condition:true granules 23937/23937 (full scan).",
+      "source": "CH Cloud measure 2026-08-12T15:49Z"
+    },
+    {
+      "q": "If link-scan dominates: prefer PG zod.hotlist_address for metadata + CH public_address id IN chunks (hybrid), vs staying CH-only?",
+      "answered": true,
+      "answer": "B \u2014 prune-first subquery then join metadata (A rejected by EXPLAIN/timeout; C/E deferred)",
+      "source": "human:Dalton 2026-08-12"
+    },
+    {
+      "q": "Ship which shape? B (prune-first, measured 13.4s) \u00b7 C (chunked id IN) \u00b7 E (PG zod.hotlist_address hybrid). A is REJECTED (full scan + timeout).",
+      "answered": true,
+      "answer": "B \u2014 prune-first subquery then join metadata (A rejected by EXPLAIN/timeout; C/E deferred)",
+      "source": "human:Dalton 2026-08-12"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "Ticket text said 30-minute cache; code ADDRESS_CACHE_TTL_MINUTES = 15 (authoritative).",
+    "ClickhouseQuery::query() catches CH errors and returns [] in prod \u2014 timeouts look like empty address sets, not thrown exceptions in the command's per-org catch.",
+    "Failed Cache::remember callbacks are not cached \u2014 every cycle retries the expensive query until it succeeds.",
+    "WWDD (platform lens, incident/perf): measure before building; do not raise timeout as primary fix; do not trust SQL-level 'redundancy' over documented CH planner guidance.",
+    "Exact JOIN+IN public_address sites in repo: ScoutOpenOrderAddressesQuery (in scope) + ScoutCheckInRollupQuery (deferred).",
+    "Q3 clarification: there is no platform.hotlist in ClickHouse. Hotlists are clarity.hotlist (already in the query) / zod.public_hotlist. The expensive table is zod.public_hotlist_address ORDER BY id. PG zod.hotlist_address (Eloquent HotlistAddress) is a viable alternate link source that avoids the CH full scan without altering CH DDL.",
+    "Measurement used Cloud via clarity_clickhouse. Local CLICKHOUSE_TIMEOUT_QUERY=20 (client); prod symptom cited server max_execution_time=30. Approach A rejected. Approach B wins among single-statement shapes measured."
+  ],
+  "tests": [
+    {
+      "file": "tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php",
+      "what_it_pins": "Recorder end-to-end + Direct/Staging enumeration, shared-address direct preference, geo guards, cache behavior"
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Clickhouse/Queries/ScoutOpenOrderAddressesQuery.php:63-100",
+      "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php:24-28",
+      "app/Clickhouse/Queries/HotlistAddressGeohashQuery.php:126-132",
+      "app/Console/Commands/ScoutRecordCheckIns.php:47,180-187",
+      "app/Clickhouse/Queries/ClickhouseQuery.php:27",
+      "okf/concepts/scout-check-in-recorder.md:36-38,61-63"
+    ],
+    "code_flow": "scout:record-check-ins \u2192 openOrderAddressesForOrg \u2192 ScoutOpenOrderAddressesQuery::query(cache 15m) \u2192 CH select; on timeout ClickhouseQuery returns [] \u2192 no matches \u2192 recorded=0",
+    "tables": [
+      "clarity.hotlist",
+      "zod.public_hotlist_address",
+      "zod.public_address",
+      "clarity.sc_positions",
+      "platform.scout_check_ins"
+    ],
+    "related_components": [
+      "ScoutCheckInMatchQuery",
+      "ScoutCheckInRollupQuery",
+      "HotlistAddressGeohashQuery"
+    ]
+  },
+  "exhaustiveness": {
+    "grep_patterns": [
+      "IN \\(SELECT address_id FROM address_links\\)",
+      "INNER JOIN address_links",
+      "a\\.id IN \\(",
+      "ScoutOpenOrderAddressesQuery"
+    ],
+    "sites": [
+      {
+        "file": "app/Clickhouse/Queries/ScoutOpenOrderAddressesQuery.php",
+        "line": 91,
+        "verdict": "buggy",
+        "reason": "Prod timeout site; JOIN+IN shape under investigation \u2014 not proven that deleting IN is the fix"
+      },
+      {
+        "file": "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php",
+        "line": 129,
+        "verdict": "safe",
+        "reason": "Documented keep BOTH; JOIN carries is_staged; IN is PK prune; no timeout evidence; deferred"
+      },
+      {
+        "file": "app/Clickhouse/Queries/HotlistAddressGeohashQuery.php",
+        "line": 148,
+        "verdict": "safe",
+        "reason": "IN-only canonical prune; never JOIN public_address; different payload"
+      },
+      {
+        "file": "app/Clickhouse/Queries/Client/CohortDeclinedQuery.php",
+        "line": 49,
+        "verdict": "safe",
+        "reason": "Different idiom \u2014 IN constrains hotlist version aggregation to cohort IDs"
+      },
+      {
+        "file": "app/Clickhouse/Queries/Client/CohortClosedQuery.php",
+        "line": 49,
+        "verdict": "safe",
+        "reason": "Same cohort pattern; unrelated"
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [
+      "platform.scout_check_ins"
+    ],
+    "ch_tables": [
+      "clarity.hotlist",
+      "zod.public_hotlist_address",
+      "zod.public_address",
+      "clarity.sc_positions"
+    ],
+    "mv_or_cdc_implications": "Read-only CH query shape change; no CDC/MV/schema changes. public_hotlist_address ~311M ORDER BY id cannot prune on hotlist_id \u2014 primary cost risk may be that scan, not public_address.",
+    "indexes_relied_on": [
+      "zod.public_address ORDER BY id (PK prune via IN)",
+      "zod.public_hotlist_address ORDER BY id (cannot prune on hotlist_id)"
+    ]
+  },
+  "derivation_log": [
+    {
+      "query_shape": "SELECT org_id, count() open_hotlists FROM clarity.hotlist FINAL WHERE status=1 AND length(plate)>3 AND is_staged=false GROUP BY org_id ORDER BY open_hotlists DESC LIMIT 20",
+      "param_classes": "Direct-only open hotlists; no address payloads",
+      "aggregate_result": "top org_id=123 open_hotlists=118929; next 245=69150, 165=37421",
+      "why": "Chose worst-case Direct org for shape comparison"
+    },
+    {
+      "query_shape": "stage: count DISTINCT address_id via public_hotlist_address \u22c8 open hotlists org=123",
+      "param_classes": "org_id=123 Direct",
+      "aggregate_result": "elapsed_ms=1789 address_count=372995",
+      "why": "Link scan is NOT the 30s bottleneck alone"
+    },
+    {
+      "query_shape": "CURRENT JOIN+IN full enumeration wrapped in count()",
+      "param_classes": "org_id=123 Direct",
+      "aggregate_result": "elapsed_ms=15404 row_count=313653",
+      "why": "Baseline under local 20s client timeout; prod server ceiling is 30s"
+    },
+    {
+      "query_shape": "A JOIN-only (delete IN) count()",
+      "param_classes": "org_id=123 Direct",
+      "aggregate_result": "TIMEOUT_EXCEEDED elapsed~20010 maximum=20000",
+      "why": "Ticket lead REJECTED \u2014 removing IN makes the query worse"
+    },
+    {
+      "query_shape": "B prune-first subquery then join metadata count()",
+      "param_classes": "org_id=123 Direct",
+      "aggregate_result": "elapsed_ms=13351 row_count=313655",
+      "why": "Slightly faster than CURRENT; preserves PK prune"
+    },
+    {
+      "query_shape": "EXPLAIN indexes=1 for CURRENT vs A vs B on public_address read",
+      "param_classes": "org_id=123 Direct",
+      "aggregate_result": "CURRENT/B: PrimaryKey (id in ~373k-set) granules~14.7k/23.9k; A: PrimaryKey Condition:true granules 23.9k/23.9k full scan. public_hotlist_address always Condition:true granules 38864/38864",
+      "why": "Proves IN is load-bearing PK prune; JOIN-only disables it"
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "Query stays under 30s",
+        "kind": "human",
+        "intent": "Before/after EXPLAIN + elapsed/read_rows aggregates on a large Scout org; no raw rows"
+      },
+      {
+        "ac": "Recorder records check-ins again",
+        "kind": "agent",
+        "intent": "Seed Scout kit + open Direct/Staging addresses + sc_positions within 0.1mi; run scout:record-check-ins; assert scout_check_ins rows"
+      },
+      {
+        "ac": "Semantics unchanged",
+        "kind": "agent",
+        "intent": "Shared address on Direct+Staging remains direct-preferred; invalid geos excluded"
+      }
+    ],
+    "seed_scenario": "Scout-enabled driver/kit, one open Direct order, one approved open Staging order sharing an address, valid + malformed/zero geos, recent sc_positions inside/outside 160.934m.",
+    "personas": [
+      "Scout-enabled driver"
+    ],
+    "pg_tables": [
+      "platform.scout_check_ins",
+      "public.approval_list"
+    ],
+    "ch_tables": [
+      "clarity.hotlist",
+      "zod.public_hotlist_address",
+      "zod.public_address",
+      "clarity.sc_positions"
+    ]
+  },
+  "confidence": 78,
+  "candidate_disagreements": [
+    {
+      "topic": "fix_shape",
+      "c1": "JOIN-only delete IN",
+      "c2": "two-step metadata + chunked id IN",
+      "c3": "measure-first; do not pre-commit to delete IN",
+      "resolution": "open_question \u2014 needs human + EXPLAIN"
+    }
+  ]
+}

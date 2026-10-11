@@ -1,0 +1,469 @@
+{
+  "key": "DEV-2342",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2342",
+  "phase": "handoff",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "recall",
+      "model": "haiku",
+      "effort": "inherit",
+      "phase": "intake",
+      "dur_s": 54
+    },
+    {
+      "slot": "prep-fastpass",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 535
+    },
+    {
+      "slot": "prep-candidate:1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 751
+    },
+    {
+      "slot": "prep-candidate:2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 843
+    },
+    {
+      "slot": "prep-candidate:3",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 588
+    },
+    {
+      "slot": "prep-backstop",
+      "model": "haiku",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 37
+    },
+    {
+      "slot": "reconcile",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 526
+    },
+    {
+      "slot": "plan-arbiter",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "plan",
+      "dur_s": 461
+    },
+    {
+      "slot": "implement:t1",
+      "model": "driver",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 420
+    },
+    {
+      "slot": "implement:t2",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 663
+    },
+    {
+      "slot": "implement:t3",
+      "model": "driver",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 89
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 616
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 571
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 513
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": "implement",
+    "stop_at": "handoff",
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "clickhouse/core.md",
+    "clarity/scout.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "fast-pass confidence 62 < 80",
+    "7 answered:false needs-human questions",
+    "escalate.recommend=true",
+    "blast-radius: scheduled command iterating production ClickHouse at scale (the OOM surface)",
+    "cross-repo dependency: W1 sc_positions projection is chlocal-owned",
+    "competing design options: W3 semaphore vs per-org queued jobs; W2 per-org vs per-kit",
+    "prod-scale measurement gap: AC2/AC3 cannot be verified in-pipeline (no prod/prod-scale access)"
+  ],
+  "best_of_n": true,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutDashboardController.php",
+      "symbol": "ScoutCheckInRollupQuery",
+      "referenced_at": "line 254 (checkInCounts endpoint)",
+      "note": "AC9 parity anchor \u2014 the dashboard shares ScoutCheckInRollupQuery; W2 mirrors its CTE into a new recorder query, so the dashboard should stay unmodified but its output must agree with the recorder's on the same inputs."
+    },
+    {
+      "file": "tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php",
+      "symbol": "ScoutCheckInRollupQuery",
+      "referenced_at": "multiple cases",
+      "note": "existing coverage of the rollup path; the parity test can borrow its fixtures."
+    }
+  ],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [
+      "clarity.sc_positions~268M",
+      "zod.public_hotlist_address~318M",
+      "zod.public_address~196M"
+    ],
+    "approach": "W2 server-side match (lift ScoutCheckInRollupQuery CTE onto sc_positions) + W3 Cache::lock semaphore",
+    "measurement": "not-required: all driving CH tables < 1B rows (WS6 gate not triggered). EXPLAIN-first is a plan-shape aid, not a perf-validation obligation.",
+    "verdict": "not-required",
+    "measured_at": null
+  },
+  "diff_base": "86e9332e9e92205bf337cfd3cd7745bfd201e523",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "jira/DEV-2342-t1",
+      "complexity": "complex",
+      "model": "driver (read-only Cloud EXPLAIN via tinker)",
+      "title": "EXPLAIN-first: pick W2 query shape + batching granularity (read-only Cloud)",
+      "depends_on": [],
+      "parallelizable": true,
+      "blast_radius": [],
+      "result": "shape=per-kit equality; GPS decimation not needed; granules lower()=3355 vs exact=20/33096; densest position_window ~4.5k/15m. See derivation_log.md"
+    },
+    {
+      "id": "t2",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "jira/DEV-2342-t2",
+      "complexity": "complex",
+      "model": "sonnet",
+      "title": "Rewrite ScoutCheckInMatchQuery as one server-side CTE + AC9 parity test",
+      "depends_on": [
+        "t1"
+      ],
+      "parallelizable": true,
+      "blast_radius": [
+        "cross-db-ch-rewrite"
+      ],
+      "result": "ScoutCheckInMatchQuery rewritten server-side (per-kit, org_id/staging_org_ids); rollup zod.->zodDb() parity fix; AC9 parity test green (TDD). Pre-existing: command chunk test breaks (t3/t4 fixes); ClarityScoutDashboardControllerTest 38->34 (local fixture-naming, not a regression)."
+    },
+    {
+      "id": "t3",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "jira/DEV-2342-t3",
+      "complexity": "complex",
+      "model": "driver",
+      "title": "Rewrite recorder: bulk insert + W3 semaphore + AC7 ::handle() bypass; delete dead query; config/route hygiene",
+      "depends_on": [
+        "t1",
+        "t2"
+      ],
+      "parallelizable": false,
+      "blast_radius": [
+        "scheduled-command",
+        "cron-concurrency",
+        "no-fallback-config"
+      ],
+      "result": "Recorder calls ScoutCheckInMatchQuery::handle() directly (AC7); bulk insertOrIgnore; W3 Cache::add N-slot semaphore with heartbeat (2 slots, 10-min crash-recovery lease <= 15-min lookback); ScoutOpenOrderAddressesQuery deleted; address_cache_ttl_minutes removed; routes comment corrected; schedule stays commented. RN=1 H2/M5 follow-up: heartbeat + slots<1 warning."
+    },
+    {
+      "id": "t4",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "jira/DEV-2342-t4",
+      "complexity": "complex",
+      "model": "driver",
+      "title": "Update command test to new matcher signature + AC7 production-env failure-signal + W3 ceiling case",
+      "depends_on": [
+        "t3"
+      ],
+      "parallelizable": true,
+      "blast_radius": [],
+      "result": "Command test migrated off PHP-side chunk/cache/org-enumeration. Added AC7 production-env report() signal, W3 full-slot no-op, and slots=0 misconfig skip. Fixtures seed configured CH databases (clarity_test/zod_test)."
+    },
+    {
+      "id": "t5",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "jira/DEV-2342-t5",
+      "complexity": "simple",
+      "model": "driver",
+      "title": "Add AC6 peak-RSS regression test at prod-representative cardinality",
+      "depends_on": [
+        "t3"
+      ],
+      "parallelizable": true,
+      "blast_radius": [],
+      "result": "ScoutRecordCheckInsMemoryTest: 20k out-of-bbox addresses, peak-RSS delta (after seed) stays under 16MB. 1/1 green."
+    }
+  ],
+  "review_number": 3,
+  "pr": {
+    "number": 328,
+    "url": "https://github.com/insight-lpr/platform/pull/328",
+    "draft": false
+  },
+  "pr_urls": {
+    "main": "https://github.com/insight-lpr/platform/pull/328"
+  },
+  "jira_in_progress_by": "already In Progress (Dalton, before this run) \u2014 no transition needed @ 2026-08-13",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "In Code Review via transition id 4 @ 2026-08-13T19:08Z (clarity has no undraft GH Action)",
+  "assumed": [],
+  "comment_ids": {
+    "status": "38212",
+    "build_record": "38252"
+  },
+  "qa": {
+    "ledger": "",
+    "agent_report": "",
+    "ac_results": "",
+    "verdict": "PASS",
+    "torn_down": true,
+    "resource_envelope": {
+      "path": "",
+      "verdict": "not-measured",
+      "peak_rss_bytes": null,
+      "wall_clock_seconds": null,
+      "plausible_concurrency": null,
+      "projected_marginal_gb": null,
+      "headroom_gb": null,
+      "host_ram_gb": null,
+      "extrapolation_factor": null,
+      "basis": "scale_relevant but schedule disabled; local Docker CH is not prod cardinality. Operator manual-run is the assessment. W4 after W1 for host pct_usable."
+    },
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "already-running",
+      "ch_container": "reused",
+      "frontend_build": "not-needed",
+      "postgres_db": "zod_claude_dev_2342_83df5a (+ testing zod_testing_claude_dev_2342_83df5a)",
+      "ch_strategy": "docker (literal clarity/zod runtime + clarity_test/zod_test testing, shared container)",
+      "herd_site": "clarity-claude_dev_2342_83df5a.test"
+    },
+    "provisioned_early": true,
+    "note": "Console-only change; schedule disabled. Agent evidence = 26 green tests. Operator will manual-run artisan as human QA. Resource envelope not re-measured this pass (local CH is a tiny subset; prod-scale is W4).",
+    "human_complete": true,
+    "human_complete_at": "2026-08-13T19:07:00Z",
+    "human_method": "operator manual php artisan scout:record-check-ins",
+    "torn_down_at": "2026-08-13T19:09:24Z",
+    "teardown_note": "Safe teardown: PG worktree DBs + Herd unlink + .env restore. Shared CH DBs/container not dropped (down.sh skipped)."
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact tests/Unit/Clickhouse/Queries/ScoutCheckInMatchQueryParityTest.php tests/Feature/Console/Commands/ScoutRecordCheckInsCommandTest.php tests/Feature/Console/Commands/ScoutRecordCheckInsMemoryTest.php tests/Feature/Console/ScoutRecordCheckInsOverrunSignalTest.php",
+        "passed": 26,
+        "failed": 0,
+        "note": "DEV-2366 #1 IN prune + #2 CH-side numbers() seed"
+      }
+    ],
+    "deviations": [],
+    "review": {
+      "lanes": [
+        "claude1",
+        "claude2",
+        "claude3"
+      ],
+      "scores": [
+        62,
+        62,
+        62
+      ],
+      "findings_fixed": [
+        "H2/AC4 (RN=1): Cache::add + per-kit heartbeat so ceiling holds past the 10-min lease while the process runs",
+        "M3 (RN=1): public_address latest CDC version via max(_peerdb_version) join",
+        "M4/AC9 (RN=1): shared Direct+Staging grain asserted; docblock no longer claims rollup Direct-wins",
+        "M5 (RN=1): slots<1 logs warning + report() and skips",
+        "M6/AC6 (RN=1): peak-after-seed + 20k far addresses (reviewers still say the test cannot fail)",
+        "H1 RN=2: latest_addresses now keeps id IN (address_links) on the second public_address read (DEV-2366 #1)",
+        "AC6 RN=2: far-address fixture seeds via ClickHouse numbers() so the PHP process high-water mark is not raised before the peak snapshot (DEV-2366 #2)"
+      ],
+      "findings_residual": [
+        "H1 all lanes RN=3: per-kit open-address CTE (~43x/cycle, 3 CTE refs). Accepted residual: Q9 schedule disabled until W1; t1 EXPLAIN per-org IN same granules pre-W1. Do not switch to per-org on this PR.",
+        "AC6 (claude1 H2 / claude2 H3): reviewers still say the memory test cannot fail; numbers() seed addresses the fixture-peak issue but they want a red-path proof.",
+        "AC4 heartbeat races / mid-kit lease lapse (MEDIUM)."
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "harness-claude-p"
+        },
+        {
+          "lane": "claude2",
+          "source": "harness-claude-p"
+        },
+        {
+          "lane": "claude3",
+          "source": "harness-claude-p"
+        }
+      ],
+      "rerun_required": true,
+      "reviewed_sha": "35e9971042d2edd2506d3dd5bd3950e0c9694af1",
+      "rework_pivot": false,
+      "parked_reason": "REVIEW_GATE fail RN=3 MIN 62 after DEV-2366 #1+#2. Remaining HIGH is per-kit address CTE (accepted Q9/W1).",
+      "residual_jira": "DEV-2366"
+    },
+    "ac": [
+      {
+        "id": "AC1",
+        "item": "Match computed server-side in CH; no per-org address list crosses PHP",
+        "status": "SATISFIED",
+        "evidence": "ScoutCheckInMatchQuery is one CTE per kit; ScoutOpenOrderAddressesQuery deleted; command calls ::handle() and insertOrIgnore of match rows only. 26 recorder/parity tests green."
+      },
+      {
+        "id": "AC2",
+        "item": "Full cycle at prod cardinality < 5-min cadence, measured",
+        "status": "N/A",
+        "evidence": "W1/W4-gated. Schedule stays commented. Operator will manual-run artisan to assess duration. Local suite cannot hold 255k prod addresses."
+      },
+      {
+        "id": "AC3",
+        "item": "Peak RSS O(matches); peak x concurrency fits ~30GB headroom",
+        "status": "SATISFIED (local) / N/A (prod host)",
+        "evidence": "Architecture is O(matches). AC6 test: 20k far addresses via numbers(), peak delta < 16MB. Prod host verify is W4 after re-enable."
+      },
+      {
+        "id": "AC4",
+        "item": "Hard concurrency ceiling independent of runtime; lookback invariant",
+        "status": "SATISFIED",
+        "evidence": "Cache::add N-slot semaphore (default 2) + per-kit heartbeat. slot_lease_minutes 10 <= lookback 15 (DEV-2348). Full-slot and slots=0 tests green."
+      },
+      {
+        "id": "AC5",
+        "item": "Projection proven (granules in tens)",
+        "status": "N/A",
+        "evidence": "W1 chlocal-owned. Deferred. t1 EXPLAIN: lower()= is 3355/33096 today; exact-case 20/33096 is the W1 target."
+      },
+      {
+        "id": "AC6",
+        "item": "Peak-memory regression test at representative cardinality",
+        "status": "SATISFIED",
+        "evidence": "ScoutRecordCheckInsMemoryTest: 20k CH-side far addresses, peak snapshot after seed, 16MB budget, 1/1 green."
+      },
+      {
+        "id": "AC7",
+        "item": "Failed CH distinguishable from empty cycle",
+        "status": "SATISFIED",
+        "evidence": "Recorder calls ScoutCheckInMatchQuery::handle() not ::query(). Production-env test asserts report() on CH failure."
+      },
+      {
+        "id": "AC8",
+        "item": "Host pct_usable flat after re-enable",
+        "status": "N/A",
+        "evidence": "W4. Schedule stays disabled. Operator will assess via manual artisan, not re-enable."
+      },
+      {
+        "id": "AC9",
+        "item": "Matcher and rollup agree on same inputs",
+        "status": "SATISFIED",
+        "evidence": "ScoutCheckInMatchQueryParityTest: distinct Direct+Staging counts match; shared-address grain (matcher Direct-wins vs rollup both buckets) asserted; CDC max(version) pick. 3/3 green."
+      }
+    ]
+  },
+  "restart_context": {
+    "supersedes_pr": 323,
+    "superseded_branch": "claude/DEV-2342-superseded-pr323",
+    "reason": "PR #323 shipped observability-only and did not fix the OOM root causes; user directed a full fresh run. Prior artifacts backed up to scratchpad + recoverable in git history at 9c03114.",
+    "restarted_at_utc": "2026-08-13",
+    "prod_status": "scout:record-check-ins schedule commented out in production (commit 11bc23e2) since the 2026-08-12 OOM reboot; stays disabled until ACs met (W4)."
+  },
+  "w3_mechanism": "Cache::add N-slot semaphore with per-kit heartbeat refresh (AC4 ceiling independent of cycle duration; crash-recovery TTL <= lookback, DEV-2348)",
+  "sizing_gate": {
+    "files": 8,
+    "concerns": 5,
+    "verdict": "ship-as-one",
+    "reason": "ticket is the single source of truth folding DEV-2347/2348/2349; nodes serially coupled (W3 depends on W2 EXPLAIN); split adds cross-PR deps with no isolation benefit. >6-file count surfaced to human for confirmation."
+  },
+  "w2_shape": "per-kit equality (lower(kit_mapping) = ?); batching per-kit; no GPS decimation (t1 EXPLAIN-grounded)",
+  "pre_existing_reds": {
+    "ScoutRecordCheckInsScheduleTest": "red on main (schedule commented since 11bc23e2; accept-red per Q7)",
+    "ClarityScoutDashboardControllerTest": "~34-38 local failures from hardcoded clarity./zod. fixtures vs local clarity_test/zod_test naming; NOT a CI failure, NOT introduced by this PR (git-stash confirmed 38 before / 34 after)"
+  },
+  "parked": {
+    "at_phase": "handoff",
+    "reason": "Human QA complete, PR ready, Jira ICR, QA env torn down. Pipeline done blocked by record.review.rerun_required=true (accepted Option 1 residual; do not hand-clear).",
+    "residual_jira": "DEV-2366",
+    "resume": "/ticket DEV-2342 --resume  (done still blocked until a passing review round, or an explicit human waiver of the 90 gate)"
+  },
+  "architecture_choice": {
+    "shipped": "option-1-per-kit-command",
+    "decided_by": "human:Dalton 2026-08-13",
+    "schedule": "stays-disabled",
+    "manual_run": "operator will run php artisan scout:record-check-ins to assess",
+    "deferred": {
+      "id": "option-3-per-org-horizon-job",
+      "summary": "Thin command \u2192 Bus::batch of RecordOrgCheckIns jobs on {low}, named Scout check-ins: {orgId}, WithoutOverlapping per org. Address CTE once per org. Horizon becomes the log. SQL inside the job can later flip to per-kit equality if W1 IN does not prune. Precedent: caab5a469 RecordOrgCheckIns (reverted 102a3430 for old duration/{low} maxProcesses=1).",
+      "why_not_now": "Operator chose to land the memory fix as-is, keep schedule commented, and assess with a manual artisan run before any job-fan-out pivot."
+    }
+  }
+}

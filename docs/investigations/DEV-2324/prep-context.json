@@ -1,0 +1,721 @@
+{
+  "key": "DEV-2324",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "reconciled_from": {
+    "fast_pass": 1,
+    "deep_candidates": 3,
+    "technique": "insightlpr:multi-candidate-merge \u2014 additive union deduped; agreement = settled; disagreement = explicit open question; grounded beats confident; conservative on 'resolved'",
+    "escalation_triggers": [
+      "fast-pass confidence 76 (< 80)",
+      "fast-pass escalate.recommend = true",
+      "6 unanswered material questions in the fast pass",
+      "competing options present in the ticket comment vs description (card count, filters)"
+    ],
+    "candidate_confidences": [
+      76,
+      78,
+      63,
+      72
+    ]
+  },
+  "synthesis": "The Clarity App-panel dashboard (App\\Filament\\Pages\\Dashboard) gets four changes: (1) rename to \"Company Metrics\" in both the page header and the sidebar nav item \u2014 two distinct Filament code paths; (2) the six existing full-size bar-chart metric widgets (Scan Count, Repossessions/RecoveryCounts, Live Hits, Staging Live Hits, Direct Historical Hits/HistoricalHits, Staging Historical Hits) become compact stat cards showing MTD total, % change vs prior period, and a sparkline, expanding on click to reveal the existing bar chart; (3) the Recovery Leaderboard defaults to a collapsed summary (this month's and last month's leader + runner-up, name + count) and expands to its current stacked bar chart; (4) the Kit Users donut (Active vs Inactive) is deleted and replaced by a compact card showing Camera Kits and Kit Users counts, expanding to the existing Active Kit Users table with its filter and pagination. Dalton's comment is authoritative on top of that: exactly 2 rows of 4 cards with the hit-type cards kept together, and only ONE detail region open at a time page-wide \u2014 opening a new one REPLACES the previous, never compounds. Backyard's InsightPulse widget is the named reference for the card-toggle + detail-expansion mechanism. Every number the compact cards need is already computed by today's widgets (a cached 13-month series per metric); the only genuinely new data question is what \"Kit Users\" counts. The real risk in this ticket is not data \u2014 it is the interaction architecture (Clarity's dashboard is nine independently-mounted Livewire widget components, whereas Backyard's reference is one widget owning one Alpine scope) plus a set of unresolved layout/semantic decisions.",
+  "scope": {
+    "summary": "Rename the Dashboard page (header + nav label); restructure the six metric widgets, the Recovery Leaderboard, and the Kit Users area into a compact-card grid with ONE shared 'which detail is open' state (Backyard InsightPulse pattern); delete the KitStatusGraph donut; add Camera Kits + Kit Users totals. Reuse every existing month-bucketed query/cache path unchanged \u2014 no new ClickHouse query classes for the six metrics, no PG migrations, no CH schema changes. One new small aggregate is needed only if 'Kit Users' means distinct assigned users.",
+    "proposed_changes": [
+      {
+        "file": "app/Filament/Pages/Dashboard.php",
+        "change": "getTitle() returns 'Company Metrics' AND add `protected static ?string $navigationLabel = 'Company Metrics';`",
+        "reason": "SETTLED (4/4 passes): the page header comes from the instance getTitle(); the sidebar label comes from the STATIC getNavigationLabel() fallback chain `static::$navigationLabel ?? static::$title ?? __('filament-panels::pages/dashboard.title')`, which this subclass never overrides \u2014 so renaming only getTitle() leaves 'Dashboard' in the sidebar. Sibling pages set $navigationLabel explicitly (Profile.php:24, ClientAnalytics.php:26, RecentChanges.php:18, KitUserRecoveries.php:41, ManageZones.php:38) \u2014 follow that convention. Do NOT edit lang/vendor/filament-panels/en/pages/dashboard.php (shared vendor-published file).",
+        "ref": "app/Filament/Pages/Dashboard.php:33-36; vendor/filament/filament/src/Pages/Dashboard.php:25-30"
+      },
+      {
+        "file": "app/Filament/Pages/Dashboard.php",
+        "change": "Introduce the single shared 'which detail is open' state and restructure getFooterWidgets()/columnSpans for a 2x4 card grid.",
+        "reason": "getColumns()/getFooterWidgetsColumns() already return ['default'=>1,'md'=>2,'lg'=>4], so the page is already 4-wide at lg; only per-widget columnSpan (currently ['default'=>1,'lg'=>2], i.e. half-row) needs to shrink to a quarter-row. The shared open-state is what satisfies Dalton's one-at-a-time rule \u2014 see the architecture question.",
+        "ref": "app/Filament/Pages/Dashboard.php:38-83; app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php:23-26"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+        "change": "Add MTD / %-change / sparkline-series helpers ON TOP of the existing getMonthlyData()/getGraphLabels() without touching their month arithmetic.",
+        "reason": "SETTLED (4/4): getMonthlyData() already returns a cached 13-month series and getDescription() already renders 'Current Month / Last Month' \u2014 MTD is that last bucket and the prior-month comparator is the one before it. DEV-1927 (commit 4cdcf4117) fixed month bucketing by normalizing `now(tz)->startOfMonth()->subMonths($i)` (never `subMonths()->startOfMonth()`); DashboardMonthLabelsTest.php pins it. New code MUST reuse these helpers rather than re-deriving month math.",
+        "ref": "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php:154-238; tests/Filament/Widgets/Dashboard/DashboardMonthLabelsTest.php:1-134"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/ScanCount.php, RecoveryCounts.php, LiveHits.php, StagingLiveHits.php, HistoricalHits.php, StagingHistoricalHits.php",
+        "change": "Add a compact-card render path (label, MTD total, %-change, sparkline) and move the existing bar chart behind the expanded state. The ticket's names map 1:1 onto existing widgets \u2014 'Repossessions' = RecoveryCounts (heading 'Recoveries'), 'Direct Historical Hits' = HistoricalHits (heading 'Historical Hits'). These are RELABELS, not new metrics.",
+        "reason": "SETTLED (4/4). The 4 hit widgets are thin wrappers over SharedHitStatsData, which batch-fetches all four hit-type columns from clarity.hit_stats_daily in ONE query \u2014 the compact cards must keep using that shared batch, not four separate queries.",
+        "ref": "app/Filament/Widgets/Dashboard/Concerns/SharedHitStatsData.php:17-36; app/Filament/Widgets/Dashboard/RecoveryCounts.php:12; app/Filament/Widgets/Dashboard/HistoricalHits.php:14"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/RecoveryLeader.php",
+        "change": "Add a collapsed-summary path yielding this-month leader+runner-up and last-month leader+runner-up (name + count) simultaneously; leave getData()/getOptions() untouched for the expanded stacked chart.",
+        "reason": "SETTLED (4/4): getDescription() already derives leader/runner-up for a single range, and RecoveryLeaderQuery already returns ORDER BY total DESC LIMIT 10 \u2014 so leader/runner-up are the first two entries. Collapsed view = the same derivation applied to two ranges (or the last two buckets of getMonthlyData(formatted:false)). No new query. NOTE the existing behavior conflict: getDescription() today switches range based on the page date filter, while the ticket specifies a fixed this-month/last-month pair \u2014 see open question.",
+        "ref": "app/Filament/Widgets/Dashboard/RecoveryLeader.php:161-236; app/Clickhouse/Queries/RecoveryLeaderQuery.php:15-41"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/KitStatusGraph.php (+ tests/Filament/Widgets/Dashboard/KitStatusGraphTest.php)",
+        "change": "Unregister from Dashboard::getFooterWidgets() and delete the class; its dedicated test file must be deleted or repurposed in the same change.",
+        "reason": "AC: 'Kit Users donut chart is removed'. This is the only doughnut widget in the repo and its heading is literally 'Kit Users'. Deleting the test file needs explicit human approval per the repo rule (CLAUDE.md / PHPUnit rules: never remove tests without approval) \u2014 surfaced as a question.",
+        "ref": "app/Filament/Pages/Dashboard.php:80; app/Filament/Widgets/Dashboard/KitStatusGraph.php:1-121"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/KitUsers.php",
+        "change": "Add the compact summary (Camera Kits, Kit Users) in front of the existing table; the table, its filter, and pagination move into the expanded state UNCHANGED.",
+        "reason": "SETTLED (4/4) and constrained by Dalton ('exactly as it exists today, just moved into the expanded view'). IMPORTANT ticket-vs-code mismatch found by 3/4 passes: the ticket says the panel has a 'Value filter, Kit Name filter', but the widget actually has exactly ONE SelectFilter (key 'type', Active/Inactive, whose Filament-internal data key is 'value') and NO Kit Name text search (no column is ->searchable()). Also: this widget lists KIT rows via the ClickHouse Kit model \u2014 it holds no user data at all, which is why 'Kit Users' needs a definition.",
+        "ref": "app/Filament/Widgets/Dashboard/KitUsers.php:35-90"
+      },
+      {
+        "file": "Kit Users count query (new, only if it means distinct assigned users)",
+        "change": "Two independent single-connection queries: resolve the org's kit ids on the `zod` connection, then `KitSettings::whereIn('kit_id', $ids)->whereNotNull('user_id')->distinct('user_id')->count()` on `platform`.",
+        "reason": "SETTLED (4/4) on the mechanism: App\\Models\\Kit is on the `zod` connection (Kit.php:59) and App\\Models\\KitSettings is on `platform` (KitSettings.php:25). A cross-connection `whereHas('settings')`/join silently returns 0 \u2014 never use one. Camera Kits reuses the existing kit-count pattern from KitStatusGraph.",
+        "ref": "app/Models/Kit.php:59,88-91; app/Models/KitSettings.php:25,50-53; app/Filament/Widgets/Dashboard/KitStatusGraph.php:51-83"
+      },
+      {
+        "file": "resources/views/filament/widgets/... (new Blade)",
+        "change": "New Blade view(s) implementing the card grid + toggle + detail region, modeled on Backyard: one `x-data=\"{ open: null }\"` scope, toggles doing `open = (open === key) ? null : key`, `x-show` + `x-collapse` detail region(s), and a server-computed inline SVG `<polyline>` sparkline (no JS chart library for the mini chart).",
+        "reason": "Dalton's explicit reference. Clarity has NO custom dashboard widget Blade views today (only resources/views/filament/widgets/placeholder.blade.php) \u2014 this UI is built new. The x-collapse plugin already ships inside vendor/filament/filament/dist/index.js, so no new JS dependency.",
+        "ref": "/Users/daltonmccleery/Herd/backyard/resources/views/filament/widgets/insight-pulse.blade.php:1-72; .../partials/pulse-tile.blade.php:1-28"
+      },
+      {
+        "file": "public/build/** (regenerated)",
+        "change": "Run `npm run build` and commit the regenerated output.",
+        "reason": "public/build is tracked in this repo and Tailwind v4 content-scans source via @source globs over app/Filament and resources/views/filament (theme.css:1-8) \u2014 new utility classes in the new Blade views do not exist in the compiled CSS until rebuilt. No new Vite ENTRYPOINT is needed (vite.config.js's entries are unrelated to dashboard widgets), so this is a CSS rebuild, not a JS-bundle change. KNOWN SIDE EFFECT: `npm run build` also rewrites CLAUDE.md / AGENTS.md / .junie/guidelines.md and drops boost.json \u2014 revert those before committing.",
+        "ref": "resources/css/filament/app/theme.css:1-8; vite.config.js:1-28"
+      }
+    ],
+    "target_files": [
+      "app/Filament/Pages/Dashboard.php",
+      "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+      "app/Filament/Widgets/Dashboard/Concerns/SharedHitStatsData.php",
+      "app/Filament/Widgets/Dashboard/ScanCount.php",
+      "app/Filament/Widgets/Dashboard/RecoveryCounts.php",
+      "app/Filament/Widgets/Dashboard/LiveHits.php",
+      "app/Filament/Widgets/Dashboard/StagingLiveHits.php",
+      "app/Filament/Widgets/Dashboard/HistoricalHits.php",
+      "app/Filament/Widgets/Dashboard/StagingHistoricalHits.php",
+      "app/Filament/Widgets/Dashboard/RecoveryLeader.php",
+      "app/Filament/Widgets/Dashboard/KitStatusGraph.php",
+      "app/Filament/Widgets/Dashboard/KitUsers.php",
+      "resources/views/filament/widgets/** (new)",
+      "public/build/** (regenerated)",
+      "tests/Filament/Pages/DashboardTest.php",
+      "tests/Filament/Widgets/Dashboard/ScanCountTest.php",
+      "tests/Filament/Widgets/Dashboard/RecoveryCountsTest.php",
+      "tests/Filament/Widgets/Dashboard/LiveHitsTest.php",
+      "tests/Filament/Widgets/Dashboard/StagingLiveHitsTest.php",
+      "tests/Filament/Widgets/Dashboard/HistoricalHitsTest.php",
+      "tests/Filament/Widgets/Dashboard/StagingHistoricalHitsTest.php",
+      "tests/Filament/Widgets/Dashboard/RecoveryLeaderTest.php",
+      "tests/Filament/Widgets/Dashboard/KitUsersTest.php",
+      "tests/Filament/Widgets/Dashboard/KitStatusGraphTest.php",
+      "tests/Filament/Widgets/Dashboard/DashboardMonthLabelsTest.php",
+      "tests/Filament/Widgets/Dashboard/Concerns/DashboardWidgetTest.php"
+    ],
+    "out_of_scope": [
+      "app/Filament/Widgets/Dashboard/HotlistCount.php \u2014 the full-width header stats row ('Open Assignments'); not one of the ticket's 6 metrics and not mentioned by Dalton. Stays above the redesigned grid untouched.",
+      "app/Filament/Widgets/Dashboard/MissedOpportunityClientGraph.php \u2014 already commented out of getFooterWidgets() (Dashboard.php:79); dead, stays dead.",
+      "app/Filament/Widgets/Dashboard/Concerns/AdminClickhouseChartWidget.php and AdminClickhouseStatsWidget.php \u2014 dead scaffolding, zero `extends` usages; do not confuse with the live DashboardWidget base.",
+      "app/Filament/Pages/Concerns/HasStatDrillDown.php + resources/views/filament/pages/drill-downs/** \u2014 a DIFFERENT existing in-repo drill-down pattern (Filament Action::slideOver() modal, used by ClientAnalytics). Dalton pointed at Backyard's inline toggle, not this modal \u2014 do not conflate.",
+      "app/Filament/Pages/ClientAnalytics.php, IndividualClientAnalytics.php and the 'Client Dashboard' label \u2014 a different panel/page; only textually coincidental.",
+      "app/Filament/Pages/KitUserRecoveries.php + app/Filament/Widgets/KitUserRecoveries/** \u2014 a separate report page with its own leaderboard widgets.",
+      "app/Filament/Tables/Filters/KitUsersFilter.php \u2014 name collision only; a table filter used by Hits/Scans/AffiliateStats resources.",
+      "resources/js/clarity-scout/** \u2014 the Scout driver PWA's own 'dashboard' components; unrelated product surface.",
+      "ClickHouse purge/cleanup jobs (ClickhouseScanPurge, ClickhouseScanCleanup, PruneScans) \u2014 untouched; noted only because the CH knowledge card marks them blast-radius.",
+      "PG migrations and ClickHouse schema changes \u2014 none required by this ticket.",
+      "/Users/daltonmccleery/Herd/backyard \u2014 read-only reference; never edited."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Dashboard renamed to \"Company Metrics\" across all navigation and headers",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Two code paths (getTitle + static $navigationLabel), both must change."
+    },
+    {
+      "item": "Default view shows all 6 metrics as compact cards with MTD total, sparkline, and % change",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "All inputs already exist in each widget's cached 13-month series; sparkline window and %-change baseline are open questions."
+    },
+    {
+      "item": "Selecting a metric card expands it to show the full bar chart",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Existing ChartWidget getData()/getOptions() reused; only the trigger/visibility layer is new."
+    },
+    {
+      "item": "Recovery Leaderboard defaults to collapsed, showing current and last month's leader + runner-up only",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Derivable from the already-sorted RecoveryLeaderQuery results; conflicts with today's date-filter-driven behavior \u2014 open question."
+    },
+    {
+      "item": "Expanding the leaderboard reveals the full stacked bar chart",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Existing getData() unchanged."
+    },
+    {
+      "item": "Kit Users donut chart is removed",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "KitStatusGraph.php unregistered + deleted; its test file needs removal approval."
+    },
+    {
+      "item": "New compact Kit Users card shows Camera Kits count and Kit Users count",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Camera Kits = total kit count; Kit Users = active kit users (existing donut active() count). No new cross-connection query (Q5)."
+    },
+    {
+      "item": "Expanding the Kit Users card reveals the Active Kit Users paginated list (filter REMOVED per human decision Q6)",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "AC CHANGED by human decision (Q6, human:Dalton 2026-08-12): the ticket asked for the panel to keep its filters; Dalton directed that the Active/Inactive filter be removed. The expanded panel keeps the paginated Active Kit Users list only. Original AC text: \"Expanding the Kit Users card reveals the Active Kit Users panel with filters and paginated list\".",
+      "ac_delta": "panel with filters + paginated list -> paginated list only (filter removed)"
+    },
+    {
+      "item": "Layout is responsive and does not require horizontal scrolling",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Page grid is already responsive (1/2/4 across breakpoints); compact cards must respect it. Verified visually at QA."
+    },
+    {
+      "item": "2 rows of 4 cards, all hit-type cards kept together",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Dalton's comment; overrides the description. Exact slot composition is an open question."
+    },
+    {
+      "item": "Only ONE detail region open at a time \u2014 opening a new one replaces the previous, never compounds",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Dalton's comment; drives the architecture decision (shared state across nine independent Livewire widgets)."
+    },
+    {
+      "item": "Follow Backyard's Card Dropdown + Detail Expansion as the reference implementation",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Located and read end-to-end: InsightPulse.php + insight-pulse.blade.php + partials/pulse-tile.blade.php."
+    }
+  ],
+  "questions": [
+    {
+      "id": "Q1",
+      "q": "Which 8 things fill the '2 rows of 4'? Recommended reading: the 6 metrics + the Recovery Leaderboard summary card + the Kit Users summary card = 8, laid out as row 1 = Scan Count, Repossessions, Recovery Leaderboard, Kit Users and row 2 = the 4 hit cards (which satisfies 'keep all hits together'). Confirm, or give the intended composition/order.",
+      "answered": true,
+      "answer": "CONFIRMED (recommended composition). 8 cards = the 6 metrics + the Recovery Leaderboard summary + the Kit Users summary. HARD CONSTRAINT: all 4 hit cards must sit together in one row. Layout: row 1 = Scan Count | Repossessions | Recovery Leaderboard | Kit Users; row 2 = Live Hits | Staging Live Hits | Direct Historical Hits | Staging Historical Hits.",
+      "source": "human:Dalton 2026-08-12"
+    },
+    {
+      "id": "Q2",
+      "q": "Sparkline window and granularity: reuse the existing cached 13-month series (zero new queries), a shorter monthly slice (e.g. last 6 months), or a finer daily/weekly window (new bounded per-day queries \u2014 cheap against hit_stats_daily, which is already date-grain)?",
+      "answered": true,
+      "answer": "Reuse each widget\u2019s existing cached monthly series for its sparkline. No new sparkline queries.",
+      "source": "human:Dalton 2026-08-12"
+    },
+    {
+      "id": "Q3",
+      "q": "What does '% change vs prior period' compare? (a) MTD-so-far vs the FULL prior calendar month \u2014 free, already cached, but unfair early in the month; (b) MTD-so-far vs the same day-of-month range last month \u2014 apples-to-apples, one extra bounded query per metric; (c) trailing 30 days vs the prior 30 days.",
+      "answered": true,
+      "answer": "MTD vs the SAME DAY-RANGE last month (apples-to-apples): on Aug 12 compare Aug 1-12 against Jul 1-12. Costs one extra bounded query per metric against the same pre-aggregated tables \u2014 accepted.",
+      "source": "human:Dalton 2026-08-12"
+    },
+    {
+      "id": "Q4",
+      "q": "Do the compact cards and the collapsed leaderboard respect the page's existing date filter (Today / Last 7 Days / This Month / Last Month), or are they always fixed to calendar this-month vs last-month regardless of it? Today every widget's description text follows that filter, so the ticket's fixed 'this month + last month' wording conflicts with existing behavior.",
+      "answered": true,
+      "answer": "DELEGATED to the driver, recommendation accepted: the card headline number FOLLOWS the page date filter, and because DateTogglesFilter defaults to this_month (Dashboard.php:91 ->defaultDate(\u2019this_month\u2019)) the default view is exactly the MTD total the ticket specifies. The % change always compares the prior EQUIVALENT period for whatever range is selected. The collapsed Recovery Leaderboard is the exception: it stays fixed at this-month + last-month regardless of the filter, because it shows two months side by side and a filter of Today/Last 7d cannot express that.",
+      "source": "human:Dalton 2026-08-12"
+    },
+    {
+      "id": "Q5",
+      "q": "Does 'Kit Users' mean DISTINCT ASSIGNED USERS (platform.kit_settings.user_id \u2014 needs a new two-step cross-connection count) or is it a second view of the kit count? Code evidence: the widget titled 'Active Kit Users' today lists KIT names and holds no user data at all, so 'Kit User' has historically meant 'kit' on this dashboard.",
+      "answered": true,
+      "answer": "Do NOT redefine Kit Users \u2014 use what already exists. Camera Kits = total kit count; Kit Users = ACTIVE kit users, i.e. the count already computed by the donut widget\u2019s active() method (the same population the existing \u201cActive Kit Users\u201d list shows). No new cross-connection distinct-user query is needed, so the Kit/KitSettings connection hazard is avoided entirely.",
+      "source": "human:Dalton 2026-08-12"
+    },
+    {
+      "id": "Q6",
+      "q": "The ticket says the expanded panel keeps a 'Value filter' and a 'Kit Name filter', but the widget has only ONE Active/Inactive SelectFilter (whose internal data key is literally 'value') and no Kit Name search. Add a Kit Name filter as new work, or keep the panel exactly as it exists today (per your comment)?",
+      "answered": true,
+      "answer": "Remove ONLY the Active/Inactive filter from the Kit Users panel. Keep the Kit Users card and its expanded paginated kit list. NOTE this is a deliberate AC change: the ticket said the expanded panel keeps \u201cValue filter, Kit Name filter\u201d; it will now expand to the paginated Active Kit Users list with NO filter. (Coherent with Q5: the panel is the active-kit-users list, so an active/inactive filter is redundant.)",
+      "source": "human:Dalton 2026-08-12"
+    },
+    {
+      "id": "Q7",
+      "q": "Where does the expanded detail render \u2014 inline inside the clicked card's own grid slot (accordion), or in ONE shared region below the whole card grid (what Backyard's InsightPulse does)?",
+      "answered": true,
+      "answer": "ONE shared detail region below the whole card grid (the Backyard InsightPulse placement). Not inline in the clicked card\u2019s grid slot.",
+      "source": "human:Dalton 2026-08-12"
+    },
+    {
+      "id": "Q8",
+      "q": "Architecture for the one-open-at-a-time rule. Clarity's dashboard is nine INDEPENDENT Filament widget Livewire components, so Backyard's single Alpine scope cannot coordinate them as-is. Options: (a) consolidate the 8 cards into one custom widget class owning one Alpine scope \u2014 closest to the Backyard reference; (b) keep separate widget classes and hold the expanded key as a property on the Dashboard PAGE, conditionally rendering the expanded chart \u2014 most Filament-native and gets true click-triggered lazy loading of the expensive chart query; (c) keep separate widgets and coordinate via a Livewire event. Which shape do you want? (If (c): it must use a NEW event name \u2014 'refresh-dashboard' is already shared with ClientAnalytics, IndividualClientAnalytics and ClientTable.)",
+      "answered": true,
+      "answer": "Option (b): hold the expanded key as a property on the Dashboard PAGE and render the expanded content conditionally. Most Filament-native, makes \u201creplace, never compound\u201d structural (one scalar key = at most one open region), and gives true click-triggered lazy loading of the expensive chart query. Explicitly NOT option (c), so the shared \u2018refresh-dashboard\u2019 event is left untouched.",
+      "source": "human:Dalton 2026-08-12"
+    },
+    {
+      "id": "Q9",
+      "q": "Approval to DELETE tests/Filament/Widgets/Dashboard/KitStatusGraphTest.php along with the donut widget class it covers? Repo rule says test files are never removed without explicit approval.",
+      "answered": true,
+      "answer": "APPROVED \u2014 delete tests/Filament/Widgets/Dashboard/KitStatusGraphTest.php together with the KitStatusGraph donut widget class.",
+      "source": "human:Dalton 2026-08-12"
+    },
+    {
+      "id": "Q10",
+      "q": "Are the ticket's metric names relabels of existing widgets \u2014 'Repossessions' = RecoveryCounts (heading 'Recoveries'), 'Direct Historical Hits' = HistoricalHits (heading 'Historical Hits')?",
+      "answered": true,
+      "answer": "Yes. RecoveryCounts queries the Recovery model (repossession events) and HistoricalHits maps to hit_stats_daily.historical_hit_count (HitTypeEnum::Historical = 'H'), the non-staging counterpart of Staging_Historical = 'Z'. These are relabels, not new metrics.",
+      "source": "code"
+    },
+    {
+      "id": "Q11",
+      "q": "Are the hit-type codes as assumed (Live='L', Historical='H', Staging Live='S', Staging Historical='Z')?",
+      "answered": true,
+      "answer": "Confirmed in app/Enums/HitTypeEnum.php:20-30, and they map 1:1 onto hit_stats_daily's live_hit_count / historical_hit_count / staging_live_hit_count / staging_historical_hit_count columns \u2014 no new hit-type filtering logic needed.",
+      "source": "code"
+    },
+    {
+      "id": "Q12",
+      "q": "Does this change require `npm run build` and a committed public/build update?",
+      "answered": true,
+      "answer": "Yes for CSS. public/build is tracked, and Tailwind v4 @source-scans app/Filament + resources/views/filament, so new utility classes in the new Blade views need a rebuild. No new Vite entrypoint or JS dependency is needed \u2014 Alpine's x-collapse already ships in vendor/filament/filament/dist/index.js. Remember to revert the CLAUDE.md/AGENTS.md/.junie/boost.json churn `npm run build` causes before committing.",
+      "source": "code"
+    },
+    {
+      "id": "Q13",
+      "q": "Is RecoveryLeaderQuery's LIMIT 10 enough for leader + runner-up?",
+      "answered": true,
+      "answer": "Yes \u2014 the query is already ORDER BY total DESC, so leader and runner-up are its first two entries. No query change.",
+      "source": "code"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "SETTLED \u2014 rename blast radius is tiny: a whole-repo grep for hardcoded 'Dashboard' string literals across app/, resources/, tests/ found exactly ONE (Dashboard.php:35). Every other 'Dashboard' reference is the class/route (Dashboard::getUrl()), unaffected by a label change. Page::getBreadcrumbs() returns [] absent a cluster, so no breadcrumb string exists.",
+    "SETTLED \u2014 DEV-1927 (commit 4cdcf4117) and 'Fix Recovery Leaderboard plotting months under wrong labels' (commit b2f0f7ea2) hardened the month math in DashboardWidget/SharedHitStatsData/ScanCount/RecoveryLeader. Reuse getMonthlyData()/getGraphLabels() verbatim; reintroducing `subMonths($i)->startOfMonth()` reproduces the Feb-skip/Mar-duplicate bug. b2f0f7ea2's getData() positional-alignment fix has NO regression test \u2014 worth adding one while touching this code.",
+    "SETTLED \u2014 cross-connection gotcha: Kit is on `zod`, KitSettings on `platform`; a whereHas/join across them silently returns 0. Materialize kit ids first, then a whereIn on the platform side.",
+    "SETTLED (backstop finding) \u2014 the Livewire event 'refresh-dashboard' is NOT private to this page: it is dispatched/listened by app/Filament/Pages/ClientAnalytics.php:166, app/Filament/Pages/IndividualClientAnalytics.php:55,191 and app/Filament/Widgets/Client/ClientTable.php:46. If expansion state is coordinated by event, it must use a NEW distinct event name. Likewise DateTogglesFilter is shared with 5 resources + both client analytics pages \u2014 do not change its contract.",
+    "SETTLED (backstop finding) \u2014 the 25 out-of-inventory references to `Dashboard` are all route-based redirects (CustomLoginPage, ClientAuthenticate, ClientMiddleware, LoginResponse) using Dashboard::getUrl(); a title/nav-label rename cannot break them, and no test asserts the title text today.",
+    "SETTLED \u2014 Filament v5 widgets are LAZY by default (vendor/filament/support/src/Concerns/CanBeLazy.php:9) and none of these widgets override it. Backyard's reference detail panels, by contrast, are plain <livewire:...> tags that mount EAGERLY and are only CSS-hidden \u2014 so a literal port would pre-run every expanded chart's query on page load. If click-triggered loading is wanted, that is a deliberate DIVERGENCE from the Backyard reference (and option (b) in Q8 gets it naturally).",
+    "SETTLED \u2014 Backyard reference mechanism, read end-to-end: ONE `x-data=\"{ open: null }\"` scope wraps the whole tile grid; each tile's toggle does `open = (open === key) ? null : key` (single-open enforced by construction, no extra logic); detail panels are `x-show` + `x-collapse` divs BELOW the grid; the sparkline is a server-computed inline SVG <polyline> (no chart library). What ports: the state shape, the toggle idiom, the SVG sparkline. What does NOT port: the single-widget scope (Clarity has nine widgets), the eager detail mounting, and Backyard's hand-rolled vanilla Chart.js expanded charts \u2014 Clarity should keep Filament's native, already-tested ChartWidget for the expanded bar charts.",
+    "SETTLED \u2014 the 4 hit widgets share ONE batched ClickHouse fetch via SharedHitStatsData/HitStatsBatchQuery. The compact cards must keep using that batch; four independent per-card queries would quadruple the ClickHouse round-trips.",
+    "SETTLED \u2014 data hygiene to preserve: hit_stats_daily is read with FINAL (dedup), and recovery_scans/recoveries are read with explicit `_peerdb_is_deleted = 0` CDC soft-delete filters. Any new derived query must keep both.",
+    "SETTLED \u2014 no PG migration and no ClickHouse schema change is required. All reads are org-scoped, bounded-range, deterministically ordered against existing pre-aggregated tables, consistent with the CH knowledge card. PG stays source of truth; CH counts may lag by CDC latency exactly as they do today.",
+    "SETTLED \u2014 Clarity has NO custom dashboard-widget Blade views today (only resources/views/filament/widgets/placeholder.blade.php); all nine widgets use Filament's default views. The compact-card UI is genuinely new construction, with no in-repo precedent to copy \u2014 hence Dalton's cross-repo pointer.",
+    "DISAGREEMENT RESOLVED BY ARITHMETIC \u2014 one candidate claimed 6 metrics + leaderboard + kit users = 7 and inferred a missing 8th card. It is 6 + 1 + 1 = 8, which is exactly Dalton's '2 rows of 4' with the 4 hit cards forming one row. Recorded as the recommended default in Q1 rather than silently adopted.",
+    "DISAGREEMENT RESOLVED \u2014 one pass concluded no `npm run build` was needed (correct that no new Vite ENTRYPOINT is required) while three concluded it was (correct that Tailwind must re-scan for new utility classes). Both are true at different layers: CSS rebuild yes, JS entrypoint no.",
+    "PROCESS \u2014 the repo runs PHPUnit (not Pest) and has no JS test runner, so the one-open-at-a-time interaction is best pinned by a Livewire/page test for the state transition plus a human/agent browser check for the visual collapse."
+  ],
+  "tests": [
+    {
+      "file": "tests/Filament/Widgets/Dashboard/DashboardMonthLabelsTest.php",
+      "what_it_pins": "DEV-1927 regression: no duplicate/missing month labels, data under the correct label. Must keep passing UNMODIFIED (extended, never weakened)."
+    },
+    {
+      "file": "tests/Filament/Pages/DashboardTest.php",
+      "what_it_pins": "Role-based route access/redirects (unaffected by the rename). ADD assertions that the page header and the sidebar nav label both read 'Company Metrics' \u2014 the two separate code paths."
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/{ScanCount,RecoveryCounts,LiveHits,StagingLiveHits,HistoricalHits,StagingHistoricalHits}Test.php",
+      "what_it_pins": "Existing heading + description rendering per widget; extend with compact-card assertions (MTD equals the current-month bucket, %-change sign/value, sparkline series present) and that expanding yields the existing bar-chart data."
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/RecoveryLeaderTest.php",
+      "what_it_pins": "Today: filter-driven leader/runner-up text. ADD: the collapsed summary showing this-month AND last-month leader+runner-up together, plus a getData() month-alignment regression test (the b2f0f7ea2 fix is currently untested)."
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/KitUsersTest.php",
+      "what_it_pins": "Table rendering, Active/Inactive filter, empty state \u2014 must keep passing once the table moves into the expanded view. ADD: the compact card's Camera Kits and Kit Users counts against seeded kits with and without an assigned user."
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/KitStatusGraphTest.php",
+      "what_it_pins": "The donut being deleted \u2014 this file is deleted or repurposed with approval (Q9)."
+    },
+    {
+      "file": "tests/Filament/Widgets/Dashboard/Concerns/DashboardWidgetTest.php",
+      "what_it_pins": "Base-class getGraphLabels()/getDescription()/getCacheTTL() behavior \u2014 must survive the new MTD/%-change/sparkline helpers."
+    },
+    {
+      "file": "new \u2014 one-open-at-a-time state test",
+      "what_it_pins": "Opening card A then card B leaves ONLY B expanded (no compounding). Shape depends on the Q8 architecture choice; a page-property design (option b) is directly Livewire-testable."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Filament/Pages/Dashboard.php:33-36 \u2014 getTitle() hardcodes 'Dashboard'; no static $navigationLabel/$title override",
+      "app/Filament/Pages/Dashboard.php:38-50 \u2014 getColumns()/getHeaderWidgetsColumns()/getFooterWidgetsColumns() = 1/2/4 (already 4-wide at lg)",
+      "app/Filament/Pages/Dashboard.php:52-83 \u2014 header widgets [HotlistCount]; footer widgets [ScanCount, RecoveryCounts, LiveHits, HistoricalHits, StagingLiveHits, StagingHistoricalHits, RecoveryLeader, KitStatusGraph, KitUsers]; MissedOpportunityClientGraph commented out at :79",
+      "app/Filament/Pages/Dashboard.php:85-103 \u2014 filtersForm() DateTogglesFilter (today/last_7d/this_month/last_month) \u2192 updatedFilters() dispatches 'refresh-dashboard'",
+      "vendor/filament/filament/src/Pages/Dashboard.php:25-30 \u2014 getNavigationLabel() fallback chain proving the header/sidebar split",
+      "lang/vendor/filament-panels/en/pages/dashboard.php:5 \u2014 the 'Dashboard' translation fallback (do not edit)",
+      "app/Providers/Filament/App.php:33-35 \u2014 Dashboard is the App panel's only ->pages() entry",
+      "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php:23-26 \u2014 default columnSpan ['default'=>1,'lg'=>2]; :154-159 getDescription() 'Current Month / Last Month'; :161-171 getGraphLabels(); :213-238 getMonthlyData() with the DEV-1927 fix",
+      "app/Filament/Widgets/Dashboard/Concerns/SharedHitStatsData.php:17-36 \u2014 hitWidgetMap + single batched fetch for all 4 hit widgets",
+      "app/Clickhouse/Queries/HitStatsBatchQuery.php:15-85 \u2014 clarity.hit_stats_daily FINAL, date-grain, bounded range, GROUP BY month",
+      "app/Clickhouse/Queries/ScanStatsBatchQuery.php:15-37 \u2014 clarity.scan_report_hourly, uniqExactMerge, GROUP BY month",
+      "app/Clickhouse/Queries/RecoveryLeaderQuery.php:15-41 \u2014 per-kit recovery share, ORDER BY total DESC LIMIT 10, _peerdb_is_deleted = 0",
+      "app/Filament/Widgets/Dashboard/RecoveryLeader.php:127-159 getData() (post-b2f0f7ea2 positional alignment); :161-215 getDescription() leader/runner-up; :217-236 getMonthlyData(formatted:false)",
+      "app/Filament/Widgets/Dashboard/KitStatusGraph.php:1-121 \u2014 the doughnut, heading literally 'Kit Users'; active()/inactive() kit counts",
+      "app/Filament/Widgets/Dashboard/KitUsers.php:35-90 \u2014 cachedActiveKitIds() + table() with ONE SelectFilter('type') and no searchable column",
+      "app/Enums/HitTypeEnum.php:20-30 \u2014 L / H / S / Z",
+      "app/Models/Kit.php:59,88-91 \u2014 connection 'zod', getAssignedUserAttribute() via settings",
+      "app/Models/KitSettings.php:25,50-53 \u2014 connection 'platform', user_id \u2192 User",
+      "app/Filament/Pages/Concerns/HasStatDrillDown.php \u2014 the DIFFERENT existing modal drill-down pattern (not the one referenced)",
+      "resources/css/filament/app/theme.css:1-8 \u2014 Tailwind @source globs over app/Filament + resources/views/filament",
+      "tests/Filament/Widgets/Dashboard/DashboardMonthLabelsTest.php:1-134 \u2014 the DEV-1927 regression pin",
+      "/Users/daltonmccleery/Herd/backyard/app/Filament/Widgets/InsightPulse.php \u2014 reference widget (pulse()/summarize()/formatDelta(), each source fetched defensively so one slow query degrades one tile, not the page)",
+      "/Users/daltonmccleery/Herd/backyard/resources/views/filament/widgets/insight-pulse.blade.php:1-72 \u2014 the single-open Alpine mechanism",
+      "/Users/daltonmccleery/Herd/backyard/resources/views/filament/widgets/partials/pulse-tile.blade.php:1-28 \u2014 inline SVG polyline sparkline + chevron",
+      "/Users/daltonmccleery/Herd/backyard/app/Livewire/{ScanTrendChart,HitTrendChart}.php \u2014 the eagerly-mounted detail components (the part that does not port)",
+      "/Users/daltonmccleery/Herd/backyard/app/Filament/Pages/AdminDashboard.php:18-24 \u2014 precedent for renaming a Filament dashboard via static $title/$navigationLabel"
+    ],
+    "code_flow": "Request \u2192 filament.app.pages.dashboard \u2192 App\\Filament\\Pages\\Dashboard (mount() tracks analytics + canAccess(); filtersForm renders DateTogglesFilter and dispatches 'refresh-dashboard' on change) \u2192 the widget grid mounts each registered widget as its OWN Livewire component (lazy by default) \u2192 each metric widget calls getMonthlyData(), which reads a per-widget-class cache key and backfills stale months through a batched ClickHouse aggregate query (HitStatsBatchQuery / ScanStatsBatchQuery) scoped by org_id over a bounded 13-month window; RecoveryLeader does the same via RecoveryLeaderQuery; KitStatusGraph/KitUsers count and list kits \u2192 Filament's default Chart.js / table views render. The redesign adds a compact-card render mode in front of this data layer plus ONE shared expanded-key coordination point, and deletes the donut. Nothing in the cache/query layer needs to change.",
+    "tables": [
+      "clarity.hit_stats_daily",
+      "clarity.scan_report_hourly",
+      "clarity.recovery_scans",
+      "clarity.recoveries",
+      "clarity.kits",
+      "zod kits (Postgres, connection 'zod')",
+      "platform.kit_settings (Postgres, connection 'platform')",
+      "clarity.hotlist (HotlistCount only \u2014 out of scope)"
+    ],
+    "related_components": [
+      "Livewire #[On('refresh-dashboard')] listeners on every dashboard widget (shared with both client analytics pages \u2014 do not overload)",
+      "DateTogglesFilter (shared with 5 resources + 2 client pages)",
+      "StatHelper cache-key builder",
+      "tiered cache TTLs (short for impersonators / current month, long for closed months)",
+      "Filament CanBeLazy (widgets lazy by default)",
+      "App\\Support\\Filament\\FilamentRouteRedirect (matches nav labels 'Platform V1'/'Billing'/'Profile'/'Client Dashboard' \u2014 not this page, so the rename is safe)"
+    ]
+  },
+  "exhaustiveness": {
+    "grep_patterns": [
+      "grep -rn \"'Dashboard'\\|\\\"Dashboard\\\"\" app resources tests --include=*.php --include=*.blade.php --include=*.js --include=*.vue",
+      "grep -rn \"navigationLabel\\|getNavigationLabel\\|getTitle()\" app/Filament/Pages/Dashboard.php",
+      "grep -rn \"dashboard.title\" app resources lang",
+      "grep -rln \"filament.app.pages.dashboard\" app tests",
+      "grep -rln \"KitStatusGraph\\|doughnut\\|donut\" app tests resources",
+      "grep -rln \"Widgets\\\\Dashboard\\\\KitUsers\\b\" app tests",
+      "grep -rln \"extends AdminClickhouseChartWidget\\|extends AdminClickhouseStatsWidget\" app",
+      "grep -rn \"refresh-dashboard\" app",
+      "grep -rn \"DateTogglesFilter\" app",
+      "grep -rn \"getMonthlyData\\|getGraphLabels\\|getCacheTTL\\|cachedActiveKitIds\\|hitWidgetMap\" app",
+      "grep -rn \"hit_stats_daily\" app database"
+    ],
+    "sites": [
+      {
+        "file": "app/Filament/Pages/Dashboard.php:35",
+        "verdict": "buggy",
+        "reason": "The only hardcoded 'Dashboard' literal in app/resources/tests \u2014 must become 'Company Metrics'."
+      },
+      {
+        "file": "app/Filament/Pages/Dashboard.php (missing static $navigationLabel)",
+        "verdict": "buggy",
+        "reason": "Sidebar label falls through to the vendor translation; renaming getTitle() alone leaves 'Dashboard' in the nav."
+      },
+      {
+        "file": "lang/vendor/filament-panels/en/pages/dashboard.php:5",
+        "verdict": "safe",
+        "reason": "Shared vendor-published fallback for any Filament Dashboard; the correct fix point is the subclass property, not this file."
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/KitStatusGraph.php:1-121",
+        "verdict": "buggy",
+        "reason": "The donut to delete; still registered at Dashboard.php:80."
+      },
+      {
+        "file": "tests/Filament/Widgets/Dashboard/KitStatusGraphTest.php",
+        "verdict": "buggy",
+        "reason": "Covers the widget being deleted; must be removed/repurposed in the same change, with approval (Q9)."
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/KitUsers.php:35-90",
+        "verdict": "buggy",
+        "reason": "Needs the new Camera Kits / Kit Users totals; holds no user data today and has only one filter (not the two the ticket describes)."
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/{ScanCount,RecoveryCounts,LiveHits,StagingLiveHits,HistoricalHits,StagingHistoricalHits}.php",
+        "verdict": "buggy",
+        "reason": "Currently always-visible bar charts; need the compact-card path + expand trigger."
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/RecoveryLeader.php:161-236",
+        "verdict": "buggy",
+        "reason": "Needs the collapsed two-month summary; also carries the untested b2f0f7ea2 getData() alignment fix."
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php:161-238",
+        "verdict": "safe",
+        "reason": "Carries the DEV-1927 fix \u2014 build helpers on top, never modify the month arithmetic."
+      },
+      {
+        "file": "app/Filament/Auth/CustomLoginPage.php:6,29 \u00b7 app/Http/Middleware/ClientAuthenticate.php:5,14 \u00b7 app/Http/Middleware/ClientMiddleware.php:5 \u00b7 app/Http/Responses/Auth/LoginResponse.php:6",
+        "verdict": "safe",
+        "reason": "Backstop-surfaced callers; all redirect via Dashboard::getUrl() (route-based), so a label rename cannot break them."
+      },
+      {
+        "file": "app/Filament/Pages/ClientAnalytics.php:166 \u00b7 app/Filament/Pages/IndividualClientAnalytics.php:55,191 \u00b7 app/Filament/Widgets/Client/ClientTable.php:46",
+        "verdict": "safe",
+        "reason": "Backstop-surfaced sharers of the 'refresh-dashboard' event \u2014 safe as long as expansion state does NOT overload that event name."
+      },
+      {
+        "file": "app/Filament/Widgets/Client/Concerns/{ClientChartWidget,ClientClickhouseChartWidget}.php",
+        "verdict": "safe",
+        "reason": "Backstop-surfaced: define their own getMonthlyData()/getGraphLabels()/getCacheTTL() \u2014 same method NAMES, separate classes, no inheritance from DashboardWidget, so admin-side helper changes cannot leak into the client panel."
+      },
+      {
+        "file": "app/Support/Filament/FilamentRouteRedirect.php",
+        "verdict": "safe",
+        "reason": "Matches nav labels 'Platform V1'/'Billing'/'Profile'/'Client Dashboard' \u2014 none is this page's label."
+      },
+      {
+        "file": "tests/Filament/Pages/DashboardTest.php \u00b7 tests/Roles/*RoleTest.php \u00b7 tests/Filament/RedirectsToFilamentTest.php \u00b7 tests/Filament/Auth/CustomLoginPageTest.php",
+        "verdict": "safe",
+        "reason": "All assert via getUrl()/HTTP status, never the title text \u2014 the rename breaks nothing; DashboardTest should GAIN a title assertion."
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/HotlistCount.php",
+        "verdict": "safe",
+        "reason": "Header stats row, not one of the six metrics; left untouched."
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/MissedOpportunityClientGraph.php",
+        "verdict": "safe",
+        "reason": "Already commented out of getFooterWidgets(); dead code."
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/Concerns/{AdminClickhouseChartWidget,AdminClickhouseStatsWidget}.php",
+        "verdict": "safe",
+        "reason": "Dead scaffolding \u2014 zero `extends` usages; not the live base class."
+      },
+      {
+        "file": "app/Filament/Pages/Concerns/HasStatDrillDown.php + resources/views/filament/pages/drill-downs/**",
+        "verdict": "safe",
+        "reason": "A different (modal) drill-down pattern; informational only \u2014 must not be mistaken for the referenced Backyard inline toggle."
+      },
+      {
+        "file": "app/Filament/Tables/Filters/KitUsersFilter.php + its test",
+        "verdict": "safe",
+        "reason": "Name collision only; a resource table filter unrelated to the dashboard widget."
+      },
+      {
+        "file": "app/Filament/Pages/KitUserRecoveries.php + app/Filament/Widgets/KitUserRecoveries/**",
+        "verdict": "safe",
+        "reason": "Separate report page with its own leaderboard widgets."
+      },
+      {
+        "file": "resources/js/clarity-scout/**",
+        "verdict": "safe",
+        "reason": "Scout PWA's own 'dashboard' surface; unrelated."
+      },
+      {
+        "file": "vite.config.js",
+        "verdict": "safe",
+        "reason": "No entrypoint references any dashboard widget \u2014 this is a CSS-rebuild-only frontend change."
+      }
+    ]
+  },
+  "missed_caller_candidates": [
+    {
+      "file": "app/Filament/Auth/CustomLoginPage.php",
+      "symbol": "Dashboard",
+      "referenced_at": "app/Filament/Auth/CustomLoginPage.php:6,29",
+      "kind": "redirect via getUrl() \u2014 safe"
+    },
+    {
+      "file": "app/Http/Middleware/ClientAuthenticate.php",
+      "symbol": "Dashboard",
+      "referenced_at": "app/Http/Middleware/ClientAuthenticate.php:5,14",
+      "kind": "redirect via getUrl() \u2014 safe"
+    },
+    {
+      "file": "app/Http/Middleware/ClientMiddleware.php",
+      "symbol": "Dashboard",
+      "referenced_at": "app/Http/Middleware/ClientMiddleware.php:5",
+      "kind": "redirect via getUrl() \u2014 safe"
+    },
+    {
+      "file": "app/Http/Responses/Auth/LoginResponse.php",
+      "symbol": "Dashboard",
+      "referenced_at": "app/Http/Responses/Auth/LoginResponse.php:6",
+      "kind": "redirect via getUrl() \u2014 safe"
+    },
+    {
+      "file": "app/Filament/Pages/IndividualClientAnalytics.php",
+      "symbol": "Dashboard",
+      "referenced_at": "app/Filament/Pages/IndividualClientAnalytics.php:49",
+      "kind": "route reference \u2014 safe"
+    },
+    {
+      "file": "app/Filament/Pages/ClientAnalytics.php",
+      "symbol": "refresh-dashboard",
+      "referenced_at": "app/Filament/Pages/ClientAnalytics.php:166",
+      "kind": "SHARED Livewire event \u2014 do not overload for expansion state"
+    },
+    {
+      "file": "app/Filament/Pages/IndividualClientAnalytics.php",
+      "symbol": "refresh-dashboard",
+      "referenced_at": "app/Filament/Pages/IndividualClientAnalytics.php:55,191",
+      "kind": "SHARED Livewire event \u2014 do not overload"
+    },
+    {
+      "file": "app/Filament/Widgets/Client/ClientTable.php",
+      "symbol": "refresh-dashboard",
+      "referenced_at": "app/Filament/Widgets/Client/ClientTable.php:46",
+      "kind": "SHARED Livewire event listener \u2014 do not overload"
+    },
+    {
+      "file": "app/Filament/Widgets/Client/Concerns/ClientChartWidget.php",
+      "symbol": "getMonthlyData / getGraphLabels",
+      "referenced_at": "app/Filament/Widgets/Client/Concerns/ClientChartWidget.php:86,160,183,201",
+      "kind": "same method NAMES in a separate client-panel class \u2014 no inheritance, safe"
+    },
+    {
+      "file": "app/Filament/Widgets/Client/Concerns/ClientClickhouseChartWidget.php",
+      "symbol": "getMonthlyData / getCacheTTL",
+      "referenced_at": "app/Filament/Widgets/Client/Concerns/ClientClickhouseChartWidget.php:93,100,164",
+      "kind": "same method NAMES in a separate client-panel class \u2014 safe"
+    },
+    {
+      "file": "app/Filament/Pages/ClientAnalytics.php, IndividualClientAnalytics.php, Client/Resources/ClientSearchScansResource.php, Resources/AffiliateStatsResource.php, Resources/HitsResource.php, Resources/MissedOpportunityResource.php, Resources/ScansResource/Pages/ListScans.php",
+      "symbol": "DateTogglesFilter",
+      "referenced_at": "multiple",
+      "kind": "shared filter component \u2014 do not change its contract"
+    }
+  ],
+  "data_impact": {
+    "pg_tables": [
+      "platform.kit_settings (new read path only if 'Kit Users' means distinct assigned users)",
+      "zod kits (existing reads)",
+      "platform.recoveries (source of truth behind clarity.recoveries)"
+    ],
+    "ch_tables": [
+      "clarity.hit_stats_daily",
+      "clarity.scan_report_hourly",
+      "clarity.recovery_scans",
+      "clarity.recoveries",
+      "clarity.kits"
+    ],
+    "mv_or_cdc_implications": "No writes, no new materialized views, no CDC pipeline changes. Every CH table read here is already the data source for today's widgets \u2014 PeerDB-CDC-replicated from Postgres or an aggregate built from that stream \u2014 so counts may lag PG by CDC latency exactly as they do now. hit_stats_daily is read with FINAL and recovery_scans/recoveries with `_peerdb_is_deleted = 0`; both must be preserved by any new derived query. New sparkline/%-change work should read the existing pre-aggregated rollups, never re-scan hits_hot/hits_cold.",
+    "indexes_relied_on": [
+      "clarity.hit_stats_daily ORDER BY (date, org_id) \u2014 matched by the existing org_id + bounded-range filter",
+      "clarity.scan_report_hourly ORDER BY (org_id, kit_id, scan_hour)",
+      "clarity.kits idx_org_id",
+      "clarity.recoveries/recovery_scans existing org_id + repo_date bounds",
+      "platform.kit_settings PK on kit_id \u2014 a whereIn(kit_id, \u2026) is a PK lookup"
+    ]
+  },
+  "derivation_log": [
+    {
+      "query_shape": "SELECT toStartOfMonth(date), sum(<hit_type>_count) FROM clarity.hit_stats_daily FINAL WHERE org_id = ? AND date BETWEEN ? AND ? GROUP BY month ORDER BY month",
+      "param_classes": "org_id: int; bounded 13-month date range",
+      "aggregate_result": "13-element month\u2192int map per hit type, deterministically ordered",
+      "why": "Existing batched query behind all four hit metrics. Its last bucket IS the MTD figure and the previous bucket the prior-month comparator, so the compact cards need no new query."
+    },
+    {
+      "query_shape": "SELECT toStartOfMonth(scan_hour), uniqExactMerge(scan_count) FROM clarity.scan_report_hourly WHERE org_id = ? AND scan_hour BETWEEN ? AND ? GROUP BY month ORDER BY month",
+      "param_classes": "org_id: int; bounded 13-month range",
+      "aggregate_result": "13-element month\u2192int map",
+      "why": "Same reuse for Scan Count."
+    },
+    {
+      "query_shape": "SELECT k.name, round(sum(kit_count/total_count),2) AS total FROM (per-kit share over clarity.recovery_scans FINAL, scoped by clarity.recoveries.org_id + repo_date range, _peerdb_is_deleted = 0) sub JOIN clarity.kits k GROUP BY k.id, k.name HAVING total > 0 ORDER BY total DESC LIMIT 10",
+      "param_classes": "org_id: int; bounded month range, evaluated per month",
+      "aggregate_result": "name\u2192float map, already sorted leader-first, capped at 10",
+      "why": "Existing leaderboard query. The collapsed summary is the top two entries of the this-month and last-month results \u2014 no new SQL."
+    },
+    {
+      "query_shape": "count of the org's kits (existing pattern: ClickhouseKit::forOrg(org)->count(), equal to KitStatusGraph's active()+inactive())",
+      "param_classes": "org_id: int",
+      "aggregate_result": "single int (Camera Kits)",
+      "why": "Directly reusable for the new card's first number."
+    },
+    {
+      "query_shape": "NEW (only if Q5 = distinct users): step 1 resolve the org's kit ids on the `zod` connection; step 2 KitSettings::whereIn('kit_id', <ids>)->whereNotNull('user_id')->distinct('user_id')->count() on `platform`",
+      "param_classes": "org_id: int \u2192 a bounded kit-id list; user_id IS NOT NULL",
+      "aggregate_result": "single int (distinct assigned users)",
+      "why": "No existing query computes this. Must be two single-connection queries \u2014 a cross-connection whereHas silently returns 0."
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "Rename to Company Metrics",
+        "kind": "agent",
+        "intent": "Load the dashboard route authenticated; assert BOTH the page header and the sidebar nav item read 'Company Metrics' and that no 'Dashboard' label remains."
+      },
+      {
+        "ac": "6 compact cards with MTD, %-change, sparkline",
+        "kind": "agent",
+        "intent": "With seeded monthly aggregates, assert each card's MTD equals the seeded current-month value, the %-change matches the agreed baseline, and a sparkline element renders; assert no bar chart is visible while collapsed."
+      },
+      {
+        "ac": "Card expands to the full bar chart, one at a time",
+        "kind": "agent",
+        "intent": "Expand Scan Count, assert its chart appears; expand a Hits card, assert Scan Count's detail is gone and only the Hits detail is visible."
+      },
+      {
+        "ac": "Leaderboard collapsed summary + expand",
+        "kind": "agent",
+        "intent": "Seed deterministic per-kit recovery totals for this and last month (different ordering per month); assert the four name+count pairs are correct, then expand and assert the stacked chart renders."
+      },
+      {
+        "ac": "Donut removed; Kit Users card + expanded panel",
+        "kind": "agent",
+        "intent": "Assert no doughnut/Active-vs-Inactive chart remains; assert the two counts match seeded kits and kit_settings assignments; expand and assert the existing filter + pagination still work."
+      },
+      {
+        "ac": "2 rows of 4, responsive, no horizontal scroll",
+        "kind": "human",
+        "intent": "Eyeball the grid at mobile/tablet/desktop widths; confirm the 2x4 arrangement with hits together and no horizontal page scroll."
+      },
+      {
+        "ac": "Interaction fidelity vs the Backyard reference",
+        "kind": "human",
+        "intent": "Side-by-side feel check against Backyard's InsightPulse (chevron, collapse animation, single-open behavior)."
+      }
+    ],
+    "seed_scenario": "One org with an admin user. Seed clarity.hit_stats_daily rows for the current and prior month across all four hit types with distinct totals (so MTD, %-change and sparkline are non-flat), plus scan_report_hourly equivalents for Scan Count and recovery rows for Repossessions. Seed clarity.recovery_scans/recoveries attributing recoveries to 2\u20133 named kits in BOTH this month and last month, with a different leader/runner-up ordering per month so a range mix-up is caught. Seed a handful of zod kits \u2014 some scanned recently (active), some not (inactive) \u2014 with matching platform.kit_settings rows where some have user_id set and some are null, so Camera Kits and Kit Users differ.",
+    "personas": [
+      "org ADMIN (full dashboard access)",
+      "org USER (same dashboard access per canAccess())",
+      "CLIENT role (must still be redirected away \u2014 unaffected by this ticket)"
+    ],
+    "pg_tables": [
+      "zod kits",
+      "platform.kit_settings",
+      "platform.recoveries"
+    ],
+    "ch_tables": [
+      "clarity.hit_stats_daily",
+      "clarity.scan_report_hourly",
+      "clarity.recovery_scans",
+      "clarity.recoveries",
+      "clarity.kits"
+    ]
+  },
+  "confidence": 84,
+  "confidence_note": "Reconciled grounding is high \u2014 four independent passes agree on every code fact (the two rename code paths, the reuse of the cached 13-month series, the leaderboard derivation, the Kit/KitSettings connection split, the DEV-1927 constraint, the Backyard mechanism and its two non-porting parts) and the backstop added the shared-'refresh-dashboard' constraint that no single pass had. Remaining uncertainty is entirely product/UX decisions (Q1\u2013Q9), not code understanding \u2014 which is why the gate is BLOCKED for an interview rather than escalated further.",
+  "escalate": {
+    "recommend": false,
+    "reason": "Best-of-N already run and reconciled; the residue is human decisions, not more analysis."
+  },
+  "decisions": {
+    "source": "human:Dalton 2026-08-12",
+    "layout": "row 1 = Scan Count | Repossessions | Recovery Leaderboard | Kit Users; row 2 = Live Hits | Staging Live Hits | Direct Historical Hits | Staging Historical Hits (all 4 hits together is a hard constraint)",
+    "sparkline": "reuse each widget cached monthly series; no new queries",
+    "pct_change": "current period vs the same day-range in the prior period (MTD vs same-days-last-month); one extra bounded query per metric",
+    "date_filter": "cards follow the page date filter (defaults to this_month => MTD); leaderboard collapsed summary fixed at this+last month",
+    "kit_users": "Camera Kits = total kits; Kit Users = active kit users (existing active() count); no new distinct-user query",
+    "kit_panel": "expanded panel = paginated active kit users list, Active/Inactive filter REMOVED (AC change)",
+    "detail_placement": "ONE shared detail region below the card grid",
+    "architecture": "expanded key is a property on the Dashboard PAGE, expanded content rendered conditionally (true lazy load); do NOT overload the shared refresh-dashboard event",
+    "test_removal": "approved: delete KitStatusGraphTest.php with the donut widget"
+  }
+}

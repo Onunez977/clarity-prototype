@@ -1,0 +1,87 @@
+Plan DEV-2929. Repo root for this run: <mac-run-dir>/platform-wt (isolated worktree on branch cursor/dev-2929-export-window-filename, based on origin/main 0e5ae042 + two docs-only prep commits, tip fb48a40e; write specs ONLY under this worktree's .ai/specs/). POST_TO_JIRA: no — draft the Jira comment to .ai/specs/DEV-2929.jira-comment.md only; do not post anywhere.
+
+## Ticket (live)
+Key: DEV-2929
+Summary: LPR Repossessions CSV export: show the exported date range in the tooltip and filename
+Assignee: Dalton McCleery · Status: To Do · Task · App: Clarity · Repo: insight-lpr/platform · Sprint 42 · Epic DEV-1580 · relates to DEV-2904 (Done, shipped this export)
+URL: https://insightlpr-team.atlassian.net/browse/DEV-2929
+Jira cloudId: 150e0ba0-1d8e-4ac4-82da-ee78a512c3cc
+The live description/AC below were re-fetched at 6:21pm CDT and are authoritative.
+
+## First Glance (comment id 43362 — authoritative Branch path)
+| Field | Value |
+| --- | --- |
+| **Branch path** | **main→main** (fresh branch off main; independent of PR #374 / #509 / #510 — none touch this widget). |
+| Verdict | Ready · Hardness Low |
+| Surface | UI only, one widget: `app/Filament/Widgets/Dashboard/LprRepossessions.php` `exportAction()` (L648–662). (1) `->fileName(...)` closure L656 (today `'lpr-repossession-export-'.now($this->viewerTimezone())->format('Y-m-d')`, the export day) → build from `exportWindow()` (L669–691) start/end: `lpr-repossessions-claimed-{start}-to-{end}`, single date when start and end are the same day. (2) `->tooltip('Export as CSV')` L653 (static) → closure over `exportWindow()` showing the selected period. Heading re-renders on the existing `refresh-dashboard` handler (L512–520). `ch_touch: no`. Query, `exportWindow()` and `LprRepossessionsQuery` unchanged. |
+| Hard stop | Smallest change: two closures in `exportAction()` plus tests, no new helper, class, or trait. Exported rows, CSV columns, query and date-window logic unchanged. Out of scope: notifications (incl. exporter completed body), CSV columns, exporter job batch name (`LprRepossessionExporter::getJobBatchName()` stays `lpr-repossession-export`), query/window logic, chart and cards, date-filter behavior, exporting the 13-month chart. No Cloud ClickHouse access. |
+| Forecast gates | (1) Tests: `getFileName()` and `getTooltip()` for a month filter, Last 7d, Today under `Carbon::setTestNow`, plus one case near a UTC month edge for a Chicago viewer. (2) #25 old-vs-new parity N/A (no query/path rewrite); existing export-window test stays green unchanged. (3) `ch_touch: no`. (4) Agent QA UI evidence on a running site later (tooltip per toggle, tooltip refresh after toggle, downloaded filename). (5) Tooltip copy follows the ticket examples. |
+| Collisions | DEV-2904 (Done) same file, no live conflict. Soft: PR #489 (Filament 5.6 → 5.9 dependency update, open). If it merges first, re-run the tests on the new version — note this in the spec. |
+
+## Live description (verbatim essentials)
+Filename: build from the export's actual window instead of the export day:
+- Month filters: `lpr-repossessions-claimed-2026-10-01-to-2026-10-31.csv`
+- Last 7d: `lpr-repossessions-claimed-2026-09-30-to-2026-10-07.csv`
+- Today: `lpr-repossessions-claimed-2026-10-07.csv`
+Tooltip: shows the selected period before download, updates when the date toggle changes:
+- Month filters: "Export Oct '26 LPR repos (cases claimed Oct 1–31) as CSV"
+- Last 7d: "Export last 7 days (Sep 30–Oct 7)"
+- Today: "Export today (Oct 7)"
+(The dash in the tooltip ranges is an EN DASH U+2013 "–", not a hyphen. Copy the examples exactly, including "as CSV" ONLY on the month variant.)
+Dates in both are the window's start and end dates as the export computes them (same window used for the query).
+Out of scope: Notifications, CSV columns, query or date-window logic, chart/card changes.
+
+## Acceptance criteria (live Jira)
+1. For each date toggle option, the downloaded filename shows the start and end date of the exported window (single date when start and end are the same day).
+2. For each date toggle option, the export button tooltip shows the selected period's start and end dates, and updates when the toggle changes.
+3. Exported rows and the query are unchanged.
+4. Tests cover the filename for a month filter, Last 7d, and Today.
+5. Tests cover the tooltip text for a month filter, Last 7d, and Today.
+
+## Window rules (MUST be exact — these are the query's own window)
+- `exportWindow()` is the single source. Do NOT change it, `exportRowsSql()`, `resolveCardRange()`, or `LprRepossessionsQuery`.
+- This Month / Last Month = full UTC calendar month (`SERIES_ZONE = 'UTC'`, L91): This Month is the FULL month (Oct 1–31), not month-to-date.
+- Today and Last 7d = viewer timezone (`viewerTimezone()`, via `resolveCardRange()` re-anchored at L672–678). Last 7d = `subDays(7)->startOfDay()`..`endOfDay()` → spans 8 calendar days (e.g. Sep 30–Oct 7).
+- Format each bound in its OWN zone as returned by `exportWindow()`. NEVER `setTimezone(viewer)` / convert the UTC month bounds to the viewer zone. Consequence (intended): at 2026-08-01 02:00 UTC a Chicago viewer (local Jul 31 9pm) sees This Month = "Aug '26 … Aug 1–31" / `2026-08-01-to-2026-08-31`, while Today = Jul 31 and Last 7d = Jul 24–31. This matches the chart labels and `getDescription()` (`now('UTC')->format('M \'y')`, L317/L329/L348). Add one test at this month edge so nobody "fixes" it.
+- Month label format: reuse the existing `M 'y` format already used in this widget (e.g. `Oct '26`).
+- Ranges with no example (decide the obvious form, no year, and state it): same-month Last 7d (e.g. "Oct 1–8"), cross-month ("Sep 30–Oct 7" per example), cross-year ("Dec 29–Jan 5").
+
+## PM rulings (2026-10-08, Dalton said continue)
+- Tooltip copy word for word from the ticket examples ("as CSV" only on the month variant, where the ticket has it).
+- Yearless Last 7d form for a window that crosses a year (e.g. "Dec 29–Jan 5") is OK.
+These are answered — do not list them as open questions.
+
+## Prep scout (verify on this worktree; cite lines)
+- `app/Filament/Widgets/Dashboard/LprRepossessions.php`: `exportAction()` L648–662; `exportWindow()` L669–691; `exportRowsSql()` L693–698; `refreshData()` L512–520 (`#[On('refresh-dashboard')]`); `getHeading()` L183–199 renders `cacheAction($this->exportAction())` in `resources/views/filament/widgets/dashboard/lpr-repossession-export-heading.blade.php` — confirm whether the tooltip closure re-evaluates on toggle (heading re-render) and whether `cacheAction` caches anything that would freeze the tooltip; cite.
+- `app/Filament/Widgets/Dashboard/Concerns/BuildsDateFilterChartSeries.php` `resolveCardRange()` L28–50.
+- `app/Filament/Exports/LprRepossessionExporter.php` — job batch name stays; notifications out of scope.
+- Tests: `tests/Filament/Widgets/Dashboard/LprRepossessionsTest.php` — `test_export_action_is_csv_only_and_does_not_cap_rows` L1241 (asserts old filename `lpr-repossession-export-2026-07-31` at L1261 under `Carbon::setTestNow('2026-08-01 02:00:00')`, Chicago user — must change); `test_export_window_uses_utc_month_buckets_and_viewer_local_days` L1284 (leave unchanged); stub widget `CountingLprRepossessions` (zero ClickHouse calls: `monthlySeriesCalls` / `windowCalls` = 0 — keep those asserts). Use `$action->getFileName(new Export)` and `$action->getTooltip()` (precedent `tests/Filament/Actions/ResendToClearPlanActionTest.php` L43). Follow existing test style (PHPUnit class methods with `#[Group(...)]` attributes in this file — match it).
+- OKF to read and cite: okf/index.md, okf/concepts/company-metrics-dashboard.md, okf/concepts/filament-conventions.md, okf/concepts/testing-conventions.md, okf/concepts/platform-gotchas.md (timezone), okf/models/users.md (viewer timezone), okf/models/timezones.md.
+
+## Smallest change (#24) — harness will reject inflation
+- Expected diff: `->tooltip(fn (): string => …)` and `->fileName(fn (): string => …)` closures inside `exportAction()`, both calling the existing `exportWindow()`; plus tests. No new class, trait, service, helper method, constant, config, or translation file unless strictly necessary — if you think a private method is needed, justify it against inlining; default is inline closures.
+- No changes to query, window logic, CSV columns, notifications, exporter, chart, cards, blade view (unless proven necessary for the tooltip to refresh — then cite).
+
+## Provision (accepted deviation — state it in the spec)
+PM decision: no running site / ClickHouse twin for this key now. Plan / Implement / Review run on a keyed test PG DB (`zod_testing_dev_2929`) + `vendor/` + `.env.testing` in this worktree; the existing widget tests stub the widget and make zero ClickHouse calls. Record in the spec as "Accepted provision deviation (#9): keyed test PG only; running-site environment for Agent QA (tooltip refresh on toggle, screenshots, downloaded filename) is stood at QA Ready when an environment slot frees." Do not invent ports, DSNs or ledgers.
+
+## Required spec sections (in addition to your template)
+- Status READY (or PARKED with reason). Branch line = main→main, base main.
+- KB / okf citations for every claim (file + line).
+- Blast radius table (files touched / not touched; PG vs CH per file — CH: none).
+- Test map with an explicit line `ch_touch: no` and AC→test mapping: filename + tooltip for a month filter (This Month and/or Last Month), Last 7d, Today, and one UTC month-edge case (Chicago viewer at 2026-08-01 02:00 UTC); update the old filename assertion at L1261. Exact expected strings for each case.
+- Exact expected strings: at `Carbon::setTestNow('2026-10-07 15:00:00')` (UTC; Chicago viewer local Oct 7) the five ticket examples must come out verbatim (This Month → Oct 1–31; Last 7d → Sep 30–Oct 7; Today → Oct 7). Show Last Month at that time too (Sep 1–30).
+- Soft collision note: if PR #489 (Filament 5.9) merges first, re-run the tests on the new version.
+- Accepted provision deviation (#9) note as above.
+- Open questions (non-blocking only; do not invent answers).
+
+## Drafted Jira comment
+Short plan summary for Dalton's ticket: approach, files, tests, `ch_touch: no`, open questions. Neutral phase nouns only (Plan, Provision, Implement, Review, Agent QA, Verify). No agent, tool, or bot names of any kind.
+
+## Out of scope
+- Writing product code or tests (Plan only)
+- Provision / environment work
+- Posting to Jira or GitHub (harness posts after check)
+- Any ClickHouse access
+
+Write the spec now.

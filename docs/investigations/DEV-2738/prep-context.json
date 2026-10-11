@@ -1,0 +1,174 @@
+{
+  "key": "DEV-2738",
+  "generated_at": "2026-09-25T15:30:00Z",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "confidence": 94,
+  "base": "main",
+  "base_sha": "b999329615174f5e3c6bfe7f77e5c592f01c021a",
+  "preflight_24": "simple_win",
+  "synthesis": "Two Company Metrics cards still render Unique in the widget title and in the Chart.js dataset label. Product wording is Scan Counts and LPR Case Claims. The strings are PHP literals. No ClickHouse SQL, cache key, or card key contains them as a binding. Preflight #24 applies: replace the literals and the tests that pin them. Do not add a helper, trait, or rename.",
+  "needles": {
+    "rendered_unique": [
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueScanCounts.php",
+        "line": 53,
+        "kind": "widget heading",
+        "now": "Unique Scan Counts",
+        "next": "Scan Counts"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueScanCounts.php",
+        "line": 114,
+        "kind": "chart dataset label",
+        "now": "Unique Scans",
+        "next": "Scan Counts",
+        "bound_at": "UniqueScanCounts.php:534-539 getData() passes getDatasetLabel() into staticColourDataset()"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueLprCaseClaims.php",
+        "line": 96,
+        "kind": "widget heading",
+        "now": "Unique LPR Case Claims",
+        "next": "LPR Case Claims"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueLprCaseClaims.php",
+        "line": 108,
+        "kind": "chart dataset label",
+        "now": "Unique LPR Case Claims",
+        "next": "LPR Case Claims",
+        "bound_at": "UniqueLprCaseClaims.php:170 and :176 getData() passes getDatasetLabel() into the count dataset"
+      }
+    ],
+    "title_also_reaches_stat": [
+      "UniqueScanCounts.php:519 Stat::make($this->getCardLabel(), ...) and getCardLabel() reads getHeading(), which is $heading",
+      "UniqueLprCaseClaims.php:144 same path"
+    ],
+    "already_clean_on_these_cards": [
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueScanCounts.php",
+        "line": 57,
+        "text": "Distinct plates your kits read in this period. A plate read many times counts once."
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueScanCounts.php",
+        "line": 546,
+        "text": "Total Scans"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueLprCaseClaims.php",
+        "line": 103,
+        "text": "Billed LPR case claims in this period, counted once per vehicle."
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueLprCaseClaims.php",
+        "line": 177,
+        "text": "Scans per Case Claim"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueLprCaseClaims.php",
+        "line": 219,
+        "text": "Case Claims"
+      },
+      {
+        "file": "app/Filament/Widgets/Dashboard/UniqueLprCaseClaims.php",
+        "line": 234,
+        "text": "Scans per Case Claim"
+      }
+    ],
+    "test_pins": [
+      {
+        "file": "tests/Filament/Widgets/Dashboard/UniqueScanCountsTest.php",
+        "line": 73,
+        "asserts": "Unique Scan Counts"
+      },
+      {
+        "file": "tests/Filament/Widgets/Dashboard/UniqueScanCountsTest.php",
+        "line": 86,
+        "asserts": "Unique Scan Counts"
+      },
+      {
+        "file": "tests/Filament/Widgets/Dashboard/UniqueScanCountsTest.php",
+        "line": 568,
+        "asserts": "Unique Scans"
+      },
+      {
+        "file": "tests/e2e/helpers/company-metrics.ts",
+        "line": 23,
+        "asserts": "Unique LPR Case Claims"
+      },
+      {
+        "file": "tests/e2e/helpers/company-metrics.ts",
+        "line": 29,
+        "asserts": "Unique Scan Counts"
+      }
+    ],
+    "comment_only_grid": [
+      {
+        "file": "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php",
+        "line": 68,
+        "note": "Docblock row 1 names the displayed titles. Update that row so it matches the new titles. Leave the historical DEV-2651 sentences and the card keys at lines 105-106."
+      },
+      {
+        "file": "tests/Filament/Pages/DashboardCardExpansionTest.php",
+        "line": 155,
+        "note": "Comment names the old row-1 titles. Update the comment. No assertion on those strings in this file."
+      }
+    ]
+  },
+  "not_a_query_binding": {
+    "preflight_18": "N/A",
+    "preflight_25": "N/A",
+    "proof": "rg over app/Clickhouse for the four rendered strings hits only UniqueLprCaseClaimsQuery.php:12, a docblock quote of the old card name. No SQL, cache key, or parameter interpolates the heading or dataset label. Card keys unique-scan-counts and unique-lpr-case-claims stay. Class names stay."
+  },
+  "out_of_scope": [
+    {
+      "file": "app/Filament/Resources/AffiliateStatsResource.php",
+      "line": 48,
+      "text": "Unique Scans",
+      "why": "Affiliate stats column. Not a Company Metrics card."
+    },
+    {
+      "file": "app/Filament/Exports/AffiliateStatsExporter.php",
+      "line": 30,
+      "text": "Unique Scans",
+      "why": "Same affiliate export column."
+    },
+    {
+      "file": "app/Filament/Widgets/Dashboard/UniqueScansLeaderboard.php",
+      "line": 56,
+      "text": "Scans Leaderboard",
+      "why": "DEV-2651 AC-5 already dropped Unique from this heading. Do not reopen."
+    },
+    {
+      "file": "tests/e2e/helpers/company-metrics.ts",
+      "line": 30,
+      "text": "Unique Scans Leaderboard",
+      "why": "Stale e2e constant for a different card. DEV-2651 t9 deferred Playwright. Out of this ticket."
+    },
+    {
+      "file": "app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php",
+      "line": 12,
+      "why": "Docblock quote only. Not rendered. Editing the query file is not required to clear the ACs."
+    },
+    {
+      "file": "okf/",
+      "why": "No concept page currently names these two titles. Wiki writes wait until after approval."
+    }
+  ],
+  "acs": [
+    {
+      "id": "AC-1",
+      "text": "Widget titles drop Unique Scan Counts and Unique LPR Case Claims. New titles: Scan Counts and LPR Case Claims."
+    },
+    {
+      "id": "AC-2",
+      "text": "Chart dataset labels on those two cards match the new titles. No residual Unique. Axis titles and sibling series that already lack Unique stay."
+    },
+    {
+      "id": "AC-3",
+      "text": "No query or behavior change. The label string is not a query binding."
+    }
+  ]
+}

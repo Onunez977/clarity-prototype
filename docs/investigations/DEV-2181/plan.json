@@ -1,0 +1,36 @@
+{
+  "key": "DEV-2181",
+  "route": "feature",
+  "base_branch": "main",
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Scope the admin Bird's-Eye Live Hits Pending Repossession list to the selected/followed driver (frontend wiring)",
+      "approach": "Wire dashboard.fetchRecentHits into the two admin selection mutation points that currently skip it, and broaden buildUrl's follow-priority special-case from stats-only to also cover /dashboard/recent-hits. No backend change (the recentHits endpoint + scopedKits already honor kit_ids and are covered by an existing passing test).",
+      "target_files": [
+        "resources/js/clarity-scout/stores/map.js",
+        "resources/js/clarity-scout/lib/fetch.js",
+        "resources/js/clarity-scout/composables/useBirdsEyePolling.js"
+      ],
+      "intended_diffs": "1) stores/map.js setSelectedKits(ids): add `dashboard.fetchRecentHits(dashboard.range)` into the existing Promise.all (dashboard is already resolved via useDashboardStore() in that fn), so the combobox selection refreshes the pending list instantly instead of on the next ~10s poll. 2) stores/map.js setFollowedDriver(kitId) and clearFollowedDriver(): alongside the existing `useDashboardStore().fetchStats().catch(()=>{})`, add `useDashboardStore().fetchRecentHits(useDashboardStore().range).catch(()=>{})` (capture the store once per fn to avoid double-resolve), so follow/un-follow re-scopes the pending list to the followed driver. 3) lib/fetch.js buildUrl(): change the follow-priority predicate so a followed driver takes priority for BOTH the stats path and the recent-hits path — e.g. `const followScoped = followedKitId.value != null && (path.includes('/dashboard/stats') || path.includes('/dashboard/recent-hits'));` then `const scope = followScoped ? [followedKitId.value] : selectedKitIds.value;`. Keep the heatmap exclusion and array-emit behavior unchanged. 4) composables/useBirdsEyePolling.js: reword the line-27 comment ('fresh org-wide') to reflect that the list stays fresh at whatever scope (selection/follow/org-wide) is currently active. Comment-only; no behavior change.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "ClarityScoutBirdsEyeControllerTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php recentHits/scopedKits — already correct + tested; no change",
+    "ClarityScoutDashboardController@recentHits (driver, single-kit) — separate surface; the driver app never reaches setSelectedKits/setFollowedDriver (admin-only callers)",
+    "useKitPositionPolling.js:53 fetchRecentHits — driver poll (liveMode-gated); not modified; buildUrl change only affects the ADMIN_MODE branch",
+    "Heatmap layers — intentionally org-wide (address-based, no kit dimension)"
+  ],
+  "notes": [
+    "Single tightly-coupled node: the setFollowedDriver refresh (edit 2) is only correct WITH the buildUrl broadening (edit 3), so they must ship together — not parallelizable.",
+    "No JS test runner exists; the test_filter runs the existing PHP backend test as a regression proof that the kit_ids contract this fix relies on stays green (no backend diff, so it should stay green). Real behavioral verification is Phase 6/7 browser QA.",
+    "Frontend change → must `npm run build` and COMMIT built assets (public/build is tracked); reverting build output would drop the feature. `npm run build` also regenerates boost docs (CLAUDE.md/AGENTS.md/.junie/boost.json) — revert those before committing.",
+    "Range: pass the dashboard store's current range to fetchRecentHits (mirrors setRange/fetchAll); do NOT hardcode 'today' outside the poll."
+  ]
+}

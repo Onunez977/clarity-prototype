@@ -1,0 +1,329 @@
+{
+  "key": "DEV-2466",
+  "route": "spike",
+  "gate": "CLEAN",
+  "mode": "normal",
+  "synthesis": "The spike asks whether an org-scoped plate-distinct (uniqExact(ocr)) read of clarity.scans_cold is affordable on the Company Metrics dashboard page-load path, gating DEV-2467/2468/2469/2470. It is: GO. Both of the ticket's stated premises are wrong, and so is the correction comment 39123. Production sorts scans_cold by (org_id, scanned_at, kit_id, id) -- org_id is the LEADING primary-key column, so an org-scoped query prunes fully by binary search (266,535 -> 1,698 granules) and cost scales with org size by ~1,900x rather than being org-independent. The kit_id-routing workaround comment 39123 recommends is 6.7x worse because kit_id is the third sort-key column. The real cost centre is not the card total (8 KB-650 MB, 8-374 ms) but the 13-month sparkline series getMonthlyData() needs, which no pre-aggregate can answer for period-distinct plates: 2.51 GB peak / 1,351 ms for the worst-case org, and ~10 GB concurrent peak across four unbatched cards. Batching, dropping FINAL, and a WITH ROLLUP shape bring that inside budget. What remains unresolved is definitional, not performance: period-distinct vs the hourly-sum the shipped affiliate report already calls 'unique scans' differ by 1.18-1.63x.",
+  "scope": {
+    "summary": "Investigation only. No code ships from DEV-2466. Deliverable is docs/investigations/DEV-2466/findings.md plus the go/no-go verdict posted on the ticket.",
+    "proposed_changes": [],
+    "target_files": [],
+    "out_of_scope": [
+      "Building any of the four unique-scan cards (DEV-2467/2468/2469/2470)",
+      "Any ClickHouse or chlocal DDL -- and the no-go branch's AggregateFunction(uniqExact, String) pre-aggregate is no longer needed at all",
+      "Fixing the committed ClickHouse schema dump's wrong scans_cold sort key (pre-existing, DEV-2448)",
+      "Fixing ScanCount's inert Scan::hot() routing (pre-existing, DEV-2324)",
+      "Measuring DEV-2469/2470's repossession-join shapes -- not covered by this spike's query set"
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "EXPLAIN plan captured for the org-scoped plate-distinct query, with a statement on whether pruning occurs",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Done. findings.md SS1b: EXPLAIN indexes=1 shows PrimaryKey on (org_id, scanned_at), binary search, 1698/12526 granules, 14/15 parts. Pruning DOES occur -- the ticket's premise was wrong. SS1c additionally EXPLAINs the kit_id-routed form (generic exclusion search, 12525/12526 granules) to show why the recommended workaround is worse."
+    },
+    {
+      "item": "Timed measurements recorded for largest org + small org x the four dashboard windows, with read_rows, read_bytes, peak memory and server ms",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Done. findings.md SS3: full 2x4 matrix (orgs 1271 and 58069), plus a third tiny org 48575 for the low endpoint. Server-side figures came from the X-ClickHouse-Summary HTTP header, which needs no READ ON REMOTE grant -- this is what unblocked open item 1 of comment 39123."
+    },
+    {
+      "item": "An explicit go/no-go verdict, with the projected cold-render impact of adding four such cards",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Done. findings.md SS10: GO with four measured conditions. Cold-render impact MEASURED not projected (SS4): four concurrent 13-month queries = 243,048,568 rows / 10.09 GB / ~10.03 GB concurrent peak / slowest 3.818 s, a 2.6x latency degradation vs solo; against the DEV-2409 baseline of 52 queries / 25.95 s / >=6,024 ms that roughly doubles dashboard ClickHouse server time if unbatched. Per-card viability updated after measuring the DEV-2469 shape: all four are viable; DEV-2469/2470 are the CHEAPEST, not the most expensive, because recovery_scans carries ocr directly."
+    },
+    {
+      "item": "If no-go: the chlocal pre-aggregate follow-up is scoped as its own ticket and linked here",
+      "source": "ticket",
+      "decision": "defer",
+      "reason": "N/A -- verdict is GO. No new chlocal DDL is needed either way, so the no-go branch is dropped. No follow-up ticket created (and none would be created without asking first)."
+    },
+    {
+      "item": "Everything read-only; no DDL, no writes, no raw rows recorded",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Honoured. Only SELECT / SHOW CREATE TABLE / EXPLAIN, all as readonly_user against ClickHouse Cloud. Every recorded value is an aggregate, a count, a byte/ms figure, or a kit_id. No plates, VINs, or raw rows in any artifact."
+    }
+  ],
+  "questions": [
+    {
+      "q": "What does 'unique scan' mean on the card -- period-distinct plates (uniqExact(ocr) over scans_cold for the window), or the hourly-sum (sum(unique_plates) over affiliate_stats_hourly) that the shipped affiliate report already calls 'unique scans'? The two differ by 1.18x-1.63x, and the factor varies by org so it cannot be corrected by a constant.",
+      "answered": true,
+      "answer": "Period-distinct plates -- uniqExact(ocr) over the window. Answered from the ticket set and shipped code, not by preference, three independent ways: (1) DEV-2467's own AC says 'Counts distinct ocr', and an hourly-sum is not a distinct count; (2) the DEV-2406 hit-side precedent DEV-2467 is required to match is HitPlateStatsBatchQuery, which computes uniqExactIf(ocr, ...) over the window from hits_cold and explicitly rejects the rollup in its docblock because it has no plate column; (3) affiliate_stats_hourly has no ocr and no scan-id column, so DEV-2469/2470 (distinct plates among scans attributed to a repossession via recovery_scans) structurally cannot use it at any cost -- and DEV-2469's AC requires sharing the sibling unique-scan cache key, so all four cards must share one definition. Period-distinct is the only definition all four can produce. The affiliate report's looser number is a different, coarser metric; record the 1.18x-1.63x divergence in the Build Record the way DEV-2467 already requires for the Scan Count divergence.",
+      "source": "code"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "Comment 39123 (2026-09-04) states the sort key as (kit_id, scanned_at, id) and recommends routing org queries through kit_id. Production is (org_id, scanned_at, kit_id, id) and the kit_id route is 6.7x worse. The comment's core conclusion (GO, no new DDL needed) is right; its mechanism is not.",
+    "Open item 1 of comment 39123 ('server-side envelope not obtainable, readonly_user lacks READ ON REMOTE') is resolved: the X-ClickHouse-Summary HTTP response header carries read_rows / read_bytes / memory_usage / elapsed_ns with no extra grant.",
+    "Open item 2 (incomplete matrix) is resolved: full 2 orgs x 4 windows, plus a third org.",
+    "Open item 4 (rollup coverage unverified) is resolved: 264/264 Aug orgs present, 262 exact, 264 within 1%, 0 over 5% off, global ratio 1.000000. The 548-vs-386 gap is orgs owning kits that have never scanned.",
+    "Open item 3 (the definitional question) is the ONE thing still open -- it is the gate question above.",
+    "Last 7d and This Month are the SAME window on the 8th of any month (subDays(7)->startOfDay() == startOfMonth()). Not a measurement error.",
+    "FINAL is pure overhead for uniqExact(ocr): +97% server time, +149% bytes, identical answer across 3/3 runs. Verified mechanism -- 1,635 duplicate-id groups in the sample, 0 carrying more than one distinct ocr, 0 delete flips, 0 soft-deleted rows. Contrast hits_cold, where a mutable sort-key column makes FINAL load-bearing (DEV-2406).",
+    "scans_hot is NOT a win for the current-month window: 3.3x slower than scans_cold (454 ms vs 139 ms) because it carries 5x the parts, so FINAL's merge work dominates.",
+    "affiliate_stats_hourly freshness must be probed with max(_peerdb_synced_at), not max(scan_hour) -- the table holds junk scan_hour values up to 2051-05-26. Measured lag: 1 minute.",
+    "GROUP BY kit_id WITH ROLLUP serves DEV-2467's org total (kit_id = 0) and DEV-2468's per-kit leaderboard from one scan; the ROLLUP total matched the standalone scalar exactly (2,800,575).",
+    "A third definition lurks in the leaderboard: per-kit distinct plates do not sum to org distinct plates. The card must state which it shows.",
+    "RESOLVED: the definitional question. Period-distinct, established from DEV-2467's AC + HitPlateStatsBatchQuery's shipped pattern + the structural impossibility of serving DEV-2469/2470 from affiliate_stats_hourly (no ocr, no scan id).",
+    "BONUS: clarity.recovery_scans already carries ocr, so DEV-2469/2470 never need scans_cold. Measured org 1271: single window 953,806 rows / 17.0 MB / 50 MB / 493 ms; 13-month series 1,195,761 rows / 22.2 MB / 36 MB / 27 ms -- 51x fewer rows and 70x less memory than DEV-2467's scans_cold path. DEV-2469's stated data path ('needed for the plate (ocr)... resolve plates from scans_cold') is unnecessary. recovery_scans has no org_id; scope through clarity.recoveries, whose sort key (org_id, repo_date, id) leads with org_id.",
+    "A UI decision remains but does not block: whether to reconcile or explain the divergence against the existing (un-deduped) Scan Count card and the affiliate report's looser 'unique scans'. DEV-2467 already requires this be recorded explicitly."
+  ],
+  "tests": [],
+  "grounding": {
+    "key_files": [
+      "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php:1 -- the Company Metrics grid; the 4 unique-scan slots are bracketed placeholders in its card array",
+      "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php:341 -- currentPeriodTotal(); the cached today/last_7d read path",
+      "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php:365 -- getRangeTotal(); the single seam a new card overrides",
+      "app/Filament/Widgets/Dashboard/Concerns/BuildsDateFilterChartSeries.php:15 -- resolveCardRange(); the authoritative four window definitions",
+      "app/Filament/Widgets/Dashboard/ScanCount.php:29 -- getModelQueryForDates(); the existing scan card, and the inert Scan::hot() routing",
+      "app/Clickhouse/Queries/ScanStatsBatchQuery.php:1 -- the batched 13-month count query; hardcodes 'clarity.' (the bug the ticket warns about)",
+      "app/Clickhouse/Models/Scan.php:35 -- Scan::hot(); returns an instance, so $scan::query() discards setTable (DEV-2324)",
+      "app/Clickhouse/Concerns/FiltersCdcDeletes.php:1 -- the global scope that applies the _peerdb_is_deleted filter",
+      "okf/models/clickhouse/scans_cold.md -- wiki page for the driving table",
+      "okf/models/clickhouse/affiliate_stats_hourly.md -- wiki page for the rollup alternative"
+    ],
+    "code_flow": "Dashboard page -> CompanyMetricsOverview (StatsOverviewWidget, org-scoped via auth()->user()->org_id) -> per-card DashboardWidget adapter -> getCardTotal() -> either getMonthlyData() (this_month/last_month, from the 13-month cached series) or currentPeriodTotal() -> getRangeTotal() -> getModelQueryForDates() -> a ClickhouseQuery class. A cold render pays one 13-month query per card; warm renders read cache.",
+    "tables": [
+      "clarity.scans_cold",
+      "clarity.scans_hot",
+      "clarity.scan_report_hourly",
+      "clarity.affiliate_stats_hourly",
+      "zod.public_kits"
+    ],
+    "related_components": [
+      "SharedHitStatsData",
+      "HitStatsBatchQuery",
+      "HitPlateStatsBatchQuery",
+      "StagingLiveHitLeader",
+      "AffiliateStatsHourly"
+    ]
+  },
+  "exhaustiveness": {
+    "patterns_used": [
+      "rg -l 'sharedUniqueRangeMemoKey|SharedHitStatsData' app/",
+      "rg -n 'forOrg|org_id|groupBy|GROUP BY|limit' app/Filament/Widgets/Dashboard/StagingLiveHitLeader.php",
+      "rg -n 'today|last_7|this_month|last_month|dateType|getDatesFor' app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+      "find app -ipath '*ompany*etric*'"
+    ],
+    "sites": [
+      {
+        "site": "app/Clickhouse/Queries/ScanStatsBatchQuery.php",
+        "verdict": "buggy",
+        "reason": "hardcodes 'clarity.scan_report_hourly' instead of static::clarityDb() -- the exact defect the ticket warns follow-up work not to copy. Pre-existing; out of scope for this spike."
+      },
+      {
+        "site": "app/Filament/Widgets/Dashboard/ScanCount.php:29",
+        "verdict": "buggy",
+        "reason": "Scan::hot() routing is inert ($scan::query() is static, discards setTable) so the current-month branch reads scans_cold anyway. Pre-existing (DEV-2324); measured here as incidentally harmless since scans_cold is in fact FASTER than scans_hot for this window."
+      },
+      {
+        "site": "app/Filament/Widgets/Dashboard/Concerns/BuildsDateFilterChartSeries.php:24",
+        "verdict": "safe",
+        "reason": "last_7d and this_month resolve to the same range on the 8th of a month. Correct per spec, but the two cards will show identical numbers for the first 8 days -- worth knowing, not a defect."
+      },
+      {
+        "site": "app/Clickhouse/Concerns/FiltersCdcDeletes.php",
+        "verdict": "safe",
+        "reason": "applies _peerdb_is_deleted = 0 globally, which is exactly the filter the measured shapes keep."
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [],
+    "ch_tables": [
+      "clarity.scans_cold",
+      "clarity.scans_hot",
+      "clarity.affiliate_stats_hourly",
+      "clarity.scan_report_hourly",
+      "zod.public_kits",
+      "clarity.recovery_scans",
+      "clarity.recoveries"
+    ],
+    "mv_or_cdc_implications": "Read-only spike; nothing written. Relevant CDC facts measured: ocr is immutable across a scan's CDC versions (0 of 1,635 duplicate-id groups carry two plates), so FINAL is unnecessary for uniqExact(ocr). affiliate_stats_hourly is a ReplacingMergeTree fed from zod.public.aggregate_scan_count_unq_h with a measured 1-minute sync lag and junk scan_hour outliers up to 2051.",
+    "indexes_relied_on": "scans_cold PRIMARY KEY (org_id, scanned_at, kit_id, id) and PARTITION BY toYYYYMM(scanned_at) -- together these are the entire basis of the GO verdict. The idx_org_id set skip-index adds nothing once the primary key has already pruned."
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "The spike's whole subject is a query class on a 2.18-billion-row ClickHouse table on a dashboard page-load path, multiplied by four new cards and by every viewing user.",
+    "driving_tables": [
+      {
+        "table": "clarity.scans_cold",
+        "source": "system.tables on ClickHouse Cloud",
+        "prod_rows": 2180621658,
+        "group_by": "org_id",
+        "largest_group_rows": 15550080
+      },
+      {
+        "table": "clarity.scans_hot",
+        "source": "system.tables on ClickHouse Cloud",
+        "prod_rows": 298222481,
+        "group_by": "org_id",
+        "largest_group_rows": 3470485
+      },
+      {
+        "table": "clarity.affiliate_stats_hourly",
+        "source": "system.tables on ClickHouse Cloud",
+        "prod_rows": 3775529,
+        "group_by": "org_id",
+        "largest_group_rows": 234054
+      }
+    ],
+    "growth": "scans_cold measured at 2,139,764,771 rows / 120.08 GiB when the ticket was written (2026-09-01) and 2,180,621,658 rows / 122.58 GiB on 2026-09-08 -- roughly +40.9M rows / +2.5 GiB per week, about +5.8M rows/day. The per-org window cost grows with that rate; the 13-month series cost grows fastest because it spans the most partitions.",
+    "schedule": {
+      "expression": "on dashboard page load (no cron)",
+      "interval_seconds": null,
+      "without_overlapping_minutes": null
+    },
+    "allocation_sketch": "Per card, cold: single-window total 447 MB peak / 190 ms (org 469, last month); 13-month series 2.51 GB peak / 1,351 ms with FINAL, 2.44 GB / 1,102 ms without. Four unbatched cards concurrently: 243,048,568 rows read, 10.09 GB read, ~10.03 GB concurrent peak memory, slowest query 3.818 s (2.6x solo). Warm renders cost nothing (getMonthlyData caches per month per org). The rollup alternative is 234,054 rows / 51 MB / 17 ms for the same 13-month series.",
+    "oracle_status": "measured",
+    "unresolved": []
+  },
+  "derivation_log": [
+    {
+      "query_shape": "SELECT name, total_rows, formatReadableSize(total_bytes), sorting_key FROM system.tables WHERE database='clarity' AND name IN (...)",
+      "param_classes": [
+        "literal table names"
+      ],
+      "aggregate_result": "scans_cold 2,180,621,658 rows / 122.58 GiB / sorting_key 'org_id, scanned_at, kit_id, id'; scans_hot 298,222,481 / 17.94 GiB / same key; scan_report_hourly 5,901,295 / 8.13 GiB; affiliate_stats_hourly 3,775,529 / 30.02 MiB",
+      "why": "Establish the driving-table cardinality and, decisively, the real sort key -- which contradicts both the ticket and comment 39123."
+    },
+    {
+      "query_shape": "SHOW CREATE TABLE clarity.scans_cold / clarity.affiliate_stats_hourly",
+      "param_classes": [],
+      "aggregate_result": "scans_cold: SharedReplacingMergeTree(_version, _peerdb_is_deleted), PARTITION BY toYYYYMM(scanned_at), ORDER BY (org_id, scanned_at, kit_id, id), 7 skip indices incl. idx_ocr bloom_filter(0.001). affiliate_stats_hourly: SharedReplacingMergeTree(_version) -- no is_deleted column -- ORDER BY (org_id, kit_id, scan_hour), columns scan_count UInt64 and unique_plates UInt64.",
+      "why": "Confirm engine semantics, the FINAL/deleted-filter contract, and that the rollup carries a plain UInt64 unique_plates (no merge-state function needed)."
+    },
+    {
+      "query_shape": "EXPLAIN indexes = 1 SELECT uniqExact(ocr) FROM clarity.scans_cold FINAL WHERE org_id = :org AND scanned_at BETWEEN :s AND :e AND _peerdb_is_deleted = 0",
+      "param_classes": [
+        "org_id int",
+        "two datetime bounds"
+      ],
+      "aggregate_result": "Partition Min-Max 268->15 parts / 266,535->12,526 granules; PrimaryKey (org_id, scanned_at) 15->14 parts / 12,526->1,698 granules, Search Algorithm: binary search",
+      "why": "AC 1 -- prove whether pruning occurs. It does, by 157x on granules."
+    },
+    {
+      "query_shape": "EXPLAIN indexes = 1 + timed SELECT, same aggregate but WHERE kit_id IN (:117 ids) instead of org_id",
+      "param_classes": [
+        "117-element int set",
+        "two datetime bounds"
+      ],
+      "aggregate_result": "Search Algorithm: generic exclusion search, Granules 12,525/12,526; 104,152,388 rows / 4.32 GB read / 2.31 GB peak / 1,433 ms -- vs org_id's 15,550,080 / 650 MB / 1.17 GB / 374 ms. Identical answer 6,705,174.",
+      "why": "Test the workaround comment 39123 recommends. It is 6.7x worse on rows and 3.8x on time, and prunes nothing."
+    },
+    {
+      "query_shape": "SELECT uniqExact(ocr) FROM clarity.scans_cold FINAL WHERE org_id = :org AND scanned_at BETWEEN :s AND :e AND _peerdb_is_deleted = 0 -- 3 orgs x 4 windows",
+      "param_classes": [
+        "org_id int (1271 / 58069 / 48575)",
+        "four window bound pairs from resolveCardRange()"
+      ],
+      "aggregate_result": "org 1271: 247,276 / 4,086,448 / 4,086,448 / 15,550,080 rows for Today / Last7d / ThisMonth / LastMonth, 25-374 ms, 71 MB-1.17 GB peak. org 58069: 31,015 / 63,783 / 63,783 / 98,304 rows, 11-18 ms. org 48575 last month: 8,192 rows (one granule), 8 ms.",
+      "why": "AC 2 -- the full matrix, and the disproof of the org-size-independence trap (~1,900x spread, not flat)."
+    },
+    {
+      "query_shape": "SELECT ... uniqExact(ocr) GROUP BY toStartOfMonth(scanned_at) over a 13-month span, orgs 1271 and 469, with and without FINAL",
+      "param_classes": [
+        "org_id int",
+        "13-month datetime bounds"
+      ],
+      "aggregate_result": "org 469 (13 months present) FINAL: 60,757,669 rows / 2.52 GB / 2.51 GB peak / 1,351 ms. Without FINAL: 60,738,996 / 1.31 GB / 2.44 GB / 1,102 ms. org 1271 (5 months): 47,195,910 / 1.97 GB / 1.97 GB / 1,025 ms.",
+      "why": "Identify the true cost centre -- getMonthlyData()'s 13-month sparkline series, which no pre-aggregate can answer for period-distinct plates."
+    },
+    {
+      "query_shape": "4 x concurrent 13-month plate-distinct series, org 469 (and separately 4 x concurrent rollup equivalent)",
+      "param_classes": [
+        "org_id int",
+        "13-month bounds",
+        "concurrency 4"
+      ],
+      "aggregate_result": "Direct: per-query 60,762,142 rows / 2.52 GB / ~2.50 GB peak; aggregate 243,048,568 rows / 10.09 GB / ~10.03 GB concurrent peak; client wall 1.528 / 2.555 / 2.624 / 3.818 s vs 1.491 s solo (2.6x degradation). Rollup: per-query 234,054 rows / 6.55 MB / ~15 MB peak; aggregate 936,216 rows / 26.2 MB / ~60 MB; 0.154-0.591 s.",
+      "why": "AC 3 -- measure, not project, the four-card cold-render envelope. This is the number the verdict's conditions are built on."
+    },
+    {
+      "query_shape": "SELECT uniqExact(ocr) ... FINAL vs no-FINAL, org 469 last month, 3 runs each",
+      "param_classes": [
+        "org_id int",
+        "one month bounds"
+      ],
+      "aggregate_result": "FINAL: 7,218,864 rows / 299.9 MB / 445-450 MB peak / 190,190,209 ms. No FINAL: 5,573,739 / 120.4 MB / 410-419 MB / 96,102,106 ms. Answer 2,800,575 in all 6 runs.",
+      "why": "Test whether FINAL is load-bearing for this aggregate. It costs +97% server time and +149% bytes for zero answer change."
+    },
+    {
+      "query_shape": "SELECT count(), countIf(distinct_ocr>1), countIf(distinct_deleted>1) FROM (SELECT id, uniqExact(ocr) AS distinct_ocr, uniqExact(_peerdb_is_deleted) AS distinct_deleted, count() n FROM clarity.scans_cold WHERE org_id=:org AND scanned_at BETWEEN :s AND :e GROUP BY id HAVING n>1)",
+      "param_classes": [
+        "org_id int",
+        "one month bounds"
+      ],
+      "aggregate_result": "1,635 duplicate-id groups; 0 carrying more than one distinct ocr; 0 carrying a delete flip; 0 soft-deleted rows in window; row dup rate 0.03% (5,462,685 raw vs 5,461,050 FINAL)",
+      "why": "Verify the MECHANISM behind the no-FINAL result rather than trusting one equal answer -- ocr is immutable across CDC versions, so uniqExact collapses duplicates regardless."
+    },
+    {
+      "query_shape": "SELECT kit_id, uniqExact(ocr) ... GROUP BY kit_id WITH ROLLUP",
+      "param_classes": [
+        "org_id int",
+        "one month bounds"
+      ],
+      "aggregate_result": "5,573,739 rows / 142.7 MB / 249 MB peak / 606 ms; kit_id=0 row returned 2,800,575, exactly matching the standalone scalar; top per-kit values 242,387 / 200,398 / 191,742 ...",
+      "why": "Prove one query can serve DEV-2467's org total and DEV-2468's per-kit leaderboard -- the batching the ticket mandates, as a single scan."
+    },
+    {
+      "query_shape": "SELECT sum(unique_plates), sum(scan_count) FROM clarity.affiliate_stats_hourly FINAL WHERE org_id=:org AND scan_hour BETWEEN :s AND :e; and a JOIN of per-org hourly-sum vs period-distinct",
+      "param_classes": [
+        "org_id int set (1271, 469, 58069)",
+        "one month bounds"
+      ],
+      "aggregate_result": "Overcount factors 1.5572 (org 1271), 1.6308 (org 469), 1.1840 (org 58069). Rollup 13-month series: 234,054 rows / 6.55 MB / 51 MB / 17 ms vs direct 60,757,669 / 2.52 GB / 2.51 GB / 1,351 ms.",
+      "why": "Quantify the definitional gap (18-63%, org-dependent so not constant-correctable) and the rollup's 260x cost advantage -- the substance of the one remaining open question."
+    },
+    {
+      "query_shape": "Coverage: uniqExact(org_id) across zod.public_kits / scans_cold Aug window / affiliate_stats_hourly Aug window; then a FULL OUTER JOIN of per-org scan_count vs count() with countIf() agreement buckets",
+      "param_classes": [
+        "one month bounds"
+      ],
+      "aggregate_result": "548 orgs own kits; 264 scanned in Aug per scans_cold; 264 present in the Aug rollup; 386 in the rollup all-time. Of 264 orgs compared: 262 exact, 264 within 1%, 0 over 5% off, worst relative delta 0.0000, global ratio 1.000000.",
+      "why": "Close open item 4 of comment 39123, which left rollup completeness unverified on a 2-org sample. It is complete and exact on totals across every org."
+    },
+    {
+      "query_shape": "SELECT max(_peerdb_synced_at), dateDiff('minute', max(_peerdb_synced_at), now()), max(scan_hour), maxIf(scan_hour, scan_hour <= now()) FROM clarity.affiliate_stats_hourly",
+      "param_classes": [],
+      "aggregate_result": "sync lag 1 minute; max(scan_hour) RAW = 2051-05-26 03:56:32; max(scan_hour) sane = 2026-09-08 12:00:00",
+      "why": "Confirm the rollup is live enough for a Today card, and confirm the data-hygiene trap noted in comment 39123 (a naive max(scan_hour) freshness probe is fooled)."
+    },
+    {
+      "query_shape": "SELECT uniqExact(ocr) FROM clarity.scans_hot FINAL WHERE org_id=:org AND scanned_at BETWEEN :s AND :e AND _peerdb_is_deleted = 0",
+      "param_classes": [
+        "org_id int",
+        "this-month bounds"
+      ],
+      "aggregate_result": "3,470,485 rows / 144.9 MB / 440 MB peak / 454 ms across 53 parts -- vs scans_cold's 4,086,448 / 170.7 MB / 380 MB / 139 ms across 10 parts",
+      "why": "Test whether the hot table helps the current-month window. It does not: 3.3x slower because 5x the parts makes FINAL's merge work dominate."
+    },
+    {
+      "query_shape": "SHOW CREATE TABLE clarity.recovery_scans; SELECT name, type FROM system.columns WHERE table='affiliate_stats_hourly'",
+      "param_classes": [],
+      "aggregate_result": "recovery_scans 921,038 rows / 28.38 MiB, ORDER BY (recovery_id, scan_id), and it CARRIES ocr String plus scan_id/hit_id/kit_id/scanned_at -- no org_id. affiliate_stats_hourly has exactly 7 columns and NO ocr and NO scan id. recoveries 17,045,278 rows / 775.37 MiB, ORDER BY (org_id, repo_date, id).",
+      "why": "Settle the definitional question structurally -- the rollup cannot express per-scan plate attribution -- and discover that DEV-2469/2470 need not touch scans_cold at all."
+    },
+    {
+      "query_shape": "SELECT [toStartOfMonth(r.repo_date),] uniqExact(rs.ocr) FROM clarity.recovery_scans rs INNER JOIN (SELECT id[, repo_date] FROM clarity.recoveries FINAL WHERE org_id = :org AND repo_date BETWEEN :s AND :e) r ON rs.recovery_id = r.id WHERE rs._peerdb_is_deleted = 0 [GROUP BY month]",
+      "param_classes": [
+        "org_id int",
+        "two date bounds"
+      ],
+      "aggregate_result": "org 1271 single window (Aug 2026): 953,806 rows / 17.0 MB / 50 MB peak / 493 ms -> 1,255 plates. 13-month series: 1,195,761 rows / 22.2 MB / 36 MB peak / 27 ms. Junction volume by org, Aug 2026: 1271=6,243 rows/1,255 plates; 469=2,479/508; 1143=2,043/465.",
+      "why": "Close the 'not measured' gap for DEV-2469/2470 and confirm they are the cheapest of the four cards, not the most expensive."
+    }
+  ],
+  "qa_hint": null,
+  "confidence": 92,
+  "escalate": {
+    "recommend": false,
+    "reason": "Single-session read-only measurement with a mechanically verified conclusion; every headline number was reproduced or cross-validated (kit-routing and org_id routing returned the identical 6,705,174; WITH ROLLUP matched the standalone scalar exactly; FINAL and no-FINAL agreed 6/6 runs; the rollup reproduced scans_cold totals to a 1.000000 global ratio). The one open item is a product decision, not an analysis gap."
+  },
+  "missed_caller_candidates": []
+}

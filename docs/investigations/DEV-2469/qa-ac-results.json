@@ -1,0 +1,97 @@
+{
+  "ticket": "DEV-2469",
+  "env": "local docker clickhouse 25.8, literal clarity/zod",
+  "viewer": {
+    "org": 2,
+    "timezone": "America/Chicago",
+    "entitled": false
+  },
+  "items": [
+    {
+      "ac": "Ratio = unique scans / LPR repossessions, rendered as a ratio not a percentage",
+      "status": "SATISFIED",
+      "evidence": "this_month renders 5.0 = 40 distinct ocr / 8 db_repos; no % suffix"
+    },
+    {
+      "ac": "Numerator counts DISTINCT plates (uniqExact(ocr)), not scan rows",
+      "status": "SATISFIED",
+      "evidence": "120 seeded rows carrying 40 distinct plates render 5.0, not 15.0"
+    },
+    {
+      "ac": "Denominator is db_repos from the case-claim funnel, not deduped",
+      "status": "SATISFIED",
+      "evidence": "LprRepossessionsQuery::window returns {deduped:8, db_repos:8}; seeded so both are 8 - see caveat"
+    },
+    {
+      "ac": "Respects Today / Last 7d / This Month / Last Month",
+      "status": "SATISFIED",
+      "evidence": "6.0 / 40.0 / 5.0 / 0.0 across the four arms; re-verified in a live browser: 6.0 / 40.0 / 5.0 / 0.0"
+    },
+    {
+      "ac": "UTC axis: labels co-vary with the data axis for a non-UTC viewer",
+      "status": "SATISFIED",
+      "evidence": "Chicago viewer, labels Aug '26 / Sep '26, month bucket correct"
+    },
+    {
+      "ac": "Non-Pro orgs do not see the value",
+      "status": "SATISFIED",
+      "evidence": "canViewCardData() locked for org 2; lockedStat() placeholder, NULL chart, zero queries"
+    },
+    {
+      "ac": "Existing metrics unaffected (no cross-card cache corruption)",
+      "status": "SATISFIED",
+      "evidence": "both cards rendered in one process across all four arms; sibling value unchanged after this card renders"
+    },
+    {
+      "ac": "Per-render ClickHouse round-trip count does not regress (DEV-2406)",
+      "status": "SATISFIED",
+      "evidence": "query_log: cold=2, warm=0"
+    },
+    {
+      "ac": "Measured cost within the envelope",
+      "status": "NOT SATISFIED",
+      "evidence": "local seed is 229 rows vs 60.7M in production; this run cannot validate the production envelope. Review residual 1 (~2x unguarded scans_cold axis) stands."
+    }
+  ],
+  "caveats": [
+    "db_repos == deduped (both 8) in this seed, so a db_repos -> deduped mutant would NOT be caught by this QA run. The unit suite covers that axis separately.",
+    "Scale is unvalidated: functional pass only.",
+    "The .env was pointing at PRODUCTION ClickHouse Cloud before this run; repointed locally."
+  ],
+  "browser_pass": {
+    "driver": "agent-browser 0.27.0 (real Chrome), direct \u2014 qa-prep skipped deliberately",
+    "why_qa_prep_skipped": "`.context/` held DEV-2486's stale plan (gate refused it); re-provisioning would re-point CLICKHOUSE_DATABASE_CLARITY to a per-worktree name and break the ~15 query classes that hardcode the clarity. prefix",
+    "arms": {
+      "today": {
+        "numerator": 6,
+        "denominator": 1,
+        "card": "6.0"
+      },
+      "last_7d": {
+        "numerator": 40,
+        "denominator": 1,
+        "card": "40.0"
+      },
+      "this_month": {
+        "numerator": 40,
+        "denominator": 8,
+        "card": "5.0"
+      },
+      "last_month": {
+        "numerator": 0,
+        "denominator": 0,
+        "card": "0.0"
+      }
+    },
+    "cross_card_corruption": "not reproducible - all three cards render distinct correct values in every arm",
+    "log_errors_today": 0,
+    "screenshots": [
+      "dashboard-this-month.png",
+      "card-unique-scans-to-lpr-repo.png"
+    ],
+    "not_covered": [
+      "card expansion interaction",
+      "JS console error collector (needs pre-load install)"
+    ]
+  }
+}

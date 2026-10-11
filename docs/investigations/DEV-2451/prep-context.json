@@ -1,0 +1,432 @@
+{
+  "key": "DEV-2451",
+  "gate": "CLEAN",
+  "mode": "normal",
+  "reconcile": {
+    "method": "insightlpr:multi-candidate-merge, performed by the driver at opus (= TICKET_PLAN_MODEL default) rather than a dispatched sub-agent",
+    "deviation_reason": "The driver held verification the candidates could not: DEV-2441's merge recency, the tier-2 generalization proof, the geojson()/hitDensity() clearing, the Bird's Eye KUP-parity docblock, the config/Pennant layering, and a live read-only ClickHouse measurement of the GL and tier-1/tier-2 populations. A reconciler lacking all of that would have produced a strictly worse artifact.",
+    "candidates": 4,
+    "confidences": [
+      40,
+      55,
+      42,
+      38
+    ],
+    "unanimous": [
+      "KitUserPathController::paths() is the ONLY path-rendering endpoint for Kit Path Map",
+      "Tier 1 = KitRangePathsQuery -> clarity.sc_positions, PRIMARY and unconditional for any kit with a non-empty kit_mapping",
+      "Tier 2 = KitScanPathsQuery -> clarity.kit_scan_paths (scan-derived), fallback ONLY for kits with zero tier-1 coverage anywhere in the window",
+      "No existing feature flag, Pennant feature, or config key governs the tier-1-vs-tier-2 choice",
+      "Any gate belongs in KitUserPathController, NOT in the shared query classes",
+      "HistoricPathBuilder, KitTrip, KitHistoricPositionsQuery, OrgScanPathPositionsQuery and clarity-scout/stores/map.js are NOT on this code path",
+      "scale_relevant = true, and the envelope is unmeasured by prod-cardinality.sh",
+      "escalate.recommend = true; all four refused to answer the central question"
+    ],
+    "disagreements_resolved": [
+      {
+        "topic": "envelope direction",
+        "positions": "fast-pass + C1: tier-2 read volume rises, treat as a load risk. C2 + C3: tier-1's expensive decimation/segmentation read disappears, so net ClickHouse load likely FALLS.",
+        "resolution": "C2/C3 are right on direction and it is the more useful framing: the dominant risk is UX REGRESSION SCOPE (how many kits lose their continuous route), not resource exhaustion. Both recorded; the measured regression scope is now in derivation_log."
+      },
+      {
+        "topic": "flag mechanism",
+        "positions": "fast-pass + C1: config('app.experimental.*'). C2: config-backed Pennant Feature::define() mirroring CLARITY_SCOUT_TRIPS.",
+        "resolution": "NOT a conflict \u2014 verified the two are layered: config/app.php:173-182 holds the experimental array, and PennantServiceProvider.php:44 optionally wraps one entry in Feature::define(). The Pennant layer is only needed for per-user/per-org evaluation, which this does not require. Plan phase decides; default to the plain config entry."
+      },
+      {
+        "topic": "DEV-2448 vs DEV-2450",
+        "positions": "C1 answered it as a typo (source: ticket). Fast-pass, C2, C3 all said needs-human.",
+        "resolution": "3 of 4 said needs-human, and multi-candidate-merge is conservative on 'resolved' \u2014 kept OPEN as Q2, with the strong inference noted. Low stakes, but it is a citation that will be baked into a docblock."
+      },
+      {
+        "topic": "does this apply to Bird's Eye",
+        "positions": "C3 answered 'no, per the DEV-2374 KUP != Org Map boundary'. C2 said needs-human.",
+        "resolution": "Kept OPEN as Q4, and C3's answer is actively contradicted by evidence C3 lacked: ClarityScoutBirdsEyeController.php:46-47 says its last_N ranges use KitRangePathsQuery 'for KUP parity (DEV-2374)'. DEV-2374 ALIGNED the two surfaces, so taking KUP scan-only DIVERGES them. That is a human call, not a settled boundary."
+      },
+      {
+        "topic": "AC (a)/(b) decision",
+        "positions": "fast-pass/C1/C2: implement. C3: defer, calling the ticket's premise false.",
+        "resolution": "Recorded as decision 'implement' CONTINGENT on Q1, which is what all four effectively mean. C3's 'premise is false' is too strong: the premise is about the MERGED GL enrichment, and the gl column is real (see derivation_log) \u2014 the premise is imprecise, not false."
+      }
+    ]
+  },
+  "synthesis": "Kit Path Map (the client-portal Filament page 'Kit User Path', rendering through KitUserPathController::paths()) today draws each kit's route from a two-tier ClickHouse pipeline. Tier 1 assembles a continuous-GPS route from clarity.sc_positions via KitRangePathsQuery and runs unconditionally for every kit with a non-empty kit_mapping. Tier 2 builds a scan-derived polyline from clarity.kit_scan_paths via KitScanPathsQuery, but only for kits with zero tier-1 coverage anywhere in the selected window. That tier-1-primary arrangement is the deliberate, hardened outcome of DEV-2177 (built the continuous route precisely because scan-only looked fragmented), DEV-2374 (bbox pushdown, budget), and DEV-2441 (the tier-2 fallback), the last of which merged on 2026-08-28 -- three days before this branch was cut. DEV-2451 asks for scan data only, in the interim, until enriched kit/SC_POSITIONS work lands (linked as DEV-2450). The ticket is genuinely ambiguous between (A) actively gating tier 1 off, which reverts a just-shipped feature and deliberately reintroduces the fragmented-route UX DEV-2177 existed to fix, for 617 kits that currently render continuous routes; and (B) a near no-op plus documentation, on the reading that 'merged GL/SC_POSITIONS' means an enrichment source that does not exist yet, so nothing depends on it today. Both readings are defensible from the ticket text; the code cannot settle it. All four independent prep passes reached this same conclusion and all four declined to answer it.",
+  "scope": {
+    "summary": "Contingent on Q1. Under reading (A): add one config entry and gate the tier-1 block in KitUserPathController::paths() behind it, defaulting OFF, so every kit falls through to the existing tier-2 fallback; add a docblock recording the interim state and the DEV-2450 swap point; add tests pinning both flag states. Under reading (B): docblock/wiki documentation only, no behavior change. The implementation under (A) is unusually cheap because the existing tier-2 fallback already generalizes -- see notes.",
+    "proposed_changes": [
+      {
+        "file": "config/app.php",
+        "change": "READING A ONLY: add 'kit_user_path_continuous_route' => env('KIT_USER_PATH_CONTINUOUS_ROUTE_ENABLED', false) to the existing experimental array.",
+        "reason": "Reuses the verified in-repo convention for a global engineering rollout switch (not a Pro/per-org gate).",
+        "ref": "config/app.php:173-182"
+      },
+      {
+        "file": "app/Http/Controllers/KitUserPathController.php",
+        "change": "READING A ONLY: wrap the tier-1 block (the `if ($mappings !== [])` guard containing KitRangePathsQuery::countPoints/cachedHandle) in a config() check. When off, leave $segments = [] and $renderPointCount = 0 and fall through to scanPathFallbackRows() unchanged.",
+        "reason": "Tier-2 eligibility is computed as 'kit id absent from $coveredKitIds'. With tier 1 skipped, $coveredKitIds is empty, so EVERY kit becomes tier-2 eligible with zero changes to scanPathFallbackRows(). Verified by reading lines 283-298.",
+        "ref": "app/Http/Controllers/KitUserPathController.php:102-162, 283-298"
+      },
+      {
+        "file": "app/Http/Controllers/KitUserPathController.php",
+        "change": "Docblock recording the interim scan-only state, why, and that flipping the config entry restores tier 1 for DEV-2450.",
+        "reason": "AC (c). Docblocks are load-bearing in this repo per CLAUDE.md.",
+        "ref": "app/Http/Controllers/KitUserPathController.php:25-49"
+      },
+      {
+        "file": "tests/Feature/Http/Controllers/KitUserPathControllerTest.php",
+        "change": "READING A ONLY: pin BOTH flag states -- flag off, a kit with a genuine sc_positions track still renders via kit_scan_paths and tier 1 is never queried; flag on, existing DEV-2441 tier-1/tier-2 behavior is unchanged.",
+        "reason": "This inverts heavily-tested behavior. Without a flag-on regression pin, the 'restore point' for DEV-2450 is unverified. Extends the existing spy-client pattern.",
+        "ref": "tests/Feature/Http/Controllers/KitUserPathControllerTest.php:548-975"
+      },
+      {
+        "file": "okf/concepts/scout-clickhouse-queries.md",
+        "change": "POST-MERGE ONLY: the page currently documents tier-1-primary as the Kit Path Map design and would become stale.",
+        "reason": "AC (c), but CLAUDE.md forbids writing to okf/ while work is in flight. Queue for the post-approval pass.",
+        "ref": "CLAUDE.md OKF WRITE rule"
+      }
+    ],
+    "target_files": [
+      "app/Http/Controllers/KitUserPathController.php",
+      "config/app.php",
+      "tests/Feature/Http/Controllers/KitUserPathControllerTest.php"
+    ],
+    "out_of_scope": [
+      "app/Clickhouse/Queries/KitRangePathsQuery.php and KitScanPathsQuery.php -- shared with ClarityScoutBirdsEyeController; a gate inside either class would silently change Bird's Eye. Gate the CALLER.",
+      "ClarityScoutBirdsEyeController -- pending Q4. Its docblock claims KUP parity, so leaving it untouched is a deliberate divergence, not a no-op.",
+      "app/Support/Scout/HistoricPathBuilder.php, app/Clickhouse/Models/KitTrip.php, app/Clickhouse/Queries/KitHistoricPositionsQuery.php, app/Clickhouse/Queries/OrgScanPathPositionsQuery.php, resources/js/clarity-scout/stores/map.js -- Scout PWA surfaces, verified not on this code path.",
+      "KitUserPathController::geojson() and ::hitDensity() -- verified to read HotlistAddressGeohashQuery and HitDensityGeohashQuery. Neither is a path source.",
+      "Frontend -- both tiers already emit an identical row shape and the deck.gl renderer does not distinguish them, so no JS change is needed under either reading.",
+      "Deleting KitRangePathsQuery or its tests -- DEV-2450 needs it back; gate, do not remove."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Kit Path Map builds paths from scan data only",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "CONTINGENT ON Q1. Under reading (A) this is the tier-1 gate. Under reading (B) it is already satisfied and only needs documenting."
+    },
+    {
+      "item": "No dependency on unavailable merged SC_POSITIONS/kit data for path rendering",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "CONTINGENT ON Q1. Note the gl column IS present and fully populated in sc_positions, so 'merged GL' names something real -- see derivation_log."
+    },
+    {
+      "item": "Behavior documented so it can be swapped when the follow-up lands",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Actionable under BOTH readings and independently valuable. The only AC that is not contingent."
+    }
+  ],
+  "questions": [
+    {
+      "q": "Does 'use scan data only' mean actively gating OFF the tier-1 continuous-GPS route (KitRangePathsQuery / clarity.sc_positions) that DEV-2441 shipped three days ago -- moving all 617 currently-GPS-rendering kits onto the more fragmented kit_scan_paths view -- or does 'merged GL/SC_POSITIONS data' mean an enrichment source that does not exist yet, making this a documentation-only ticket? Reading A reverts just-shipped, heavily-reviewed work and visibly degrades route fidelity; reading B changes no behavior. The two produce opposite diffs.",
+      "answered": true,
+      "answer": "Revert the tier-1 call path outright, not a flag gate. Remove the KitRangePathsQuery call path from KitUserPathController::paths() so kit_scan_paths (tier 2) is the only path source. The KitRangePathsQuery CLASS and its unit suite must be PRESERVED \u2014 ClarityScoutBirdsEyeController still calls it and Q4 keeps Bird's Eye unchanged.",
+      "source": "human:Dalton McCleery 2026-08-31"
+    },
+    {
+      "q": "The description cites DEV-2448 ('Clarity GL kits / enriched data follow-up') but the Jira issue link and your own comment both cite DEV-2450 ('use enriched kit/SC_POSITIONS data once available'). Typo, or is DEV-2448 a real second dependency? This citation gets baked into a docblock.",
+      "answered": true,
+      "answer": "DEV-2448 is a typo. Cite DEV-2450 only, in the docblock and the Build Record.",
+      "source": "human:Dalton McCleery 2026-08-31"
+    },
+    {
+      "q": "If reading A: should the gate be global (all orgs, all kits) or per-org -- e.g. only orgs whose GL/kit_mapping enrichment is known-dirty go scan-only, leaving clean orgs on continuous GPS? The ticket implies a blanket interim state, but that degrades 617 kits including ones whose GPS attribution looks clean.",
+      "answered": true,
+      "answer": "Global \u2014 all orgs, all kits. Inherent in an outright removal; no per-org logic.",
+      "source": "human:Dalton McCleery 2026-08-31"
+    },
+    {
+      "q": "If reading A: does the interim scan-only state also apply to the Scout admin Bird's Eye Org Map, which calls KitRangePathsQuery for its last_N ranges explicitly 'for KUP parity (DEV-2374)'? Gating only Kit User Path re-diverges two surfaces DEV-2374 deliberately aligned.",
+      "answered": true,
+      "answer": "Kit User Path only. Accept the divergence from Bird's Eye and record it explicitly in the docblock and Build Record so it is not discovered later as a surprise.",
+      "source": "human:Dalton McCleery 2026-08-31"
+    },
+    {
+      "q": "Does an existing feature flag or config already govern the tier choice?",
+      "answered": true,
+      "answer": "No. Verified there is no flag for tier-1-vs-tier-2. The reusable convention is config/app.php:173-182's experimental array (clarity_scout, clarity_scout_trips, clickhouse.scans/hits), optionally wrapped by Feature::define() in PennantServiceProvider.php:44 when per-user/per-org evaluation is needed -- which this does not require.",
+      "source": "code"
+    },
+    {
+      "q": "Is kit_scan_paths the right scan-derived source, and does it need a new query class?",
+      "answered": true,
+      "answer": "Yes and no respectively. clarity.kit_scan_paths is scan-derived (path_points from the scan tables, distinct producer from sc_positions) and KitScanPathsQuery::encodedPaths() already emits the exact wire shape tier 1 does. Under reading A the change is pure routing -- no new query class, no new data source, no frontend change.",
+      "source": "code"
+    },
+    {
+      "q": "Would gating tier 1 off risk a resource blow-up on kit_scan_paths?",
+      "answered": true,
+      "answer": "Unlikely -- the direction is favorable. Gating tier 1 off REMOVES the expensive sc_positions decimation/segmentation assembly (PG-022: the read that needed bbox pushdown to get a 200-kit/7-day selection from ~1GB refused down to ~20MB), and the shared MAX_RENDER_POINTS=1,500,000 budget still backstops tier 2. Measured: kit_scan_paths is only 1.66M rows total fleet-wide. The real risk is UX regression scope, not exhaustion.",
+      "source": "code"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "TIMING: DEV-2441 merged 2026-08-28 (c5f3db7a -> PR #373 as 2cd336e3); this branch's base cc21e755 is 2026-08-31. DEV-2451 was CREATED 2026-08-28T10:42, and its creation comment id (38642) sits six ids after DEV-2441's Build Record comment (38636). This ticket was filed essentially the moment DEV-2441 completed -- consistent with either a deliberate 'back that out for now' response OR with being drafted from the Build Record without realising tier 1 was already primary. The timing is evidence FOR asking, not for assuming.",
+    "The reading-A implementation is unusually cheap: tier-2 eligibility is 'kit id not in $coveredKitIds', so skipping tier 1 leaves that set empty and every kit becomes eligible with NO change to scanPathFallbackRows(). Verified at lines 283-298.",
+    "Do NOT implement the gate by making the tier-1 query fail or return empty. KitUserPathController deliberately routes tier 1 through countPoints()/cachedHandle() instead of the swallowing ClickhouseQuery::query() precisely so a real ClickHouse outage surfaces as a 503 rather than a silent empty result. A config flag is architecturally distinct from 'sc_positions is down', and conflating them would destroy a working availability signal.",
+    "ENV LANDMINE for Phase 3.5/4: this worktree's .env has CLICKHOUSE_DATABASE_CLARITY=zod_claude_dev_2451_50da1a, a leftover per-worktree scratch CH Cloud database from the prior DEV-2409 session, and that database no longer exists. Any CH-touching work must repoint at the literal clarity/zod databases first, or every CH query fails with UNKNOWN_DATABASE.",
+    "okf/concepts/scout-clickhouse-queries.md currently documents tier-1-primary as the Kit Path Map design. Under reading A it becomes stale and must be updated -- but only after approval, per CLAUDE.md's WRITE rule.",
+    "The backstop flagged tests/Roles/UserRoleTest.py as a referencing file; it does not exist (haiku fabrication). The real role tests are AdminRoleTest.php / ClientRoleTest.php and only assert page permissions."
+  ],
+  "tests": [
+    {
+      "file": "tests/Feature/Http/Controllers/KitUserPathControllerTest.php",
+      "what_it_pins": "Flag OFF (new default): a kit with a genuine continuous sc_positions track still renders exclusively via kit_scan_paths, and tier 1 is never queried (extend the existing spy-client pattern)."
+    },
+    {
+      "file": "tests/Feature/Http/Controllers/KitUserPathControllerTest.php",
+      "what_it_pins": "Flag ON: the pre-existing DEV-2441 tier-1/tier-2 behaviour is byte-for-byte unchanged -- the regression pin that makes the flag a genuine restore point for DEV-2450."
+    },
+    {
+      "file": "tests/Unit/Clickhouse/Queries/KitRangePathsQueryTest.php",
+      "what_it_pins": "Large existing tier-1 unit suite (incl. HistoricPathBuilder SQL-parity). A controller-level gate must leave it entirely untouched; if it moves, the gate leaked into the shared query class."
+    },
+    {
+      "file": "tests/Filament/Pages/KitUserPathTest.php",
+      "what_it_pins": "Existing page-level coverage; must stay green."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Http/Controllers/KitUserPathController.php:102-162 -- tier-1 block, guarded only by `if ($mappings !== [])`; the single gate point",
+      "app/Http/Controllers/KitUserPathController.php:283-298 -- $coveredKitIds/$eligibleKitIds; proves tier 2 generalizes to all kits when tier 1 is skipped",
+      "app/Http/Controllers/KitUserPathController.php:403-427 -- mappingIndex(); kits with null/empty kit_mapping are skipped for tier 1 but still reachable by tier 2 (keyed by kit_id)",
+      "app/Clickhouse/Queries/KitRangePathsQuery.php:35 -- tier 1, clarity.sc_positions, CH-side assembly",
+      "app/Clickhouse/Queries/KitScanPathsQuery.php:9 -- tier 2, clarity.kit_scan_paths, scan-derived",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:46-47,527,597 -- SECOND caller of both tier classes; docblock claims KUP parity per DEV-2374",
+      "config/app.php:173-182 -- experimental flag convention",
+      "app/Providers/PennantServiceProvider.php:44 -- optional config-backed Feature::define() layer",
+      "routes/web.php:98-100 -- the three kit-user-path endpoints (paths, geojson, hit-density)"
+    ],
+    "code_flow": "Filament page KitUserPath -> dispatches load-data -> resources/js/components/kit-user-path.js POSTs /kit-user-path/paths -> KitUserPathRequest validates -> KitUserPathController::paths() -> resolves kits from Postgres -> TIER 1 (unconditional for non-empty mappings): KitRangePathsQuery::countPoints() budget check then cachedHandle() against clarity.sc_positions -> TIER 2 (only kits with zero tier-1 segments): scanPathFallbackRows() -> KitScanPathsQuery::countPoints()/encodedPaths() against clarity.kit_scan_paths -> rows merged, pre-encoded path_json spliced -> deck.gl PathLayer, tier-agnostic.",
+    "tables": [
+      "clarity.sc_positions (CH native, tier 1, has a fully-populated gl column)",
+      "clarity.kit_scan_paths (CH native, tier 2, scan-derived, ReplacingMergeTree, 90d TTL)",
+      "public.kits (Postgres, resolves kit_id/kit_mapping)"
+    ],
+    "related_components": [
+      "ClarityScoutBirdsEyeController (shared tier-class caller)",
+      "KitUsersFilter",
+      "ClickhouseQuery (base; query() swallows Throwable, deliberately bypassed here)"
+    ]
+  },
+  "exhaustiveness": {
+    "patterns_used": [
+      "git grep -n -E 'KitRangePathsQuery|KitScanPathsQuery'",
+      "git grep -n -E 'KitUserPathController|KitUserPath|KitUserPathRequest'",
+      "git grep -n -E 'kit_scan_paths|sc_positions'",
+      "git grep -n -E 'kit-user-path|kit_user_path'",
+      "git grep -n 'HistoricPathBuilder'",
+      "git grep -n 'kit-user-path' -- routes/"
+    ],
+    "sites": [
+      {
+        "file": "app/Http/Controllers/KitUserPathController.php",
+        "line": 102,
+        "verdict": "buggy",
+        "reason": "The tier-1 call site for Kit Path Map; unconditional for mapped kits. THE gate point under reading A."
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+        "line": 597,
+        "verdict": "buggy",
+        "reason": "Second caller of KitRangePathsQuery, explicitly 'for KUP parity (DEV-2374)'. Not in scope per the ticket's wording, but leaving it is a deliberate divergence -- Q4."
+      },
+      {
+        "file": "app/Clickhouse/Queries/KitRangePathsQuery.php",
+        "line": 35,
+        "verdict": "safe",
+        "reason": "The class is correct and shared; it is what the gate turns off, not a defect. Must not be modified."
+      },
+      {
+        "file": "app/Clickhouse/Queries/KitScanPathsQuery.php",
+        "line": 9,
+        "verdict": "safe",
+        "reason": "Tier-2 source; becomes the sole source under reading A, unchanged."
+      },
+      {
+        "file": "app/Http/Controllers/KitUserPathController.php",
+        "line": 429,
+        "verdict": "safe",
+        "reason": "geojson() reads HotlistAddressGeohashQuery -- hotlist addresses, not a path source. Verified."
+      },
+      {
+        "file": "app/Http/Controllers/KitUserPathController.php",
+        "line": 506,
+        "verdict": "safe",
+        "reason": "hitDensity() reads HitDensityGeohashQuery -- hits, REPO_HEATMAP-gated, not a path source. Verified."
+      },
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutMapController.php",
+        "line": 156,
+        "verdict": "safe",
+        "reason": "Tier-2 consumer only; never calls KitRangePathsQuery, so a tier-1 gate cannot reach it."
+      },
+      {
+        "file": "app/Clickhouse/Queries/OrgLivePathsQuery.php",
+        "line": 5,
+        "verdict": "safe",
+        "reason": "Bird's Eye live trails; separate sc_positions consumer, unrelated to historic KUP rendering."
+      },
+      {
+        "file": "app/Clickhouse/Queries/KitHistoricPositionsQuery.php",
+        "line": 5,
+        "verdict": "safe",
+        "reason": "Scout PWA only; verified not on the KUP path."
+      },
+      {
+        "file": "app/Services/Scout/BuildShiftSummary.php",
+        "line": 16,
+        "verdict": "safe",
+        "reason": "Scout end-of-shift summary; unrelated surface."
+      },
+      {
+        "file": "resources/js/clarity-scout/stores/map.js",
+        "line": 47,
+        "verdict": "safe",
+        "reason": "References to KitRangePathsQuery/HistoricPathBuilder are COMMENTS only. Scout store, not the KUP renderer."
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [
+      "public.kits (read-only, unchanged)"
+    ],
+    "ch_tables": [
+      "clarity.sc_positions (tier-1 reads drop to zero under reading A)",
+      "clarity.kit_scan_paths (becomes sole source under reading A)"
+    ],
+    "mv_or_cdc_implications": "None. No schema, MV, or CDC change. kit_scan_paths is an existing maintained ReplacingMergeTree already read with FINAL by the tier-2 path.",
+    "indexes_relied_on": [
+      "clarity.kit_scan_paths ORDER BY (org_id, kit_id, timestamp) -- already the tier-2 access pattern, unchanged"
+    ]
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "The change alters which ClickHouse query class serves EVERY kit in a selection rather than a self-selecting subset. Under reading A, tier 2 goes from 'fallback for zero-coverage kits' to 'sole source for all kits'.",
+    "driving_tables": [
+      {
+        "table": "clarity.kit_scan_paths",
+        "source": "ClickHouse native (no zod.public_* CDC mirror)",
+        "prod_rows": 1660952,
+        "group_by": "org_id, kit_id",
+        "largest_group_rows": null
+      },
+      {
+        "table": "clarity.sc_positions",
+        "source": "ClickHouse native (no zod.public_* CDC mirror)",
+        "prod_rows": null,
+        "group_by": "lower(kit_mapping)",
+        "largest_group_rows": null
+      }
+    ],
+    "growth": "kit_scan_paths carries a 90d TTL and measured 1.66M rows fleet-wide, consistent with DEV-2441's ~1.68M. Tier-1-capable kits measured at 617 over 30d / 495 over 7d, closely matching DEV-2441's own '610 GPS kits, 494 newly render' pass.",
+    "schedule": null,
+    "allocation_sketch": "Direction is FAVORABLE, contra the fast pass's framing. Gating tier 1 off removes the expensive sc_positions decimation/segmentation assembly that PG-022 records needing bbox pushdown to bring a 200-kit/7-day selection from ~1GB-refused to ~20MB. Tier 2 reads a 1.66M-row table under the same shared MAX_RENDER_POINTS=1,500,000 budget. Net ClickHouse load should FALL. The material risk is not exhaustion -- it is UX regression scope: 617 kits lose their continuous route.",
+    "oracle_status": "not-configured",
+    "unresolved": [
+      "prod-cardinality.sh probes the zod.public_* Postgres CDC mirror; both driving tables are ClickHouse-native and outside it, so that oracle is structurally N/A here (recorded, non-blocking per the envelope gate).",
+      "Largest single per-org kit_scan_paths group is unmeasured. Given 1.66M rows fleet-wide under a 1.5M render-point budget this is very unlikely to bind, but it is the one number a QA resource lane should confirm under reading A."
+    ]
+  },
+  "derivation_log": [
+    {
+      "query_shape": "SELECT uniqExact(kit_id), uniqExact(org_id) FROM clarity.kit_scan_paths WHERE timestamp >= now() - INTERVAL <N> DAY",
+      "param_classes": "window length in days",
+      "aggregate_result": "90d: 1309 kits / 281 orgs. 30d: 1100 kits / 263 orgs.",
+      "why": "Sizes the tier-2 population that becomes the sole source under reading A."
+    },
+    {
+      "query_shape": "SELECT count() FROM clarity.kit_scan_paths",
+      "param_classes": "none",
+      "aggregate_result": "1660952 rows fleet-wide",
+      "why": "Confirms tier 2 is small (1.66M) relative to the 1.5M render-point budget, so the envelope direction is favourable. Matches DEV-2441's ~1.68M."
+    },
+    {
+      "query_shape": "SELECT uniqExact(lower(kit_mapping)) FROM clarity.sc_positions WHERE timestamp_utc >= now() - INTERVAL <N> DAY",
+      "param_classes": "window length in days",
+      "aggregate_result": "30d: 617 kits. 7d: 495 kits.",
+      "why": "THE regression-scope number: how many kits currently render a continuous route and would degrade under reading A. Cross-validates DEV-2441's '610 GPS kits / 494 newly render'."
+    },
+    {
+      "query_shape": "SELECT count(), countIf(gl IS NOT NULL), uniqExact(gl) FROM clarity.sc_positions WHERE timestamp_utc >= now() - INTERVAL 30 DAY",
+      "param_classes": "window length in days",
+      "aggregate_result": "136527018 rows, 0 null gl, 469 distinct gl values; column type String",
+      "why": "Establishes that the ticket's 'merged GL' names a real, fully-populated column rather than a hypothetical future source -- which is why the premise is imprecise rather than false."
+    },
+    {
+      "query_shape": "SELECT countIf(n>1), count(), max(n) FROM (SELECT gl, uniqExact(lower(kit_mapping)) AS n FROM clarity.sc_positions WHERE <window> GROUP BY gl)",
+      "param_classes": "window length in days",
+      "aggregate_result": "454 of 469 gl values map to >1 kit_mapping; worst fan-out 11",
+      "why": "Tests whether GL->kit attribution is clean. It is not -- but this direction is irrelevant to tier 1, which keys on kit_mapping."
+    },
+    {
+      "query_shape": "SELECT countIf(n>1), count(), max(n), quantile(0.95)(n) FROM (SELECT lower(kit_mapping) AS km, uniqExact(gl) AS n FROM clarity.sc_positions WHERE <window> AND trim(kit_mapping) != '' GROUP BY km)",
+      "param_classes": "window length in days; blank-mapping exclusion",
+      "aggregate_result": "Including blanks: 165/617 mappings carry >1 gl, worst 467. EXCLUDING blanks: 164/616, worst 6, p95 3.",
+      "why": "The alarming 467 fan-out is entirely on the BLANK kit_mapping sentinel, which tier 1 already excludes via mappingIndex(). Among real mappings the worst case is 6 gl values over 30 days -- fully consistent with scanner hardware swaps. So this is NOT evidence of a live tier-1 misattribution defect."
+    },
+    {
+      "query_shape": "SELECT countIf(trim(kit_mapping) = ''), count() FROM clarity.sc_positions WHERE <window>",
+      "param_classes": "window length in days",
+      "aggregate_result": "19043981 of 136531089 rows (14%) carry a blank kit_mapping",
+      "why": "Quantifies the sentinel population that tier 1 discards -- context for the fan-out finding above."
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC-1 scan data only",
+        "kind": "agent",
+        "intent": "Seed a kit with BOTH an sc_positions track and kit_scan_paths buckets for the same window; assert the response is tier-2-shaped with the flag at its default, proving the FLAG and not data availability chose the source."
+      },
+      {
+        "ac": "AC-2 no enrichment dependency",
+        "kind": "agent",
+        "intent": "Assert via the existing spy ClickHouse client that KitRangePathsQuery / clarity.sc_positions is never queried with the flag off."
+      },
+      {
+        "ac": "AC-3 documented and swappable",
+        "kind": "human",
+        "intent": "Confirm flipping the single config entry restores DEV-2441 behavior with no other code change, and that the docblock names DEV-2450 as the swap trigger."
+      },
+      {
+        "ac": "regression scope",
+        "kind": "human",
+        "intent": "Eyeball a real GPS-dense kit before and after to see the actual fidelity loss the 617 affected kits will experience -- the tradeoff Q1 is really about."
+      }
+    ],
+    "seed_scenario": "One org, three kits: (a) kit_mapping + a multi-hour continuous sc_positions track for yesterday, (b) kit_mapping but zero sc_positions and only kit_scan_paths buckets, (c) BOTH sources populated for the same day. Kit (c) is the one that proves the flag decides the tier.",
+    "personas": [
+      "Client-portal user holding PermissionEnum::Analytics_Geospatial_Kit_User_Path -- the only role that reaches this page"
+    ],
+    "pg_tables": [
+      "public.kits",
+      "public.orgs"
+    ],
+    "ch_tables": [
+      "clarity.sc_positions",
+      "clarity.kit_scan_paths"
+    ]
+  },
+  "missed_caller_candidates_summary": "10 candidates triaged; 1 fabricated. Materially: ClarityScoutBirdsEyeController is a second caller of both tier classes (drives Q4 and forces the gate into the caller), and KitRangePathsQueryTest is a large tier-1 suite the fast pass never listed. geojson()/hitDensity() were candidates and are now CLEARED with positive evidence.",
+  "confidence": 78,
+  "escalate": {
+    "recommend": true,
+    "reason": "Unanimous across 4 independent passes. The blocking issue is a product/scope decision (Q1) that no amount of code analysis can settle; the code facts underneath it are now firmly established and measured, which is what the deep path was for."
+  },
+  "decision": {
+    "reading": "A-strict (outright removal of the tier-1 call path, not a reversible flag)",
+    "driver_concern_raised": "The driver recommended the reversible config flag over outright removal (DEV-2450 must rebuild the wiring; the tier-1 KUP controller tests must be deleted/rewritten rather than pinned). Dalton chose outright removal with that tradeoff stated. Proceeding as specified.",
+    "preserve": [
+      "app/Clickhouse/Queries/KitRangePathsQuery.php \u2014 SHARED with ClarityScoutBirdsEyeController; must not be deleted or modified",
+      "tests/Unit/Clickhouse/Queries/KitRangePathsQueryTest.php \u2014 still the class's coverage for the Bird's Eye caller",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php \u2014 unchanged per Q4"
+    ],
+    "regression_scope_accepted": "617 kits (30d) lose continuous routing; global, all orgs"
+  }
+}

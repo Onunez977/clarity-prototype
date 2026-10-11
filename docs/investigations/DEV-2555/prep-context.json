@@ -1,0 +1,145 @@
+{
+  "key": "DEV-2555",
+  "generated_at": "2026-09-23T18:05:40Z",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "confidence": 91,
+  "escalate": {
+    "recommend": false,
+    "reason": "The three forecast gates resolve from code on main and from the earlier window-key correction's shipped re-share. Best-of-N cannot resurrect UniqueScansToRepo, and the ticket forbids editing that class."
+  },
+  "reconcile": {
+    "method": "single prep pass against origin/main @ 4833e815. Jira re-read live. Best-of-N not run.",
+    "candidates": 1,
+    "driver_verified": [
+      "UniqueScansToRepo.php is absent. CompanyMetricsOverview no longer registers that key. okf/concepts/company-metrics-dashboard.md records the deletion.",
+      "RecoveryCounts::fetchRepoSeries() probes RecoveryTotalsBatchQuery::sharedMonthCacheKey() and gap-fills with one runRepoSeriesBatch() -> handle() call. It cache()->put()s a bare (int).",
+      "RecoveryCounts::getMonthlyData() is overridden. The parent 13-iteration buildWidgetCacheKey loop is not the live series path. getModelQueryForDates() returns 0 and is not the live headline.",
+      "ratioMonthlySeries() zips fetchUniqueScansSeries() against getMonthlyData(formatted: false). It does not issue a second repo query.",
+      "sharedMonthCacheKey() is recovery-totals:month-v1:org={id}:{month} with no :tz= segment.",
+      "getRangeTotal() writes sharedWindowCacheKey() (int, includes tz). currentPeriodTotal() wraps that call in buildWidgetCacheKey(), which prefixes class_basename.",
+      "test_past_months_are_cached_per_month_and_not_refetched asserts reposCalls === 1 and assertSame(9, cache()->get(sharedMonthCacheKey)). Removing the shared write fails that assertion.",
+      "test_the_window_headline_is_cached_and_not_requeried uses two WindowStubbingRecoveryCounts instances. Both share one class_basename, so the outer remember satisfies 'no second query' even if sharedWindowCacheKey() is never written. The test does not read the shared window key.",
+      "RecoveryTotalsBatchQuery's class docblock still says RecoveryCounts runs Eloquent under class-prefixed keys and that pointing it at sharedMonthCacheKey() is a future one-liner. That paragraph is false on this SHA.",
+      "The earlier window-key correction's decisions record restored the window key as an int on the re-share. The un-share was withdrawn. The Jira description still cites that withdrawn un-share.",
+      "resolveCardRange() and sharedWindowCacheKey() both use the raw user timezone string, not safeTimezone(). The viewer-timezone numerator landing left this key alone."
+    ]
+  },
+  "synthesis": "The prior Total Repossessions batch landing already did the refactor this ticket describes. RecoveryCounts serves the 13-month series from RecoveryTotalsBatchQuery::handle() in one round trip and writes the class-neutral month key as a bare int. UniqueScansToRepo is gone, so the two figures that must agree are the headline and the scans-per-repo denominator, and they agree because both read getMonthlyData(). The query-class docblock still tells the next reader the follow-up is undone. The window key is already shared as an int; the test that claims to prove that does not fail if the shared write is removed, because the class-prefixed outer cache hides it. This plan corrects the docblock and the vacuous assertion. It does not change SQL, key strings, or rendered values.",
+  "scope": {
+    "summary": "Docblock truth plus a non-vacuous int pin on the shared window key. No query, key, or card-value change.",
+    "proposed_changes": [
+      {
+        "file": "app/Clickhouse/Queries/RecoveryTotalsBatchQuery.php",
+        "change": "Rewrite the class docblock and the two cache-key docblocks so they describe main. RecoveryCounts already calls handle()/handleRange() and writes both shared keys as bare ints. getModelQueryForDates() is a 0-stub. UniqueScansToRepo is deleted; the ratio denominator is this card's getMonthlyData(). Month key stays timezone-free -v1. Window key stays shared, with tz, because Today/Last 7 Days are viewer-local. Cite the earlier window-key correction's re-share, not the withdrawn un-share. Do not change SQL or the key format strings.",
+        "reason": "The stale docblock is the ticket's cited source and it instructs a one-liner that already shipped.",
+        "ref": "RecoveryTotalsBatchQuery.php:12-48, :165-199"
+      },
+      {
+        "file": "tests/Filament/Widgets/Dashboard/RecoveryCountsTest.php",
+        "change": "In the existing month test, assertIsInt on the cached closed-month value next to assertSame(9, ...). Add an assertion on the today path that cache()->get(sharedWindowCacheKey(...)) is int 40. That read fails if getRangeTotal() stops writing the shared key, which the current same-class double test does not. Do not add a UniqueScansToRepo fixture.",
+        "reason": "AC3 names the int. AC4's un-share failure mode is already true for the month key and false for the window key.",
+        "ref": "RecoveryCountsTest.php:442-483, :556-583, :816-841"
+      }
+    ],
+    "target_files": [
+      "app/Clickhouse/Queries/RecoveryTotalsBatchQuery.php",
+      "tests/Filament/Widgets/Dashboard/RecoveryCountsTest.php"
+    ],
+    "out_of_scope": [
+      "UniqueScansToRepo. Deleted. Ticket says the class itself is out of scope. Do not restore it.",
+      "ScanPlateStatsBatchQuery cold mutex and any cache helper from the parked scans-stats follow-up.",
+      "SQL in handle()/handleRange()/fromAndWhere(). Key format strings. The -v1 suffix.",
+      "safeTimezone() on the repo window. The viewer-timezone numerator landing left sharedWindowCacheKey on the raw viewer timezone, matching resolveCardRange().",
+      "DashboardWidget::currentPeriodTotal()'s class-prefixed remember. It stays. The ratio window arm calls it, so headline and description share that entry.",
+      "okf/ during implementation. company-metrics-dashboard.md already records the merge. Queue a docblock-alignment note only if review wants it after approval.",
+      "Product behavior, QA provision, and review. Later Fellowship phases."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "AC-1 RecoveryCounts 13-month series from RecoveryTotalsBatchQuery::handle() in one round trip.",
+      "source": "ticket",
+      "decision": "already_on_main",
+      "reason": "fetchRepoSeries() gap-fills with one runRepoSeriesBatch() -> handle(). test_past_months_are_cached_per_month_and_not_refetched asserts reposCalls === 1. Do not re-implement."
+    },
+    {
+      "item": "AC-2 Both cards read the same sharedMonthCacheKey() entries.",
+      "source": "ticket",
+      "decision": "satisfied_by_merge",
+      "reason": "There is one card. UniqueScansToRepo was deleted in the prior Total Repossessions batch landing. The headline and the ratio denominator both read getMonthlyData(), which reads and writes the shared month key. A second card must not be invented."
+    },
+    {
+      "item": "AC-3 int payload contract preserved; a test pins the shape.",
+      "source": "ticket",
+      "decision": "tighten_test",
+      "reason": "Writers already store (int). The month test's assertSame(9, ...) is strict. Add assertIsInt so the contract is named. Do not bump -v1."
+    },
+    {
+      "item": "AC-4 Cross-card test asserts the round-trip drop and fails if the key is un-shared.",
+      "source": "ticket",
+      "decision": "month_already_fails_unshare; window_test_is_vacuous",
+      "reason": "The month test reads the production shared key, so a private buildWidgetCacheKey write fails it. The window test does not read sharedWindowCacheKey and both doubles share a class basename, which is the earlier window-key correction's vacuous-test shape. Add the shared-key read. Do not add a second card class."
+    },
+    {
+      "item": "AC-5 Total Repossessions renders the same values as today.",
+      "source": "ticket",
+      "decision": "no_behavior_change",
+      "reason": "No SQL, bound, or key-string edit. RecoveryTotalsBatchQueryTest::test_the_window_total_matches_the_eloquent_path_recovery_counts_uses remains the parity oracle against Recovery::count()."
+    },
+    {
+      "item": "AC-6 Today/Last 7 Days: share the window key or document why it stays private.",
+      "source": "ticket",
+      "decision": "already_shared_document_the_outer_layer",
+      "reason": "sharedWindowCacheKey() is class-neutral and stores handleRange()'s int. It includes tz because the window is viewer-local. The outer buildWidgetCacheKey remember stays as the compact-headline cache; it is not a reason to un-share. The earlier window-key correction's shipped end state is the re-share (shared int), not the withdrawn un-share the Jira body cites."
+    }
+  ],
+  "questions": [
+    {
+      "id": "Q1",
+      "question": "UniqueScansToRepo is gone. What is the second reader of sharedMonthCacheKey()?",
+      "answered": true,
+      "answer": "There is no second card. The prior Total Repossessions batch landing deleted UniqueScansToRepo and made RecoveryCounts' headline the ratio denominator via getMonthlyData(). Do not restore the class. The ticket lists that class as out of scope.",
+      "source": "app/Filament/Widgets/Dashboard/RecoveryCounts.php, okf/concepts/company-metrics-dashboard.md, that batch landing's plan subtask t8.",
+      "impact": "AC-2 is met by one method, not by two widgets. A plan that re-creates the deleted card would undo the prior Total Repossessions batch landing."
+    },
+    {
+      "id": "Q2",
+      "question": "Does the Today/Last 7 Days window stay private, following the Jira citation of the withdrawn window un-share?",
+      "answered": true,
+      "answer": "No. It is already shared as an int on sharedWindowCacheKey(), with dateType, day, and the raw viewer timezone in the key. The month key stays timezone-free. The outer class-prefixed remember in currentPeriodTotal() stays and is documented. The re-share restored the window key; the un-share was withdrawn.",
+      "source": "RecoveryCounts::getRangeTotal, RecoveryTotalsBatchQuery::sharedWindowCacheKey, the earlier window-key correction's decisions record (re-share).",
+      "impact": "Do not delete sharedWindowCacheKey(). Do not add :tz= to the month key. Do not retune the window onto safeTimezone()."
+    },
+    {
+      "id": "Q3",
+      "question": "Does the int payload change, requiring a -v1 bump?",
+      "answered": true,
+      "answer": "No. Both writers store a bare int. This plan does not change the shape. Bump -v1 only if a later change stores another shape, and migrate every writer in that same change.",
+      "source": "RecoveryCounts::fetchRepoSeries cache()->put of (int) $value; getRangeTotal's remember closure returns int; PAYLOAD CONTRACT docblocks.",
+      "impact": "Key strings stay recovery-totals:month-v1 and recovery-totals:window-v1."
+    }
+  ],
+  "blocked_questions": [],
+  "window_path": {
+    "decision": "shared",
+    "key": "RecoveryTotalsBatchQuery::sharedWindowCacheKey",
+    "payload": "int",
+    "why_tz_segment": "resolveCardRange() builds Today and Last 7 Days in the raw user timezone. Two zones are two windows. The month series is toStartOfMonth(repo_date) and has no zone.",
+    "outer_layer": "DashboardWidget::currentPeriodTotal still cache()->remember()s under buildWidgetCacheKey($this->date, orgId), which prefixes class_basename. The ratio's today/last_7d arm calls currentPeriodTotal(), so the two figures on this card share that outer entry. The inner shared key is what a reader without this class basename can see.",
+    "vacuous_test": "test_the_window_headline_is_cached_and_not_requeried. Both instances are WindowStubbingRecoveryCounts, so they share the outer key. repoWindowCalls stays 0 even if the shared write is removed.",
+    "window_key_history": "Jira cites the withdrawn un-share. The decisions record's re-share restored the shared window key as an int because the 'needs the whole array' premise was false. Follow the re-share."
+  },
+  "risks": [
+    {
+      "id": "window-key-payload",
+      "status": "honoured",
+      "note": "No shape change. -v1 stays. The new window assertion is assertSame/assertIsInt on the shared key, so an array payload fails it."
+    },
+    {
+      "id": "parked-scans-cache",
+      "status": "out_of_scope",
+      "note": "Different card. Do not touch ScanPlateStatsBatchQuery cache helpers. No chlocal#36 dependency."
+    }
+  ]
+}

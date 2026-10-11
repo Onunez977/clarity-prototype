@@ -1,0 +1,145 @@
+{
+  "key": "DEV-2201",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "escalated": true,
+  "best_of_n": true,
+  "needs_human_interview": true,
+  "reconcile_note": "Reconciled inline by the opus driver from 3 independent prep passes (1 fast + 2 blind deep candidates) + a haiku grep backstop. Gate was BLOCKED on 4 material questions; Dalton answered all 4 in the Phase 2 interview (2026-07-20). Two answers (support holes, queue large files) expanded scope beyond the recommendation and are folded in below.",
+  "synthesis": "Admins build Scout zones one polygon at a time in the ManageZones map editor; onboarding an org whose service areas already live in .kml (Google Earth / My Maps / GIS) is slow and error-prone. DEV-2201 adds an 'Import KML' action to the Zone Manager list (ZoneResource) that uploads a .kml file and auto-creates one Scout zone per polygon <Placemark> (INCLUDING interior-ring holes), org-scoped, default color/no-scan/no-driver, reusing the existing Zone geometry pipeline (definition JSONB -> rebuildGeometryFromDefinition() -> PostGIS geom). First bulk zone-creation flow AND first file-upload feature in the product. Per Dalton's grooming: .kml-only (no .kmz) for v1, allow duplicate names, SUPPORT polygon holes, and QUEUE large files (small files import synchronously with immediate feedback; large files run in a queued job with async Filament database-notification feedback).",
+  "scope": {
+    "summary": "New KML-parsing service (outer + inner rings -> GeoJSON Polygon-with-holes) + a shared import-executor unit (parse+create+tally, reused by both the sync path and the queued job so the loop is written ONCE) + a queued Job for large files + a static Filament Action wired into ZoneResource's toolbar. Small uploads (below a size/placemark threshold) import inline with an immediate summary Notification; large uploads persist the file to a disk, dispatch ImportZonesFromKml, and the job sends a Filament DATABASE notification (bell) to the acting user on completion. Each valid placemark becomes one Zone via the same definition-write + rebuildGeometryFromDefinition() path ManageZones::save() uses, each in its OWN platform-connection transaction so one bad shape can't fail the batch. One batched Analytics::track(ZoneImport) per import. Skip ZoneBroadcaster (no-op for driverless imports).",
+    "proposed_changes": [
+      {"file": "app/Services/Zones/KmlZoneParser.php (NEW)", "change": "Pure parsing service: parse(string $kml): list<{name, polygon: GeoJSON|null, skip_reason}>. registerXPathNamespace('kml','http://www.opengis.net/kml/2.2'), xpath('//kml:Placemark'); read <name> (fallback 'Imported Zone {n}'); read <Polygon><outerBoundaryIs><LinearRing><coordinates> as the outer ring AND each <innerBoundaryIs><LinearRing><coordinates> as an interior ring; STRIP altitude (3rd tuple element); force-close each ring; validate EACH ring (>=4 positions, closed) — invalid outer ring => skip placemark; invalid inner ring => drop that hole (keep the polygon). Emit GeoJSON Polygon coordinates=[outer, ...holes]. Non-<Polygon> placemarks skipped (counted). Never let a SimpleXML warning/exception escape.", "reason": "Isolates XML parsing for unit-testability; AC3/AC4/AC5/AC7 + holes. app/Services/RDN.php:95-100 is the only namespace-aware SimpleXML precedent.", "ref": "app/Models/Zone.php:251-322"},
+      {"file": "app/Services/Zones/ZoneKmlImporter.php (NEW) — shared executor", "change": "run(string $kml, int $orgId, int $userId): {created:int, skipped:int, skip_reasons:[]}. Calls KmlZoneParser, loops results; per valid polygon wraps Zone::create([org_id,created_by_user_id,name,color=DEFAULT_COLOR,is_no_scan_zone=false,definition=['polygons'=>[polygon],'zip_codes'=>[]]]) + rebuildGeometryFromDefinition() in its OWN DB::connection('platform')->transaction()+try/catch; tallies counts; fires ONE Analytics::track(ZoneImport,[created,skipped]). Returns the tally. Written ONCE, invoked by BOTH the inline action path and the queued job.", "reason": "Prevents duplicating the create-loop across the sync action and the async job (reuse/simplify). AC5/AC6/AC7.", "ref": "app/Filament/Pages/ManageZones.php:276-329"},
+      {"file": "app/Jobs/ImportZonesFromKml.php (NEW, ShouldQueue)", "change": "Constructor: stored file path/disk, orgId, userId. handle(): read the stored KML from disk, call ZoneKmlImporter::run(), then send a Filament DATABASE notification (Notification::make()->title(...)->body('N created / M skipped')->sendToDatabase($user)) so the bell shows the result; delete the stored file in finally. failed(): notify the user the import failed. Queue on an appropriate connection/queue.", "reason": "AC6 for large files (deferred, non-blocking). Chosen per Dalton: queue large files. Filament DB notification is the idiomatic async-feedback channel.", "ref": "Laravel ShouldQueue + Filament\\Notifications\\Notification::sendToDatabase"},
+      {"file": "app/Filament/Actions/ZoneKmlImportAction.php (NEW)", "change": "Static-factory Action. schema(): required FileUpload — acceptedFileTypes REAL MIME strings (application/vnd.google-earth.kml+xml,text/xml,application/xml) + explicit ->rules(['mimes:kml']) + ->maxSize(N). For the QUEUED path the file MUST be persisted (storeFiles(true) to a private disk, or copy TemporaryUploadedFile to Storage) because a queued job runs after the request and cannot read a request-scoped TemporaryUploadedFile. action(): Gate::authorize('create', Zone::class) once; decide sync vs queue by a threshold (see design note); SYNC => ZoneKmlImporter::run() inline + immediate summary Notification; QUEUE => persist file + dispatch ImportZonesFromKml + 'Import started, you'll be notified' Notification. Delete the persisted file after the sync path completes.", "reason": "AC1/AC2/AC3/AC6; matches the static-action-class convention.", "ref": "app/Filament/Actions/ZoneReassignAction.php:28-192, ZoneQuickEditAction.php:26-110"},
+      {"file": "app/Filament/Resources/ZoneResource.php (EDIT)", "change": "Add ZoneKmlImportAction::make() into table()->toolbarActions([...]) beside 'create', ->visible(fn(): bool => static::canCreate()).", "reason": "AC1: toolbar-native, gated identically.", "ref": "app/Filament/Resources/ZoneResource.php:165-221"},
+      {"file": "app/Enums/ScoutAnalyticsEvent.php (EDIT)", "change": "Add ZoneImport = 'clarity-scout-zone-import', tracked ONCE per import with ['created'=>N,'skipped'=>M].", "reason": "Grep backstop confirmed no exhaustive match() on the enum — adding a case is safe.", "ref": "app/Enums/ScoutAnalyticsEvent.php:44-51"},
+      {"file": "tests/Services/Zones/KmlZoneParserTest.php (NEW)", "change": "Pure unit tests against inline KML fixtures incl. a polygon WITH a hole (<innerBoundaryIs>).", "reason": "Cheapest place to pin parsing/holes/edge cases.", "ref": "n/a new coverage"},
+      {"file": "tests/Jobs/ImportZonesFromKmlTest.php (NEW)", "change": "Job unit test: given a stored KML, creates the expected zones + sends the DB notification; failed() notifies. Bus::fake()/assertDispatched from the action's queue-path test.", "reason": "Pins the async path + async feedback.", "ref": "n/a new coverage"},
+      {"file": "tests/Filament/Resources/ZoneResourceTest.php (EDIT) or tests/Filament/Actions/ZoneKmlImportActionTest.php (NEW)", "change": "Gating parity + AC2 non-.kml rejected + sync happy-path multi-placemark (incl. a holed polygon) creates org-scoped zones + partial-skip reporting + org isolation + large-file path dispatches the job (Bus::fake) instead of importing inline.", "reason": "Establishes the first FileUpload+action test pattern; AC1-AC7.", "ref": "tests/Filament/Resources/ZoneResourceTest.php:56-118, tests/Feature/Events/ZoneListBroadcastsTest.php (callTableAction data: pattern)"}
+    ],
+    "target_files": [
+      "app/Services/Zones/KmlZoneParser.php",
+      "app/Services/Zones/ZoneKmlImporter.php",
+      "app/Jobs/ImportZonesFromKml.php",
+      "app/Filament/Actions/ZoneKmlImportAction.php",
+      "app/Filament/Resources/ZoneResource.php",
+      "app/Enums/ScoutAnalyticsEvent.php",
+      "tests/Services/Zones/KmlZoneParserTest.php",
+      "tests/Jobs/ImportZonesFromKmlTest.php",
+      "tests/Filament/Resources/ZoneResourceTest.php"
+    ],
+    "plan_time_design_notes": [
+      "SYNC-VS-QUEUE THRESHOLD (Dalton chose 'queue large files' — hybrid). Decide by a CHEAP pre-parse signal so we don't parse twice: recommend uploaded FILE SIZE (e.g. queue when > ~256KB; the 5-placemark sample is ~a few KB) OR a placemark count from a cheap count-only xpath. Recommend file-size threshold (config-driven constant) to avoid double-parsing. Plan to finalize the exact number; keep it a named constant.",
+      "FILE PERSISTENCE for the queued path: a queued job cannot read a request-scoped Livewire TemporaryUploadedFile. The queue path MUST persist the upload to a private Storage disk (store the path in the job) and delete it after handle()/failed(). The sync path can use storeFiles(false)+->get(). Plan to pick the disk (private/local) and cleanup strategy.",
+      "ASYNC FEEDBACK: queued job sends a Filament database Notification (bell) to the acting user on completion/failure. Sync path shows an immediate session Notification. Both report N created / M skipped.",
+      "REUSE: the parse+create+tally loop lives in ONE unit (ZoneKmlImporter) invoked by both paths — do NOT duplicate it in the action and the job.",
+      "geoJsonHasValidRing() is private static (Zone.php:303). Default: REPLICATE the >=4-position/closed-ring check inside the parser (keeps Zone blast radius zero); alternative is widening it public. Plan decides.",
+      "acceptedFileTypes MIME strategy needs EMPIRICAL verification during build (PHP finfo often sniffs .kml as text/xml). Combine broad MIME allowlist + explicit mimes:kml rule.",
+      "Local php.ini upload_max_filesize=2M/post_max_size=8M + Livewire 12MB ceiling cap ->maxSize() — fine at sample scale; note for QA.",
+      "HOLES: GeoJSON Polygon coordinates=[outerRing, ...innerRings]; ST_GeomFromGeoJSON in rebuildGeometryFromDefinition supports holes natively; ST_MakeValid repairs topology. Validate each ring; invalid hole => drop the hole, keep the polygon; invalid outer => skip placemark."
+    ],
+    "out_of_scope": [
+      "KML export",
+      "KML styling import (colors/labels from <Style>/<PolyStyle>)",
+      "Client-portal import path (admin app panel only)",
+      ".kmz (zipped KML) — DEFERRED per Dalton (v1 .kml-only); ext-zip is not a declared dependency",
+      "MultiGeometry / multiple <Polygon> per Placemark (sample + mapping spec are one Polygon per Placemark)",
+      "Driver auto-assignment or per-placemark color/no-scan overrides at import time (ticket fixes the defaults)",
+      "Real-time progress bar for the queued job (v1 = a single completion notification, not streaming progress)"
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "AC1 — 'Import KML' action visible in the Zone Manager toolbar, gated identically to the resource (CLARITY_SCOUT + admin, OR admin_impersonator)", "source": "ticket", "decision": "implement", "reason": "Reuse static::canCreate() (wraps ZonePolicy::create ADMIN-only) as ->visible; resource-level canAccess() already includes Scout flag OR admin_impersonator (ZoneResource.php:56-64). Defensive Gate::authorize once in the closure."},
+    {"item": "AC2 — upload a .kml file; only .kml accepted; sane max file size", "source": "ticket", "decision": "implement", "reason": "FileUpload real-MIME allowlist + explicit mimes:kml rule + maxSize. .kml-only (no .kmz) per Dalton."},
+    {"item": "AC3 — one zone per polygon placemark (incl. holes), org-scoped, geometry visible/correct on map AND list", "source": "ticket", "decision": "implement", "reason": "Zone::create + rebuildGeometryFromDefinition (identical to ManageZones::save); GeoJSON Polygon-with-holes flows through ST_GeomFromGeoJSON natively; list re-renders via existing forOrg() scope."},
+    {"item": "AC4 — placemark <name> -> zone name, sensible fallback when absent; duplicates allowed", "source": "ticket", "decision": "implement", "reason": "zones.name NOT NULL no default; fallback 'Imported Zone {n}'. Duplicates allowed per Dalton (no uniqueness constraint)."},
+    {"item": "AC5 — placemarks with no valid polygon geometry skipped, not saved empty", "source": "ticket", "decision": "implement", "reason": "CRITICAL: rebuildGeometryFromDefinition only sets geom=null on an already-created row (Zone.php:281-288); never blocks Zone::create(). Importer MUST pre-validate the outer ring before create()."},
+    {"item": "AC6 — clear feedback (N created / M skipped); one bad shape must not fail the whole import", "source": "ticket", "decision": "implement", "reason": "Per-placemark transaction+try/catch (NOT one wrapping transaction). SYNC path: immediate summary Notification. QUEUED path: Filament DATABASE notification from the job on completion. One batched Analytics::track either way."},
+    {"item": "AC7 — imported geometry renders correctly; self-intersecting/non-closed rings repaired or skipped, never a 500", "source": "ticket", "decision": "implement", "reason": "Parser force-closes rings + drops <4-position rings; ST_MakeValid repairs self-intersections; per-placemark try/catch guarantees no 500 even on the queued path."},
+    {"item": "Analytics event for the import (derived)", "source": "derived", "decision": "implement", "reason": "One ScoutAnalyticsEvent::ZoneImport per import (counts in params), matching the single-event-per-bulk-action convention."},
+    {"item": "Large files run in a queued job with deferred feedback (derived from Dalton's grooming)", "source": "derived", "decision": "implement", "reason": "Hybrid: below-threshold synchronous; above-threshold queued via ImportZonesFromKml with a persisted file + async DB notification."}
+  ],
+  "questions": [
+    {"q": ".kmz (zipped KML) support in v1, or .kml-only?", "answered": true, "answer": ".kml-only for v1 (defer .kmz).", "source": "human:Dalton 2026-07-20"},
+    {"q": "Naming collisions — allow duplicates, auto-suffix, or skip?", "answered": true, "answer": "Allow duplicates (matches manual creation; no uniqueness constraint).", "source": "human:Dalton 2026-07-20"},
+    {"q": "Polygon holes (<innerBoundaryIs>) — drop or support?", "answered": true, "answer": "SUPPORT holes as GeoJSON interior rings. Non-polygon placemarks still skipped+counted.", "source": "human:Dalton 2026-07-20"},
+    {"q": "Large files — synchronous or queued?", "answered": true, "answer": "QUEUE large files (hybrid: small=sync+immediate notification, large=queued job + async Filament DB notification).", "source": "human:Dalton 2026-07-20"},
+    {"q": "Color / no-scan default selectable at import time?", "answered": true, "answer": "Fixed v1 defaults (color=Zone::DEFAULT_COLOR, is_no_scan_zone=false, no driver).", "source": "ticket"},
+    {"q": "Broadcast/analytics storm — suppress per-zone ZoneBroadcaster?", "answered": true, "answer": "Skip ZoneBroadcaster entirely (no-op for driverless imports); one batched Analytics::track(ZoneImport).", "source": "code"},
+    {"q": "Native Filament ImportAction/Importer fit?", "answered": true, "answer": "No (CSV/column-mapping machinery, unused); custom Action + parser + shared importer + job.", "source": "code"},
+    {"q": "acceptedFileTypes() alone reliable for .kml?", "answered": true, "answer": "No — sniffed-MIME rule; .kml sniffs as text/xml. Combine MIME allowlist + explicit mimes:kml, verify empirically.", "source": "code"}
+  ],
+  "blockers": [],
+  "notes": [
+    "First file-upload feature AND first bulk-creation flow in the app — no local FileUpload/UploadedFile::fake precedent. Establishes the pattern.",
+    "First queued-import flow — no queued-import infra exists (Filament's native imports/failed_import_rows tables are unused). Async feedback via Filament database notification is the idiomatic channel.",
+    "ext-simplexml already declared (composer.json:9) — no new dep for .kml. ext-zip NOT declared (kept out by the .kml-only decision).",
+    "Reference sample CPZones.kml is NOT in the repo — tests use inline heredoc KML fixtures (incl. a holed polygon). Consider verifying MIME/namespace handling against the real file at QA.",
+    "resources/js/components/zone-map-display.js consumes GeoJSON as [lng,lat] — KML lon,lat[,alt] order needs no swap.",
+    "Spatie LogsActivity fires per-zone create automatically — expected audit rows, no import-specific change.",
+    "Run `vendor/bin/pint --dirty --format agent` before finalizing; keep PHP 8.3-compatible.",
+    "Grep backstop: LOW blast radius. No exhaustive match() on ScoutAnalyticsEvent. All referencing files are template refs / read-only controllers / the sibling ZoneQuickEditAction."
+  ],
+  "tests": [
+    {"file": "tests/Services/Zones/KmlZoneParserTest.php", "what_it_pins": "one Placemark->one polygon (name mapped); missing <name> fallback; altitude stripped; unclosed ring auto-closed; <4-position outer ring skips placemark; <innerBoundaryIs> HOLE parsed into a GeoJSON interior ring; invalid hole dropped but polygon kept; <Point>/<LineString> skipped with reason; namespace-aware parse; malformed XML fails gracefully."},
+    {"file": "tests/Jobs/ImportZonesFromKmlTest.php", "what_it_pins": "queued job reads a stored KML, creates the expected org-scoped zones, sends a Filament DB notification with the counts, cleans up the file; failed() notifies the user."},
+    {"file": "tests/Filament/Resources/ZoneResourceTest.php (or tests/Filament/Actions/ZoneKmlImportActionTest.php)", "what_it_pins": "AC1 gating parity; AC2 non-.kml rejected; AC3/AC4 multi-placemark (incl. holed polygon) creates org-scoped zones with correct name/definition/non-null geom; AC5/AC6 mixed-validity KML -> only valid ones + accurate counts + zero empty rows; org isolation; large-file upload dispatches ImportZonesFromKml (Bus::fake) instead of importing inline; no ZoneUpdated broadcast for driverless imports."}
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Filament/Resources/ZoneResource.php:56-76 (gating + org-scoped query), :165-221 (toolbarActions + bulk-action analytics convention)",
+      "app/Filament/Pages/ManageZones.php:200-223 (the ONLY 'polygon or ZIP required' enforcement — a form rule), :276-329 (save() per-zone platform transaction + rebuild + single Analytics::track)",
+      "app/Models/Zone.php:85-98 (fillable/casts), :251-296 (rebuildGeometryFromDefinition — guards geom only; ST_GeomFromGeoJSON supports holes; ST_MakeValid), :303-322 (geoJsonHasValidRing — private, >=4-position rule)",
+      "app/Filament/Actions/ZoneReassignAction.php:28-192, ZoneQuickEditAction.php:26-110 (static-action-class templates)",
+      "app/Services/Zones/ZoneBroadcaster.php:29-71 (broadcastUpdated — no-op for driverless zones)",
+      "app/Services/Analytics/AnalyticsService.php:10-27 (Analytics::track queued, config-gated)",
+      "app/Policies/ZonePolicy.php:23-26 (create ADMIN-only), app/Enums/ScoutAnalyticsEvent.php:44-51, app/Enums/FeatureEnum.php (CLARITY_SCOUT)",
+      "app/Services/RDN.php:95-100 (namespace-aware SimpleXML precedent)",
+      "database/migrations/2026_05_12_000000_create_zones_table.php (name NOT NULL no default; org_id no FK; geom+GIST; no name-uniqueness)",
+      "database/factories/ZoneFactory.php:44-60 (squarePolygon GeoJSON helper)",
+      "vendor/filament/forms/src/Components/BaseFileUpload.php:227-238,380-392 (acceptedFileTypes/maxSize/storeFiles + mimetypes-rule gotcha)",
+      "tests/Filament/Resources/ZoneResourceTest.php:56-118 (gating conventions), tests/Feature/Events/ZoneListBroadcastsTest.php (callTableAction data: pattern)"
+    ],
+    "code_flow": "Admin clicks 'Import KML' -> Filament modal FileUpload -> closure authorizes once, reads/persists file -> if small: ZoneKmlImporter::run() inline (KmlZoneParser -> per-placemark platform txn { Zone::create + rebuildGeometryFromDefinition }) + immediate summary Notification; if large: persist file to a private disk + dispatch ImportZonesFromKml -> job reads file, ZoneKmlImporter::run(), sends Filament DB notification, deletes file -> one Analytics::track(ZoneImport) per import. No ZoneBroadcaster/ZoneAssignmentSyncer.",
+    "tables": ["platform.zones (INSERT + raw geom UPDATE, platform connection)", "platform.zone_user (untouched)", "activity_log (auto Spatie audit)", "clarity.analytics (queued, one batch row)", "notifications (Filament database notification for the queued path)"],
+    "related_components": ["ZoneBroadcaster (no-op, skip)", "ZoneAssignmentSyncer (not invoked)", "Analytics/TrackAnalytics (queued)", "Filament database notifications (async feedback)", "Pennant Feature::active(CLARITY_SCOUT) + admin_impersonator (existing gate)", "ZonePolicy (create gate)"]
+  },
+  "exhaustiveness": {
+    "confirmed_no_existing_kml_or_import_path": true,
+    "grep_patterns_used": ["FileUpload (app/=0)", "TemporaryUploadedFile/Storage::disk (app/=0)", "ImportAction|Importer (vendor only)", "kml|Placemark (app/,tests/,docs/=0 outside this ticket)", "simplexml (1: RDN.php SOAP)", "UploadedFile::fake (tests/=0)", "ext-zip in composer.json (0)"],
+    "toolbar_action_wiring_sites": [
+      {"site": "ZoneResource.php table()->toolbarActions()", "assessment": "safe (recommended)", "reason": "Where 'create'/bulk actions live; canCreate() gate reusable; ticket-intended home."},
+      {"site": "ListZones.php getHeaderActions()", "assessment": "viable but non-idiomatic", "reason": "Only the list<->map toggle lives there."},
+      {"site": "ManageZones.php (map editor)", "assessment": "out of scope", "reason": "Single-zone editor."}
+    ],
+    "blast_radius": "LOW-MEDIUM: additive new files (parser, importer, job, action) + one toolbar entry + one enum case; reused Zone methods are read-only; queued job + file persistence are the only net-new infra. No exhaustive enum match; org isolation via scopeForOrg."
+  },
+  "data_impact": {
+    "pg_tables": ["platform.zones (insert + raw geom update)", "platform.zone_user (untouched)", "activity_log (auto audit)", "notifications (Filament DB notification, queued path)"],
+    "ch_tables": ["clarity.analytics (via queued TrackAnalytics job, one batch row)"],
+    "mv_or_cdc_implications": "None. platform.zones is Postgres-only, NOT in the PeerDB CDC pipeline (okf/models/zones.md); no ClickHouse replica. Zone-clipped Scout CH surfaces read geometry from Postgres on-demand — imported zones visible immediately.",
+    "indexes_relied_on": ["zones_geom_gist (populated via rebuildGeometryFromDefinition -> ST_MakeValid/ST_Multi)", "zones.org_id index (forOrg() list scope)"]
+  },
+  "derivation_log": [],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "AC1", "kind": "agent", "intent": "Import KML visible/hidden in lockstep with canAccess()/canCreate()."},
+      {"ac": "AC2", "kind": "agent", "intent": "Non-.kml upload rejected; oversized file rejected."},
+      {"ac": "AC3/AC4", "kind": "agent", "intent": "Multi-placemark KML (incl. a holed polygon) -> one org-scoped zone per polygon, correct name (+fallback), non-null geom with the hole preserved."},
+      {"ac": "AC3", "kind": "human", "intent": "Visually confirm imported zones (incl. the hole) render correctly in the Zones list swatch AND the ManageZones map editor."},
+      {"ac": "AC5", "kind": "agent", "intent": "Degenerate/non-polygon placemark skipped, zero empty rows."},
+      {"ac": "AC6", "kind": "agent", "intent": "Small KML -> immediate notification with accurate N/M; large KML -> job dispatched, DB notification arrives with counts."},
+      {"ac": "AC7", "kind": "human", "intent": "Real customer KML with self-intersecting/odd winding renders sanely or skipped; never a 500."}
+    ],
+    "seed_scenario": "One ADMIN user with CLARITY_SCOUT active in Org A. Three KML fixtures: (1) clean 5-placemark file mirroring CPZones.kml; (2) messy file — one valid polygon, one unclosed/3-point ring, one bare <Point>, one placemark with no <name>; (3) a polygon WITH a hole (<innerBoundaryIs>) to prove holes render. Plus a 'large' file to exercise the queued path (assert job dispatched + DB notification). Assert org-scoped rows + accurate created/skipped counts.",
+    "personas": ["Org admin onboarding Scout — clean-KML happy path must match Google Earth", "Org admin re-importing an imperfect/large customer KML — accurate skip reporting, no 500s, async completion notice"],
+    "pg_tables": ["platform.zones", "platform.zone_user", "notifications"],
+    "ch_tables": []
+  },
+  "confidence": 82,
+  "missed_caller_candidates": [],
+  "escalation_triggers": ["answered:false material questions (resolved via interview)", "fast-pass confidence 76 (<80)", "escalate.recommend across all 3 passes", "first-of-its-kind flow (first file upload + first bulk-creation + first queued import)"]
+}

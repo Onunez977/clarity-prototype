@@ -1,0 +1,61 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Admin truncation UI for MAX_MAP_HITS + Live Hits loading indicator",
+      "approach": "On DashboardOverlay: (1) show mapStore.rangeHitsCapped message in adminMode as well as driver; (2) bind dashboard.loading / dashboard.refreshing on the Live Hits card. Do not reintroduce recentHits limit(20). Leave MAX_MAP_HITS=100 unchanged.",
+      "target_files": [
+        "resources/js/clarity-scout/components/DashboardOverlay.vue",
+        "resources/js/clarity-scout/stores/dashboard.js"
+      ],
+      "intended_diffs": "DashboardOverlay.vue: remove !adminMode guard from rangeHitsCapped banner (or add admin-visible equivalent); show loading when dashboard.loading; subtle refreshing when dashboard.refreshing. dashboard.js: only touch if a missing flag path is found.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "simple"
+    },
+    {
+      "id": "t2",
+      "title": "Measure last_7/15/30 load times vs tiered targets",
+      "approach": "Measure cold+warm wall clock for BirdsEye recentHits + hits for last_7/15/30. Targets: today/last_7 cold p95<1s, last_15<2s, last_30<3s, warm<300ms. Record aggregates only. no-go stops for re-plan.",
+      "target_files": [
+        "docs/investigations/DEV-2597/state.json",
+        "docs/investigations/DEV-2597/derivation_log.md"
+      ],
+      "intended_diffs": "Update state.perf_validation; no production code unless measurement forces a new subtask.",
+      "depends_on": [
+        "t1"
+      ],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple"
+    }
+  ],
+  "excluded_sites": [
+    {
+      "file": "ClarityScoutBirdsEyeController.php",
+      "site": "recentHits limit(20)",
+      "reason": "Removed by companion admin-list-cap work on this stack"
+    },
+    {
+      "file": "ClarityScoutDashboardController.php",
+      "site": "driver recentHits",
+      "reason": "Already uncapped"
+    },
+    {
+      "file": "ClarityScoutMapController.php",
+      "site": "MAX_MAP_HITS",
+      "reason": "Shared mapStore.rangeHitsCapped covers driver UI"
+    },
+    {
+      "file": "historical GPS",
+      "site": "MAX_HISTORICAL_*",
+      "reason": "Out of scope"
+    }
+  ],
+  "split_recommendation": null
+}

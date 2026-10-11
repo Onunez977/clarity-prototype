@@ -1,0 +1,104 @@
+{
+  "key": "DEV-2591",
+  "route": "hotfix",
+  "base_branch": "deploy",
+  "sizing_gate": {
+    "files": 10,
+    "concerns": 2,
+    "verdict": "over-threshold, proceeding by explicit operator decision",
+    "note": "8 changed files (5 code + 3 test) across 2 concerns (routing, retry logging) trips the >6-files / multiple-concerns split recommendation. The split was offered in the Phase 2 interview ('ship the retry half now, hold the routing half') and the operator redirected twice: first choosing a single hotfix off deploy, then clearing the routing half's blocker by deferring is_visible. Recorded rather than re-asked. NARROWED 2026-09-17: the Hits half was split to DEV-2614 at the operator's direction after review round 2 flagged the unreconciled ListHits ClickHouse query. ListHits is no longer in the diff."
+  },
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Take the Postgres/ClickHouse routing decision off Pennant (SCANS ONLY)",
+      "approach": "Replace Feature::active('clickhouse:scans') with a direct config() read at the two SCANS call sites, keeping the admin_impersonator escape hatch. ListHits is out of scope (DEV-2614).",
+      "target_files": [
+        "app/Filament/Resources/ScansResource/Pages/ListScans.php",
+        "app/Http/Controllers/ScanVehicleController.php"
+      ],
+      "intended_diffs": "ListScans::shouldUseClickhouse() -> config('app.experimental.clickhouse.scans', false) || session()->has('admin_impersonator'). ListHits::shouldUseClickhouse() -> config('app.experimental.clickhouse.hits', false) || (its existing extra conditions). ScanVehicleController:25 -> config('app.experimental.clickhouse.scans', false) || session()->has('admin_impersonator'). NOTE: ListScans still uses Feature::active(FeatureEnum::SHARED_KITS->slug()) at :328 and others at :130/:179 - do NOT remove its Feature import.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t3",
+      "title": "De-amplify HasRetryQuery logging and reduce retryUntil",
+      "approach": "Guard the Log::channel('db-error') + logDatadogCount('clarity.query_timeout') pair behind a component property holding a hash of the current filter state, so the pair fires once per distinct failed search and re-arms when the filter set changes. Separately set retryUntil = 1.",
+      "target_files": [
+        "app/Filament/Concerns/HasRetryQuery.php"
+      ],
+      "intended_diffs": "Add a public string property (e.g. $lastLoggedFailureKey = '') alongside $retryCount. In the catch(QueryException) branch compute a key from the current table filter state; log + increment only when the key differs from the stored one, then store it. retryUntil: 2 -> 1. Both the log and the metric move behind the same guard - they must not diverge, since the ticket's 5.96x figure is measured off both.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": null,
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple"
+    },
+    {
+      "id": "t2",
+      "title": "Reconcile ClickHouse scan kit scoping with the Postgres path",
+      "approach": "Mirror App\\Clickhouse\\Models\\Hit::scopeForKits onto App\\Clickhouse\\Models\\Scan, then have ListScans::buildClickhouseQuery() scope by the same kit id list buildPostgresQuery() resolves via forOrg($orgId, withSharedKits: ...), instead of org_id alone.",
+      "target_files": [
+        "app/Clickhouse/Models/Scan.php",
+        "app/Filament/Resources/ScansResource/Pages/ListScans.php"
+      ],
+      "intended_diffs": "Clickhouse\\Scan: add scopeForKits(Builder $q, array $kitIds) following Hit::scopeForKits exactly. ListScans::buildClickhouseQuery(): replace ->forOrg((int) auth()->user()->org_id) with the kit-id list, resolved the same way buildPostgresQuery() does (Kit::getKits with the SHARED_KITS feature check) so both paths agree. Do NOT add ->final().",
+      "depends_on": [
+        "t1"
+      ],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t4",
+      "title": "Tests",
+      "approach": "Pin the routing decision, the no-FINAL invariant, the kit-scoping parity (by query shape), and the log/metric dedup.",
+      "target_files": [
+        "tests/Filament/Concerns/HasRetryQueryTest.php",
+        "tests/Filament/Resources/ScansResourceTest.php"
+      ],
+      "intended_diffs": "HasRetryQueryTest: repeated failures under one filter state log once; a filter change re-arms and logs again; retryUntil = 1 stops the poll after one retry. ScansResourceTest/HitsResourceTest: shouldUseClickhouse() follows config only (true when config true regardless of Pro tier, false when config false even for a Pro org, true for admin_impersonator regardless); buildClickhouseQuery() emits no FINAL and scopes by the kit list.",
+      "depends_on": [
+        "t1",
+        "t2",
+        "t3"
+      ],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {
+      "site": "app/Filament/Resources/HitsResource/Pages/ListHits.php:91",
+      "reason": "Same 'clickhouse:hits' literal mismatch, deliberately left in place. Split to DEV-2614: the routing fix is coupled to reconciling the ClickHouse Hits query, which filters only kit_id on a table whose sort key leads with hotlist_org_id."
+    },
+    {
+      "site": "app/Notifications/Hits/HitNotification.php:77",
+      "reason": "Bare 'ai-notifications' literal that happens to equal Str::slug('AI Notifications'). Same brittle idiom, but correct today and unrelated to this ticket's failure mode. Follow-up, not drive-by drift."
+    },
+    {
+      "site": "app/Providers/PennantServiceProvider.php:30,32",
+      "reason": "The two Feature::define() lines become unreferenced once routing is config-only. Left in place deliberately for a hotfix; removing a define has its own risk surface (UnknownFeatureResolved for any future caller) and was not part of the operator's decision."
+    },
+    {
+      "site": "app/Enums/ProTierEnum.php:58-59,73-74",
+      "reason": "CLICKHOUSE_SCANS/CLICKHOUSE_HITS remain bundled in CLARITY_PRO/CLARITY_PRO_PLUS. Changing ProTierEnum was explicitly rejected by the operator as too risky."
+    },
+    {
+      "site": "tests/TestCase.php:118,138",
+      "reason": "makeOrgPro/makeUserPro exclude CLICKHOUSE_SCANS (but not CLICKHOUSE_HITS). Once routing is config-only these exclusions no longer affect routing, so they are inert rather than wrong. Not touched."
+    }
+  ]
+}

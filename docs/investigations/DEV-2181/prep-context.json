@@ -1,0 +1,258 @@
+{
+  "key": "DEV-2181",
+  "mode": "normal",
+  "route": "feature",
+  "escalated": false,
+  "escalation_note": "One answered:false question fired the letter-of-the-rule escalation trigger, but the deep path (3 blind candidates + reconcile) was deliberately skipped: the sole open item is a needs-human PRODUCT-SCOPE decision (which admin selection interaction(s) to scope) resolved at the Phase-2 gate, not a technical/approach uncertainty more candidates could resolve. Fast-pass confidence 87, no blockers, no blast-radius, no competing comments, single forced approach. Driver independently verified the crux code claims (buildUrl auto-scope, setSelectedKits omission, setFollowedDriver stats-only, backend contract + existing test).",
+  "synthesis": "The admin Bird's-Eye map's 'Live Hits Pending Repossession' list has a fully-working, already-tested backend contract for kit_ids scoping (ClarityScoutBirdsEyeController@recentHits + scopedKits(); covered by ClarityScoutBirdsEyeControllerTest). lib/fetch.js buildUrl() already auto-appends the driver selector's selectedKitIds to every admin request. The gap is frontend timing/wiring: (1) map.js setSelectedKits() refreshes positions/paths/scan-paths/range-hits/stats on selection change but omits dashboard.fetchRecentHits(), so the pending list only catches up on the next ~10s poll tick instead of instantly; (2) click-to-follow (setFollowedDriver/clearFollowedDriver) scopes only the STATS tiles (App.vue 'Showing only X's stats' badge) and never the pending list, and buildUrl only special-cases followedKitId for the /dashboard/stats path, not /dashboard/recent-hits. Fix = wire fetchRecentHits into the admin selection mutation points + extend buildUrl's stats-only follow special-case to also cover recent-hits. Zero backend changes.",
+  "scope": {
+    "summary": "Frontend-only: wire the already-scoped /dashboard/recent-hits fetch into the two admin selection mutation points that skip it (setSelectedKits, setFollowedDriver/clearFollowedDriver) and broaden buildUrl's follow-priority special-case from stats-only to also include recent-hits. No backend/migration/schema change.",
+    "proposed_changes": [
+      {
+        "file": "resources/js/clarity-scout/stores/map.js",
+        "change": "In setSelectedKits(ids), add dashboard.fetchRecentHits(dashboard.range) to the existing Promise.all (alongside fetchDriverPositions/Paths/ScanPaths/RangeHits/fetchStats) so the pending list refreshes immediately on combobox selection change.",
+        "reason": "setSelectedKits refreshes every other admin-scoped surface on selection change but omits recentHits \u2014 the AC1/AC2 lag for the combobox interaction.",
+        "ref": "resources/js/clarity-scout/stores/map.js:759-770"
+      },
+      {
+        "file": "resources/js/clarity-scout/stores/map.js",
+        "change": "In setFollowedDriver(kitId) and clearFollowedDriver(), add dashboard.fetchRecentHits(dashboard.range).catch(()=>{}) alongside the existing fetchStats() call. [CONTINGENT on Q1 answer including click-to-follow]",
+        "reason": "Follow-click scopes stats only; the pending list is never follow-scoped \u2014 the most literal match for Eric's 'click a kit and see where it is'.",
+        "ref": "resources/js/clarity-scout/stores/map.js:736-746"
+      },
+      {
+        "file": "resources/js/clarity-scout/lib/fetch.js",
+        "change": "In buildUrl(), broaden the follow-priority check from isStats (path.includes('/dashboard/stats')) to also match '/dashboard/recent-hits', so a followed driver narrows the pending list too. [CONTINGENT on Q1 answer including click-to-follow]",
+        "reason": "Without this, the setFollowedDriver fetchRecentHits call resolves to selectedKitIds/org-wide, not the single followed driver.",
+        "ref": "resources/js/clarity-scout/lib/fetch.js:64-82"
+      },
+      {
+        "file": "resources/js/clarity-scout/composables/useBirdsEyePolling.js",
+        "change": "Comment-only: reword line-27 'fresh org-wide' comment, which becomes misleading once the list can be selection/follow-scoped.",
+        "reason": "Comment hygiene; poll behavior already correct (re-reads live refs via buildUrl each tick).",
+        "ref": "resources/js/clarity-scout/composables/useBirdsEyePolling.js:26-30"
+      }
+    ],
+    "target_files": [
+      "resources/js/clarity-scout/stores/map.js",
+      "resources/js/clarity-scout/lib/fetch.js",
+      "resources/js/clarity-scout/composables/useBirdsEyePolling.js"
+    ],
+    "out_of_scope": [
+      "ClarityScoutBirdsEyeController@recentHits/scopedKits \u2014 already correct + tested (kit_ids narrowing), no backend change",
+      "ClarityScoutDashboardController@recentHits (driver, single-kit) \u2014 separate surface, untouched",
+      "DEV-2180 (~30% live hits missing \u2014 CH hot/cold sync + type/ordering filter) \u2014 the referenced 'type-mismatch bug'; DATA-correctness of WHICH hits appear, orthogonal to scoping; still In Progress but does NOT block this scoping change",
+      "Heatmap layers (/map/heatmap/*) \u2014 intentionally org-wide/address-based, no kit dimension",
+      "Adding a JS/Vitest runner \u2014 none exists; frontend verified via agent-qa/human-qa browser walkthrough"
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Selecting a driver/kit on the admin map scopes the pending repo list to that driver/kit.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Backend supports kit_ids; wire fetchRecentHits into setSelectedKits (combobox) and, per Q1, setFollowedDriver (follow-click)."
+    },
+    {
+      "item": "Clearing the selection returns to the org-wide list.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "DriverSelector clearAll/selectAll -> setSelectedKits(null) -> org-wide; clearFollowedDriver resets followedKitId; both need the immediate-refresh wiring."
+    },
+    {
+      "item": "Clicking a driver's dot ('follow') scopes the pending list to that driver, mirroring existing stats-only scoping.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Most literal reading of Eric's rationale; CONTINGENT on Q1 confirming click-to-follow is in scope."
+    }
+  ],
+  "questions": [
+    {
+      "q": "Does 'select a driver/kit' cover (a) the DriverSelector filter combobox only, (b) the map-click 'follow' interaction only, or (c) both? Both currently under-scope the pending list (combobox = up-to-~10s lag; follow-click = never scoped). Recommend BOTH (shared low-risk backend contract; ~3 small edits across 2 files).",
+      "answered": true,
+      "answer": "BOTH interactions \u2014 scope the pending list on the DriverSelector combobox (instant refresh on selection change) AND on map click-to-follow (mirror the existing stats scoping). All 3 contingent edits are now in scope.",
+      "source": "human:Dalton 2026-07-13"
+    },
+    {
+      "q": "What is 'the live-hits type-mismatch bug' referenced in the ticket note?",
+      "answered": true,
+      "answer": "DEV-2180 'Scout Admin Map \u2014 ~30% of live hits missing from pending repo list (ClickHouse hot/cold sync + ordering/type filter)', status In Progress. It governs WHICH hits appear (data correctness), which is orthogonal to DEV-2181's per-driver/kit SCOPING. DEV-2181 can ship independently; the scoped list simply reflects whatever set DEV-2180 later corrects.",
+      "source": "ticket"
+    },
+    {
+      "q": "Is there a JS/Vitest test runner to unit-test the store fix?",
+      "answered": true,
+      "answer": "No JS test runner in this repo. Backend contract already covered by tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php (kit_ids narrowing). Frontend wiring verified via agent-qa/human-qa browser walkthrough.",
+      "source": "code"
+    },
+    {
+      "q": "Could adding fetchRecentHits() to setSelectedKits/setFollowedDriver/clearFollowedDriver regress the driver (non-admin) app, given DashboardOverlay.vue/stores/dashboard.js are shared?",
+      "answered": true,
+      "answer": "No. setSelectedKits is only invoked from DriverSelector.vue (v-if=mapStore.adminMode). setFollowedDriver/clearFollowedDriver are only invoked from ScannerMap.vue for markers sourced from mapStore.driverPositions (admin-only). The driver app never reaches these functions. buildUrl's recent-hits change is inside the ADMIN_MODE branch only.",
+      "source": "code"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "Backend already fully correct + tested for kit_ids scoping across driverPositions/driverPaths/scanPaths/hits/stats/recentHits via the shared scopedKits() helper \u2014 this ticket is frontend-only wiring.",
+    "Today's precise bug: pending list is 'stale up to ~10s' (combobox) and 'never follow-scoped' (follow-click) \u2014 NOT 'never scopes at all'. State this in the PR/Jira so QA knows what changed.",
+    "Two independent selection mechanisms: selectedKitIds (DriverSelector combobox, multi) and followedKitId (map click-to-follow, single). Only the combobox is partially wired today (via poll, lagged).",
+    "Dependency DEV-2180 (In Progress) is related-not-blocking: it fixes missing-hit data correctness, not scoping. Worth a one-line note to Dalton but not a gate blocker.",
+    "Diff stays small: 2-3 short edits across stores/map.js + lib/fetch.js + a comment; no backend touch, no migration, no new routes/models.",
+    "Range: pass dashboard.range to fetchRecentHits (matching setRange/fetchAll convention); do NOT hardcode 'today' outside the poll \u2014 the admin may have a non-today range selected."
+  ],
+  "tests": [
+    {
+      "file": "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php",
+      "what_it_pins": "Existing test pins backend kit_ids narrowing on /dashboard/recent-hits (org-wide default; narrows under ?kit_ids[]=). No new backend test needed (no backend change)."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "resources/js/clarity-scout/stores/map.js:759 (setSelectedKits \u2014 missing recentHits refresh)",
+      "resources/js/clarity-scout/stores/map.js:736 (setFollowedDriver/clearFollowedDriver \u2014 stats-only)",
+      "resources/js/clarity-scout/lib/fetch.js:64 (buildUrl \u2014 auto-scope + stats-only follow special-case)",
+      "resources/js/clarity-scout/lib/adminScope.js:9,17 (selectedKitIds / followedKitId refs)",
+      "resources/js/clarity-scout/stores/dashboard.js:27 (fetchRecentHits(targetRange)), :12 (range ref default 'today')",
+      "resources/js/clarity-scout/components/DriverSelector.vue (combobox -> setSelectedKits, 300ms debounce)",
+      "resources/js/clarity-scout/components/ScannerMap.vue:270,736 (clearFollowedDriver / setFollowedDriver callers)",
+      "resources/js/clarity-scout/composables/useBirdsEyePolling.js:19-37 (10s admin poll \u2014 scope-correct, lagged)",
+      "resources/js/clarity-scout/composables/useKitPositionPolling.js:53 (driver poll fetchRecentHits('today'), gated on liveMode \u2014 pre-existing, unaffected/consistent with fix)",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:510 (recentHits \u2014 kit_ids-aware, 10s cache), :633 (scopedKits)"
+    ],
+    "code_flow": "Admin selects (DriverSelector -> setSelectedKits) or follows (ScannerMap -> setFollowedDriver) -> writes adminScope.js selectedKitIds/followedKitId -> buildUrl auto-appends kit_ids to admin requests (followedKitId only for /dashboard/stats today) -> GET /scout/org-map/api/dashboard/recent-hits -> recentHits -> scopedKits intersect against orgScoutKits -> ClickHouse -> 10s cache -> shared DashboardOverlay.vue list. fetchRecentHits is called only from dashboard fetchAll/setRange + the two ~10s polls, never from the selection mutation points -> scope change reaches the list only on next tick (combobox) or never (follow-click).",
+    "tables": [],
+    "related_components": [
+      "DashboardOverlay.vue (renders recentHits, admin+driver shared)",
+      "stores/dashboard.js",
+      "DriverSelector.vue",
+      "ScannerMap.vue"
+    ]
+  },
+  "exhaustiveness": {
+    "patterns_used": [
+      "grep recentHits/kit_ids/selectedKit/followed across clarity-scout",
+      "read map.js + fetch.js + dashboard.js + adminScope.js + both polls end-to-end",
+      "traced all call sites of setSelectedKits/setFollowedDriver/clearFollowedDriver/fetchRecentHits/buildUrl (grep backstop)",
+      "confirmed admin-mode gating at every mutation call site",
+      "checked existing backend test for kit_ids coverage"
+    ],
+    "sites": [
+      {
+        "site": "resources/js/clarity-scout/stores/map.js:759 setSelectedKits",
+        "verdict": "buggy",
+        "reason": "omits dashboard.fetchRecentHits() -> pending list lags up to ~10s behind selection"
+      },
+      {
+        "site": "resources/js/clarity-scout/stores/map.js:736 setFollowedDriver / :742 clearFollowedDriver",
+        "verdict": "buggy",
+        "reason": "refreshes stats only; pending list never follow-scoped"
+      },
+      {
+        "site": "resources/js/clarity-scout/lib/fetch.js:64 buildUrl",
+        "verdict": "buggy",
+        "reason": "follow-priority special-case hardcoded to /dashboard/stats; recent-hits never narrows to followedKitId"
+      },
+      {
+        "site": "resources/js/clarity-scout/composables/useBirdsEyePolling.js:19 tick",
+        "verdict": "safe",
+        "reason": "re-reads live refs via buildUrl each tick; only lagged on ~10s cadence"
+      },
+      {
+        "site": "resources/js/clarity-scout/composables/useKitPositionPolling.js:53",
+        "verdict": "safe",
+        "reason": "driver poll fetchRecentHits('today') gated on liveMode; not touched; buildUrl change only makes it consistent if ever run in admin"
+      },
+      {
+        "site": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:510/:633",
+        "verdict": "safe",
+        "reason": "kit_ids intersect against org kits, covered by passing test"
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [
+      "kits",
+      "kit_settings"
+    ],
+    "ch_tables": [
+      "clarity.hits (ClickhouseHit)",
+      "clarity.hotlist (ClickhouseHotlist)"
+    ],
+    "mv_or_cdc_implications": "None \u2014 no new CH query/index/write; frontend timing/wiring only, calling an existing already-scoped read endpoint at the right moments.",
+    "indexes_relied_on": []
+  },
+  "derivation_log": [
+    {
+      "query_shape": "N/A \u2014 no data queries run by prep beyond reading source + one Jira JQL",
+      "param_classes": "n/a",
+      "aggregate_result": "n/a",
+      "why": "Frontend-only change; backend contract read from source + existing test, not re-derived by query."
+    },
+    {
+      "query_shape": "Jira JQL: project=DEV AND summary~ (type mismatch|hit ownership|live hits|hit type) created>-120d",
+      "param_classes": "ticket-search terms",
+      "aggregate_result": "15 hits; identified DEV-2180 (In Progress) as the referenced 'type-mismatch bug'",
+      "why": "Resolve Q2 dependency reference."
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC1",
+        "kind": "agent",
+        "intent": "Admin Bird's-Eye map: pick a single driver/kit in DriverSelector; confirm the Live Hits Pending Repossession list narrows to that kit immediately (not after ~10s)."
+      },
+      {
+        "ac": "AC2",
+        "kind": "agent",
+        "intent": "Clear the DriverSelector (or select all); confirm the pending list reverts to the full org-wide set immediately."
+      },
+      {
+        "ac": "derived-follow",
+        "kind": "human",
+        "intent": "Click a driver's dot to follow; confirm the pending list scopes to that driver (like the stats badge); drag the map to un-follow; confirm it reverts."
+      }
+    ],
+    "seed_scenario": "An org with 2+ Scout-enrolled kits, each assigned an open hotlist order with at least one today-dated Live or Staging-Live hit, so org-wide vs per-kit narrowing is visibly distinguishable.",
+    "personas": [
+      "admin (Scout Bird's-Eye / org map)"
+    ],
+    "pg_tables": [
+      "kits",
+      "kit_settings"
+    ],
+    "ch_tables": [
+      "clarity.hits",
+      "clarity.hotlist"
+    ]
+  },
+  "confidence": 87,
+  "gate": "CLEAN",
+  "missed_caller_candidates": [
+    {
+      "file": "resources/js/clarity-scout/components/DriverSelector.vue",
+      "symbol": "setSelectedKits",
+      "referenced_at": "DriverSelector.vue:162",
+      "disposition": "expected caller (combobox) \u2014 covered by the setSelectedKits fix"
+    },
+    {
+      "file": "resources/js/clarity-scout/components/ScannerMap.vue",
+      "symbol": "setFollowedDriver/clearFollowedDriver",
+      "referenced_at": "ScannerMap.vue:270,736",
+      "disposition": "expected callers (map click / drag) \u2014 covered by the setFollowedDriver/clearFollowedDriver fix"
+    },
+    {
+      "file": "resources/js/clarity-scout/composables/useKitPositionPolling.js",
+      "symbol": "fetchRecentHits",
+      "referenced_at": "useKitPositionPolling.js:53",
+      "disposition": "driver poll (liveMode-gated); pre-existing, not modified; buildUrl change only affects ADMIN_MODE branch \u2014 consistent, not regressed"
+    },
+    {
+      "file": "stores/{auth,notifications,trips}.js + composables/useShift.js",
+      "symbol": "buildUrl",
+      "referenced_at": "various",
+      "disposition": "generic buildUrl users on non-recent-hits paths; unaffected by the recent-hits-specific special-case broadening"
+    }
+  ]
+}

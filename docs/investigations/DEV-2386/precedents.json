@@ -1,0 +1,42 @@
+[
+  {
+    "key": "DEV-2342",
+    "status": "Done",
+    "age_days": 1,
+    "relevance": "Parent OOM fix; W2/W3 merged PR #328; W1b read-side + W4 schedule re-enable were orphaned when it closed before DEV-2383 existed",
+    "applicable": "applicable",
+    "why": "Current matcher/rollup, handle() vs query(), schedule disable, and config/scout.php tunables all live in that merge; this ticket is the remaining read-side + W4"
+  },
+  {
+    "key": "DEV-2383",
+    "status": "In Progress (table live; remaining docs-only)",
+    "age_days": 0,
+    "relevance": "chlocal-only DDL for clarity.scout_open_addresses + MV; applied to ClickHouse Cloud 2026-08-18 18:17 UTC",
+    "applicable": "applicable",
+    "why": "Blocker is satisfied in prod; platform must not invent DDL. Precedent DEV-2177: CH DDL stays in chlocal"
+  },
+  {
+    "key": "DEV-2366",
+    "status": "Done",
+    "age_days": 1,
+    "relevance": "DEV-2342 review-gate residual: public_address PK prune + AC6; accepted residual HIGH was the per-kit address CTE this work removes",
+    "applicable": "applicable",
+    "why": "The per-kit book re-derivation this ticket replaces was an accepted residual; do not re-introduce it"
+  },
+  {
+    "key": "DEV-2381",
+    "status": "Done",
+    "age_days": 1,
+    "relevance": "sc_positions lowercase projection so Scout readers prune; verified live: lower(kit_mapping) reads 18 of 35,175 granules",
+    "applicable": "applicable",
+    "why": "Matcher still reads sc_positions for the GPS window; keep the lower(kit_mapping) predicate so W1 pruning survives the rewrite"
+  },
+  {
+    "key": "DEV-2163",
+    "status": "Done",
+    "age_days": 39,
+    "relevance": "Scout check-in counts matched the wrong address source",
+    "applicable": "applicable",
+    "why": "Rollup and matcher must stay on the same open-address book; rewriting only one class recreates this class of drift"
+  }
+]

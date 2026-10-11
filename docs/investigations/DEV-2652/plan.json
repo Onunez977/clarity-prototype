@@ -1,0 +1,165 @@
+{
+  "key": "DEV-2652",
+  "generated_at": "2026-09-22T21:14:30Z",
+  "input": "docs/investigations/DEV-2652/prep-context.json",
+  "gate": "CLEAN",
+  "ac5_decision": "defer",
+  "ship_scope": {
+    "source": "Dalton via Galadriel",
+    "in": ["AC1", "AC2", "AC3", "AC4"],
+    "out": ["AC5 claims ts timezone"],
+    "gate": "CLEAN",
+    "claims_timezone_not_in_target_files": [
+      "app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php",
+      "app/Clickhouse/Queries/LprRepossessionsQuery.php"
+    ]
+  },
+  "base": "main",
+  "base_sha": "2f446cca3ea6a52ec99a43b1efe3c59c7fce4b01",
+  "summary": "Pass ScanPlateStatsBatchQuery::safeTimezone(viewer) into the three ratio numerators. Leave claims ts, repo_date, and RecoveryTotalsBatchQuery::sharedMonthCacheKey() alone. Document the mixed clocks.",
+  "do_not_rederive": [
+    "ScanPlateStatsBatchQuery::safeTimezone()",
+    "ScanPlateStatsBatchQuery::toUtcDatetime()",
+    "ScanPlateStatsBatchQuery::handleSql()",
+    "ScanPlateStatsBatchQuery::currentMonthWindow()",
+    "ScanPlateStatsBatchQuery::lastMonthWindow()"
+  ],
+  "sizing": {
+    "files": 10,
+    "split": false,
+    "reason": "One concern. The helper without the three callers is dead, and copying safeTimezone() into each card undoes the DEV-2651 extraction. Nothing here ships independently of the numerator zone."
+  },
+  "perf_validation": {
+    "required": false,
+    "reason": "No new query shape. handle()/handleRange() already run per viewer zone for UniqueScanCounts and UniqueScansLeaderboard. This ticket changes the zone argument on an existing scans_cold read. Non-UTC viewers cold-miss sharedMonthCacheKey once because :tz= changes from UTC to their zone."
+  },
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Add numeratorZone() on RatioAgainstUniqueScans",
+      "approach": "One protected method. Read auth()->user()->timezone (the User accessor already falls back to America/Chicago when dti is empty), then return ScanPlateStatsBatchQuery::safeTimezone() of that string. Call it before any now(tz:) or Carbon::parse on the numerator path. Do not change fetchUniqueScansSeries()'s default seriesZone argument. Do not edit ScanPlateStatsBatchQuery.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/Concerns/RatioAgainstUniqueScans.php",
+        "tests/Filament/Widgets/Dashboard/Concerns/RatioAgainstUniqueScansTest.php"
+      ],
+      "intended_diffs": "RatioAgainstUniqueScans: add protected function numeratorZone(): string that does ScanPlateStatsBatchQuery::safeTimezone((string) (auth()->user()->timezone ?? 'UTC')). Docblock: sanitise before constructing a DateTimeZone; CST/PST/+05:00 and any unlisted id (US/Central throws on construct) become UTC; the method itself must not throw.\n\nRatioAgainstUniqueScansTest: acting as a user, assert numeratorZone() is America/Chicago for the default dti fallback, UTC for dti timeZone CST, PST, +05:00, and US/Central, and America/New_York when that IANA id is set. Invoke via reflection. No ClickHouse.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "RatioAgainstUniqueScansTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple"
+    },
+    {
+      "id": "t2",
+      "title": "UniqueLprCaseClaims numerator uses the viewer zone; claims stay UTC",
+      "approach": "getRatioMonthlyData() mints $through with now(tz: $this->numeratorZone()) and passes that zone to fetchUniqueScansSeries(). getCurrentPeriodRatio()'s today/last_7d arm mints start/end with the same day expressions as resolveCardRange(), but in numeratorZone(), and passes that zone to windowUniqueScans(). Do not feed resolveCardRange()'s raw-zone Carbon into the numerator. getMonthlyData(), labels, highlight, description, and UniqueLprCaseClaimsQuery stay on UTC. Class docblock: numerator is viewer-local; deduped claims stay UTC because AC5 is deferred so historical figures remain on Brek's Repo Report clock; the positional zip is two clocks and disagrees near a boundary. Headline UTC tests stay as they are.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/UniqueLprCaseClaims.php",
+        "tests/Filament/Widgets/Dashboard/UniqueLprCaseClaimsTest.php"
+      ],
+      "intended_diffs": "Replace the two fetchUniqueScansSeries(..., self::SERIES_ZONE) and the windowUniqueScans(..., $rawTimezone) numerator call sites. SERIES_ZONE remains for any headline use; the numerator must not read it.\n\nNew test, frozen at 2026-08-01 02:00:00 with an America/Chicago viewer (reuse the headline test's precondition: UTC August, Chicago July). Stub runUniqueScansBatch / fetchUniqueScansRange and assert the timezone argument is America/Chicago and the span's end month is 2026-07. Assert getMonthlyData() still yields the UTC August deduped bucket (the existing test covers that; do not invert it).\n\nNew test: dti timeZone CST (and a data provider for PST, +05:00, US/Central). getRatioMonthlyData() records timezone UTC and does not throw.\n\nAssert the cache key written for the numerator equals ScanPlateStatsBatchQuery::sharedMonthCacheKey($orgId, $monthKey, $zone) and contains :tz=.",
+      "depends_on": ["t1"],
+      "parallelizable": true,
+      "test_filter": "UniqueLprCaseClaimsTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t3",
+      "title": "LprRepossessions numerator uses the viewer zone; db_repos stays UTC claims",
+      "approach": "Same split as t2 on getRatioMonthlyData() and windowRatio(). db_repos, getMonthlyData()'s now('UTC'), labels, and LprRepossessionsQuery::sharedMonthlySeriesCacheKey() do not change and do not gain :tz=. Docblock: the denominator is UTC be.ts (claim_date/bucket), not repo_date; AC5 defer keeps it there so the claims funnel stays reconcilable to Brek's Repo Report. A :tz= segment on the monthly funnel key would rescan a UTC-identical series once per viewer.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/LprRepossessions.php",
+        "tests/Filament/Widgets/Dashboard/LprRepossessionsTest.php"
+      ],
+      "intended_diffs": "Numerator call sites only, mirroring t2. Keep test_month_buckets_align_on_utc_not_the_viewers_timezone green (it asserts getMonthlyData(), not the ratio).\n\nAdd the Chicago boundary numerator test and the CST/PST/+05:00/US/Central fallback test, stubbing runUniqueScansBatch. Assert LprRepossessionsQuery::sharedMonthlySeriesCacheKey($orgId, '2026-08') still has no :tz= substring.",
+      "depends_on": ["t1"],
+      "parallelizable": true,
+      "test_filter": "LprRepossessionsTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t4",
+      "title": "RecoveryCounts numerator uses the viewer zone; repo_date key stays bare",
+      "approach": "ratioMonthlySeries() and windowRatio() use numeratorZone() for the scans leg only. getMonthlyData(), getGraphLabels(), getHighlightedMonthsFromFilter(), and RecoveryTotalsBatchQuery stay on SERIES_ZONE / date boundaries. Do not add an argument to sharedMonthCacheKey(). Extend the class docblock: unique-scans numerator is viewer-local; repo_date is a Date and cannot move; the ratio is a documented mismatch, not a faked shift; sharedMonthCacheKey carries no :tz= because the value does not depend on zone.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/RecoveryCounts.php",
+        "tests/Filament/Widgets/Dashboard/RecoveryCountsTest.php"
+      ],
+      "intended_diffs": "Split $through. Repos keep now(self::SERIES_ZONE). Scans use now(tz: $this->numeratorZone()) and that zone in fetchUniqueScansSeries / windowUniqueScans. Positional zip stays, with the docblock naming the boundary disagreement.\n\nTests: Chicago viewer at 2026-08-01 02:00 UTC — numerator zone America/Chicago; repo series still keyed on the UTC/date month the card already uses. CST/PST/+05:00/US/Central numerator zone is UTC and toStat()/the ratio path does not throw.\n\nassertSame('recovery-totals:month-v1:org=1:2026-08', RecoveryTotalsBatchQuery::sharedMonthCacheKey(1, '2026-08')) and assertStringNotContainsString(':tz=', that key).",
+      "depends_on": ["t1"],
+      "parallelizable": true,
+      "test_filter": "RecoveryCountsTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t5",
+      "title": "Point the open-calendar docblocks at the decision",
+      "approach": "Docblock sentences only. UniqueScanCounts and ScanStatsBatchQuery currently say DEV-2652 still owns an open calendar question, including RecoveryCounts' repo_date axis. Replace that with the decision: ratio numerators use the viewer zone; repo_date does not move; claims ts is deferred so the funnel stays on Brek's Repo Report UTC clock. No SQL, no bucketZone() change.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/UniqueScanCounts.php",
+        "app/Clickhouse/Queries/ScanStatsBatchQuery.php"
+      ],
+      "intended_diffs": "One paragraph each, at the existing DEV-2652 sentences (UniqueScanCounts.php class docblock; ScanStatsBatchQuery::handleSql() docblock). Do not touch method bodies.",
+      "depends_on": ["t2", "t3", "t4"],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple"
+    }
+  ],
+  "excluded_sites": [
+    {
+      "file": "app/Clickhouse/Queries/UniqueLprCaseClaimsQuery.php",
+      "reason": "AC5 deferred. toDate(fromUnixTimestamp(be.ts), 'UTC') stays. Shipping it moves historical claims off Brek's Repo Report."
+    },
+    {
+      "file": "app/Clickhouse/Queries/LprRepossessionsQuery.php",
+      "reason": "Same be.ts UTC bucket for db_repos. sharedMonthlySeriesCacheKey() stays without :tz=."
+    },
+    {
+      "file": "app/Clickhouse/Queries/RecoveryTotalsBatchQuery.php",
+      "reason": "repo_date Date. sharedMonthCacheKey() must not gain :tz= or a timezone argument. AC3."
+    },
+    {
+      "file": "app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php",
+      "reason": "Reference implementation. Use it. Do not re-derive safeTimezone, toUtcDatetime, handleSql, or the month windows. Docblock's 598-zone count is drift on this PHP (500); do not 'fix' it in this ticket."
+    },
+    {
+      "file": "app/Filament/Widgets/Dashboard/StagingLiveHitLeader.php",
+      "reason": "DEV-2654."
+    },
+    {
+      "file": "app/Filament/Widgets/Dashboard/UniqueScansToCaseClaims.php",
+      "reason": "Deleted by DEV-2651. Do not recreate."
+    },
+    {
+      "file": "app/Filament/Widgets/Dashboard/UniqueScansToRepo.php",
+      "reason": "Deleted by DEV-2651. The survivor is RecoveryCounts."
+    },
+    {
+      "file": "app/Filament/Widgets/Dashboard/UniqueScansToLprRepossession.php",
+      "reason": "Deleted by DEV-2651. The survivor is LprRepossessions."
+    },
+    {
+      "file": "okf/concepts/company-metrics-dashboard.md",
+      "reason": "Wiki write is post-approval. The calendar paragraph is stale once this ships; note it, do not edit it now."
+    },
+    {
+      "file": "okf/concepts/billing-events.md",
+      "reason": "Post-approval note that Company Metrics claims months stay UTC until Eric signs."
+    }
+  ],
+  "wiki_after_approval": [
+    "okf/concepts/company-metrics-dashboard.md",
+    "okf/concepts/billing-events.md"
+  ],
+  "next_phase": "ticket provision / Aragorn CLI (qa-prep). No ledger in this run."
+}

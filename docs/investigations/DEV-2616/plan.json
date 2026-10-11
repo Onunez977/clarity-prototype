@@ -1,0 +1,201 @@
+{
+  "key": "DEV-2616",
+  "generated_at": "2026-09-28T13:55:00Z",
+  "input": "docs/investigations/DEV-2616/prep-context.json",
+  "gate": "CLEAN",
+  "phase": "plan",
+  "authoritative": true,
+  "dual_plan": 23,
+  "base": "main",
+  "base_sha": "76d4f5fcfdb37a9cb3b7b667c9e34a0d2f4f3266",
+  "branch_path": "main\u2192main",
+  "first_glance": "42081",
+  "supersedes_comment": "42080",
+  "summary": "Verify-only close. ScanStatsBatchQuery already uses clarityDb() on main (93f9a249, Company Metrics paired-count commit). No remaining executable FROM clarity./FROM zod. on the Company Metrics query path. Keep existing Scan Count monthly-total tests. Ticket-out off-path stragglers. No product PHP.",
+  "ship_surface": "no product PHP",
+  "product_php": false,
+  "behavior_change": false,
+  "preflight": {
+    "23": "dual_plan_complete",
+    "24": "smallest_change_already_on_main",
+    "18": "does_not_fire",
+    "18_reason": "This run does not provision and invents no fleet DSN.",
+    "25": "N/A"
+  },
+  "acceptance_criteria": [
+    {
+      "id": "ac1",
+      "item": "ScanStatsBatchQuery uses clarityDb()",
+      "decision": "already_on_main",
+      "proof": [
+        "app/Clickhouse/Queries/ScanStatsBatchQuery.php:47 static::clarityDb()",
+        "app/Clickhouse/Queries/ScanStatsBatchQuery.php:53 FROM {$clarityDb}.scan_report_hourly",
+        "blame 93f9a2497bd40ccb9956608099a501823563248d (Company Metrics paired-count commit)",
+        "tests/Unit/Clickhouse/ScanStatsBatchQueryContractTest.php:108-117 prefix guard"
+      ]
+    },
+    {
+      "id": "ac2",
+      "item": "Company Metrics /app loads against worktree DB without clarity view shim",
+      "decision": "verify_at_agent_qa",
+      "proof": [
+        "CM query classes resolve clarityDb()/zodDb(); no shim required for the named offender",
+        "CompanyMetricsOverview::getStats catches toStat() Throwable per card",
+        "HotlistCount::kitUserCounts degrades KitUsers/clarity.kits failure to 0 (header still renders; QA must read numbers, not only HTTP 200)"
+      ],
+      "note": "Do not restore the prior QA view shim. HTTP 200 alone is not the full AC-2 signal."
+    },
+    {
+      "id": "ac3",
+      "item": "Scan Count monthly totals still correct",
+      "decision": "keep_existing_tests",
+      "proof": [
+        "UniqueScanCounts::fetchTotalMonthlySeries -> ScanStatsBatchQuery::handle (UniqueScanCounts.php:760)",
+        "ScanStatsBatchQueryContractTest timezone + prefix + bounds pins",
+        "UniqueScanCountsTest asserts handle() consumer"
+      ],
+      "do_not": "Change SELECT list or re-edit ScanStatsBatchQuery SQL"
+    },
+    {
+      "id": "ac4",
+      "item": "Grep remaining FROM clarity./FROM zod. on CM path \u2014 fix or ticket",
+      "decision": "ticket_out",
+      "proof": "No executable FROM clarity./FROM zod. remains in Dashboard-imported query classes. Fix branch does not fire."
+    }
+  ],
+  "cm_path_resolved": [
+    "ScanStatsBatchQuery",
+    "ScanPlateStatsBatchQuery",
+    "HitStatsBatchQuery",
+    "HitPlateStatsBatchQuery",
+    "StagingLiveHitLeaderQuery",
+    "RecoveryLeaderQuery",
+    "RecoveryTotalsBatchQuery",
+    "UniqueLprCaseClaimsQuery",
+    "LprRepossessionsQuery"
+  ],
+  "cm_path_note": "Nine Dashboard-imported query classes. The twelve-card grid is the consumer surface; prep's 'twelve' referred to cards, not query-class count.",
+  "ticket_out": [
+    {
+      "class": "LprVisitCountQuery",
+      "path": "app/Clickhouse/Queries/LprVisitCountQuery.php:19",
+      "sql": "FROM clarity.scans_cold",
+      "consumer": "app/Http/Controllers/LprVisitCountController.php",
+      "named_in_ticket": true
+    },
+    {
+      "class": "RdnScanHourCountQuery",
+      "path": "app/Clickhouse/Queries/RdnScanHourCountQuery.php:27",
+      "sql": "FROM clarity.scan_report_hourly",
+      "consumer": "app/Services/Rdn/RdnMetricsPublisher.php",
+      "named_in_ticket": true
+    },
+    {
+      "class": "RdnHitHourCountQuery",
+      "path": "app/Clickhouse/Queries/RdnHitHourCountQuery.php:38",
+      "sql": "FROM clarity.hits_hot FINAL",
+      "consumer": "RdnMetricsPublisher + DispatchRdnMetricsHourly",
+      "named_in_ticket": true
+    },
+    {
+      "class": "CohortClosedQuery",
+      "path": "app/Clickhouse/Queries/Client/CohortClosedQuery.php",
+      "sql": "FROM zod.public_hotlist_status_log",
+      "consumer": "Client Analytics cohort",
+      "named_in_ticket": false
+    },
+    {
+      "class": "CohortDeclinedQuery",
+      "path": "app/Clickhouse/Queries/Client/CohortDeclinedQuery.php",
+      "sql": "FROM zod.public_hotlist_status_log",
+      "consumer": "Client Analytics cohort",
+      "named_in_ticket": false
+    },
+    {
+      "class": "ScanVehicleController",
+      "path": "app/Http/Controllers/ScanVehicleController.php:42",
+      "sql": "FROM zod.scans_metadata_extracted",
+      "consumer": "scan-vehicle endpoint",
+      "named_in_ticket": false,
+      "note": "Off CM path. Dual-plan co-pilot whole-app grep addition."
+    },
+    {
+      "class": "NearestGivenAddressController",
+      "path": "app/Http/Controllers/NearestGivenAddressController.php:44",
+      "sql": "FROM clarity.recovery_address ra FINAL",
+      "consumer": "nearest-address endpoint",
+      "named_in_ticket": false,
+      "note": "Off CM path. Dual-plan co-pilot whole-app grep addition."
+    },
+    {
+      "class": "Kit",
+      "path": "app/Clickhouse/Models/Kit.php:14",
+      "sql": "$table = clarity.kits",
+      "consumer": "HotlistCount via KitUsers; degrades to 0",
+      "named_in_ticket": false
+    },
+    {
+      "class": "Recovery / HitStatsDaily / RecoveryKitScanReport / LprAssist / AffiliateStatsHourly",
+      "path": "app/Clickhouse/Models/*",
+      "sql": "Eloquent $table or raw JOIN/FROM clarity.*",
+      "consumer": "not CM card queries",
+      "named_in_ticket": false,
+      "note": "AffiliateStatsHourly also JOINs clarity.kits at :47; LprAssist JOINs clarity.recoveries at :65."
+    }
+  ],
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Verify-only: no product PHP; keep existing AC pins green",
+      "complexity": "simple",
+      "approach": "Do not edit app/ PHP. Confirm ScanStatsBatchQueryContractTest prefix + timezone pins and UniqueScanCountsTest handle() assertion stay green when Implement/QA requests a run. Record ticket-out list for Galadriel/Jira. Do not port LprVisit/Rdn/Cohort/controller/Eloquent residuals under this key.",
+      "target_files": [],
+      "intended_diffs": "None under app/ or tests/. Artifacts only under docs/investigations/DEV-2616/.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "ScanStatsBatchQueryContractTest|UniqueScanCountsTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "do_not_touch": [
+        "app/Clickhouse/Queries/ScanStatsBatchQuery.php",
+        "app/Clickhouse/Queries/LprVisitCountQuery.php",
+        "app/Clickhouse/Queries/RdnScanHourCountQuery.php",
+        "app/Clickhouse/Queries/RdnHitHourCountQuery.php",
+        "app/Clickhouse/Queries/Client/",
+        "app/Http/Controllers/ScanVehicleController.php",
+        "app/Http/Controllers/NearestGivenAddressController.php",
+        "okf/",
+        "soft-twin fleet investigation ledger"
+      ]
+    }
+  ],
+  "verification": [
+    "php artisan test --compact tests/Unit/Clickhouse/ScanStatsBatchQueryContractTest.php",
+    "php artisan test --compact --filter=test_the_database_prefix_is_resolved_not_hardcoded",
+    "php artisan test --compact tests/Filament/Widgets/Dashboard/UniqueScanCountsTest.php"
+  ],
+  "verification_note": "Run only when implementing/QA asks. This plan phase does not run tests and does not provision. CardQuerySqlFidelityTest is delegation-only, not the prefix guard.",
+  "excluded": [
+    "Re-editing ScanStatsBatchQuery SQL",
+    "prior QA view-shim restore",
+    "Porting LprVisitCountQuery / Rdn* / Client Cohort* under this key",
+    "Porting ScanVehicleController / NearestGivenAddressController under this key",
+    "Eloquent $table prefix redesign",
+    "New clarityDb/zodDb abstraction",
+    "Cloud ClickHouse writes",
+    "Fleet or Mac Herd DSN invent",
+    "Marking provisioned in this phase",
+    "soft-twin fleet worktree/ledger/branch",
+    "okf/ edits before approval"
+  ],
+  "wiki_after_approval": [
+    "okf/concepts/company-metrics-dashboard.md \u2014 ScanStatsBatchQuery::handle does not propagate to a grid 500; CompanyMetricsOverview::getStats catches per card"
+  ],
+  "provision_path": "verify_only",
+  "provision_note": "Next is Provision on a verify-only path: stand a worktree CH ledger later to prove /app loads without a clarity shim. Do not invent a DSN here. Do not mark provisioned in this run. AC-2 QA must read header kit counts (expected silent 0 from clarity.kits) separately from HTTP 200 + CM grid.",
+  "next": "Provision",
+  "models": {
+    "plan": "grok-4.7",
+    "claude_draft": "claude-code-headless"
+  }
+}

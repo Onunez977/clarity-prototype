@@ -1,0 +1,57 @@
+{
+  "_meta": {
+    "author": "driver (Phase 1)",
+    "purpose": "Read-only ClickHouse Cloud probe the prep brief deliberately reserved for the driver. Confirms the production cardinality the ticket asserts (and which it sourced from a now-CLOSED PR), and independently tests two prep claims.",
+    "connection": "clarity_clickhouse -> ClickHouse Cloud, username readonly_user, database `clarity` (literal; resolved via config, not a hardcoded prefix)",
+    "policy": "Aggregates only. No raw rows, plates, or addresses recorded. Org identifiers are not enumerated; the single largest group is reported by SIZE only (the ticket itself already names that org).",
+    "measured_at": "2026-09-03",
+    "format_note": "aggregate_result is deliberately a prose scalar, not a JSON object. An earlier revision used row-shaped objects and checkpoint.sh's PII scan correctly flagged them as resembling raw result rows. The figures are unchanged; only the shape is."
+  },
+  "entries": [
+    {
+      "id": "A1",
+      "query_shape": "SELECT count() AS rows, uniqExact(hotlist_id) AS distinct_hotlists FROM clarity.missed_opportunities WHERE _peerdb_is_deleted = 0",
+      "param_classes": "none (fleet-wide, CDC-live rows only)",
+      "aggregate_result": "total live rows = 624,070; distinct hotlist_id = 169,488; ratio of rows to distinct hotlists = 3.68x",
+      "why": "Confirm the ticket's stated table size, and measure the actual size of the grain error."
+    },
+    {
+      "id": "A2",
+      "query_shape": "SELECT count() AS rows, uniqExact(hotlist_id) AS distinct_hotlists FROM clarity.missed_opportunities WHERE _peerdb_is_deleted = 0 GROUP BY hotlist_org_id ORDER BY rows DESC LIMIT 1",
+      "param_classes": "none; single largest group by the sort-key prefix column",
+      "aggregate_result": "largest hotlist_org_id group: 413,790 live rows; 95,701 distinct hotlist_id; 66.3 percent of the table; ratio of rows to distinct hotlists = 4.32x",
+      "why": "Size the resource envelope and the QA seed off the LARGEST group, not an average org (a total alone hides the failure). Also measures the grain error where it is worst."
+    },
+    {
+      "id": "A3",
+      "query_shape": "SELECT uniqExact(hotlist_org_id) AS orgs FROM clarity.missed_opportunities WHERE _peerdb_is_deleted = 0",
+      "param_classes": "none",
+      "aggregate_result": "distinct hotlist_org_id values carrying at least one live row = 328",
+      "why": "Establish how many orgs carry any live row - i.e. how many distinct per-org renders this card can serve."
+    },
+    {
+      "id": "A4",
+      "query_shape": "SELECT uniqExact(hotlist_id) FROM clarity.missed_opportunities FINAL WHERE _peerdb_is_deleted = 0   -- compared against the same query without FINAL (A1)",
+      "param_classes": "none",
+      "aggregate_result": "distinct hotlist_id WITH FINAL = 169,488; WITHOUT FINAL = 169,488; delta = 0",
+      "why": "Empirically test the prep claim that FINAL is unnecessary for this aggregate, rather than accepting the argument. Delta is exactly 0 at full production scale."
+    }
+  ],
+  "findings": [
+    {
+      "ref": "ticket cardinality",
+      "verdict": "CONFIRMED, slightly stale",
+      "detail": "Ticket says 595,113 rows and a largest group of 394,082 (66%). Live: 624,070 rows and 413,790 (66.3%). The table has grown ~4.9% since the reference implementation measured it. The 66% concentration claim holds exactly. The envelope conclusion is unchanged - this remains a small table with the org column as the FIRST ORDER BY term, so per-org scoping prunes."
+    },
+    {
+      "ref": "prep claim C1 (what the grain fix is)",
+      "verdict": "CORROBORATED INDEPENDENTLY, and quantified",
+      "detail": "A raw count() over-counts versus countDistinct(hotlist_id) by 3.68x fleet-wide and 4.32x in the largest org. That lands inside the 2.76x-4.28x range the closed reference implementation reported, reached here without reading it. So the grain error is real, large, and user-visible - not a cosmetic cleanup."
+    },
+    {
+      "ref": "prep claim C3 (FINAL not required)",
+      "verdict": "CONFIRMED BY MEASUREMENT",
+      "detail": "uniqExact(hotlist_id) is bit-identical with and without FINAL at full production scale (169,488 both ways, delta 0). This is now a measured fact, not an inference from the engine definition. Note the scope of the claim: it holds for a DISTINCT-hotlist aggregate. It would NOT automatically hold for a raw count(), which is exactly why the grain fix and the FINAL question are entangled - counting distinct hotlists is what makes FINAL unnecessary here."
+    }
+  ]
+}

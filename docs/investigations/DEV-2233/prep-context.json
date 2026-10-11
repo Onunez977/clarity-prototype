@@ -1,0 +1,128 @@
+{
+  "key": "DEV-2233",
+  "mode": "normal",
+  "route": "bug",
+  "reconcile": "best-of-N (1 fast-pass + 3 blind candidates) reconciled by opus driver; grep-backstop folded in",
+  "synthesis": "The Missed Opportunities admin table reuses a single global Alpine disposition-popup component (mounted once via FilamentServiceProvider render hook, shared by Scans, Hits, Missed Op, and the map cluster-group views). Selecting a validation status (Valid/Reviewed/Invalid) persists the disposition correctly but never removes the row from the live DOM. Root cause (independently re-verified byte-for-byte): resources/js/app.js updateScanDisposition() only does the optimistic DOM removal `if (rowKey)`, and disposition-popup.blade.php changeDisposition(value) (line 90) — the code path every <select>-driven change takes — calls window.updateScanDisposition(this.modelId, value) with no rowKey, so the removal branch is skipped. The only call site that passes a rowKey is the separate 'Invalid Scan' reason-button grid (line 215). Missed-Op options never equal DispositionEnum::INVALID_SCAN, so a Missed-Op selection can never reach the working reason-button path. Persistence is unaffected; only the client-side row removal is missing.",
+  "scope": {
+    "summary": "Thread a null-guarded rowKey into changeDisposition()'s call to updateScanDisposition so the select-driven path also removes the row. The exact scoping (Missed-Op-only vs. all dispositions) and whether the backend default filter must widen depend on two material human decisions (see questions).",
+    "proposed_changes": [
+      {
+        "file": "resources/views/components/scans/disposition-popup.blade.php",
+        "change": "In changeDisposition(value) at line 90, pass rowKey as the 4TH positional argument (reason 'other' stays 3rd) ONLY when this.missedOpportunity is true AND the selected value is the Invalid disposition (DispositionEnum::Invalid value). rowKey computed with a null-guard mirroring the server anchor id: 'scan-' + (this.rowLoop?.index ?? this.modelId). For Valid/Reviewed, or any non-missed-op table, pass no rowKey (behavior unchanged). Confirm the exact Invalid enum value from app/Enums/DispositionEnum.php during planning.",
+        "reason": "DECISION (Dalton 2026-07-24): scope Missed-Op-only, remove-on-Invalid-only. The missedOpportunity + Invalid gate keeps Scans/Hits unchanged and matches the backend default filter (excludes only Invalid), so no row vanishes live that the backend would return on refresh. 4th-arg placement avoids overwriting the server-validated `reason` param (422 + unintended ScanValidation record). Null-guard avoids a new TypeError on cluster-group views that pass no rowLoop.",
+        "ref": "resources/views/components/scans/disposition-popup.blade.php:90"
+      },
+      {
+        "file": "resources/js/app.js",
+        "change": "No functional change strictly required — the `if (rowKey)` guard already works once a truthy rowKey arrives. CONSIDER hardening the 4x-.parentElement climb to element.closest('tr') because MissedOpportunityResource is the only dispositionable table using Filament grouping (defaultGroup/collapsible), where the hop count was never validated. Decide during implement/QA.",
+        "reason": "The 4-hop removal was tuned against ungrouped Scans/Hits DOM; grouped MO rows may nest differently. Must be verified empirically in a browser (AC-1).",
+        "ref": "resources/js/app.js:94-113"
+      }
+    ],
+    "target_files": [
+      "resources/views/components/scans/disposition-popup.blade.php",
+      "resources/js/app.js"
+    ],
+    "out_of_scope": [
+      "Backend persistence (DispositionController, Scan::updateDisposition, SyncDispositionToClickhouse) — already correct; DEV-2176 fixed CH sync separately and did NOT touch these files.",
+      "Pre-existing latent bug: disposition-popup.blade.php:215 unconditionally dereferences rowLoop.index and throws in the cluster-group (map) views where rowLoop is null. Predates this ticket; flag only. A guarded fix could be a low-risk drive-by IF the human widens scope.",
+      "resources/js/clarity-scout/** (Scout PWA MapShell.vue) — separate Vue implementation, does not consume this Blade component.",
+      "PDF export (resources/views/pdf/missed-opportunities.blade.php) and ClientSearchScansResource — dispositionable=false, no interactive JS.",
+      "BulkDispositionAction — separate Livewire bulk flow."
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "Selecting Valid / Reviewed / Invalid on a Missed Opportunity row removes it without a page refresh.", "source": "ticket", "decision": "implement (revised: ALL three statuses)", "reason": "Core bug. Fix passes the rowKey in missed-op mode for ANY disposition (Valid/Reviewed/Invalid), so all three remove the row live — consistent with the awaiting-only default view (QA-corrected premise). Original scoping was Invalid-only; broadened per Dalton after QA showed Valid/Reviewed also leave on reload."},
+    {"item": "The validation status is still persisted correctly.", "source": "ticket", "decision": "implement (already true)", "reason": "Persistence goes through the unchanged axios POST; only the removal branch is touched. Guard against the arg-position footgun so we don't regress persistence."},
+    {"item": "The existing Scans 'Invalid Scan' removal behavior is unaffected.", "source": "ticket", "decision": "implement (regression check)", "reason": "Line 215 is untouched; both paths funnel through the same updateScanDisposition, so QA must exercise both."}
+  ],
+  "questions": [
+    {
+      "q": "SCOPE: Fix strictly to Missed Opportunity (gate the new rowKey on this.missedOpportunity), or apply to the shared changeDisposition() so every non-Invalid-Scan disposition change on Scans and Hits also removes its row?",
+      "answered": true,
+      "answer": "Missed Opportunity only. Gate the new rowKey behind this.missedOpportunity so Scans/Hits dropdown behavior is unchanged.",
+      "source": "human:Dalton 2026-07-24"
+    },
+    {
+      "q": "DATA SEMANTICS / AC-1 consistency: MissedOpportunity's default filter excludes ONLY Invalid, not Valid/Reviewed (pinned by MissedOpportunityResourceTest::test_default_view_excludes_only_invalid_dispositions). Optimistically removing Valid/Reviewed makes them vanish on click but reappear on refresh. (a) remove all three, (b) only remove on Invalid to match backend, or (c) widen the default filter to exclude Valid/Reviewed?",
+      "answered": true,
+      "answer": "REVISED 2026-07-24 after QA. Original answer was 'only remove on Invalid', premised on the belief that the Missed-Op default view excludes only Invalid so Valid/Reviewed stay visible. QA disproved that premise: the default view is AWAITING-only (Filament passes [] for the unset filter → MissedOpportunityResource always runs forDispositions([]) = whereNull(disposition); the excludeDisposition(Invalid) branch is dead in the UI). Given that, Dalton chose to remove the row live on ANY disposition (Valid/Reviewed/Invalid) in missed-op mode — fully consistent with the awaiting-only reload behavior. Implementation: gate the rowKey on this.missedOpportunity only (dropped the value===Invalid check). Backend filter still UNCHANGED; the awaiting-only default-view behavior is pre-existing and filed separately if desired.",
+      "source": "human:Dalton 2026-07-24 (revised after QA)"
+    },
+    {
+      "q": "Was any part of this row-removal path already touched by DEV-2176?",
+      "answered": true,
+      "answer": "No. DEV-2176 (PR #261) only restored the SyncDispositionToClickhouse dispatch on app/Models/Scan.php + tests; it never touched app.js, disposition-popup.blade.php, or plate-images.blade.php. Confirmed via git log on all three files by 3 independent candidates.",
+      "source": "code"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "ARG-POSITION FOOTGUN (correctness-critical): updateScanDisposition(scan_id, disposition, reason='other', rowKey=null) in app.js. `reason` is the 3rd positional param, validated server-side against a fixed enum (ScanDispositionRequest: in:other,not a plate,plate too blurry,wrong ocr,wrong plate state) AND `reason !== 'other'` triggers creation of a ScanValidation record in Scan::updateDisposition. The rowKey MUST go in the 4th slot with 'other' explicitly in the 3rd — inserting rowKey as the 3rd arg 422s the request and breaks persistence.",
+    "NULL-GUARD: cluster-group.blade.php (scans + hits) @include plate-images WITHOUT a rowLoop prop (defaults to null). Client-side rowKey must be `this.rowLoop?.index ?? this.modelId`, mirroring the server-side `$id = $rowLoop?->index ?? $model_id` (plate-images.blade.php:22). The reporter's literal `'scan-'+this.rowLoop.index` would throw a TypeError there.",
+    "GROUPED-TABLE DOM RISK: MissedOpportunityResource is the ONLY dispositionable table using ->defaultGroup()/collapsible groups. The 4x .parentElement removal in app.js:111-113 was tuned against ungrouped Scans/Hits tables. The removal may fail or remove the wrong ancestor on the grouped MO DOM — MUST be verified in a real browser (this is what AC-1 hinges on). closest('tr') is a more robust alternative.",
+    "Exhaustiveness (agreed by all candidates): updateScanDisposition has exactly 2 call sites, both in disposition-popup.blade.php (line 90 buggy, line 215 rowKey-passing). The popup is shared globally by Scans (ListScans), Hits (HitsResource), Missed Op (MissedOpportunityResource), and both cluster-group views.",
+    "No JS/Dusk test runner in this repo — pin via a PHPUnit Blade-markup assertion (rendered plate-images/disposition-popup markup carries the rowKey-bearing call) + agent/manual browser QA for the actual DOM removal.",
+    "Per memory (ch-test-run-wipes-qa-seed): MissedOpportunityResourceTest uses RequiresClickhouse; running it locally truncates the CH seed — re-apply .context/qa-ch-seed.sql before human QA."
+  ],
+  "tests": [
+    {"file": "tests/Filament/Resources/MissedOpportunityResourceTest.php", "what_it_pins": "Add/extend a markup assertion that the rendered Missed-Op plate-images/disposition-popup emits a rowKey-bearing updateScanDisposition call (regression guard against reverting to the no-rowKey call). Existing test_default_view_excludes_only_invalid_dispositions pins the backend filter semantics that Q2 turns on — keep it green (or deliberately update it if Q2 resolves to widening the filter)."},
+    {"file": "manual/agent-browser QA", "what_it_pins": "AC-1: Missed-Op row removed without refresh (verify against the GROUPED table DOM); AC-2: status persisted; AC-3: Scans Invalid-Scan reason flow still removes its row; regression: cluster/grouped disposition change throws no JS console error and still POSTs."}
+  ],
+  "grounding": {
+    "key_files": [
+      "resources/js/app.js:94-113 (updateScanDisposition; rowKey-gated removal 111-113)",
+      "resources/views/components/scans/disposition-popup.blade.php:83-96 (changeDisposition), :90 (buggy no-rowKey call), :215 (Invalid-Scan reason button, only rowKey-passing site, unguarded rowLoop)",
+      "resources/views/filament/tables/columns/plate-images.blade.php:22 ($id = $rowLoop?->index ?? $model_id), :27 (id=\"scan-{{ $id }}\")",
+      "app/Filament/Resources/MissedOpportunityResource.php (rowLoop injected, missedOpportunity:true, defaultGroup/collapsible)",
+      "app/Filament/Resources/HitsResource.php, app/Filament/Resources/ScansResource/Pages/ListScans.php (rowLoop injected)",
+      "resources/views/components/scans/cluster-group.blade.php, resources/views/components/hits/cluster-group.blade.php (plate-images WITHOUT rowLoop)",
+      "app/Enums/DispositionEnum.php (formOptions split by missedOpportunity; Missed-Op set never includes INVALID_SCAN)",
+      "resources/views/filament/hooks/scans/modal-popups.blade.php (single global popup instance)",
+      "app/Clickhouse/Models/MissedOpportunity.php scopeExcludeDisposition (Invalid-only), tests/Filament/Resources/MissedOpportunityResourceTest.php (default-view test)"
+    ],
+    "code_flow": "disposition-trigger (plate-images) dispatches show-disposition-modal with modelId/rowLoop/missedOpportunity -> global disposition-popup Alpine setModalData -> user picks <select> option -> changeDisposition(value) -> (buggy) window.updateScanDisposition(modelId, value) with no rowKey -> axios POST /scan/disposition persists -> on 200, `if (rowKey)` false -> DOM removal skipped -> row stays until refresh.",
+    "tables": ["postgres scans (disposition)", "clickhouse clarity.missed_opportunities (read-only list source)"],
+    "related_components": ["DispositionController (/scan/disposition)", "Scan::updateDisposition (+ ScanValidation when reason!=='other')", "SyncDispositionToClickhouse (DEV-2176, unaffected)", "FilamentServiceProvider render hook (mounts global popup)"]
+  },
+  "exhaustiveness": {
+    "grep_patterns": ["updateScanDisposition", "changeDisposition", "disposition-popup", "plate-images", "rowLoop"],
+    "sites": [
+      {"file_line": "resources/views/components/scans/disposition-popup.blade.php:90", "verdict": "buggy", "reason": "only call with no rowKey; the sole path Missed-Op selections take."},
+      {"file_line": "resources/views/components/scans/disposition-popup.blade.php:215", "verdict": "safe on main tables, latent-buggy on cluster views", "reason": "passes 'scan-'+rowLoop.index; throws when rowLoop null (cluster-group). Pre-existing, out of scope."},
+      {"file_line": "app/Filament/Resources/MissedOpportunityResource.php", "verdict": "buggy via shared popup + only grouped table", "reason": "the ticket's exact surface; also the grouped-DOM risk."},
+      {"file_line": "app/Filament/Resources/HitsResource.php", "verdict": "buggy via shared popup (non-Invalid-Scan picks)", "reason": "same shared path; scope decision Q1 governs whether it's fixed."},
+      {"file_line": "app/Filament/Resources/ScansResource/Pages/ListScans.php", "verdict": "mostly safe (defaultDisposition=INVALID_SCAN steers to working path)", "reason": "but dropdown still offers non-Invalid-Scan values that hit line 90."},
+      {"file_line": "resources/views/components/{scans,hits}/cluster-group.blade.php", "verdict": "latent bug, out of scope", "reason": "plate-images without rowLoop -> null; fix must null-guard, not extend the crash."},
+      {"file_line": "resources/js/clarity-scout/components/MapShell.vue", "verdict": "not applicable", "reason": "Scout PWA Vue, separate implementation."},
+      {"file_line": "resources/views/pdf/missed-opportunities.blade.php / ClientSearchScansResource", "verdict": "not applicable", "reason": "dispositionable=false."}
+    ]
+  },
+  "missed_caller_candidates": [
+    {"file": "resources/js/clarity-scout/components/MapShell.vue", "symbol": "disposition-popup", "referenced_at": "resources/js/clarity-scout/components/MapShell.vue:75", "assessment": "not-applicable: Scout PWA has its own Vue disposition flow; does not consume this Blade component."}
+  ],
+  "data_impact": {
+    "pg_tables": ["scans"],
+    "ch_tables": ["clarity.missed_opportunities (read-only list source)"],
+    "mv_or_cdc_implications": "None for the frontend fix. IF Q2 resolves to widening the default filter, that changes only a query scope + its test — still no schema/CDC change.",
+    "indexes_relied_on": []
+  },
+  "derivation_log": [],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "AC-1", "kind": "agent", "intent": "On the GROUPED Missed Opportunities table, open the disposition popup on a row, select Valid/Reviewed/Invalid, verify the row's <tr> is removed without a page reload (verifies the 4-hop/closest('tr') removal works on grouped DOM)."},
+      {"ac": "AC-2", "kind": "agent", "intent": "Re-query/refresh and confirm the persisted disposition matches selection (per the backend filter semantics that Q2 settles)."},
+      {"ac": "AC-3", "kind": "agent", "intent": "On the Scans table, run the Invalid-Scan reason-button flow and confirm the row still removes (no regression)."},
+      {"ac": "regression", "kind": "human", "intent": "From a map cluster-group popup, change a disposition and confirm no JS console error and persistence still succeeds (null-rowLoop path)."}
+    ],
+    "seed_scenario": "One org with a user holding ViewAny_Hit + Pro access; >=2 Missed_Opportunity ('M') records with null/awaiting disposition visible in MissedOpportunityResource (kit_org_id === user org so dispositionable=true); one plain Scan reachable via ListScans to exercise the Invalid-Scan reason flow; both render with real rowLoop so scan-{index} anchors exist.",
+    "personas": ["Clarity admin/analyst (org-scoped) with ViewAny_Hit + Pro — the only role that dispositions Missed-Op and Scans rows"],
+    "pg_tables": ["scans", "hits"],
+    "ch_tables": ["clarity.missed_opportunities"]
+  },
+  "confidence": 92,
+  "escalate": {"recommend": true, "reason": "Two material human decisions (scope + data-semantics/AC-1 consistency) plus a shared-component blast radius; root cause itself is certain."},
+  "decision": "Missed-Op-only (gate rowKey on this.missedOpportunity) + Invalid-only removal (pass rowKey only when the selected value is the Invalid disposition). Backend filter + its regression test UNCHANGED. Both material questions answered by Dalton 2026-07-24.",
+  "gate": "CLEAN"
+}

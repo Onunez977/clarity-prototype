@@ -1,0 +1,21 @@
+name: 'OKF Wiki Lint'
+
+# PROTOTYPE: automatic wiki lint is disabled.
+on:
+  workflow_dispatch:
+
+jobs:
+  okf-lint:
+    name: 'OKF wiki health check'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+
+      - name: Lint OKF bundle
+        run: php scripts/okf-lint.php

@@ -1,0 +1,26 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Guard lazy shift-open + ShiftStart emit against force-login impersonators in status()",
+      "approach": "In ClarityScoutShiftController::status(), before calling $this->ensureOpenShift->currentOpenForKit($kit), branch on $user->isScoutForceImpersonator(). When true, do NOT call currentOpenShift/currentOpenForKit and do NOT emit ShiftStart analytics or the audit log; return the exact same 'no open shift' JSON payload the controller already returns when currentOpenForKit yields no open shift (shift_id null, open false, started_at/ended_at/end_type null — match the real shape in the file, do not invent keys). Normal (non-impersonator) drivers take the unchanged existing path. Use the existing User::isScoutForceImpersonator() SoT — do not inline a fresh token-ability check. TDD: write the pinning tests first (red), then add the guard (green).",
+      "target_files": [
+        "app/Http/Controllers/Api/ClarityScoutShiftController.php",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutShiftControllerTest.php"
+      ],
+      "intended_diffs": "ClarityScoutShiftController::status(): add an early impersonator branch that returns the no-open-shift payload without touching EnsureOpenShift/Analytics/audit. Test file: (a) impersonator token ['*','clarity-scout-force'] + fresh matching Postgres scan activity + no existing kit_shifts row -> GET /shift/status returns no-open-shift shape, KitShift::count() unchanged, Analytics::track NEVER called with ShiftStart; (b) regression: normal ['clarity-scout'] token + same scan activity -> a kit_shifts row IS created (wasRecentlyCreated) and Analytics::track fires ShiftStart once.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "ClarityScoutShiftControllerTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "ClarityScoutShiftController::end() lazy-create fallback + unconditional ShiftEnd emit", "reason": "Dalton decided to match ticket scope (start only); recorded as a known residual for a possible follow-up."},
+    {"site": "resources/js/clarity-scout ScoutControlsWidget.vue / App.vue End Shift button", "reason": "Dalton chose backend-only; End Shift already hides once status() returns open:false, so AC3 is satisfied without a frontend change."},
+    {"site": "EnsureOpenShift::forKit / currentOpenForKit internals", "reason": "Generic helper correctly reused by other callers; guard belongs at the controller call site."},
+    {"site": "CloseInactiveShiftsCommand -> forKit", "reason": "Scheduled system job, no impersonation context."}
+  ]
+}

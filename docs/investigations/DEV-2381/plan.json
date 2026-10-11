@@ -1,0 +1,52 @@
+{
+  "key": "DEV-2381",
+  "app": "clarity",
+  "route": "bug",
+  "uat_needed": false,
+  "ui_impact": false,
+  "perf_validation": "not-required",
+  "ship_as_one": true,
+  "platform_application_code": "none-until-cloud-apply",
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "chlocal operator handoff: exact ALTER, off-peak MATERIALIZE, success EXPLAIN, schema-dump + queued wiki",
+      "complexity": "simple",
+      "approach": "Do not apply Cloud DDL from platform. Write the operator packet Jeffrey Cobb locked on DEV-2342 comment 38238: ADD PROJECTION proj_kit_mapping_lc, off-peak MATERIALIZE (~6.5 GiB), success EXPLAIN (tens of granules, not ~3355), then queued /chlocal schema dump + okf notes after apply. Confirm routes/console.php schedule stays commented. No PHP rewrite.",
+      "target_files": [
+        "docs/investigations/DEV-2381/operator-handoff.md",
+        "docs/investigations/DEV-2381/explain-runbook.md",
+        "docs/investigations/DEV-2381/wiki-follow-through.md"
+      ],
+      "intended_diffs": [
+        "operator-handoff.md — exact ALTER/MATERIALIZE SQL, ownership, rejected approaches, W4 gate",
+        "explain-runbook.md — canary + post-MATERIALIZE EXPLAIN, query_log pass/fail, no identifiers",
+        "wiki-follow-through.md — queued okf + schema-dump steps; not applied this run"
+      ],
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": false,
+      "blast_radius": []
+    },
+    {
+      "id": "t2",
+      "title": "CI ClickHouse dump + unit test: proj_kit_mapping_lc on clarity.sc_positions before Cloud apply",
+      "complexity": "simple",
+      "approach": "Hand-edit database/schema/clickhouse-schema.sql (the file GHA already pipes into Docker ClickHouse) to add PROJECTION proj_kit_mapping_lc and ReplacingMergeTree-required deduplicate_merge_projection_mode=drop. Pin with ScPositionsLowercaseProjectionTest (RequiresClickhouse; system.tables + system.projections; no Cloud EXPLAIN). Do not add a platform migration, do not ALTER Cloud, do not change workflow YAML.",
+      "target_files": [
+        "database/schema/clickhouse-schema.sql",
+        "tests/Unit/Clickhouse/Queries/ScPositionsLowercaseProjectionTest.php"
+      ],
+      "intended_diffs": [
+        "clickhouse-schema.sql — inline PROJECTION proj_kit_mapping_lc + deduplicate_merge_projection_mode=drop on clarity.sc_positions",
+        "ScPositionsLowercaseProjectionTest — assert CI dump defines the projection"
+      ],
+      "depends_on": ["t1"],
+      "parallelizable": false,
+      "test_filter": "ScPositionsLowercaseProjectionTest",
+      "ui_impact": false,
+      "blast_radius": [".github/workflows/lint_check_and_test.yml", ".github/workflows/deploy.yml"]
+    }
+  ]
+}

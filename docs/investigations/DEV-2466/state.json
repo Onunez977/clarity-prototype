@@ -1,0 +1,135 @@
+{
+  "key": "DEV-2466",
+  "app": "clarity",
+  "route": "spike",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2466",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false,
+    "eli5": true
+  },
+  "knowledge_cards_loaded": [
+    "clarity/testing.md",
+    "clarity/filament-tables.md",
+    "clickhouse/core.md"
+  ],
+  "escalated": false,
+  "escalation_triggers": [],
+  "best_of_n": false,
+  "needs_human_interview": false,
+  "missed_caller_candidates": [],
+  "perf_validation": {
+    "required": true,
+    "ch_tables": [
+      "clarity.scans_cold",
+      "clarity.affiliate_stats_hourly"
+    ],
+    "approach": "org_id-leading uniqExact(ocr) over clarity.scans_cold",
+    "measurement": "see docs/investigations/DEV-2466/findings.md SS3/SS4 -- shapes + aggregates only",
+    "verdict": "go",
+    "measured_at": "2026-09-08T12:59:00Z"
+  },
+  "diff_base": null,
+  "subtasks": [],
+  "review_number": 1,
+  "pr": {
+    "number": 391,
+    "url": "https://github.com/insight-lpr/platform/pull/391",
+    "draft": true
+  },
+  "pr_urls": {
+    "main": "https://github.com/insight-lpr/platform/pull/391"
+  },
+  "jira_in_progress_by": null,
+  "jira_transitioned_by": null,
+  "jira_transitioned_detail": "spike route -- no code ships, ticket left In Progress for the human to close",
+  "assumed": [],
+  "comment_ids": {
+    "status": "39207"
+  },
+  "qa": {
+    "ledger": "",
+    "agent_report": "",
+    "ac_results": "",
+    "verdict": null,
+    "torn_down": false,
+    "resource_envelope": {
+      "path": "docs/investigations/DEV-2466/findings.md",
+      "verdict": "PASS",
+      "peak_rss_bytes": null,
+      "wall_clock_seconds": 3.818,
+      "plausible_concurrency": 4,
+      "projected_marginal_gb": 10.03,
+      "headroom_gb": null,
+      "host_ram_gb": null,
+      "extrapolation_factor": 1,
+      "basis": "measured"
+    },
+    "provisioning": {}
+  },
+  "record": {
+    "tests": [],
+    "deviations": [],
+    "review": {},
+    "ac": [
+      {
+        "item": "EXPLAIN plan captured for the org-scoped plate-distinct query, with a statement on whether pruning occurs",
+        "status": "SATISFIED",
+        "evidence": "findings.md SS1b -- EXPLAIN indexes=1: PrimaryKey (org_id, scanned_at), binary search, 1698/12526 granules, 14/15 parts. Pruning DOES occur. SS1c also EXPLAINs the kit_id-routed form (generic exclusion search, 12525/12526)."
+      },
+      {
+        "item": "Timed measurements for largest org + small org x the four dashboard windows, with read_rows, read_bytes, peak memory and server ms",
+        "status": "SATISFIED",
+        "evidence": "findings.md SS3 -- full 2x4 matrix (orgs 1271, 58069) plus a third org 48575. Server-side figures from the X-ClickHouse-Summary HTTP header."
+      },
+      {
+        "item": "An explicit go/no-go verdict, with the projected cold-render impact of adding four such cards",
+        "status": "SATISFIED",
+        "evidence": "findings.md SS10 -- GO with four measured conditions. Cold-render impact MEASURED (SS4): 4 concurrent 13-month queries = 243,048,568 rows / 10.09 GB / ~10.03 GB concurrent peak / slowest 3.818 s (2.6x solo)."
+      },
+      {
+        "item": "If no-go: the chlocal pre-aggregate follow-up is scoped as its own ticket and linked here",
+        "status": "N/A",
+        "evidence": "Verdict is GO and no new chlocal DDL is needed either way, so the no-go branch is dropped. No follow-up ticket created."
+      },
+      {
+        "item": "Everything read-only; no DDL, no writes, no raw rows recorded",
+        "status": "SATISFIED",
+        "evidence": "Only SELECT / SHOW CREATE TABLE / EXPLAIN as readonly_user. Every recorded value is an aggregate, count, byte/ms figure, or kit_id. No plates, VINs, or raw rows in any artifact."
+      }
+    ]
+  }
+}

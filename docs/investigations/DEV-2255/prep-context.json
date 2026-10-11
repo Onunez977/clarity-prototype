@@ -1,0 +1,307 @@
+{
+  "key": "DEV-2255",
+  "gate": "CLEAN",
+  "mode": "normal",
+  "confidence": 62,
+  "synthesis": "DEV-2255 reports a Scout driver's invite/login link returning 403 'invalid signature', blocking onboarding. The symptom is an exact match for DEV-2246, which was root-caused and hotfixed the SAME DAY, ~2h before DEV-2255 was filed: absolute signed URLs failed validation because a TLS-terminating proxy forwards plain HTTP, so the scheme used to validate differed from the scheme used to mint. DEV-2246 shipped four mitigations, all verified present on current main: (1) relative (scheme/host-independent) signature for the onboarding link, (2) GLOBAL trustProxies(at:'*') + prepended ForceHttpsRequest normalizing scheme app-wide, (3) ValidateScoutSignedUrl accepting absolute OR relative and rendering a friendly expired/invalid page instead of Laravel's bare 'Invalid signature.', (4) a self-service resend-onboarding admin action. Those commits are in tags v3.8.2/v3.9.0/v3.9.1 and on origin/deploy, so the fix has been live in production since 2026-08-05 -- eight days AFTER DEV-2255 was filed. The signature-validation defect the ticket asks to fix therefore no longer exists in the code. Exactly one code-verified residual gap remains: ScoutSetPasswordController::guardUser() still emits three bare abort(403)s (link already used / missing org_id / missing clarity-scout permission), which is a genuine per-account 'subset of invite links' failure mode matching the ticket's second requirement, and the only Scout onboarding 403 path DEV-2246 did not make friendly.",
+  "scope": {
+    "summary": "Requirement 1 (fix signature validation) is already satisfied on main by DEV-2246 -- no defect found, nothing to re-fix. The only legitimate residual code change is extending DEV-2246's friendly-403 treatment from signature failures to the three guardUser() authorization failures, which still render Laravel's bare default 403. Requirement 2 (subset vs all invites) is partly code-answerable and partly a production-evidence question that this repo cannot settle.",
+    "proposed_changes": [
+      {
+        "file": "app/Http/Controllers/Auth/ScoutSetPasswordController.php",
+        "change": "Replace the three bare abort_if/abort_unless(403) calls in guardUser() with a render of the existing auth.scout.invalid-link view at 403, carrying a reason so copy can distinguish 'this link was already used' from 'this account is not eligible -- ask your admin'.",
+        "reason": "guardUser() is the last remaining 403 path on the scout/set-password routes that shows Laravel's generic page. A driver who taps the emailed link twice (or whose account lacks the clarity-scout permission) gets an unexplained 403 with no resend affordance -- precisely the 'affects a subset of invite links for certain accounts' symptom the ticket asks about.",
+        "ref": "app/Http/Controllers/Auth/ScoutSetPasswordController.php:66-76"
+      },
+      {
+        "file": "tests/Feature/Http/Controllers/Auth/ScoutSetPasswordControllerTest.php",
+        "change": "Extend the existing already-verified/missing-org/missing-permission guard tests to assert the friendly-page content, mirroring the assertions DEV-2246 added for the signature-failure cases.",
+        "reason": "Existing guard tests assert only assertForbidden() with no content check, so the change would otherwise be unpinned.",
+        "ref": "tests/Feature/Http/Controllers/Auth/ScoutSetPasswordControllerTest.php:113-140"
+      },
+      {
+        "file": "resources/views/auth/scout/invalid-link.blade.php",
+        "change": "Add an OPTIONAL $reason variable (default null via $reason ?? null) with cases 'used' and 'ineligible', keeping the existing $expired boolean contract untouched so ValidateScoutSignedUrl needs no edit.",
+        "reason": "The already-used case needs distinct copy ('this link has already been used - you already set your password') from the generic invalid case; the not-eligible case needs admin-facing guidance. Keeping $expired intact honours the out-of-scope rule against re-touching the middleware.",
+        "ref": "resources/views/auth/scout/invalid-link.blade.php:7-22"
+      }
+    ],
+    "target_files": [
+      "app/Http/Controllers/Auth/ScoutSetPasswordController.php",
+      "resources/views/auth/scout/invalid-link.blade.php",
+      "tests/Feature/Http/Controllers/Auth/ScoutSetPasswordControllerTest.php"
+    ],
+    "out_of_scope": [
+      "Re-touching signature minting/validation (URL::temporarySignedRoute, ValidateScoutSignedUrl, ForceHttpsRequest, trustProxies, config app.force_https) -- verified correct on current main, fixed and tested by DEV-2246.",
+      "The generic Invite system (app/Models/Invite.php, InviteRedemptionController, InviteTypeEnum, InviteAction, app/Mail/Invites/*) -- verified UNRELATED to Scout: InviteTypeEnum carries only SHARE_SCANS and CLIENT_SCANS, and InviteRedemptionController authenticates an email + 6-character code against the DB (whereNull('accepted_at'), meta->code), never a signed URL. Scout drivers are never routed through it.",
+      "The alert-unsubscribe signed links (app/Mail/Hits/NewNotification.php, app/Mail/MissedOpportunities/NewNotification.php, EmailController::unsubscribeFromAlert/All) -- they DO still mint and validate default-ABSOLUTE signatures, i.e. the same structural idiom, but they are covered by DEV-2246's global ForceHttpsRequest + trustProxies. Latent risk only if FORCE_HTTPS is ever set false. Recorded as a defense-in-depth candidate, not a defect, and not in this ticket.",
+      "Verifying or changing any production .env value (FORCE_HTTPS) -- an ops action outside this repo.",
+      "Changing the one-shot-link design itself (email_verified_at gating reuse) -- intentional per the in-code comment; the ticket does not ask to change it."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Investigate and fix the invite link signature validation issue.",
+      "source": "ticket",
+      "decision": "defer",
+      "reason": "INVESTIGATE: done, and the answer is that the defect was already fixed. FIX: nothing to fix -- DEV-2246 (PR #296/#297) resolved it on main and it has been live in production since v3.8.2 (2026-08-05). Deferred as already-satisfied, not as unaddressed."
+    },
+    {
+      "item": "Confirm whether this affects a subset of invite links (e.g., expired/regenerated links) or all invites for certain accounts.",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "CORRECTED after review round 4 (lane C M1, independently verified in code by the driver). Pre-fix, the signature bug affected ALL absolute-signed onboarding links arriving behind the proxy, not a subset - which is why one global scheme fix resolved it. There are then AT LEAST TWO distinct per-account subsets, and this ticket closes only the first: (1) CLOSED HERE - guardUser()'s three rejections (link already used, missing org_id, missing clarity-scout permission), which previously rendered a bare 403 and now render the friendly page. (2) NOT CLOSED, and larger - a KIT-LESS driver. ScoutUserProvisioner sets $shouldNotify = !$user->email_verified_at inside the permission-grant branch with NO dependence on $kitId, while its else branch clears the kit_settings row, so an invite CAN be sent to a user with no kit. That driver passes all three guards, sets a password, and markEmailAsVerified() burns the one-shot link - then ClarityScoutAuthController:44 returns 403 'No scanner kit assigned to your account' on every login, and resend_onboarding is invisible once email_verified_at is set, so they are permanently stuck. The same path exists for an org whose Pennant CLARITY_SCOUT feature is inactive. okf/concepts/scout-user-assignment.md:37 states this outright: 'a Scout 403 usually means a missing kit_settings row, not a permission problem.' Closing (2) would require ADDING a guard condition, i.e. changing who may set a password - explicitly ruled out of scope at the question gate. It is recorded as a residual and surfaced to Dalton as a follow-up decision; no Jira ticket was created without asking."
+    },
+    {
+      "item": "guardUser() 403s render the friendly invalid-link page like signature failures do.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Small, additive, error-rendering-only change that extends the DEV-2246 pattern to the one path it missed. Derived from the ticket's 'certain accounts' wording, not stated explicitly -- so it is gated on human confirmation."
+    }
+  ],
+  "questions": [
+    {
+      "q": "Is DEV-2255 a duplicate report of the incident DEV-2246 already fixed, or a genuinely new report from AFTER the fix went live (v3.8.2, 2026-08-05)? If it is a duplicate, the correct outcome may be to close it as such with the evidence, shipping no code.",
+      "answered": true,
+      "answer": "Not a duplicate to close. Dalton chose to ship the one residual gap: fix the guardUser() 403s. The duplicate evidence still goes in the Build Record as the answer to requirement 1.",
+      "source": "human:Dalton McCleery 2026-09-01"
+    },
+    {
+      "q": "Do you want the one residual code change -- making guardUser()'s three bare 403s render the friendly invalid-link page -- or should this ticket ship no code at all?",
+      "answered": true,
+      "answer": "Yes - ship the guardUser() friendly-page change. Dalton approved the option with the diff preview attached, which also serves as the explicit human approval for the auth blast-radius node required by Phase 3.",
+      "source": "human:Dalton McCleery 2026-09-01"
+    },
+    {
+      "q": "The alert-unsubscribe links still mint/validate default-ABSOLUTE signatures and depend on FORCE_HTTPS staying true. Harden them to relative signatures as defense-in-depth in this ticket, or leave them and log a follow-up?",
+      "answered": true,
+      "answer": "Leave the alert-unsubscribe links alone. Not broken today (global ForceHttpsRequest). Record as a known latent risk in the Build Record; do NOT create a Jira ticket without asking.",
+      "source": "human:Dalton McCleery 2026-09-01"
+    },
+    {
+      "q": "Does the generic Invite system (Invite model, InviteRedemptionController, InviteTypeEnum) carry the same signed-URL/scheme bug?",
+      "answered": true,
+      "answer": "No. Verified directly: InviteTypeEnum declares only SHARE_SCANS and CLIENT_SCANS; InviteRedemptionController validates an email plus a 6-character code from the database (whereNull('accepted_at'), where meta->code), with no signature involved. Scout driver onboarding runs exclusively through ScoutOnboardingNotification -> ScoutSetPasswordController.",
+      "source": "code"
+    },
+    {
+      "q": "Are the alert-unsubscribe signed links exposed to the same absolute-signature-behind-proxy failure DEV-2246 fixed for Scout?",
+      "answered": true,
+      "answer": "Structurally yes, operationally no. They mint via default-absolute URL::temporarySignedRoute and validate via default-absolute hasValidSignature. But DEV-2246 registered trustProxies(at:'*') and prepended ForceHttpsRequest GLOBALLY in bootstrap/app.php (not scoped to Scout routes), and config('app.force_https') defaults to env('FORCE_HTTPS', true) = true, so the scheme is normalized before signature validation on every route. They are protected today; the exposure returns only if FORCE_HTTPS is set false.",
+      "source": "code"
+    },
+    {
+      "q": "Was the DEV-2246 fix actually live in production, given platform has no automated prod migration/deploy path?",
+      "answered": true,
+      "answer": "Yes, as of 2026-08-05. Verified from local git only: commits 01cffb93b and 29101af15 are contained in tags v3.8.2, v3.9.0 and v3.9.1 and are present on origin/deploy; composer.json is at 3.9.1. No prod .env change was required because config('app.force_https') defaults to TRUE. Note the timing: v3.8.2 shipped eight days AFTER DEV-2255 was filed (2026-07-28), so the ticket's report predates the fix reaching production.",
+      "source": "code"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "DEV-2246's ForceHttpsRequest is prepend-ed GLOBALLY and config('app.force_https') defaults to true -- that app-wide reach is why the exhaustiveness sweep finds no second buggy signed-URL site.",
+    "guardUser() collapses three distinct causes (one-shot link already used, missing org_id, missing clarity-scout permission) into indistinguishable 403s. If the guard-parity change is approved, decide whether the friendly page needs per-reason copy or whether the existing generic 'ask your admin to resend' message suffices.",
+    "No bare 'signed' middleware alias remains anywhere in app/, routes/, bootstrap/ or config/ -- the Scout routes were the only consumer and DEV-2246 moved them to ValidateScoutSignedUrl.",
+    "Repo convention (set by DEV-2246's own tests): Scout signed-URL and guard tests live in tests/Feature/Http/Controllers/Auth/ScoutSetPasswordControllerTest.php using #[Group('clarity-scout')] and the makeScannerUser() helper.",
+    "okf/concepts/scout-api.md and okf/concepts/scout-user-assignment.md were already updated by DEV-2246. If the guard-parity change ships, the wiki needs a one-line addendum -- POST-merge only, per the CLAUDE.md WRITE-after-approval rule. Do not edit okf/ now.",
+    "DEVIATION (recorded): escalation triggers fired (confidence 62 < 80, escalate.recommend true, three needs-human questions, auth blast radius) but the best-of-N deep pass was NOT run. Reason: every code-settleable claim in the fast pass was re-verified directly by the driver (InviteTypeEnum contents, InviteRedemptionController code-not-signature auth, guardUser bare aborts, global prepend of ForceHttpsRequest, full repo-wide signed-URL sweep, deploy-tag containment), and all three remaining questions are scope/product calls that no additional prep candidate can answer. The gate blocks on a human scope decision -- possibly 'ship nothing' -- so refining a scope that may be empty was judged waste. state.best_of_n is recorded false, not true.",
+    "GATE ANSWERS (2026-09-01, Dalton): ship the guardUser() fix; leave the alert-unsubscribe links alone and record them as a latent risk in the Build Record only (explicitly NO new Jira ticket without asking).",
+    "IMPLEMENTATION CONSTRAINT: show() and update() both declare a View return type. guardUser() must therefore NOT return a response - throw new HttpResponseException(response()->view('auth.scout.invalid-link', [...], 403)) so both call sites keep their View signatures and the change stays additive.",
+    "The 'ineligible' branch covers BOTH remaining guards (missing org_id, missing clarity-scout permission). Note the ordering hazard: setPermissionsTeamId($user->org_id) currently sits BETWEEN the org_id guard and the permission guard, so the org_id guard must keep running first or the permission check reads the wrong team.",
+    "REVIEW ROUND 4 RESIDUAL (verified, NOT fixed - out of approved scope): kit-less / feature-flag-inactive drivers can complete set-password and then be permanently locked out of the PWA with no admin resend path. Chain: ScoutUserProvisioner ($shouldNotify independent of $kitId; else-branch clears kit_settings) -> guardUser passes -> markEmailAsVerified burns the one-shot link -> ClarityScoutAuthController:44 / ClarityScoutMiddleware:39-41 return 403 'No scanner kit assigned to your account' -> ScoutUsersResource resend_onboarding visible() is false once email_verified_at is set. Corroborated by okf/concepts/scout-user-assignment.md:37.",
+    "REVIEW ROUND 4 RESIDUAL (out of scope): routes/web.php:108,110 use implicit {user} binding and App\\Models\\User uses SoftDeletes, so a soft-deleted driver's still-valid invite yields Laravel's BARE 404 on the very routes this ticket just branded - and no resources/views/errors/ directory exists to catch it. All three lanes flagged it; prep-context's original exhaustiveness sweep never enumerated it (recorded here as the correction).",
+    "DECISION (Dalton, 2026-09-01, post-review): the kit-less driver lockout residual goes in the DEV-2255 Build Record ONLY - no follow-up Jira ticket is to be created. Same treatment as the declined alert-unsubscribe hardening. The Build Record must carry the full verified four-hop repro chain and the okf/concepts/scout-user-assignment.md:37 citation so nothing is lost if it is picked up later."
+  ],
+  "tests": [
+    {
+      "file": "tests/Feature/Http/Controllers/Auth/ScoutSetPasswordControllerTest.php",
+      "what_it_pins": "If guard-parity ships: already-verified / missing-org / missing-permission 403s render auth.scout.invalid-link rather than Laravel's bare default 403."
+    },
+    {
+      "file": "tests/Feature/Http/Controllers/Auth/ScoutSetPasswordControllerTest.php",
+      "what_it_pins": "Regression guard (already green from DEV-2246): relative signed URLs, and absolute signed URLs arriving over plain HTTP, both still validate and render the set-password form."
+    },
+    {
+      "file": "tests/Feature/Notifications/ScoutOnboardingNotificationTest.php",
+      "what_it_pins": "Already green from DEV-2246: the onboarding link validates as a RELATIVE signature and deliberately does not validate as absolute."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Http/Controllers/Auth/ScoutSetPasswordController.php:66-76 (guardUser -- the residual bare-403 gap)",
+      "app/Http/Middleware/ValidateScoutSignedUrl.php:22-31 (friendly page for signature failures)",
+      "app/Http/Middleware/ForceHttpsRequest.php:20-27 (scheme normalization)",
+      "app/Notifications/ScoutOnboardingNotification.php:26-35 (relative mint, 7-day TTL)",
+      "bootstrap/app.php:18-24 (GLOBAL trustProxies + prepend ForceHttpsRequest)",
+      "config/app.php:89-100 (force_https, defaults true)",
+      "routes/web.php:107-113 (scout/set-password behind ValidateScoutSignedUrl)",
+      "resources/views/auth/scout/invalid-link.blade.php (the friendly page to reuse)",
+      "app/Filament/Resources/ScoutUsersResource.php (resend_onboarding action)"
+    ],
+    "code_flow": "ScoutOnboardingNotification mints a RELATIVE temporarySignedRoute (7-day TTL) and prepends config('app.url') for a clickable href -> driver taps the emailed link -> global ForceHttpsRequest normalizes scheme to https, trustProxies honours forwarded proto -> ValidateScoutSignedUrl accepts absolute OR relative signature, else renders auth.scout.invalid-link 403 with an expired flag -> ScoutSetPasswordController::show/update calls guardUser(), which BARE-403s on verified-email / missing org_id / missing clarity-scout permission -> on success renders the set-password form, then issues a token and boots the driver PWA.",
+    "tables": [
+      "public.users (email_verified_at, org_id, password)",
+      "public.kit_settings (user_id <-> kit_id)",
+      "activity_log"
+    ],
+    "related_components": [
+      "ScoutAnalyticsEvent::ScoutUserResendOnboarding",
+      "ClarityScoutForceLoginController (separate clarity-scout-force token path, unrelated)",
+      "config('app.experimental.clarity_scout') feature flag gating the whole route group"
+    ]
+  },
+  "exhaustiveness": {
+    "grep_patterns": [
+      "temporarySignedRoute",
+      "signedRoute",
+      "hasValidSignature",
+      "ValidateSignature",
+      "middleware\\('signed'\\)",
+      "->signed\\(",
+      "'signed'|\"signed\""
+    ],
+    "scope_searched": "app/ routes/ config/ bootstrap/ resources/ tests/ (vendor excluded)",
+    "sites": [
+      {
+        "file": "app/Notifications/ScoutOnboardingNotification.php",
+        "line": 28,
+        "verdict": "safe",
+        "reason": "Mints absolute:false (relative) since DEV-2246 -- signature no longer depends on scheme or host."
+      },
+      {
+        "file": "app/Http/Middleware/ValidateScoutSignedUrl.php",
+        "line": 22,
+        "verdict": "safe",
+        "reason": "Accepts absolute OR relative signature and renders a friendly 403 page on failure."
+      },
+      {
+        "file": "app/Mail/Hits/NewNotification.php",
+        "line": 66,
+        "verdict": "safe",
+        "reason": "Default-ABSOLUTE unsubscribe mint -- same structural idiom, but protected by the global ForceHttpsRequest + trustProxies from DEV-2246. Latent only if FORCE_HTTPS is set false."
+      },
+      {
+        "file": "app/Mail/Hits/NewNotification.php",
+        "line": 75,
+        "verdict": "safe",
+        "reason": "Same as line 66 (unsubscribe-all variant)."
+      },
+      {
+        "file": "app/Mail/MissedOpportunities/NewNotification.php",
+        "line": 51,
+        "verdict": "safe",
+        "reason": "Same as Hits line 66."
+      },
+      {
+        "file": "app/Mail/MissedOpportunities/NewNotification.php",
+        "line": 60,
+        "verdict": "safe",
+        "reason": "Same as Hits line 75."
+      },
+      {
+        "file": "app/Http/Controllers/EmailController.php",
+        "line": 17,
+        "verdict": "safe",
+        "reason": "Default-absolute hasValidSignature for unsubscribeFromAlert -- protected by global scheme normalization; bare 403 on failure is acceptable for an unsubscribe endpoint and is out of this ticket's scope."
+      },
+      {
+        "file": "app/Http/Controllers/EmailController.php",
+        "line": 37,
+        "verdict": "safe",
+        "reason": "Same as line 17 (unsubscribeFromAll)."
+      },
+      {
+        "file": "app/Http/Controllers/Auth/ScoutSetPasswordController.php",
+        "line": 66,
+        "verdict": "buggy",
+        "reason": "guardUser() bare abort_if/abort_unless(403) x3 -- the only Scout onboarding 403 path DEV-2246 left showing Laravel's generic page. THE one residual gap."
+      }
+    ],
+    "negative_result": "No occurrence of the bare 'signed' middleware alias remains in app/, routes/, bootstrap/ or config/. The scout/set-password routes were its only consumer and DEV-2246 replaced it with ValidateScoutSignedUrl. Test-file occurrences of temporarySignedRoute are fixture construction, not production sites, and are excluded deliberately."
+  },
+  "data_impact": {
+    "pg_tables": [
+      "public.users",
+      "public.kit_settings"
+    ],
+    "ch_tables": [],
+    "mv_or_cdc_implications": "None. No ClickHouse table, materialized view, or CDC path is touched; the proposed change alters only HTTP error rendering.",
+    "indexes_relied_on": []
+  },
+  "resource_envelope": {
+    "scale_relevant": false,
+    "trigger": "No command, job, query class, or migration in scope, and nothing iterates a data-driven collection -- the proposed change alters HTTP error rendering in a single controller guard. Cardinality probe deliberately skipped.",
+    "driving_tables": [],
+    "growth": null,
+    "schedule": null,
+    "allocation_sketch": null,
+    "oracle_status": "not-configured",
+    "unresolved": []
+  },
+  "derivation_log": [
+    {
+      "query_shape": "git log --oneline origin/main --grep='DEV-2246' ; git tag --contains <sha> ; git branch -r --contains <sha>",
+      "param_classes": [
+        "commit sha",
+        "ticket key"
+      ],
+      "aggregate_result": "2 commits (01cffb93b, 29101af15) present on origin/main and origin/deploy; contained in tags v3.8.2, v3.9.0, v3.9.1.",
+      "why": "Establish whether the DEV-2246 fix had actually reached production, and when, relative to DEV-2255 being filed."
+    },
+    {
+      "query_shape": "git log -1 --format='%ci' v3.8.2",
+      "param_classes": [
+        "tag name"
+      ],
+      "aggregate_result": "2026-08-05 (single timestamp).",
+      "why": "Date the first production release carrying the fix, to compare against DEV-2255's 2026-07-28 creation date."
+    },
+    {
+      "query_shape": "grep -rnE '<signed-url idioms>' over app/ routes/ config/ bootstrap/ resources/ tests/",
+      "param_classes": [
+        "regex pattern set",
+        "path scope"
+      ],
+      "aggregate_result": "9 production sites across 5 files; 1 classified buggy, 8 safe. 0 remaining uses of the bare 'signed' middleware alias.",
+      "why": "Exhaustiveness sweep for the root-cause idiom, so no second instance of the defect class ships unexamined."
+    }
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "AC-1 signature fix (already shipped)",
+        "kind": "agent",
+        "intent": "Regression only: a relative-signed link and an absolute-signed link requested over plain HTTP both validate and render the set-password form."
+      },
+      {
+        "ac": "AC-2 subset vs all",
+        "kind": "human",
+        "intent": "Needs production evidence (log/analytics timing vs the v3.8.2 release); not settleable by an agent pass."
+      },
+      {
+        "ac": "AC-3 guard parity (if approved)",
+        "kind": "agent",
+        "intent": "Request a set-password link for a user whose email_verified_at is already set, and for one lacking the clarity-scout permission; confirm the friendly invalid-link page renders at 403 instead of Laravel's bare page."
+      }
+    ],
+    "seed_scenario": "One org with the clarity_scout experimental flag on. One Kit with an unverified Scout driver User that has org_id set and the clarity-scout permission granted. Mint three set-password links for that user: a fresh relative-signed link, an expired signed link, and a link used again after email_verified_at is set (exercising the guardUser one-shot path). Add a fourth user with org_id but WITHOUT the clarity-scout permission for the permission-guard case.",
+    "personas": [
+      "Scout driver -- unauthenticated recipient of the onboarding email; the whole bug is in their path.",
+      "Org admin -- Filament ScoutUsersResource, to exercise the resend-onboarding affordance the friendly page points at."
+    ],
+    "pg_tables": [
+      "users",
+      "kit_settings",
+      "activity_log"
+    ],
+    "ch_tables": []
+  },
+  "blast_radius": [
+    "auth (ScoutSetPasswordController guardUser 403 rendering -- error presentation only, no change to the authorization decisions themselves)"
+  ],
+  "missed_caller_candidates": [],
+  "escalate": {
+    "recommend": true,
+    "reason": "Triggers fired (confidence 62, three needs-human questions, auth blast radius). Deep pass deliberately not run -- see the DEVIATION note. The gate blocks on a human scope call that no additional candidate can resolve."
+  }
+}

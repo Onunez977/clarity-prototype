@@ -1,0 +1,80 @@
+{
+  "knowledge_cards": {
+    "matched": [
+      "okf/index.md",
+      "okf/concepts/data-architecture.md",
+      "okf/concepts/clickhouse-integration.md",
+      "okf/concepts/repositories.md",
+      "okf/concepts/filament-conventions.md"
+    ],
+    "note": "Read for the PostgreSQL vs ClickHouse split and the client timeout story. Wiki was not edited. A post-approval note can record where CH HTTP failures gain SQL context."
+  },
+  "precedents": [
+    {
+      "key": "ClickhouseHttpClient::request",
+      "status": "installed package, composer.lock dev-main 44d6db805435f63b63b7a11f903287af8a4d8b06",
+      "relevance": "Every ClickHouse HTTP call ends in private request(). Failures throw ClickhouseException with the parsed message only. Line 438. SQL, route, query_id, and elapsed stay off the exception.",
+      "applicable": "The enricher has to run where the SQL is still in scope: public select() and write() on a platform subclass. Do not edit the package in this ticket."
+    },
+    {
+      "key": "HasRetryQuery",
+      "status": "on main",
+      "relevance": "Illuminate QueryException logs context.sql to the db-error channel. ClickhouseException is a RuntimeException, so it falls through to the generic catch, which logs message, code, file, and line, and not SQL.",
+      "applicable": "Match the existing context.sql key so scripts/extract_sql_queries.py can see CH failures. Leave the trait's retry and empty-state behavior alone."
+    },
+    {
+      "key": "Org::getHotlistClients / getHotlistLienholders",
+      "status": "on main",
+      "relevance": "Catch ClickhouseException, log a thin db-error line (org_id, message, code), emit clarity.query_timeout, and return an empty collection outside debug.",
+      "applicable": "A client wrapper still sees these failures before the catch. Rethrow the original exception so this swallow stays intact."
+    },
+    {
+      "key": "HasHitMetricCards::logHitMetricCardFailure",
+      "status": "on main",
+      "relevance": "Logs exception class, message, code, file, and line to db-error. No SQL. Uses clarity.query_error, not clarity.query_timeout.",
+      "applicable": "Do not relabel that metric. The new line is an additional structured log, not a replacement of this counter."
+    },
+    {
+      "key": "ClickhouseQuery::query",
+      "status": "on main",
+      "relevance": "In production and testing, Throwable is report()'d and the method returns []. report() hits the default log, not db-error. bootstrap/app.php only counts Illuminate QueryException SQLSTATE 57014.",
+      "applicable": "An exception-handler hook misses every swallowed ClickhouseException. The enricher belongs on the HTTP client, which runs before those catches."
+    },
+    {
+      "key": "DataDogHandler",
+      "status": "tap on the db-error channel",
+      "relevance": "JsonFormatter plus a processor that adds user id, name, and email, and on error-and-above the org id and name.",
+      "applicable": "User and org are already on the channel. New context should add user_id and org_id and should not add another copy of the email. Do not change the processor in this ticket."
+    },
+    {
+      "key": "scripts/extract_sql_queries.py",
+      "status": "on main",
+      "relevance": "Reads context.sql from each JSON log line and skips lines that lack it.",
+      "applicable": "Put the truncated statement in context.sql."
+    },
+    {
+      "key": "DEV-2123",
+      "status": "shipped write-path connect budget, cited in config/database.php and okf/concepts/clickhouse-integration.md",
+      "relevance": "Read path stays timeout_connect 2s and timeout_query 60s. Write path uses a longer connect budget and one retry. Server max_execution_time is 0, so the 60s cap is client-side.",
+      "applicable": "Copy those numbers into the log context. Do not change them."
+    },
+    {
+      "key": "LprRepossessions / HeldFlexibleCache",
+      "status": "on main",
+      "relevance": "QUERY_TIMEOUT_SECONDS is 60. OBSERVED_MAX_LATENCY_SECONDS is 33.7. Lock TTLs are sized off that client timeout and the proxy budget.",
+      "applicable": "Soft collision. Do not retune those constants or the cache locks."
+    },
+    {
+      "key": "DEV-2904",
+      "status": "parallel, not in this checkout",
+      "relevance": "First Glance 43033 lists a soft collision with the DEV-2904 Path A ClickHouse twin.",
+      "applicable": "Do not open, edit, or reconfigure that twin from this branch."
+    },
+    {
+      "key": "Org 469 / Reliable Recovery",
+      "status": "ticket evidence only",
+      "relevance": "Jira describes CH159 rows in db_error-2026-10-02.log, about 30s, for org 469. This prep did not read production logs or Cloud ClickHouse.",
+      "applicable": "Out of scope to fix or re-identify that query. The before/after sample in Implement uses the new formatter against a forced local timeout, not a production chase."
+    }
+  ]
+}

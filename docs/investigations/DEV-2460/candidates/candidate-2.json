@@ -1,0 +1,31 @@
+{
+  "_meta": {"role": "blind candidate 2", "model": "sonnet", "confidence": 74},
+  "corroborates": [
+    "canViewCardData/expandableCards/lockedStat are all net-new (3rd independent confirmation)",
+    "RecoveryLeader dual label sites :25 and :234 must change in lockstep (3rd independent confirmation)",
+    "KitUsers unregistered not deleted; HotlistCount reuses its cached methods",
+    "Active Kit Users at header position 5 of 6 with 'N camera kits' description",
+    "Dashboard::cardWidgets() -> expandableCards()",
+    "scale_relevant = false",
+    "test_all_four_hit_cards_are_contiguous() is order-AGNOSTIC (searches by key), so it passes as long as the 4 hit keys stay adjacent -- which they do"
+  ],
+  "unique_findings": [
+    "FOURTH stale-count comment site the other passes missed: app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php:299 ('so the eight cards stay color-coordinated'). Driver-verified. Full set of 4: Dashboard.php:84, CompanyMetricsOverview.php:12, CompanyMetricsOverview.php:34, DashboardWidget.php:299.",
+    "KitUsers ALSO hardcodes 'Active Kit Users' in its own toStat() -- moot for the relabel since it leaves cards(), but confirms the override pattern is not unique to RecoveryLeader.",
+    "Filament's StatsOverviewWidget::getCachedStats() already memoizes getStats() per render (pinned by test_toggling_a_card_does_not_rebuild_overview_stats), so toggling a card does NOT re-trigger the 6 cards' getMonthlyData().",
+    "AC-7 KEY INSIGHT: KitUsers' two cached queries ALREADY RAN when KitUsers was itself a grid card. Moving them into HotlistCount is net-NEUTRAL across the page. The regression AC-7 guards against is specifically a naive re-implementation that does not reuse KitUsers' existing cache keys.",
+    "HotlistCount::fetchHotlistCounts() already collapses 4 separate FINAL dedup passes into ONE ClickHouse round trip (its own docblock).",
+    "BLAST RADIUS (candidates 0 and 1 both said empty -- candidate 2 disagrees): the Pro-gate seam is the mechanism EVERY future paid Company Metrics card will use to hide its value. A bug here -- notably the gate running AFTER toStat() instead of before -- would leak Pro-only data to Basic-tier orgs the moment a sibling ticket wires a real gate onto it. The defect would ship silently because no card is gated in THIS ticket."
+  ],
+  "design_divergence_from_candidates_0_and_1": [
+    "Candidate 2 wants canViewCardData()/lockedStat() to live ONLY as trait defaults in RendersDashboardStat, and would NOT add them to the DashboardMetricCard interface -- to avoid forcing every future implementer to declare them. Candidates 0 and 1 both wanted explicit interface additions.",
+    "Candidate 2 additionally proposes a getCardLabel() default in the trait so RecoveryLeader (the only non-DashboardWidget implementer) gets it for free for lockedStat()'s label."
+  ],
+  "open_questions": [
+    "AC-7 measurement method (no established technique in-repo; DB::listen confirmed dead for the CH driver)",
+    "Trim KitUsers' now-vestigial DashboardMetricCard/RendersDashboardStat/toStat()/getCardKey() surface, or leave intact as a pure method-reuse source?",
+    "Should RecoveryCounts::getDatasetLabel() ('Repossessions', expanded chart dataset name) also become 'Total Repossessions'?",
+    "Is RendersDashboardStat the right home for a getCardLabel() default, vs the interface, vs duplicating DashboardWidget's copy?"
+  ],
+  "escalate": {"recommend": true, "reason": "foundational scaffolding for 8 sibling tickets; AC-7 has no established measurement method; the seam is a fresh design call; two real judgment calls unsettled by ticket text"}
+}

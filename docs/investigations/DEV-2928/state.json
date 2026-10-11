@@ -1,0 +1,592 @@
+{
+  "key": "DEV-2928",
+  "track": "product",
+  "label": "RDN branch backfill command + normalized branch match + query-time branch filter for LPR Assists / Missed Opportunities",
+  "app": "clarity",
+  "route": "feature",
+  "mode": "normal",
+  "sprint": "Sprint 42",
+  "repo": "insight-lpr/platform",
+  "epic": "DEV-1580",
+  "phase": "implemented",
+  "provisioned": true,
+  "base_branch": "claude/DEV-2442",
+  "target_branch": "claude/DEV-2442",
+  "branch_path": "stacked on PR #374 head claude/DEV-2442 (base claude/DEV-2442) → retarget main after #374 merges → main→main",
+  "base_sha": "42a4310fc9b76768f51caa3dbc42099b02331704",
+  "base_branch_reason": "First Glance comment 43357 (live re-GET 2026-10-07 ~4:00pm CDT)",
+  "branch": "cursor/dev-2928-rdn-backfill-branches",
+  "pr": {
+    "number": 510,
+    "url": "https://github.com/insight-lpr/platform/pull/510",
+    "draft": true,
+    "base": "claude/DEV-2442",
+    "head_sha": "b2993f2d215b613d151e771469b8330746271190",
+    "status_rewritten": "Implemented / Next Review rn=4 (2026-10-08 ~8:40am CDT)"
+  },
+  "github_assignee": {
+    "requested": "DaltonMcCleery",
+    "set": true,
+    "pr": 510
+  },
+  "artifact_dir": "docs/investigations/DEV-2928/",
+  "gate": "CLEAN",
+  "next": "Review (rn=5, small delta)",
+  "worktree_mac": "<mac-run-dir>/platform-wt",
+  "checkout_box": "/workspace/dev-2928-wt",
+  "flags": {
+    "provision": true,
+    "implement": true,
+    "review": true,
+    "qa": true,
+    "stop_at": "implemented",
+    "cloud_ch_writes": false,
+    "cloud_touched": false,
+    "ch_touch": true,
+    "reach_31": "PASS_DEV-2801_drill",
+    "path_a_stood": true,
+    "pr_draft": true,
+    "preflight_26": "stacked_on_claude_DEV-2442",
+    "preflight_25": "PASS_cloud_ro_box_path",
+    "HITL_before_undraft": true,
+    "never_touch": [
+      "PR #374",
+      "claude/DEV-2442"
+    ],
+    "cloud_ro_measure": "done_box_side_RO (parity-measure/SUMMARY.md)",
+    "verify": true,
+    "build_record": true,
+    "preflight_27": "PASS_comment_upload_blocked",
+    "preflight_18": "PASS",
+    "preflight_16": "PASS",
+    "undraft_done": false,
+    "QA_Ready": false,
+    "path_a_left_up": true
+  },
+  "jira": {
+    "key": "DEV-2928",
+    "id": "31474",
+    "url": "https://insightlpr-team.atlassian.net/browse/DEV-2928",
+    "type": "Task",
+    "status": "To Do",
+    "priority": "Medium",
+    "assignee": "Dalton McCleery",
+    "labels_live": [],
+    "links": [
+      "DEV-2442 (relates, QA Ready)"
+    ],
+    "reget_at": "2026-10-07T16:00:00-05:00",
+    "comment_ids": {
+      "first_glance": "43357",
+      "plan": "43358",
+      "implement": "43359",
+      "act_on_rn1": "43360"
+    }
+  },
+  "hard_stops": [
+    "Never push/commit/edit PR #374 or claude/DEV-2442",
+    "Cloud CH READ-ONLY",
+    "No CH writes / MV / schema changes",
+    "No production or fleet-wide backfill run",
+    "Reuse GetOrgHotlistCaseInfo dispatch contract unchanged",
+    "No alias table / HotlistStatusAggregate / RDN outage work",
+    "Smallest change (#24)",
+    "No bot names on Jira/GitHub (#17)"
+  ],
+  "forecast_gates": [
+    "#25 parity: All Branches byte-identical; branch-filtered LPR Assists/MO = transition current-branch semantics; Cloud CH READ-ONLY prod-cardinality measure in PR + Build Record",
+    "HITL with Dalton before undraft",
+    "Retarget base to main after #374 merges",
+    "#18 real fleet Docker CH for Agent QA/Verify"
+  ],
+  "timeline": {
+    "prep_start": "2026-10-07T16:00:00-05:00",
+    "plan_start": "2026-10-07T16:03:09-05:00",
+    "plan_end": "2026-10-07T16:36:56-05:00",
+    "plan_posted": "2026-10-07T16:38:48-05:00",
+    "provisioned": "2026-10-07T16:48:00-05:00",
+    "implement_start": "2026-10-07T16:50:00-05:00",
+    "implemented": "2026-10-07T17:05:00-05:00",
+    "review_start": "2026-10-07T17:06:00-05:00",
+    "review_end": "2026-10-07T17:35:00-05:00",
+    "act_on_rn1_start": "2026-10-07T17:39:00-05:00",
+    "act_on_rn1_end": "2026-10-07T17:45:00-05:00",
+    "review_rn2": "2026-10-07T17:55:00-05:00 Review rn=2 PASS 100 (lanes 97/96/95, min 95), native engine; reviewed b2993f2d",
+    "hitl_act_on": "2026-10-08T07:47:00-05:00",
+    "inline_rewrite": "2026-10-08T08:26:00-05:00"
+  },
+  "spec": {
+    "path_mac": "<mac-run-dir>/platform-wt/.ai/specs/DEV-2928.md",
+    "path_box": "/workspace/dev-2928-wt/.ai/specs/DEV-2928.md",
+    "mirror": "docs/investigations/DEV-2928/DEV-2928.md",
+    "status": "READY",
+    "ch_touch": "yes",
+    "self_check": "CLEAN"
+  },
+  "plan": {
+    "wall_seconds": 2027,
+    "model": "claude-opus-5.5",
+    "effort": "high",
+    "meta": "docs/investigations/DEV-2928/harness/meta.json"
+  },
+  "open_questions": [
+    "Q1 runbook --since: YTD+comparison vs Lifetime (Dalton; runbook only)",
+    "Q2 ANSWERED: PM-accepted 2026-10-07; human confirm at HITL (RDN client org_meta.rdn_rate_limit refresh during dry run = client metadata, not branch data)",
+    "Q3 cost of unbounded org-wide clarity.hotlist FINAL subquery — decide at #25 P3",
+    "Q4 Cloud RO confirm recoveries.id / recovery_scans.recovery_id = hotlist id (P0; blocks undraft only if fails)",
+    "Q5 selection query plan (before undraft): on Path A both eligible() plans sort the whole eligible org set and the status_log/hotlist_meta window EXISTS run as hashed seq-scan subplans not scoped to the org; twin too small (34 hotlists) to be conclusive; needs a prod-size read-only plan. No redesign this cycle."
+  ],
+  "seed_needs": "docs/investigations/DEV-2928/path-a-seed-needs.md",
+  "provisioned_at": "2026-10-07T16:48:00-05:00",
+  "provision": {
+    "md": "/workspace/docs/investigations/DEV-2928/provision.md",
+    "json": "/workspace/docs/investigations/DEV-2928/provision.json",
+    "slim": "/workspace/docs/investigations/DEV-2928/provision-cite-slim.json",
+    "tip": "2fd4c3e9487d8687b5989449554c48296d81438e",
+    "tip_unchanged": true,
+    "smoke": "CLEAN",
+    "mode": "fleet_path_a_cli"
+  },
+  "path_a": {
+    "status": "LIVE",
+    "site": "http://172.21.0.1:18094",
+    "postgres": "172.21.0.1:15446/zod_dev_2928",
+    "postgres_testing": "zod_testing_dev_2928",
+    "clickhouse": "http://172.21.0.1:18137/?database=clarity",
+    "gateway": "172.21.0.1",
+    "checkout": "/workspace/dev-2928-wt",
+    "ledger": "/workspace/docs/investigations/DEV-2928/qa-prep-ledger.json",
+    "stood_at": "2026-10-07T16:46:30-05:00"
+  },
+  "open_gates": [
+    "Review rn=5 (small delta: inline gate on the job rdn-case-info bucket + docs)",
+    "Agent QA (Soft #27 PENDING)",
+    "HITL with Dalton before undraft (query+UI; Q1/Q3/Q5/Action Towing org)",
+    "Undraft + CI (no [skip ci]) -> QA Ready on green (PM)",
+    "Retarget base to main after #374 merges (PM decides)"
+  ],
+  "record": {
+    "implement": {
+      "code_sha": "b6acb392",
+      "engine": "direct (Implement agent not runnable on the box: harness CLI absent; Mac worktree 1 commit behind and off the Path A twin)",
+      "harness_used": false,
+      "files": [
+        "app/Console/Commands/RdnBackfillBranches.php (new)",
+        "app/Jobs/Rdn/GetOrgHotlistCaseInfo.php",
+        "app/Clickhouse/Models/LprAssist.php",
+        "app/Clickhouse/Models/MissedOpportunity.php",
+        "config/horizon.php",
+        "tests/Concerns/RequiresClickhouse.php",
+        "tests/Feature/Console/Commands/RdnBackfillBranchesTest.php (new)",
+        "tests/Feature/Clickhouse/LprAssistMissedOpportunityBranchFilterTest.php (new)",
+        "tests/Feature/Jobs/Rdn/GetOrgHotlistCaseInfoTest.php",
+        "tests/Feature/Horizon/HorizonConfigTest.php",
+        "tests/Unit/Clickhouse/LprAssistBranchFilterTest.php"
+      ],
+      "untouched_confirmed": [
+        "HotlistStatusAggregate",
+        "HotlistStatusSource",
+        "HotlistStatusTransition",
+        "GetOrgHotlistCases",
+        "RDN service",
+        "widgets/batch/drilldown consumers",
+        "database/schema/*",
+        "migrations"
+      ],
+      "truncate_list_check": "clarity.recovery_scans is a CREATE TABLE in database/schema/clickhouse-schema.sql L38 (not a view)",
+      "runbook": "docs/investigations/DEV-2928/runbook.md (mirrored in PR body)"
+    },
+    "tests": {
+      "soft_18": {
+        "ch": "real Docker ClickHouse 25.8.11.66 at 172.21.0.1:18137 (container fc6ff762895b = clarity-qa-clickhouse-dev-2928), CLICKHOUSE_DRIVER=clickhouse, databases clarity + zod",
+        "pg": "172.21.0.1:15446 zod_testing_dev_2928",
+        "runner": "box PHP 8.4.26, php artisan test --env=testing, no --parallel",
+        "spec_suite": {
+          "files": [
+            "RdnBackfillBranchesTest",
+            "GetOrgHotlistCaseInfoTest",
+            "GetOrgHotlistCasesTest",
+            "PullRdnOrgClientsTest",
+            "LprAssistBranchFilterTest",
+            "LprAssistTimezoneTest",
+            "ClientRankedMetricsBatchTimezoneTest",
+            "HorizonConfigTest",
+            "ClientTableBranchFilterTest",
+            "Dashboard/MissedOpportunitiesTest",
+            "Dashboard/MissedOpportunityClientGraphTest",
+            "MissedOpportunityResourceTest",
+            "LprAssistMissedOpportunityBranchFilterTest (CH)",
+            "HotlistStatusTransitionBranchFilterTest (CH)",
+            "HasStatDrillDownTest (CH)"
+          ],
+          "passed": 206,
+          "skipped": 4,
+          "failed": 0,
+          "assertions": 833,
+          "duration_s": 58.6,
+          "skipped_note": "4 pre-existing markTestSkipped TODOs in MissedOpportunityResourceTest; identical on base",
+          "run": "HITL act-on at 1d41491b, 7:50am CDT 2026-10-08"
+        },
+        "new_tests": {
+          "RdnBackfillBranchesTest": {
+            "passed": 11,
+            "assertions": 66
+          },
+          "LprAssistMissedOpportunityBranchFilterTest": {
+            "passed": 5,
+            "assertions": 28,
+            "ch": true
+          },
+          "GetOrgHotlistCaseInfoTest_added": 5,
+          "LprAssistBranchFilterTest_rewritten": 1
+        },
+        "broad_regression": {
+          "scope": "tests/Feature/Clickhouse tests/Unit/Clickhouse tests/Filament/Widgets/Client tests/Filament/Pages tests/Feature/Jobs/Rdn tests/Filament/Widgets/Dashboard",
+          "passed": 972,
+          "failed": 5,
+          "assertions": 3861,
+          "duration_s": 285.8,
+          "failed_note": "ClickhouseFailureLoggingTest x3, ClickhouseTimeoutLoggingTest x1, KitScanPathsQueryTest x1 (InvalidTimeZoneException) fail identically on base without this diff: twin/box environment, not this change"
+        }
+      },
+      "pint": "vendor/bin/pint --test --config pint.json: passed (repo-wide) at 1d41491b",
+      "phpstan": "changed app files: no errors",
+      "ch_reseeded": "7:51am CDT: hotlist 18 (FINAL 17), recoveries 8, recovery_scans 9, missed_opportunities 9, transitions 12"
+    },
+    "review": {
+      "rn": 2,
+      "verdict": "PASS",
+      "reviewer_verdict": "APPROVE",
+      "score": 100,
+      "lanes": {
+        "correctness": 97,
+        "conventions": 96,
+        "blast_radius": 95
+      },
+      "min": 95,
+      "threshold": 85,
+      "gate_rc": 0,
+      "gate_line": "REVIEW_GATE: pass min=95 threshold=85 lanes=3 rn=2 scores=97/96/95 conventions=96 sources=native:3 source=lane-min",
+      "engine": "native (review harness unavailable: Mac mini disconnected)",
+      "reviewed_sha": "b2993f2d215b613d151e771469b8330746271190",
+      "prior_reviewed_sha": "c2020a1c660ba41b9217c39722820e7b1c150232",
+      "code_sha": "d49299e9dc585c46a75ab874ef7d32cf5b426caf",
+      "record_commits": [
+        "fc52df08f13256386a4523e8b4f8f5b3507b0a00",
+        "b2993f2d215b613d151e771469b8330746271190"
+      ],
+      "base_sha": "42a4310fc9b76768f51caa3dbc42099b02331704",
+      "findings": {
+        "blockers": 0,
+        "should_fix": 0,
+        "nits": 0
+      },
+      "rn1_closure": {
+        "1_q2": "CLOSED (PM-accepted; human confirm at HITL)",
+        "2_explain": "CLOSED (plans in PR body + journal; Q5 open, unscored)",
+        "3_dryrun_test": "CLOSED (byte-equal attempts=1 + UniqueLock per sample)",
+        "4_max_nit": "CLOSED",
+        "5_dynprop_nit": "DEFERRED (unscored)",
+        "6_cursorkey_nit": "CLOSED (+test)",
+        "act_on_4_skip_ci": "DROPPED (PM)"
+      },
+      "unscored_adjudications": [
+        "Q2 pending human confirm",
+        "Q5 full-org sort perf",
+        "Q3 hotlist FINAL cost (PM/HITL)",
+        "[skip ci]",
+        "git identity",
+        "dynamic-property deprecation"
+      ],
+      "tests": {
+        "rdnbackfill": "11 passed / 66 assertions",
+        "spec_suite": "207 passed / 4 skipped / 0 failed / 857 assertions",
+        "pint": "passed",
+        "parity_unfiltered": "BYTE_IDENTICAL tip vs base",
+        "recovery_scans": "CREATE TABLE ReplacingMergeTree"
+      },
+      "soft_18": "reproduced 207/4/0/857 on Path A real CH",
+      "soft_27": "PENDING",
+      "path_a_left_up": true,
+      "artifacts": "/workspace/docs/investigations/DEV-2928/harness/review/",
+      "reviewed_at": "2026-10-07T17:49:33-05:00",
+      "scores": [
+        97,
+        96,
+        95
+      ],
+      "rerun_required": false,
+      "rounds": [
+        {
+          "rn": 1,
+          "reason": "initial",
+          "verdict": "FAIL",
+          "min": 84
+        },
+        {
+          "rn": 2,
+          "reason": "gate",
+          "verdict": "PASS",
+          "min": 95
+        }
+      ]
+    },
+    "act_on_rn1": {
+      "reviewed_sha": "c2020a1c",
+      "verdict": "CHANGES REQUESTED 82/100, conventions 84 < 85, 0 blockers",
+      "code_sha": "d49299e9",
+      "items": {
+        "1_q2": "answered: PM-accepted 2026-10-07; human confirm at HITL (classify() docblock, runbook §2, PR body)",
+        "2_explain": "done on Path A dev PG :15446 zod_dev_2928 org 92801; A keyset chunk 4 rows 0.146 ms, B dry-run <30d bucket 1 row 0.100 ms; both Index Scan integration_status_updated_idx + Sort of filtered org set + hashed seq-scan subplans on hotlist_status_log/hotlist_meta; flagged Q5 OPEN; plans in journal + PR body",
+        "3_dry_run_test": "done: hotlist_json attempts=1 byte-equal + UniqueLock acquire/release per sample (5)",
+        "4_skip_ci": "ignored per PM; [skip ci] kept on every commit",
+        "5_nits": "done: full UTC cursor key + test; --max counts walked hotlists (help, runbook, PR body); dynamic-property deprecation left as follow-up"
+      },
+      "jira_comment_id": "43360",
+      "record_sha": "fc52df08"
+    },
+    "review_rn1": {
+      "rn": 1,
+      "verdict": "FAIL",
+      "reviewer_verdict": "CHANGES REQUESTED",
+      "score": 82,
+      "lanes": {
+        "correctness": 88,
+        "conventions": 84,
+        "blast_radius": 87
+      },
+      "min": 84,
+      "threshold": 85,
+      "gate_rc": 1,
+      "engine": "Review harness (CLI 2.27.1, Mac mini, worktree-local review agent, claude-opus-5.5 medium)",
+      "wall_seconds": 736,
+      "reviewed_sha": "c2020a1c660ba41b9217c39722820e7b1c150232",
+      "code_sha": "b6acb392be2fdcd7cfac0463608c597c591d4a68",
+      "base_sha": "42a4310fc9b76768f51caa3dbc42099b02331704",
+      "findings": {
+        "blockers": 0,
+        "should_fix": 3,
+        "nits": 3
+      },
+      "act_on": "docs/investigations/DEV-2928/harness/review/act-on.md",
+      "soft_18": "reproduced 206/4/0/848 on Path A real CH",
+      "soft_27": "PENDING",
+      "path_a_left_up": true,
+      "artifacts": "/workspace/docs/investigations/DEV-2928/harness/review/"
+    },
+    "ac": [
+      {
+        "ac": 1,
+        "text": "Backfill command with options; dry-run writes nothing, per-bucket counts + unmatched names",
+        "verdict": "PASS",
+        "evidence": "RdnBackfillBranchesTest 11/66; Agent QA stub dry run PG md5-equal"
+      },
+      {
+        "ac": 2,
+        "text": "Enqueues GetOrgHotlistCaseInfo only for RDN hotlists with activity in window, throttled chunks, resume from cursor",
+        "verdict": "PASS",
+        "evidence": "tests; Agent QA --max/resume/--since"
+      },
+      {
+        "ac": 3,
+        "text": "Normalized match case/whitespace/punctuation; exact wins",
+        "verdict": "PASS",
+        "evidence": "GetOrgHotlistCaseInfoTest +5; Agent QA exact 7002 + normalized 7001"
+      },
+      {
+        "ac": 4,
+        "text": "Branch selected -> current-branch counts incl later-enriched; All Branches unchanged",
+        "verdict": "PASS",
+        "evidence": "LprAssistMissedOpportunityBranchFilterTest 5/28 real CH; Soft #27 UI; Cloud RO All Branches byte-identical 24 cases"
+      },
+      {
+        "ac": 5,
+        "text": "Tests cover selection window, chunking/resume, dry-run no-write, normalized, query-time filter both cards",
+        "verdict": "PASS",
+        "evidence": "spec suite 207/4/0 (857) real CH :18137"
+      },
+      {
+        "ac": "#18",
+        "verdict": "PASS",
+        "evidence": "real Docker CH :18137 CLICKHOUSE_DRIVER=clickhouse; 4 skips pre-existing at base (file unchanged)"
+      },
+      {
+        "ac": "#25",
+        "verdict": "PASS",
+        "evidence": "parity-measure/SUMMARY.md Cloud RO; measured c2020a1c; delta to b2993f2d touches no rendered query path"
+      },
+      {
+        "ac": "#26",
+        "verdict": "PASS",
+        "evidence": "FG 43357 stacked on claude/DEV-2442 -> retarget main after #374 -> main->main"
+      },
+      {
+        "ac": "#27",
+        "verdict": "PASS_upload_blocked_gap",
+        "evidence": "PR comment 6048688737; disk live-qa-evidence/soft27 (14 png)"
+      },
+      {
+        "ac": "#16",
+        "verdict": "PASS",
+        "evidence": "conventions 96; pint --test changed product PHP passed at tip"
+      },
+      {
+        "ac": "#14",
+        "verdict": "PASS",
+        "evidence": "no live-qa-evidence/.ai/.context/parity raw in 42a4310f..HEAD"
+      }
+    ],
+    "verify": {
+      "verdict": "PASS",
+      "at": "2026-10-07T18:13:00-05:00",
+      "tip": "b2993f2d215b613d151e771469b8330746271190",
+      "base": "42a4310fc9b76768f51caa3dbc42099b02331704",
+      "ancestor_ok": true,
+      "pr_head_match": true,
+      "pint": "vendor/bin/pint --test --config pint.json on changed product PHP: passed",
+      "parity_delta_check": "c2020a1c..b2993f2d: RdnBackfillBranches.php + test + docs only; LprAssist/MissedOpportunity untouched",
+      "soft27_gap": "upload_blocked (disk only)",
+      "native_review_flag": "rn=2 native engine (review harness unavailable)",
+      "build_record": "43361",
+      "path_a_left_up": true,
+      "note": "BR/PR text says ~6:25pm CDT; actual BR post 6:12:57pm CDT (Jira created 19:12:57-0400), PR body update 6:13:56pm CDT"
+    },
+    "hitl_act_on": {
+      "at": "2026-10-08T07:47:00-05:00",
+      "ruling": "Dalton HITL 2026-10-08: NO Horizon config changes, ever",
+      "code_sha": "1d41491b",
+      "ran_on": "Mac mini worktree; Implement agent under harness (model claude-sonnet-5.5, effort xhigh, worktree-local agent with write guard limited to 3 files, trust fs_read,fs_write,grep,glob,code,thinking; never trust-all); exit 0, ~35s. Harness reverted config/horizon.php + HorizonConfigTest to base via git, edited spec mirror/self-check/record, committed and pushed from the Mac. Tests on the box (Mac has no vendor/.env.testing and no Path A reach).",
+      "changes": [
+        "config/horizon.php == base 42a4310f (supervisor-rdn-backfill + all env entries removed; HORIZON_SUPERVISOR_RDN_BACKFILL_PROCESSES gone)",
+        "tests/Feature/Horizon/HorizonConfigTest.php == base (rdn-backfill consumer test removed)",
+        "RdnBackfillBranches::QUEUE = '{low}' (the job's own queue); drain throttle kept (wait while Queue::size('{low}') >= chunk); docblocks/--chunk help neutral",
+        "RdnBackfillBranchesTest: test_dispatches_newest_first_on_low_queue asserts '{low}'",
+        "runbook + spec mirror + self-check: no dedicated queue/supervisor/env var"
+      ],
+      "grep_proof": {
+        "config_diff_vs_base": "empty",
+        "new_env_calls": "none",
+        "env_or_config_files_changed": "none",
+        "HORIZON_SUPERVISOR_RDN_BACKFILL_PROCESSES": "0 hits"
+      },
+      "tests": {
+        "RdnBackfillBranchesTest": {
+          "passed": 11,
+          "assertions": 66
+        },
+        "spec_suite": {
+          "passed": 206,
+          "skipped": 4,
+          "failed": 0,
+          "assertions": 833,
+          "duration_s": 58.6,
+          "note": "HorizonConfigTest back to base (one fewer test)"
+        }
+      },
+      "pint": "passed (repo-wide)",
+      "ch_reseeded": "7:51am CDT: hotlist 18 (FINAL 17), recoveries 8, recovery_scans 9, missed_opportunities 9, transitions 12"
+    },
+    "inline_rewrite": {
+      "at": "2026-10-08T08:26:00-05:00",
+      "direction": "Dalton GO 8:21am CDT via PM: run the backfill inline; no dispatch to {low} or any queue; simplest/minimal first",
+      "code_sha": "9928ac09",
+      "ran_on": "Mac mini worktree; Implement agent under harness (worktree-local agent, write guard limited to command/test/runbook, trust fs_read,fs_write,grep,glob,code,thinking; never trust-all); exit 0, ~3.5 min. Harness diff self-check vs fences; harness edits: freezeTime() in the limiter test, runbook hard-stop line (running command keeps boot-time config), spec mirror. Committed/pushed from the box worktree; tests on the box (Mac has no vendor/.env.testing and no Path A reach).",
+      "changes": [
+        "RdnBackfillBranches::backfill(): per hotlist, admit on RateLimiter 'rdn-api:{org}' at Org::rdnRateLimit() (Sleep while tooManyAttempts), hit, then (new GetOrgHotlistCaseInfo(..., client))->handle() in-process; one RDN client built once via app(RDN::class) like classify()",
+        "per-row Throwable caught -> Log::warning rdn.backfill_branches.failed, failed++; run continues (transport failures stay inside the job as transport_failed)",
+        "removed: QUEUE, POLL_SECONDS, drain throttle, onQueue, UniqueLock acquire, Dispatcher, dispatched/suppressed counters",
+        "counters/log: walked, processed, failed; cursor + --since/--until/--chunk/--max unchanged; dry run unchanged",
+        "GetOrgHotlistCaseInfo untouched (its onQueue('{low}') for production dispatch stays)",
+        "tests: dropped test_waits_while_queue_is_long + unique-lock suppression test; renamed newest-first to inline/assertNothingPushed; added writes+continues-past-failure and limiter-wait tests; Queue::fake in setUp",
+        "runbook + spec mirror: inline loop, no Horizon/queue; spec §12 jobs-and-queues wiki item dropped"
+      ],
+      "grep_proof": {
+        "config_diff_vs_base": "empty",
+        "new_env_calls": "none",
+        "command_onQueue_dispatch_Queue": "no matches",
+        "horizon_byte_equal_base": true
+      },
+      "tests": {
+        "RdnBackfillBranchesTest": {
+          "passed": 11,
+          "assertions": 64
+        },
+        "GetOrgHotlistCaseInfoTest": {
+          "passed": 47
+        },
+        "spec_suite": {
+          "passed": 206,
+          "skipped": 4,
+          "failed": 0,
+          "assertions": 831,
+          "duration_s": 62.2,
+          "note": "vs 206/4/833 prior: RdnBackfillBranchesTest 66->64 assertions"
+        }
+      },
+      "pint": "passed (repo-wide)",
+      "ch_reseeded": "8:33am CDT via HTTP :18137: hotlist 18 (FINAL 17), recoveries 8, recovery_scans 9, missed_opportunities 9, transitions 12",
+      "jira": {
+        "ac2_edit": "not needed - live description already says inline (no queue dispatch)",
+        "comment_id": "43369"
+      },
+      "left_out_minimal": [
+        "unique lock (inline handle() does not take ShouldBeUnique lock)",
+        "new options/checkpoint machinery (existing cursor reused)",
+        "throttle-exception backoff in backfill (command admits on limiter, handle() is gated so cannot throw ThrottleRequestsException)",
+        "GetOrgHotlistCaseInfo change / extracted shared method (handle() callable directly)"
+      ],
+      "mac_stash": "none (Mac worktree was clean at b907fbe3)"
+    },
+    "act_on_rn4": {
+      "at": "2026-10-08T09:07:00-05:00",
+      "review": "Review rn=4 PASS 90/100 at 3de5e5f7; 0 blockers / 2 should-fix / 0 nits; ruling (a) no unique lock inline acceptable",
+      "code_sha": "139a7a09558e4f829bd453fef873811c23e12aa9",
+      "ran_on": "Mac mini worktree; Implement agent under harness with the trust-scope fix (worktree card from the proposed template: fs_write untrusted and not in allowedTools, allowedPaths <wt>/**, deniedPaths incl. <wt>/<harness-config-dir>/**; trust fs_read,grep,glob,code,thinking; pre-launch check PASS); exit 0, ~49s, 9:07:27-9:08:16am CDT. Docs by the harness. Tests on the box.",
+      "changes": [
+        "RdnBackfillBranches::backfill(): build the job first, $limit = RateLimiter::limiter('rdn-case-info')($job), key md5('rdn-case-info'.$limit->key), tooManyAttempts(key, $limit->maxAttempts) / hit(key, $limit->decaySeconds), then $job->handle(); raw rdn-api:{org} key removed",
+        "limiter key formula = vendor/laravel/framework/src/Illuminate/Queue/Middleware/RateLimited.php L78 (laravel/framework v12.66.0); limiter def AppServiceProvider rdn-case-info -> Limit::perMinute(org->rdnRateLimit())->by('rdn-case-info:'.org id)",
+        "tests: writes test asserts 4 hits on md5('rdn-case-info'.'rdn-case-info:{org}') and 0 on rdn-api:{org}; wait test renamed test_waits_on_the_jobs_rdn_case_info_limiter + asserts case-info key; no new tests",
+        "docs: runbook L30/L33/L38, spec mirror (L4/L23/L39/L68/L109/L145-147/L216/L228/L230/L273/L338/L353), harness self-check, PR body: inline loop + rdn-case-info bucket + no unique lock; off-peak caveat removed"
+      ],
+      "grep_proof": {
+        "config_diff_vs_base": "empty",
+        "new_env_calls": "none",
+        "command_onQueue_dispatch_Queue": "no matches"
+      },
+      "tests": {
+        "RdnBackfillBranchesTest": {
+          "passed": 11,
+          "assertions": 66
+        },
+        "GetOrgHotlistCaseInfoTest": {
+          "passed": 47,
+          "assertions": 147
+        },
+        "spec_suite": {
+          "passed": 206,
+          "skipped": 4,
+          "failed": 0,
+          "assertions": 833,
+          "duration_s": 62.8,
+          "note": "831 -> 833 = two new limiter assertions"
+        }
+      },
+      "pint": "passed",
+      "ch_reseeded": "~9:10am CDT via HTTP :18137: hotlist 18 (FINAL 17), recoveries 8, recovery_scans 9, missed_opportunities 9, transitions 12",
+      "fence_probe": "one write to <wt>/<harness-config-dir>/probe-denied.txt (write guard allowed it on purpose) was refused by the card's deniedPaths: 'Tool use was rejected because the arguments supplied are forbidden: <wt>/<harness-config-dir>/**'; tool status Failed; file absent. Non-interactive log shows no literal '[denied]' tag.",
+      "jira_comment": "43370"
+    }
+  },
+  "reviewed_sha": "3de5e5f72bf0a0df39ae341774b63341ee871beb",
+  "review_number": 4,
+  "rerun_required": true,
+  "comment_ids": {
+    "first_glance": "43357",
+    "plan": "43358",
+    "implement": "43359",
+    "act_on_rn1": "43360",
+    "build_record": "43361",
+    "inline_rewrite": "43369",
+    "act_on_rn4": "43370"
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "key": "DEV-2555",
+  "generated_at": "2026-09-23T18:06:20Z",
+  "input": "docs/investigations/DEV-2555/prep-context.json",
+  "gate": "CLEAN",
+  "base": "main",
+  "base_sha": "4833e81508592f4637071bdb51f59037a6277dad",
+  "summary": "The 13-to-1 refactor already shipped in the prior Total Repossessions batch landing. Correct the stale RecoveryTotalsBatchQuery docblock and make the window-key test fail if the shared int write is removed. Do not change SQL, key strings, or rendered values.",
+  "behavior_change": false,
+  "do_not_touch": [
+    "RecoveryTotalsBatchQuery::handle()",
+    "RecoveryTotalsBatchQuery::handleSql()",
+    "RecoveryTotalsBatchQuery::handleRange()",
+    "RecoveryTotalsBatchQuery::handleRangeSql()",
+    "RecoveryTotalsBatchQuery::sharedMonthCacheKey() format string",
+    "RecoveryTotalsBatchQuery::sharedWindowCacheKey() format string",
+    "RecoveryCounts::fetchRepoSeries()",
+    "RecoveryCounts::getRangeTotal()",
+    "ScanPlateStatsBatchQuery",
+    "UniqueScansToRepo"
+  ],
+  "sizing": {
+    "files": 2,
+    "split": false,
+    "reason": "One concern: the shipped refactor's docblock and its window-key proof. Splitting the docblock from the assertion leaves the vacuous test in place."
+  },
+  "perf_validation": {
+    "required": false,
+    "reason": "No new query and no new cache namespace. The series is already one handle() call. The window is already one handleRange() call behind two cache layers."
+  },
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Make RecoveryTotalsBatchQuery's docblocks match main",
+      "approach": "Docblocks only. State that RecoveryCounts already calls handle() for the series and handleRange() for Today/Last 7 Days, and that both cache writes are bare ints under the class-neutral keys. State that getModelQueryForDates() returns 0 and is not the live path; the Eloquent Recovery::count() parity lives in RecoveryTotalsBatchQueryTest, not in the card. State that UniqueScansToRepo was deleted in the prior Total Repossessions batch landing and that the ratio denominator is getMonthlyData() on this same card. State that the month key must not grow :tz= or change -v1. State that the window key stays shared, includes the raw viewer timezone because the window is viewer-local, and that DashboardWidget::currentPeriodTotal's class-prefixed remember is an outer layer, not a reason to un-share. Cite the earlier window-key correction's re-share. Delete the sentences that say the card still uses Eloquent and that pointing it at the key is a future one-liner.",
+      "target_files": [
+        "app/Clickhouse/Queries/RecoveryTotalsBatchQuery.php"
+      ],
+      "intended_diffs": "Comments only. git diff -G '^[^/]' or a whitespace-ignoring look should show no executable line changed. Key returns stay recovery-totals:month-v1:org={id}:{month} and recovery-totals:window-v1:org={id}:{dateType}:{day}:tz={timezone}.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "RecoveryTotalsBatchQueryTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple"
+    },
+    {
+      "id": "t2",
+      "title": "Pin the int and make the window share fail when un-shared",
+      "approach": "Tests only. Do not change RecoveryCounts. In test_past_months_are_cached_per_month_and_not_refetched, keep assertSame(9, cache get of the shared month key) and add assertIsInt on that value. In test_the_window_headline_is_cached_and_not_requeried, after the first getCardTotal(), read RecoveryTotalsBatchQuery::sharedWindowCacheKey for that org, date 'today', the end date the key uses, and the acting user's timezone. assertIsInt and assertSame(40, that read). Build the expected key with the helper, not a handwritten string, and also assert the helper output contains no class basename. A missing shared write makes cache()->get return null and the assertion fails, even though the second same-class instance still hits the outer buildWidgetCacheKey remember. Do not add a second widget class.",
+      "target_files": [
+        "tests/Filament/Widgets/Dashboard/RecoveryCountsTest.php"
+      ],
+      "intended_diffs": "Month test: assertIsInt beside the existing assertSame(9, ...). Window test: one cache()->get(sharedWindowCacheKey(...)) that must be int 40. The existing reposCalls === 1 assertion stays. No production PHP change in this subtask.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "RecoveryCountsTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple"
+    }
+  ],
+  "verification": {
+    "run_when_asked": [
+      "php artisan test --compact tests/Filament/Widgets/Dashboard/RecoveryCountsTest.php",
+      "php artisan test --compact tests/Feature/Clickhouse/RecoveryTotalsBatchQueryTest.php"
+    ],
+    "note": "This plan run did not execute tests and did not provision ClickHouse. RecoveryTotalsBatchQueryTest is in the clickhouse group and skips unless CLICKHOUSE_DRIVER=clickhouse."
+  },
+  "wiki_after_approval": [
+    "okf/concepts/company-metrics-dashboard.md already records the prior Total Repossessions batch landing. No wiki edit in the implementation unless review finds a sentence that still says RecoveryCounts issues thirteen Eloquent queries."
+  ],
+  "next_phase": "Aragorn provision (qa-prep). No ledger in this run. Do not start Frodo from this plan run."
+}

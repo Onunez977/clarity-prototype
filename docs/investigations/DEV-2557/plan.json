@@ -1,0 +1,126 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Chip contrast: define chip colour tokens in theme.css and apply them to the Filament Select/TagsInput value chips and the hand-rolled ZIP chip + drawing banner",
+      "approach": "Operator decision #2 (CSS override, CHIPS ONLY) \u2014 the degenerate `primary` ramp in app/Support/Filament/PlatformPanelProvider.php:37-53 is NOT touched, so buttons and links do not shift in either panel. Instead, declare four chip custom properties once in resources/css/filament/app/theme.css and consume them from (a) the Filament Select multi-value badge and the TagsInput tag badge, scoped by their own container classes, and (b) the hand-rolled ZIP chip in manage-zones.blade.php. Verified layering fact that makes this safe and !important-free: vendor/filament/support/resources/css/index.css imports components/badge.css into `layer(components)` and utilities.css into `layer(utilities)`, while every rule this repo writes in theme.css sits AFTER the `@import` and is UNLAYERED \u2014 unlayered declarations beat every cascade layer regardless of specificity. So overriding `--text` / `--dark-text` (set by `.fi-text-color-600` / `dark:fi-text-color-200` on the badge element, utilities layer) and `background-color` (set by `.fi-badge.fi-color`'s `bg-color-50` / `dark:bg-color-400/10`, components layer) simply wins. The existing rules in this file already rely on that same mechanism.",
+      "target_files": [
+        "resources/css/filament/app/theme.css",
+        "resources/views/filament/pages/manage-zones.blade.php"
+      ],
+      "intended_diffs": "resources/css/filament/app/theme.css \u2014 append a new block at the end of the file (after the topbar rule at :323-327):\n\n  /* Chip colours. The panel's `primary` ramp is flat (#FF6666 at every shade 100-950),\n     so any component pairing two primary shades renders one colour twice. Fixing the ramp\n     would move buttons and links in both panels, so chips carry their own tokens here.\n     Values are the shades Color::hex('#FF6666') generates. DEV-2557. */\n  :root {\n      --clarity-chip-bg: #FFE7E4;        /* primary-100 */\n      --clarity-chip-text: #8C3132;      /* primary-800 \u2014 6.82:1 on --clarity-chip-bg */\n      --clarity-chip-bg-dark: rgb(240 103 101 / 0.18);   /* primary-500 @ 18% */\n      --clarity-chip-text-dark: #FFCFCB; /* primary-200 */\n  }\n\n  /* `fi-select-input-value-badges-ctn` is created only by Filament's Select JS\n     (vendor/filament/support/resources/js/utilities/select.js:824), and\n     `fi-fo-tags-input-tags-ctn` only by tags-input.blade.php:101 \u2014 so this reaches every\n     multi-value Select chip and every TagsInput tag in BOTH panels without touching table\n     or status badges. The badge class string is hardcoded in that JS (select.js:751) and\n     bypasses BadgeComponent::getColorMap(), so no ->color() API reaches it. */\n  .fi-select-input-value-badges-ctn .fi-badge.fi-color-primary,\n  .fi-fo-tags-input-tags-ctn .fi-badge.fi-color-primary {\n      --text: var(--clarity-chip-text);\n      --dark-text: var(--clarity-chip-text-dark);\n      background-color: var(--clarity-chip-bg);\n  }\n  .fi-select-input-value-badges-ctn .fi-badge.fi-color-primary .fi-badge-delete-btn > .fi-icon,\n  .fi-fo-tags-input-tags-ctn .fi-badge.fi-color-primary .fi-badge-delete-btn > .fi-icon {\n      color: var(--clarity-chip-text);\n  }\n  .dark .fi-select-input-value-badges-ctn .fi-badge.fi-color-primary,\n  .dark .fi-fo-tags-input-tags-ctn .fi-badge.fi-color-primary {\n      background-color: var(--clarity-chip-bg-dark);\n  }\n  .dark .fi-select-input-value-badges-ctn .fi-badge.fi-color-primary .fi-badge-delete-btn > .fi-icon,\n  .dark .fi-fo-tags-input-tags-ctn .fi-badge.fi-color-primary .fi-badge-delete-btn > .fi-icon {\n      color: var(--clarity-chip-text-dark);\n  }\n\n  /* The Manage Zones ZIP chip and drawing banner are hand-rolled Tailwind, not Filament\n     components, so the badge selectors above do not reach them. */\n  .clarity-chip {\n      background-color: var(--clarity-chip-bg);\n      color: var(--clarity-chip-text);\n  }\n  .clarity-chip-btn { color: var(--clarity-chip-text); }\n  .dark .clarity-chip {\n      background-color: var(--clarity-chip-bg-dark);\n      color: var(--clarity-chip-text-dark);\n  }\n  .dark .clarity-chip-btn { color: var(--clarity-chip-text-dark); }\n\nresources/views/filament/pages/manage-zones.blade.php:\n  - :152  replace `bg-primary-100 ... text-primary-800 dark:bg-primary-500/20 dark:text-primary-100`\n          on the ZIP chip <span> with the single class `clarity-chip`, keeping the layout\n          classes (`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium`).\n          Today the pair is #FF6666 on #FF6666 = 1.00:1.\n  - :157  replace the '\u00d7' button's `text-primary-700 dark:text-primary-200` with\n          `clarity-chip-btn`, keeping `hover:text-danger-600 dark:hover:text-danger-400`.\n  - :108  the drawing banner is the same defect (bg-primary-100 + text-primary-900 = 1.00:1,\n          illegible on the very page this ticket is about). Swap `bg-primary-100 text-primary-900\n          dark:bg-primary-500/20 dark:text-primary-100` for `clarity-chip`; leave the\n          `border-primary-400 dark:border-primary-500` border classes alone (border colour is\n          not a contrast-ratio surface and leaving them keeps the brand edge).\n  - Do NOT touch :23, :47 or :116 \u2014 those are primary BUTTONS, ring-fenced by operator decision #2.\n\nMeasurement gate: the implementer must compute the WCAG ratio for the two shipped pairs and\nrecord the numbers in the PR body \u2014 light #8C3132 on #FFE7E4, and dark #FFCFCB on\n--clarity-chip-bg-dark composited over the panel's gray-900 \u2014 both >= 4.5:1. If either falls\nshort, darken --clarity-chip-text toward #6E2728 rather than widening the selector.\n\nDRIVER AMENDMENT (session B) \u2014 the `x` delete-icon override must carry its interaction states.\nvendor/filament/support/resources/css/components/badge.css:68-77 gives the delete-button icon\n`hover:text-color-700/75 focus-visible:text-color-700/75 dark:hover:text-color-300/75\ndark:focus-visible:text-color-300/75`, in the `components` layer. The unlayered flat `color:`\noverride above beats those regardless of specificity, so the `x` silently loses hover/focus\nfeedback -- a small accessibility regression shipped inside an accessibility fix. Add matching\n`:hover` / `:focus-visible` rules for both container selectors (a visibly darker shade, e.g.\n#6E2728). Likewise verify `.clarity-chip-btn` still honours its existing\n`hover:text-danger-600 dark:hover:text-danger-400` Tailwind utilities after the new rule lands;\n`danger` is a healthy ramp so that hover is worth keeping.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "ManageZonesTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t2",
+      "title": "ZIP overlay: plain click selects and shows handles; first real vertex edit detaches the ZIP into definition.polygons",
+      "approach": "Operator decisions #1 (DETACH) and #3 (FULL HANDLES NOW). Two distinct google.maps event families keep 'select' and 'convert' apart, so a click can never destroy or convert anything. SELECT is the google.maps.Polygon `click` event \u2014 it only toggles overlay options. CONVERT is the MVCArray path events `set_at` / `insert_at` / `remove_at` on `polygon.getPath()` \u2014 the exact three already used by attachEditablePolygonHandlers (:560-567) \u2014 which can only fire when the geometry actually mutates (vertex dragged, midpoint handle dragged, vertex right-click-deleted). A click never writes to the MVCArray, so selection alone cannot trigger detach. Once detached, the overlay is an ordinary member of polygonOverlays, so syncEditingState() (:689-697) serialises it into definition.polygons and the ZIP is already gone from zipCodes \u2014 which means Zone::rebuildGeometryFromDefinition() no longer re-derives that ZIP from tiger_data.zcta5_all and the edited shape is authoritative on reload. No server, model, or schema change at all.",
+      "target_files": [
+        "resources/js/components/zone-manager.js",
+        "resources/views/filament/pages/manage-zones.blade.php"
+      ],
+      "intended_diffs": "resources/js/components/zone-manager.js:\n  - Add state next to zipCodes (:262-266): `selectedZip: null`, `zipListeners: {}`, `detachNotice: ''`.\n  - NEW `attachZipHandlers(zip, overlays)` \u2014 factors out the duplicated listener wiring that\n    today exists at TWO sites, :434 (hydrateZips) and :640 (addZip). Both currently read\n    `overlays.forEach(o => o.addListener('click', () => this.removeZip(zip)))`; both are\n    replaced by `this.attachZipHandlers(zip, overlays)`. The helper attaches ONLY\n    `o.addListener('click', () => this.selectZip(zip))`. This is the whole of AC7: the plain\n    map click no longer reaches removeZip.\n  - NEW `selectZip(zip)`:\n      if (this.drawing) return;\n      if (this.selectedZip && this.selectedZip !== zip) this.deselectZip();\n      const overlays = this.zipOverlays[zip]; if (!overlays) return;\n      this.selectedZip = zip;\n      this.zipListeners[zip] = [];\n      overlays.forEach(o => {\n          o.setOptions({ ...this.editablePolygonStyle('#059669') });   // editable:true -> Google\n                                                                        // renders vertex +\n                                                                        // midpoint handles (AC4)\n          const path = o.getPath();\n          ['set_at', 'insert_at', 'remove_at'].forEach(evt => {\n              this.zipListeners[zip].push(\n                  google.maps.event.addListener(path, evt, () => this.detachZip(zip))\n              );\n          });\n      });\n    Green (#059669) is kept on selection so the user can still tell it came from a ZIP.\n  - NEW `deselectZip()` \u2014 restores `this.zipStyle()` on the currently selected overlays,\n    removes the stored path listeners via google.maps.event.removeListener, clears\n    this.zipListeners[zip] and this.selectedZip.\n  - NEW `detachZip(zip)`:\n      const overlays = this.zipOverlays[zip];\n      if (!overlays) return;                    // idempotent: set_at fires repeatedly per drag\n      (this.zipListeners[zip] || []).forEach(l => google.maps.event.removeListener(l));\n      delete this.zipListeners[zip];\n      delete this.zipOverlays[zip];\n      this.zipCodes = this.zipCodes.filter(z => z !== zip);\n      if (this.selectedZip === zip) this.selectedZip = null;\n      overlays.forEach(o => {\n          o.setOptions(this.editablePolygonStyle('#2563eb'));   // now a drawn polygon\n          this.attachEditablePolygonHandlers(o);                 // subsequent edits sync normally\n          this.polygonOverlays.push(o);\n      });\n      this.detachNotice = `ZIP ${zip} is now a custom boundary \u2014 its ZIP chip was removed.`;\n      this.syncEditingState();\n    Note ALL rings of a multi-ring ZIP are promoted together (renderEditableZip :446-459\n    creates one overlay per ring), otherwise editing one ring would silently drop the others.\n  - `removeZip(zip)` (:658) \u2014 before deleting, call the same listener cleanup and clear\n    selectedZip if it matches, so the chip '\u00d7' path leaks nothing. Its behaviour is otherwise\n    unchanged; it stays wired to the chip '\u00d7' (blade :157) and handleZipBackspace (:653) only.\n  - `clearEditing()` (:580) and `tearDownEditing()` (:478) \u2014 reset selectedZip, drop all\n    zipListeners, and clear detachNotice alongside the existing zipCodes/zipOverlays reset.\n  - `beginEdit()` (:340) \u2014 clear detachNotice at the top so a notice cannot survive a zone switch.\n\nresources/views/filament/pages/manage-zones.blade.php:\n  - Add one non-blocking notice under the ZIP input block (after the input closing at ~:171),\n    mirroring the existing zipError treatment but informational, not danger:\n      <p x-show=\"detachNotice\" x-cloak x-transition.opacity\n         class=\"mt-1 text-xs text-gray-600 dark:text-gray-400\" x-text=\"detachNotice\"></p>\n    Without this the ZIP chip vanishes the instant its shape is edited with no explanation \u2014\n    a UX defect this change would otherwise introduce (prep notes[5]).\n\nNo change to app/Filament/Pages/ManageZones.php, app/Models/Zone.php, or any migration: the\nDETACH model reuses the existing {polygons, zip_codes} save path verbatim.\n\nDRIVER AMENDMENT (session B) \u2014 `deselectZip()` MUST pass `editable: false` explicitly.\n`zipStyle()` (zone-manager.js:550-558) returns NO `editable` key at all, and\ngoogle.maps.Polygon.setOptions() applies only the keys present in the object it is given. So\n`o.setOptions(this.zipStyle())` leaves `editable: true` in place: the overlay looks deselected\nbut still shows vertex handles, and a stray drag still fires set_at and detaches a ZIP the user\nbelieved they had deselected. Write it as:\n    o.setOptions({ ...this.zipStyle(), editable: false });\nVerified by the driver against source. The drawn-polygon path does not have this asymmetry --\n`editablePolygonStyle(color)` (:538-548) DOES carry `editable: true` explicitly, so the\n`this.editablePolygonStyle('#059669')` call in `selectZip()` is valid as written.",
+      "depends_on": [
+        "t1"
+      ],
+      "parallelizable": false,
+      "test_filter": "ManageZonesTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t3",
+      "title": "Pin the DETACH definition shape at the Livewire/persistence boundary",
+      "approach": "The map interaction itself has no PHPUnit reachability \u2014 there is no JS test runner in this repo and the file's own docblock (:30-38) already delegates polygon drawing to Agent QA. What IS testable is the exact definition shape DETACH produces: a polygon in definition.polygons whose source ZIP is absent from definition.zip_codes. Two tests, following the file's existing patterns verbatim (ResourceTestCase, #[Group('clarity-scout')], Livewire::test(ManageZones::class), the private polygonDefinition()/makeZone() helpers). This is the only PHPUnit-shaped half of AC6, plus a cheap regression guard that the t1 styling work did not disturb the definition round-trip.",
+      "target_files": [
+        "tests/Filament/Pages/ManageZonesTest.php"
+      ],
+      "intended_diffs": "tests/Filament/Pages/ManageZonesTest.php \u2014 add a new section after TC-Z2 (the ZIP-only zone\ntest at :190-204), reusing the existing helpers and #[Group('clarity-scout')] attribute:\n\n  // ---- DEV-2557: detached (formerly ZIP-derived) boundaries -----------------\n\n  test_a_detached_zip_boundary_persists_as_a_polygon_and_drops_the_zip()\n    Livewire::test(ManageZones::class)\n      ->set('data.name', 'Detached Zip')\n      ->set('data.color', '#2563eb')\n      ->set('data.definition', ['polygons' => [<a square Polygon GeoJSON>], 'zip_codes' => []])\n      ->call('save')->assertHasNoFormErrors();\n    assert the stored definition has exactly one polygon and an EMPTY zip_codes array, and\n    that geom is non-null (Zone::rebuildGeometryFromDefinition ran off the polygon alone \u2014\n    i.e. nothing re-derives the ZIP any more). Query geom via\n    DB::connection('platform')->table('zones')->where('id', ...)->value(DB::raw('geom IS NOT NULL')),\n    since geom is $hidden on the model.\n\n  test_a_detached_zip_boundary_survives_a_reload_round_trip()\n    Create the zone through save() as above, then ->call('loadZone', $zone->id) and\n    ->assertSet('data.definition.polygons', <the same one-polygon array>)\n    ->assertSet('data.definition.zip_codes', []).\n    This is the reload half of AC6: loadZone() (:229-260) re-fills from Zone::definition, so a\n    ZIP that has left zip_codes cannot come back.\n\n  test_a_zone_can_mix_a_detached_polygon_with_a_still_attached_zip()\n    definition = ['polygons' => [<square>], 'zip_codes' => ['75201']] \u2014 proves the partial case\n    (edit one of two ZIPs) still saves and still re-derives the untouched ZIP. Mirrors the\n    existing test_saves_a_zip_only_zone assertion style on $zone->definition['zip_codes'].\n\nNo production code is touched by this node.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "ManageZonesTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple"
+    },
+    {
+      "id": "t4",
+      "title": "Rebuild and commit public/build (without the Boost doc regeneration)",
+      "approach": "public/build is git-tracked (15 files under git ls-files public/build; .gitignore has no entry for it), and BOTH changed sources are Vite entry points \u2014 vite.config.js declares resources/css/filament/app/theme.css and resources/js/components/zone-manager.js in its input array. A source-only commit therefore ships as a production no-op: the browser keeps loading the old hashed assets. This is an explicit node, not an implicit step, because it is the single most common way this class of fix silently fails.",
+      "target_files": [
+        "public/build"
+      ],
+      "intended_diffs": "Run `npm run build` (vite build && node scripts/version-sw.mjs && php artisan filament:assets)\nfrom the worktree root, then commit the regenerated public/build/** (the theme and\nzone-manager bundles get new content hashes, and public/build/manifest.json updates).\n\nMANDATORY cleanup before committing: `npm run build` in this repo also regenerates the\nLaravel Boost docs \u2014 it rewrites CLAUDE.md / AGENTS.md / the junie guidelines and drops a\nboost.json. Those are NOT part of this ticket and re-inlining a <laravel-boost-guidelines>\nblock into CLAUDE.md is an okf-lint failure. `git checkout -- CLAUDE.md AGENTS.md` (plus any\njunie file) and delete boost.json before staging, then `git status` must show ONLY\npublic/build/** in this node's diff.\n\nVerification: confirm the new theme CSS bundle contains the string\n`fi-select-input-value-badges-ctn` and the new zone-manager bundle contains `detachZip` \u2014\ngrep the built files, do not assume the build picked the changes up.\n\nDRIVER CORRECTION (session B, executed): the instruction \"delete boost.json before staging\" is\nWRONG for this repo and must not be followed. `boost.json` is a TRACKED, COMMITTED file here\n(`git ls-files --error-unmatch boost.json` succeeds), and this run's `npm run build` did NOT\nmodify it. Deleting it stages the removal of a real repo file. Likewise `npm run build` did NOT\nregenerate CLAUDE.md / AGENTS.md on this run - both stayed clean. The ONLY generated churn was\n`public/clarity-scout-sw.js`'s APP_VERSION stamp, which checkpoint.sh reverts automatically via\nCLARITY_GENERATED_NOISE. Verified post-build: theme bundle contains `fi-select-input-value-badges-ctn`\nand all 6 chip tokens; zone-manager bundle contains detachZip/selectZip/deselectZip/attachZipHandlers/\ndetachNotice; manifest.json repoints to theme-DD-xtf5u.css and zone-manager-C1GLqAsg.js.",
+      "depends_on": [
+        "t1",
+        "t2"
+      ],
+      "parallelizable": false,
+      "test_filter": "ManageZonesTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {
+      "site": "app/Support/Filament/PlatformPanelProvider.php:37-53 \u2014 the degenerate `primary` ramp (50 = #FBE9F5, 100-950 all = #FF6666)",
+      "reason": "Root cause of defect 1, deliberately NOT fixed: operator decision #2 ring-fences buttons and links in both the /app and /client panels for a hotfix. Verified in place; raise as the follow-up ticket."
+    },
+    {
+      "site": "resources/views/components/pro-upgrade-popover.blade.php:49, resources/views/.../scans/cluster-group.blade.php:143, resources/views/.../hits/cluster-group.blade.php:149, resources/views/components/pro-feature-teaser.blade.php:6 \u2014 the four 'Pro' badges (bg-primary-500/20 + text-primary-400)",
+      "reason": "Hand-rolled Tailwind, not .fi-badge, so the chip selectors do not reach them and no AC names them. Correction to prep: they do NOT shift incidentally under the chosen CSS-only route (prep assumed the rejected token fix), so the 'spot-check for regression' item prep recorded is moot \u2014 they simply stay as they are."
+    },
+    {
+      "site": "Blade <x-filament::badge color=\"primary\"> outside form value-chip containers \u2014 table column badges, infolist and status badges, across both panels",
+      "reason": "Equally broken (verified: BadgeComponent::getColorMap() at vendor/filament/support/src/View/Components/BadgeComponent.php:16-56 tests every shade against $color[50]; on the flat ramp every check fails, so it falls through to $text ??= 900 and $darkText ??= 200, both #FF6666 \u2014 ~2.46:1 light). No AC names them, and recoloring every primary table/status badge in the customer-facing client portal in a hotfix is unreviewed visual churn. Rides with the token follow-up."
+    },
+    {
+      "site": "Primary buttons: manage-zones.blade.php:23 and :116 (bg-primary-600 text-white), :47 (<x-filament::button color=\"primary\">), and every .fi-btn-color-primary / link in both panels",
+      "reason": "Explicitly ring-fenced by operator decision #2 \u2014 'buttons and links must not shift in either panel'. White on #FF6666 is ~2.6:1, but changing it is out of scope by decision, not by oversight."
+    },
+    {
+      "site": "app/Filament/Forms/Components/ZoneMapDisplay.php + resources/views/forms/components/zone-map-display.blade.php + resources/js/components/zone-map-display.js \u2014 the second zone-map surface flagged by prep's backstop",
+      "reason": "Checked, not guessed: READ-ONLY. The Field sets ->dehydrated(false); the JS attaches only mouseover/mousemove/mouseout on a google.maps.Data layer (zone-map-display.js:105-107) \u2014 no click handler, no editable polygons, no DrawingManager, no $wire write. Its chips are <a> links styled from per-zone Zone::PRESET_COLORS hexes, never the primary token. Neither defect is duplicated there."
+    },
+    {
+      "site": "app/Models/Zone.php (rebuildGeometryFromDefinition :251-296, searchZipCodes :329-353) and app/Filament/Pages/ManageZones.php (loadZone / save / the Hidden::make('definition') dehydrator)",
+      "reason": "Unchanged by design. DETACH was chosen precisely because it reuses the existing {polygons, zip_codes} save path verbatim \u2014 zero schema change, zero server change."
+    },
+    {
+      "site": "DEV-2252 \u2014 zone creation failure when entering ZIP codes",
+      "reason": "Separate ticket on the same page; carried through from prep's out_of_scope."
+    },
+    {
+      "site": "okf/ wiki pages (okf/concepts/zone.md and the chip/theme pages)",
+      "reason": "CLAUDE.md WRITE rule: no wiki edits while work is in flight. Queue the zone.md note about ZIP detachment for the post-approval pass."
+    },
+    {
+      "site": "resources/css/clarity-scout.css",
+      "reason": "The Scout PWA's own stylesheet; it is not a Filament panel theme and renders none of these chips."
+    }
+  ],
+  "driver_amendments": [
+    {
+      "node": "t1",
+      "issue": "unlayered color: override kills the x icon's hover/focus-visible states (badge.css:68-77)",
+      "fix": "add matching :hover / :focus-visible rules for both container selectors"
+    },
+    {
+      "node": "t2",
+      "issue": "zipStyle() omits the `editable` key, so setOptions() cannot turn editing off on deselect",
+      "fix": "deselectZip() must spread `{ ...this.zipStyle(), editable: false }`"
+    }
+  ],
+  "gate_evaluations": {
+    "blast_radius": "[] - re-verified against the sensitive globs; no node matches; no approval line required",
+    "sizing_gate": "does not fire - 4 hand-edited source files (<6). Two concerns, split rejected: operator scoped ACs 1-9 into this single hotfix and answered all three blocking questions to make the whole of it shippable; one QA session; splitting costs a second public/build rebuild + review against a git-tracked directory",
+    "perf_gate": "not applicable - data_impact.ch_tables is empty, no ClickHouse surface read or written; perf_validation.required=false"
+  }
+}

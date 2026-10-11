@@ -1,0 +1,76 @@
+{
+  "key": "DEV-2467",
+  "arbiter_model": "opus",
+  "sizing_gate": {
+    "fired": true,
+    "files": 8,
+    "threshold": 6,
+    "recommendation": "DO NOT SPLIT",
+    "reason": "8 files, but ONE concern: a single dashboard card. 4 of the 8 are the tests this ticket's own contract mandates (card-order assertion, the second hardcoded card count, the new query-class test, the new widget test). The remaining 4 are 2 new app classes plus 2 one-line edits (a cards() insertion and a getStatColor() arm). The DEV-2409 epic is ALREADY split one-metric-per-ticket, so this ticket IS the split unit; splitting further would ship a query class with no consumer, or a widget with no data source. Precedent: DEV-2460 in this same epic fired this gate and recorded the same rejection."
+  },
+  "perf_gate": {
+    "required": false,
+    "verdict": "go",
+    "basis": "prior-measurement (DEV-2466, production ClickHouse Cloud, 2026-09-08). Both adopted shapes are individually measured; the unmeasured combined shape is deliberately NOT adopted."
+  },
+  "excluded_sites": [
+    {"site": "app/Clickhouse/Queries/{LprVisitCountQuery,RdnHitHourCountQuery,RdnScanHourCountQuery,RecoveryLeaderQuery,ScanStatsBatchQuery}.php", "reason": "Pre-existing hardcoded `clarity.` prefix. Named by the ticket as the bug NOT to copy, not as work to retrofit. Out of blast radius."},
+    {"site": "app/Filament/Widgets/Dashboard/ScanCount.php Scan::hot()::query() static discard (DEV-2324)", "reason": "Latent bug in the sibling card. This ticket avoids inheriting it by targeting scans_cold on purpose; fixing ScanCount is a different ticket."},
+    {"site": "app/Models/AggregateScanCountByHour::affiliateStatsReportQuery()", "reason": "Dead code (single occurrence, its own definition). One Build Record line, no code change."},
+    {"site": "tests/e2e/helpers/company-metrics.ts", "reason": "A second card registry, but the Playwright specs iterate defensively and skip absent keys, so omission is a coverage gap not a failure. Deliberately excluded to keep the diff to the PHP contract; DEV-2483 owns e2e coverage for this card suite."},
+    {"site": "app/Filament/Widgets/Client/Concerns/ClientChartWidget.php 13-month loop", "reason": "Client-portal panel, unrelated to Company Metrics."}
+  ],
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Unique Scan Counts card: query class, widget, registration, tests",
+      "approach": "TDD, in dependency order. Build ScanPlateStatsBatchQuery first (it has no dependencies), then the widget that consumes it, then the two registration edits, then fix the two hardcoded card counts. Every ClickHouse decision is already settled by DEV-2466 and recorded in prep-context.json - implement those shapes exactly, do not re-derive them.",
+      "target_files": [
+        "app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php",
+        "app/Filament/Widgets/Dashboard/UniqueScanCounts.php",
+        "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php",
+        "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+        "tests/Feature/Clickhouse/ScanPlateStatsBatchQueryTest.php",
+        "tests/Filament/Widgets/Dashboard/UniqueScanCountsTest.php",
+        "tests/Filament/Pages/DashboardCardExpansionTest.php",
+        "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php"
+      ],
+      "intended_diffs": {
+        "app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php": "NEW, declare(strict_types=1). Structural copy of HitPlateStatsBatchQuery: private DATETIME_PATTERN + assertDatetime() allowlist, private static fromAndWhere() shared by both entry points, static::clarityDb() for the prefix, DB::connection('clarity_clickhouse')->select(). WHERE org_id = {orgId} AND scanned_at >= toDateTime('{start}') AND scanned_at <= toDateTime('{end}') AND _peerdb_is_deleted = 0. NO FINAL, NO `clarity.` literal, NO kit_id routing. handle(): SELECT toStartOfMonth(scanned_at) AS month, uniqExact(ocr) AS unique_plates ... GROUP BY month ORDER BY month -> array<string 'Y-m', int>. handleRange(): SELECT kit_id, uniqExact(ocr) AS unique_plates ... GROUP BY kit_id WITH ROLLUP -> array<int kitId, int>, where key 0 is the org total. PLUS a public static sharedRangeCacheKey(int $orgId, string $start, string $end): string returning a CLASS-NEUTRAL key ('scan-plate-stats:unique-range:org={org}:{start}:{end}', spaces replaced) - this is the DEV-2468 sharing seam and it must NOT go through DashboardWidget::buildWidgetCacheKey(), which prefixes the WIDGET class basename and is therefore unreadable from a sibling card. Docblock records: why no FINAL (DEV-2466 sec 5, ocr immutable across CDC versions - the OPPOSITE of hits_cold), why org_id and never kit_id (DEV-2466 sec 1c, 6.7x rows / 3.8x time for an identical answer), why scans_cold and never scans_hot (sec 6, 3.3x slower on 5x the parts), and why handle() does NOT carry the kit dimension (the combined 13-month x per-kit rollup was never measured; sec 4 and sec 7 measured the two shapes separately).",
+        "app/Filament/Widgets/Dashboard/UniqueScanCounts.php": "NEW, extends DashboardWidget. protected ?string $pollingInterval = null; protected ?string $heading = 'Unique Scan Counts'; getDatasetLabel() 'Unique Scans'; getRgbColor() [34,197,94] to match the 'success' arm (Q1: deliberately the same as ScanCount). getModelQueryForDates() is a 0-stub (the LiveHits precedent) because both real paths are overridden. getMonthlyData() mirrors ScanCount: memo, resolvePastMonthsFromCold() + resolveCurrentMonthFromCold(), then read 13 cache()->get(buildWidgetCacheKey(...)) buckets. resolvePastMonthsFromCold() collects uncached Y-m keys, spans min..max, calls the protected countable seam fetchMonthlySeries() ONCE, and writes each bucket at getCacheTTL(1) - inside try/catch that report()s and falls back to [] ONLY in production|testing, matching ScanCount:111-124 exactly. resolveCurrentMonthFromCold() reads scans_cold too (NOT hot - the DEV-2466 sec 6 correction to ScanCount's pattern) at getCacheTTL(0). Its own monthKeyStart() anchoring day-01 before month arithmetic (ScanCount:80-83 - resolving '2026-06' on the 31st otherwise overflows to July). getRangeTotal() returns fetchRangeRollup($start,$end)[0] ?? 0 with NO try/catch, honouring the base class's documented contract that a bounded-window failure must propagate rather than persist a fabricated 0 under a shared key. canViewCardData(): guest short-circuit true, then static::canView() && (Feature::active(FeatureEnum::COMPANY_METRICS->slug()) || session()->has('admin_impersonator')) - StagingLiveHitLeader's exact shape (Q3). NO description copy about the divergences (Q2).",
+        "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php": "cards(): insert 'unique-scan-counts' => UniqueScanCounts::class at index 2, between 'recovery-counts' and 'staging-live-hit-leader'. Docblock: un-bracket [Unique Scan Counts] in the row-2 line (it becomes 'Unique Scan Counts'), and correct the now-stale alignment prose - the card count becomes 10 and SIX built cards precede the hit block, not five. Do NOT reorder anything else; the other 6 gaps stay.",
+        "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php": "getStatColor(): add 'unique-scan-counts' => 'success' as an explicit arm. Reusing scan-count's colour is deliberate (Q1) - add a short note so a reviewer does not read it as a copy-paste slip.",
+        "tests/Feature/Clickhouse/ScanPlateStatsBatchQueryTest.php": "NEW, RequiresClickhouse. Pins: dedup of a repeated ocr within one window; NO collapse of the same ocr across two months; org_id scoping excludes a second org's rows; _peerdb_is_deleted = 1 rows excluded; the WITH ROLLUP kit_id=0 row equals the standalone org scalar; the emitted SQL contains neither the literal 'clarity.' nor FINAL. Carries the DEV-2466 dup-group probe as a documented regression check.",
+        "tests/Filament/Widgets/Dashboard/UniqueScanCountsTest.php": "NEW. Pins: getStatColor() returns 'success' (not the 'gray' default); a cold-cache render calls fetchMonthlySeries() EXACTLY ONCE for 12 uncached months (round-trip count via the protected seam, since DB::listen never fires for the ClickHouse driver); getCardTotal() routes today/last_7d through the range rollup and this_month/last_month through the monthly buckets; a non-entitled org renders lockedStat() and issues ZERO ClickHouse calls; sharedRangeCacheKey() is class-neutral, i.e. it contains no widget class basename, so a sibling card can reproduce it.",
+        "tests/Filament/Pages/DashboardCardExpansionTest.php": "Insert the new key at its position in the layout-order expectation; bump assertCount(9, $cardWidgets) at line 94 to 10. test_all_four_hit_cards_are_contiguous() must pass UNMODIFIED - it measures array adjacency and the hit block shifts as one unit.",
+        "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardVisibilityTest.php": "Bump assertCount(9, CompanyMetricsOverview::cards()) at line 191 to 10. This file is NOT named by the ticket - it was found by the grep backstop and independently by a prep candidate, then driver-verified."
+      },
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "ordered_steps": [
+    "1. Baseline: run the AC-relevant tests BEFORE any change and record pass/fail, so a pre-existing failure is never misread as a regression.",
+    "2. TDD the query class: write tests/Feature/Clickhouse/ScanPlateStatsBatchQueryTest.php first, confirm RED, then implement ScanPlateStatsBatchQuery until GREEN.",
+    "3. TDD the widget: write tests/Filament/Widgets/Dashboard/UniqueScanCountsTest.php, confirm RED, then implement UniqueScanCounts until GREEN.",
+    "4. Registration: insert into cards() at index 2 and add the getStatColor() arm; update the mockup docblock and its stale alignment prose.",
+    "5. Fix the two hardcoded card counts (DashboardCardExpansionTest:94 and DashboardCardVisibilityTest:191) and the layout-order expectation.",
+    "6. Confirm test_all_four_hit_cards_are_contiguous() still passes UNMODIFIED.",
+    "7. composer format (Pint).",
+    "8. Full suite via vendor/bin/phpunit with a raised memory_limit; compare against the step-1 baseline, not against zero."
+  ],
+  "invariants": [
+    "NEVER a hardcoded `clarity.` prefix - static::clarityDb() only.",
+    "NEVER FINAL on scans_cold for this aggregate.",
+    "NEVER filter or route via kit_id to reach an org - org_id leads the sort key.",
+    "NEVER read scans_hot.",
+    "NEVER re-derive date/month arithmetic - resolveCardRange() and a day-01-anchored monthKeyStart() only.",
+    "NEVER route the batch through ClickhouseQuery::query() - it swallows Throwable to [] in production|testing, which would cache a failure as a zero.",
+    "NEVER put the DEV-2468-shared key through buildWidgetCacheKey() - that prefixes the widget class basename and a sibling card could not read it.",
+    "NEVER add try/catch inside getRangeTotal() - the base class documents why a bounded-window failure must propagate."
+  ]
+}

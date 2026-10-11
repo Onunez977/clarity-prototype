@@ -1,0 +1,70 @@
+{
+  "key": "DEV-2653",
+  "track": "product",
+  "base_sha": "25870f75661f07a27a69124a414e557d4c11fff0",
+  "precedents": [
+    {
+      "id": "shared-month-key",
+      "file": "app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php",
+      "symbol": "sharedMonthCacheKey",
+      "lines": "447-452",
+      "use": "Class-neutral concat key scan-plate-stats:unique-month-v1:org={id}:{month}:tz={zone}. Payload is a bare int. Do not bump -v1; the shape does not change."
+    },
+    {
+      "id": "shared-range-key",
+      "file": "app/Clickhouse/Queries/ScanPlateStatsBatchQuery.php",
+      "symbol": "sharedRangeCacheKey",
+      "lines": "400-408",
+      "use": "Class-neutral range key. Already shared by UniqueScanCounts and UniqueScansLeaderboard when start, end, and timezone match. Leave this contract alone."
+    },
+    {
+      "id": "ttl-ladder",
+      "file": "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+      "symbol": "getCacheTTL",
+      "lines": "285-294",
+      "use": "1 year / 10 minutes / 10 seconds. Settle window is an optional second argument, not a new ladder."
+    },
+    {
+      "id": "class-basename-trap",
+      "file": "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+      "symbol": "buildWidgetCacheKey",
+      "lines": "296-303",
+      "use": "Prefixes class_basename. Shared keys must not call this. UniqueLprCaseClaims monthly series does, on purpose, and stays that way."
+    },
+    {
+      "id": "held-flexible",
+      "file": "app/Filament/Widgets/Dashboard/Concerns/HeldFlexibleCache.php",
+      "symbol": "heldFlexible",
+      "lines": "44-77",
+      "use": "Warm path requires both the value key and illuminate:cache:flexible:created:{key}. LprRepossessions shared-key writers stay on this trait."
+    },
+    {
+      "id": "repos-shared-keys",
+      "file": "app/Clickhouse/Queries/LprRepossessionsQuery.php",
+      "symbol": "sharedMonthlySeriesCacheKey",
+      "lines": "250-284",
+      "use": "Keep both helpers. Series payload is the monthly array. Window payload is an int db_repos. Do not widen either payload."
+    },
+    {
+      "id": "open-month-token-split",
+      "file": "app/Filament/Widgets/Dashboard/UniqueScanCounts.php",
+      "symbol": "getMonthlyData",
+      "lines": "198-199",
+      "use": "i === 0 uses the literal this_month. RatioAgainstUniqueScans.php:159-162 uses Y-m for the same bucket. That split is the AC-1 gap."
+    },
+    {
+      "id": "claims-not-shared",
+      "file": "app/Filament/Widgets/Dashboard/UniqueLprCaseClaims.php",
+      "symbol": "getMonthlyData",
+      "lines": "281-285",
+      "use": "Class-prefixed key plus [3600, 86400]. Out of the shared-cache ship. UniqueLprCaseClaimsQuery has no shared*CacheKey method."
+    },
+    {
+      "id": "okf-ladder",
+      "file": "okf/concepts/company-metrics-dashboard.md",
+      "symbol": "getCacheTTL ladder",
+      "lines": "240-256",
+      "use": "Canonical ladder and the warning that a private Cache::flexible pair skips impersonation. Queue an okf update after approval; do not write it now."
+    }
+  ]
+}

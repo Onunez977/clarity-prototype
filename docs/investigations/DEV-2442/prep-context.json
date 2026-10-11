@@ -1,0 +1,347 @@
+{
+  "key": "DEV-2442",
+  "gate": "CLEAN",
+  "mode": "normal",
+  "reconcile_method": "driver-inline (opus). 3 blind candidates + 1 grep backstop unioned. The single material disagreement (regression vs dead-from-birth) was resolved by the driver with DIRECT git evidence, not by vote - see disagreements[].",
+  "synthesis": "The Client Analytics branch/location filter has never returned data for any org, ever. The filter-application code is correct; the column it filters on is universally empty. clarity.*.branch_id derives from zod.public.hotlist_json.json['branch_id'], whose only writer is App\\Jobs\\Rdn\\GetOrgHotlistCaseInfo, dispatched only by App\\Jobs\\Rdn\\GetOrgHotlistCases - which has no dispatch site on main. Measured in production: 0 of 95,542,923 live hotlist_json rows carry a branch_id key at all, and all 7 downstream ClickHouse consumer tables hold exactly one distinct branch_id value (0). Selecting any real branch therefore applies a predicate that cannot match, zeroing every stat card and hiding every client from the table. This is NOT specific to Action Towing.",
+  "root_cause": {
+    "statement": "A regression introduced pre-merge: the dispatch wiring was authored, then deleted 3 days before its PR merged, and the squash-merge meant main never carried the working version.",
+    "evidence": [
+      "f67a59464 (2025-10-24, PR #97 branch) DID carry both: GenerateRdnCache.php:47 '(new GetOrgHotlistCases(orgId: $org->id))->delay(now()->addMinutes(3))' inside Bus::batch, and GetOrgHotlistCases.php:41 '->doesntHave('case')' idempotency guard. Verified directly by the driver via git show.",
+      "6092806dd 'Cleanup' (2025-11-07T14:02:27Z, author daltonmccleery) removed BOTH lines in one commit, no ticket ref or explanation. Verified by the driver via gh api.",
+      "9aaeafead 'Pint' removed the now-unused import, confirming the removal was deliberate at code level.",
+      "433b46265 (2025-11-10) squash-merged PR #97 (DEV-1145 Client Dashboard) to main already missing the wiring. The branch-filter UI shipped in the SAME PR.",
+      "f67a59464 is NOT an ancestor of origin/main (verified) - the squash-merge is why a `git log -S` pickaxe over main finds nothing, and why the first backstop pass wrongly concluded 'dead code from birth'."
+    ],
+    "correction": "This ticket's earlier grep-backstop verdict ('unreachable dead code from birth; NOT a regression') is WRONG and has been superseded. Its methodology was sound but blind to squash-merged branch history."
+  },
+  "scope": {
+    "summary": "The fix shape is 'restore a known-good design that was cut', not 'design something new'. But restoring it verbatim is unsafe at today's volume: the original ->doesntHave('case') guard makes STEADY STATE safe (only new hotlists) while leaving the FIRST run unbounded - it would sweep the entire 95.5M-row un-enriched backlog in one pass, one RDN SOAP call per row, with no bulk endpoint and no rate limit for orgs lacking org_meta.properties['rdn_rate_limit'] (RateLimiter returns Limit::none()). That initial-catch-up hazard is the crux of this ticket and is plausibly the very reason the code was cut in Nov 2025.",
+    "target_files_candidate": [
+      "app/Console/Commands/GenerateRdnCache.php",
+      "app/Jobs/Rdn/GetOrgHotlistCases.php",
+      "app/Jobs/Rdn/GetOrgHotlistCaseInfo.php",
+      "app/Filament/Pages/ClientAnalytics.php",
+      "tests/Feature/Console/Commands/GenerateRdnCacheTest.php",
+      "tests/Feature/Jobs/Rdn/GetOrgHotlistCasesTest.php"
+    ],
+    "out_of_scope": [
+      "chlocal-owned materialized-view SQL that folds hotlist_json.branch_id into the clarity.* tables (cross-repo, unverifiable here)",
+      "laravel-zod-migrations trigger propagation (cross-repo, unverified)",
+      "RDN vendor rate-limit / ToS negotiation",
+      "Branch enrichment for non-RDN integrations (Location_Services, iRepo, NICB, Primeritus, Manual_Upload) - no mechanism exists or is planned"
+    ]
+  },
+  "options": [
+    {
+      "id": "A",
+      "name": "Restore wiring + bounded, idempotent, resumable backfill",
+      "effort": "large",
+      "risk": "high",
+      "note": "Satisfies all 4 ACs eventually. 95.5M rows x 1 SOAP call each, no bulk endpoint. Rough order: ~11 days at a fleet-wide 100 calls/s; ~221 days at 5/s; per-org limits make it far worse. Needs vendor tolerance confirmation."
+    },
+    {
+      "id": "B",
+      "name": "Honest UI - disable the branch Select with explanatory copy, gated on a cached per-org signal",
+      "effort": "small",
+      "risk": "low",
+      "note": "Stops the dashboard reporting a false business fact ('Tampa: 0 repossessions'). Does NOT deliver per-branch data. Filter plumbing left dormant and correct, so it self-activates when data exists. Reject a live ClickHouse absence-probe: absence is that probe's WORST case (full org-range granule scan) on every page load."
+    },
+    {
+      "id": "C",
+      "name": "Forward-only - restore the daily job + guard, no historical backfill",
+      "effort": "medium",
+      "risk": "medium",
+      "note": "The original ->doesntHave('case') design IS the forward-only mechanism, already written. Resolves the 'no Eloquent hook' concern (hotlist rows are never created via Eloquent - zero Hotlist::create() sites - so a scheduled delta job is correct, not an Observer). BUT the first run still sweeps the whole 95.5M backlog unless additionally bounded, and default MTD/YTD views stay empty for weeks."
+    },
+    {
+      "id": "D",
+      "name": "Split - ship B now, carry A/C as its own ticket",
+      "effort": "small now",
+      "risk": "low",
+      "note": "Two of three candidates independently ranked this or its equivalent first."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "item": "Selecting a branch/location correctly scopes stats and table data",
+      "source": "ticket",
+      "decision": "blocked-on-decision",
+      "reason": "Not achievable by filter-code changes - the filter code is already correct. Requires the data pipeline (A or C)."
+    },
+    {
+      "item": "Stat cards reflect the filtered location",
+      "source": "ticket",
+      "decision": "blocked-on-decision",
+      "reason": "All 5 widgets share one systemic root cause (29 forBranch() call sites, one shape)."
+    },
+    {
+      "item": "Client table populates for a valid location",
+      "source": "ticket",
+      "decision": "blocked-on-decision",
+      "reason": "Same root cause via ClientRankedMetricsBatch."
+    },
+    {
+      "item": "Verified for Action Towing across 2+ branches",
+      "source": "ticket",
+      "decision": "defer",
+      "reason": "Cannot be verified for ANY org today. Requires a completed backfill for that specific org; duration unknown and vendor-bound."
+    }
+  ],
+  "questions": [
+    {
+      "q": "Why was the GetOrgHotlistCases dispatch + doesntHave('case') guard removed in 6092806dd 'Cleanup' (2025-11-07)? If it was cut because it hammered the RDN API, restoring it is dangerous and the answer changes the whole plan.",
+      "answered": true,
+      "answer": "Not recalled. Treat the RDN-load hazard as unproven but live: design defensively (bounded, resumable, rate-limit-aware, operator-triggered rather than fired from the daily schedule).",
+      "source": "human:Dalton 2026-08-28",
+      "material": true
+    },
+    {
+      "q": "Which option should DEV-2442 actually deliver - A (restore + backfill), B (honest UI only), C (forward-only), or D (ship B now, split A/C into a new ticket)?",
+      "answered": true,
+      "answer": "Option A - full restore + historical backfill. Concern about scale was raised and the decision was reaffirmed; proceeding with A.",
+      "source": "human:Dalton 2026-08-28",
+      "material": true
+    },
+    {
+      "q": "Is a historical backfill in scope at all? 95.5M rows, one RDN SOAP call each, no bulk endpoint.",
+      "answered": true,
+      "answer": "Yes - in scope, per the Option A decision.",
+      "source": "human:Dalton 2026-08-28",
+      "material": true
+    },
+    {
+      "q": "Should orgs without org_meta.properties['rdn_rate_limit'] (which resolve to Limit::none(), unbounded) be excluded from dispatch until a limit is configured?",
+      "answered": true,
+      "answer": "Not excluded. Superseded by the forward-only decision: a bounded per-run cap is the primary control, so dispatch no longer depends on the rate limit for safety. Apply 100/min (the only value in production, on all 345 configured orgs) as a secondary layer for unconfigured orgs. FLAGGED for reviewer confirmation.",
+      "source": "ASSUMED:default-100-per-min (driver, flagged for review)",
+      "material": true
+    },
+    {
+      "q": "Does the cross-repo laravel-zod-migrations / chlocal pipeline correctly propagate hotlist_json.branch_id downstream once written, or does that also need a change? Unverifiable from this repo.",
+      "answered": true,
+      "answer": "PARTIALLY ANSWERED BY MEASUREMENT (not by a human). The propagation chain exists and is correctly wired for branch_id end-to-end: hotlist_json.json['branch_id'] -> hotlist_json_denormalized_mv (JSONExtract) -> clarity.hotlist_incremental_mv (its changed-set UNIONs hotlist_json_denormalized on its OWN watermark, so clarity.hotlist DOES pick up a backfill) -> recoveries/missed_opportunities (h.branch_id from clarity.hotlist) -> client_days_to_repo (r.branch_id from clarity.recoveries). The MV layer is NOT implicated in the bug. HOWEVER see the new blocker: hotlist_status_aggregate_mv will not retroactively pick up a backfill.",
+      "source": "code (read-only CH schema introspection)",
+      "material": true
+    },
+    {
+      "q": "Is the branch filter broken only for Action Towing, or universally?",
+      "answered": true,
+      "answer": "Universally, for every org. Measured: 0 of 95,542,923 hotlist_json rows carry a branch_id key; all 7 consumer tables hold exactly 1 distinct branch_id value (0).",
+      "source": "code",
+      "material": false
+    },
+    {
+      "q": "Is the filter-application code itself buggy?",
+      "answered": true,
+      "answer": "No. Correct across all 29 forBranch()/branch_id call sites since DEV-2345 (78cddfbc1). One systemic data cause, not N widget bugs.",
+      "source": "code",
+      "material": false
+    },
+    {
+      "q": "Is the branches dropdown itself populated correctly?",
+      "answered": true,
+      "answer": "Yes - by GetOrgBranches, a separate and functioning pipeline dispatched daily by GenerateRdnCache. This is why real branch names appear while no data can ever match them.",
+      "source": "code",
+      "material": false
+    },
+    {
+      "q": "Do the other Client Analytics filters (client, lienholder) share this latent failure?",
+      "answered": true,
+      "answer": "No - immune by construction. Their dropdown options are derived via whereNotNull() on the SAME column they later filter by, so options cannot exist without matching data. Only the branch filter sources its options from a different table than the column it filters.",
+      "source": "code",
+      "material": false
+    },
+    {
+      "q": "Is there any other writer of branch association (e.g. hits_cold.branch_id via a different path)?",
+      "answered": true,
+      "answer": "No. Hit.php and Scan.php contain zero branch_id references; every branch-scoped surface traces to hotlist_json.branch_id, sole writer GetOrgHotlistCaseInfo:90.",
+      "source": "code",
+      "material": false
+    },
+    {
+      "q": "Is IndividualClientAnalytics affected?",
+      "answered": true,
+      "answer": "No - it has no branch Select in its filtersForm; branch_id is always null there.",
+      "source": "code",
+      "material": false
+    },
+    {
+      "q": "Was a dispatch site ever present and removed?",
+      "answered": true,
+      "answer": "Yes - verified directly. Present at f67a59464, removed by 6092806dd 'Cleanup' (2025-11-07, daltonmccleery), never reached main due to the squash-merge of PR #97.",
+      "source": "code",
+      "material": false
+    },
+    {
+      "q": "Should orgs with no configured rdn_rate_limit be excluded from dispatch? MEASURED: 22,684 of 23,029 org_meta rows (98.5%) have no limit; 139.8M of 146.5M backlog rows (95.4%) across 3,148 orgs would run under Limit::none(). Excluding them covers only 4.6% of the backlog - and Action Towing is almost certainly among the excluded.",
+      "answered": true,
+      "answer": "Superseded by the forward-only decision. With a bounded per-run cap the blast radius no longer depends on the rate limit as the primary control. DRIVER ASSUMPTION (flagged for review): apply a default budget of 100/min for orgs with no configured value - the only value present in production, on all 345 configured orgs - as a secondary safety layer.",
+      "source": "human:Dalton 2026-08-28",
+      "material": true
+    },
+    {
+      "q": "NEW BLOCKER (measured): clarity.hotlist_status_aggregate_mv is REFRESH ... APPEND TO and its changed-set is driven solely by public_hotlist_status_log's watermark, so a platform-side backfill of hotlist_json.branch_id will NOT retroactively populate it - historical rows keep branch_id=0 permanently. The stat cards backed by that table would still read 0 after a successful backfill. This needs a companion chlocal-side rebuild of the aggregate target tables. Is that in scope / who owns it?",
+      "answered": true,
+      "answer": "RESOLVED AS A HARD CONSTRAINT: clarity.hotlist_status_aggregate CANNOT be changed. Historical per-branch stats on the Total Assignments / Total Repossessions cards are therefore permanently unrecoverable. This removes the payoff from a historical backfill and is what changed the chosen option from A to forward-only.",
+      "source": "human:Dalton 2026-08-28",
+      "material": true
+    },
+    {
+      "q": "2026-09-30 re-scope: when should the headline cards (Assignments / Accepted / Recovery Rate) read clarity.hotlist.first_*_at instead of hotlist_status_aggregate — only when a branch is selected, or always?",
+      "answered": true,
+      "answer": "Only when a branch is selected (lowest impact): unfiltered numbers stay on the aggregate and do not move for any client. Accepted consequence: a branch view can differ from the unfiltered total by up to ~4% (reopens not recounted).",
+      "source": "human:Dalton 2026-09-30",
+      "material": true
+    },
+    {
+      "q": "Branch-filtered headline numbers: approximate (first_*_at) acceptable, or must they be exact?",
+      "answered": true,
+      "answer": "Must be exact. first_*_at is off for org 14 (Accepted +8..+26%/mo, Assignments -2..-5%). Exact requires a per-hotlist status-transition array on clarity.hotlist (chlocal) - validated 0-diff for org 14 Mar-Aug.",
+      "source": "human:Dalton 2026-09-30",
+      "material": true
+    },
+    {
+      "q": "How to handle the chlocal change?",
+      "answered": true,
+      "answer": "Open a ticket assigned to Dalton for Sprint 42: DEV-2892 created, blocks DEV-2442.",
+      "source": "human:Dalton 2026-09-30",
+      "material": true
+    },
+    {
+      "q": "Commit the main merge despite checkpoint.sh hard-blocking main's .env.example/.env.kamal.example?",
+      "answered": true,
+      "answer": "Yes, one-off plain git commit + normal push (cfbdbc00a). Plate token redacted in DEV-2739 artifacts.",
+      "source": "human:Dalton 2026-09-30",
+      "material": false
+    }
+  ],
+  "blockers": [
+    "Material scope decision unresolved (which option to build) - cannot be auto-answered per /ticket non-negotiable 1.",
+    "The reason for the original removal is unknown and load-bearing: if it was cut for RDN load, restoring it without new throttling repeats the incident.",
+    "Cross-repo propagation (laravel-zod-migrations / chlocal MVs) unverified from this repo.",
+    "Unresolved resource envelope: a 95.5M-row, one-SOAP-call-per-row backfill with no bulk endpoint and Limit::none() for unconfigured orgs."
+  ],
+  "notes": [
+    "GetOrgHotlistCaseInfo has NO idempotency guard of its own - it makes a live SOAP call even when branch_id is already resolved. The removed doesntHave('case') guard was the only thing preventing daily re-enrichment of the whole book.",
+    "No bulk/batched RDN case-info endpoint exists in app/Services/RDN.php - only per-case call('getRdnCaseInfo'). This is the central feasibility constraint on any backfill.",
+    "Horizon {low} supervisors default to 1 process each (config/horizon.php:214,219), so real throughput is far below any rate ceiling without deliberate scale-up.",
+    "GetOrgHotlistCaseInfo resolves branch by EXACT string match of RDN's vendor_branch_name against Branch.branch_name - so even after a successful backfill some rows will legitimately remain null. Backfill coverage should be measured, not assumed.",
+    "Only the RDN integration can ever populate branch_id. Location_Services, iRepo, NICB, Primeritus and Manual_Upload orders have no equivalent path.",
+    "The published methodology guide (resources/views/filament/pages/client-analytics-guide.blade.php:149,180) documents this branch filter as working - so silently hiding it contradicts user-facing docs.",
+    "Test blind spot: existing branch-filter tests assert only type-coercion/SQL-shape plumbing; none seed a non-zero branch_id and assert real filtered data. That is why this shipped and stayed unnoticed for ~10 months.",
+    "okf/concepts/rdn.md currently describes the case-info pipeline as if it were operative. It is stale on this point and should be corrected AFTER this lands, per the WRITE-after-approval rule."
+  ],
+  "disagreements_resolved": [
+    {
+      "topic": "regression vs dead-code-from-birth",
+      "positions": "grep-backstop + fast-pass: never dispatched, dead from birth, not a regression. Candidate 3: dispatch existed and was deleted pre-merge.",
+      "resolution": "Candidate 3 is CORRECT. Driver verified independently: git show f67a59464 shows both the dispatch (GenerateRdnCache.php:47) and the guard (GetOrgHotlistCases.php:41); gh api confirms 6092806dd 'Cleanup' removed them; f67a59464 is not an ancestor of origin/main, explaining the pickaxe miss.",
+      "method": "direct evidence, not majority vote (grounded beats confident)"
+    }
+  ],
+  "data_impact": {
+    "pg_tables": [
+      "zod.public.hotlist_json",
+      "zod.public.hotlist",
+      "zod.public.branches",
+      "zod.public.org_meta"
+    ],
+    "ch_tables": [
+      "clarity.hotlist_status_aggregate",
+      "clarity.hotlist",
+      "clarity.recoveries",
+      "clarity.missed_opportunities",
+      "clarity.client_days_to_repo_all",
+      "clarity.client_historical_hits_hourly",
+      "zod.hotlist_json_denormalized"
+    ],
+    "mv_or_cdc_implications": "hotlist_json.branch_id -> PeerDB CDC -> zod.hotlist_json_denormalized_mv (JSONExtractInt) -> chlocal-owned MVs into clarity.*. Measured: the MV layer faithfully propagates an empty source, so it is NOT implicated. Writing the source column is necessary and (pending cross-repo confirmation) sufficient.",
+    "indexes_relied_on": [
+      "clarity.hotlist_status_aggregate ORDER BY (org_id, client_org_id, branch_id, ...)"
+    ]
+  },
+  "resource_envelope": {
+    "scale_relevant": true,
+    "trigger": "The coherent fix re-enables GetOrgHotlistCases from the scheduled GenerateRdnCache command; its handle() iterates an org's hotlists and dispatches one SOAP-backed job per row.",
+    "driving_tables": [
+      {
+        "table": "hotlist",
+        "source": "zod.public_hotlist",
+        "prod_rows": 135303746,
+        "group_by": "org_id",
+        "largest_group_rows": 17302199
+      },
+      {
+        "table": "hotlist_json",
+        "source": "zod.public_hotlist_json",
+        "prod_rows": 95542923,
+        "group_by": "n/a",
+        "rows_needing_enrichment": 95542923
+      },
+      {
+        "table": "hotlist (by rate-limit posture)",
+        "source": "zod.public_hotlist semi-joined to org_meta",
+        "unthrottled_rows": 139807840,
+        "unthrottled_orgs": 3148,
+        "rate_limited_rows": 6753882,
+        "rate_limited_orgs": 345,
+        "only_configured_limit_value": 100
+      }
+    ],
+    "growth": "not separately measured; current volume alone forces a bounded rollout",
+    "schedule": {
+      "expression": "dailyAt('5:00')",
+      "interval_seconds": 86400,
+      "without_overlapping_minutes": null
+    },
+    "allocation_sketch": "Steady state with the restored doesntHave('case') guard is bounded and safe (new hotlists only). The FIRST run is the hazard: 95.5M un-enriched rows, one RDN SOAP round trip each, no bulk endpoint. Order of magnitude: ~11 days at a sustained fleet-wide 100 calls/s; ~221 days at 5/s; per-org rate limits push it far higher, and orgs with no configured rdn_rate_limit run under Limit::none() (unbounded), risking external throttling or a ban on credentials shared with the working GetOrgBranches pull.",
+    "oracle_status": "ok",
+    "unresolved": [
+      "Whether a chlocal-side rebuild of clarity.hotlist_status_aggregate (and the other incremental MV targets) is in scope - without it, a platform-side backfill does not revive historical stat cards.",
+      "RDN's sustained-throughput tolerance / ToS for a bulk pull of ~146.5M calls - outside this repo's visibility.",
+      "Action Towing's specific org id, hotlist volume, and whether it is among the 345 rate-limited orgs."
+    ]
+  },
+  "tests": [
+    {
+      "file": "tests/Feature/Console/Commands/GenerateRdnCacheTest.php",
+      "what_it_pins": "queueBatch() includes GetOrgHotlistCases in the dispatched Bus::batch - pins the exact gap that let this regression ship silently and go unnoticed for ~10 months"
+    },
+    {
+      "file": "tests/Feature/Jobs/Rdn/GetOrgHotlistCasesTest.php",
+      "what_it_pins": "handle() dispatches GetOrgHotlistCaseInfo ONLY for hotlists without an existing case (the doesntHave('case') guard), not for every hotlist"
+    },
+    {
+      "file": "tests/Filament/Widgets/Client/ClientTableBranchFilterTest.php",
+      "what_it_pins": "positive path currently missing - seed a non-zero branch_id and assert the filter returns matching rows and excludes non-matching ones"
+    }
+  ],
+  "confidence": 88,
+  "escalated": true,
+  "best_of_n": true,
+  "decision": {
+    "option": "C+B (forward-only restore + honest UI)",
+    "chosen_by": "human:Dalton 2026-08-28",
+    "supersedes": "Option A (full restore + historical backfill), chosen earlier and withdrawn once the 'cannot change hotlist_status_aggregate' constraint was established",
+    "rationale": "clarity.hotlist_status_aggregate is REFRESH...APPEND TO, driven solely by public_hotlist_status_log's watermark. Rows already appended with branch_id=0 stay 0 permanently. So a 146M-call historical backfill would NOT revive the AC-2 stat cards - the only branch data that ever surfaces there is for hotlists whose status changes AFTER enrichment, which forward-only achieves at ~0 backfill cost.",
+    "delivers": [
+      "Restore the GetOrgHotlistCases dispatch in GenerateRdnCache::queueBatch()",
+      "Restore the ->doesntHave('case') idempotency guard in GetOrgHotlistCases::handle()",
+      "Bound the first run so it cannot sweep the ~95.5M un-enriched backlog",
+      "Add an idempotency guard to GetOrgHotlistCaseInfo (it currently calls RDN even when branch_id is already resolved)",
+      "Honest UI on the branch filter while data accrues",
+      "Tests pinning the dispatch composition and the guard - the exact gap that let this ship silently"
+    ],
+    "explicitly_out_of_reach": "Historical per-branch stats on the hotlist_status_aggregate-backed cards (Total Assignments, Total Repossessions). Declared out of reach rather than pursued."
+  },
+  "hard_constraints": [
+    {
+      "constraint": "clarity.hotlist_status_aggregate is OFF-LIMITS - no in-place change and no rebuild.",
+      "rationale": "It is a CDC-like table whose purpose is aggregating hotlist STATUS CHANGES. Adding case/branch enrichment to it is outside what the table is for. Architectural boundary, not an operational limitation.",
+      "source": "human:Dalton 2026-08-28 (restated and made firm after a rebuild was investigated)",
+      "investigated_and_rejected": "A rebuild was measured as technically tractable (source public_hotlist_status_log retains 387,563,807 rows from 2022-11-03; target is only 62.9M rows / 1.67 GiB) and an in-place UPDATE was proven impossible anyway (branch_id is part of the sorting key: org_id, client_org_id, branch_id, lienholder_org_id, old_status, new_status, status_hour). REJECTED ON PURPOSE, not on cost.",
+      "consequence": "Branch attribution on the hotlist_status_aggregate-backed cards is strictly forward-only and self-corrects on a ROLLING basis: the default MTD view becomes substantially correct after ~1 month of enrichment, YTD after ~1 year, lifetime never. This is a documented ramp characteristic, not a defect to engineer around."
+    }
+  ]
+}

@@ -1,0 +1,398 @@
+{
+  "ticket": "DEV-2596",
+  "phase": "3 (ultra-plan, single arbiter)",
+  "planned_by": "plan-arbiter",
+  "planned_at": "2026-09-17T17:20:00Z",
+  "input": "docs/investigations/DEV-2596/prep-context.json",
+  "settled_decisions": {
+    "product_ac5": "Coexist \u2014 admin force-login must NOT evict the driver's own clarity-scout-token. No change to ClarityScoutAuthController:64/:66; pinned by ClarityScoutForceLoginControllerTest:58 and re-asserted in S7.",
+    "rejected_c2": "Do NOT replace the admin_impersonator session gate with a signed URL, and do NOT persist admin_impersonator on the users table. The session check at ClarityScoutForceLoginController:16 is the only staff gate on a route carrying 'auth' middleware alone (routes/web.php:105), and it guards a token that hard-bypasses kit/permission/feature checks in two places (ClarityScoutMiddleware:25, routes/channels.php:30).",
+    "revoke_all_on_exit_is_correct": "All three revokeTracked() call sites (ImpersonateController:32, :83, :94) end the impersonation, so revoking EVERY tracked force token there is the intended semantics and is preserved. S1 makes tracking driver-scoped and bounded so revocation becomes targetable and stops carrying pruned/dead ids \u2014 it must NOT be used to spare other drivers' tabs on exit, which would leave gate-bypassing tokens alive to their 60-minute TTL."
+  },
+  "defects_addressed": {
+    "H1": "S3 + S4 + S2 \u2014 exit-admin becomes logged, announced and non-GET; the resulting force-login rejection now names a reason instead of a bare 403.",
+    "H2": "S5 + S6 \u2014 the Scout PWA's credential moves from an origin-shared localStorage slot to a tab-scoped slot for force-login tabs.",
+    "H3": "S1 \u2014 driver-keyed, prune-aware force-token tracking with legacy flat-shape tolerance."
+  },
+  "subtasks": [
+    {
+      "id": "S1",
+      "title": "Driver-scope force-token session tracking (H3)",
+      "approach": "Replace the flat clarity_scout_force_token_ids list with a driver-keyed map so tracking is bounded, prune-aware and targetable, while keeping revoke-all as the default so every existing exit path behaves exactly as today. Tolerate the pre-deploy flat shape so in-flight admin sessions still revoke correctly on the first post-deploy exit.",
+      "target_files": [
+        "app/Support/Scout/ScoutForceTokens.php"
+      ],
+      "intended_diffs": [
+        "SESSION_KEY now holds array<int|string, list<int>> keyed by driver id instead of list<int> (line 39 comment + shape).",
+        "mintFor(): replace Session::push(SESSION_KEY, id) at :49 with a read-modify-write of the driver's bucket; have prune() return the driver's surviving token ids and store exactly those, so ids deleted by KEEP_PER_DRIVER pruning never linger in the session.",
+        "revokeTracked(?User $driver = null): null (all three current call sites pass nothing) pulls and deletes every bucket then forgets the key \u2014 identical observable behaviour to today. With a driver, pull only that driver's bucket and leave the rest.",
+        "Add a private normalise(mixed $raw): array that maps a legacy flat list<int> onto a single unscoped bucket, so a session written before deploy still revokes instead of throwing or silently no-opping (data_impact.backward_compatibility_risk).",
+        "Leave TTL_MINUTES=60, KEEP_PER_DRIVER=3 and prune()'s per-driver query untouched. Do NOT clear the bucket on mint \u2014 that re-breaks the PR #410 duplicate-GET case pinned at ClarityScoutForceLoginControllerTest:87.",
+        "Update the class docblock to describe the driver-keyed shape and state that revoke-all is the intended exit semantics."
+      ],
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "php artisan test --compact --filter=ScoutForceTokensTest",
+      "ui_impact": "none",
+      "blast_radius": [
+        "auth/session: changes which personal_access_tokens rows are deleted and when",
+        "session payload shape change with live pre-deploy sessions in flight",
+        "force token is a gate bypass (ClarityScoutMiddleware:25, routes/channels.php:30) \u2014 over-revoking locks staff out mid-demo, under-revoking leaves a bypass credential alive to its 60-minute TTL"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "S2",
+      "title": "Surface and audit force-login rejections (AC4)",
+      "approach": "Give both intentional blocks an explicit, human-readable reason and an activity_log row written BEFORE the abort, so a rejection is visible to the admin in the freshly opened tab and reconstructable afterwards. Keep the existing success log untouched.",
+      "target_files": [
+        "app/Http/Controllers/ClarityScoutForceLoginController.php"
+      ],
+      "intended_diffs": [
+        "Replace the bare abort_unless(session()->has('admin_impersonator'), 403) at :16 with a guarded branch that first writes activity('clarity-scout-force-login') with properties ['outcome' => 'denied', 'reason' => 'admin_impersonator_missing', 'kit_id' => ...], then aborts 403 with an explicit message naming the cause and the remedy (admin mode ended or the admin session expired \u2014 return to the admin panel and re-enter admin mode).",
+        "Do the same for the :20 no-assigned-user case: log ['outcome' => 'denied', 'reason' => 'kit_has_no_assigned_user'] then keep the 404 with its existing message.",
+        "There is no resources/views/errors/403.blade.php override in this repo, so Laravel's framework error view renders the abort message verbatim \u2014 no new view file is needed for AC4.",
+        "Leave the success activity('clarity-scout-force-login') block at :26-34 and the view payload at :36-53 byte-identical; ClarityScoutForceLoginControllerTest:216 and ScoutSetPasswordControllerTest:273 pin them."
+      ],
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "php artisan test --compact --filter=ClarityScoutForceLoginControllerTest",
+      "ui_impact": "The new force-login tab now renders a 403/404 page that names the reason instead of a bare status page. No admin-panel UI change.",
+      "blast_radius": [
+        "auth gate response path \u2014 the 403 must still be a hard deny; only its message and audit trail change",
+        "adds rows to activity_log on every denied attempt"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "S3",
+      "title": "Make exitAdminMode() observable (H1, server half)",
+      "approach": "Mirror leave()'s pattern: write an activity('impersonation') row before revoking, then flash a Filament notification so the admin sees that admin mode ended and that Login to Scout is now disabled. Revocation semantics stay revoke-all.",
+      "target_files": [
+        "app/Http/Controllers/ImpersonateController.php"
+      ],
+      "intended_diffs": [
+        "exitAdminMode(Request $request): build activity('impersonation'), performedOn($request->user()) when present, and log 'Admin mode exited by '.session()->get('impersonator.name') \u2014 ordered BEFORE revokeTracked() exactly as leave() does at :75-83.",
+        "Keep ScoutForceTokens::revokeTracked() with no argument (revoke-all) and session()->forget('admin_impersonator').",
+        "Send a Filament Notification (warning) titled 'Admin mode exited' whose body states that Scout force-login is no longer available until admin mode is re-entered, so redirect()->back() is no longer a silent no-visible-change transition.",
+        "Do NOT reorder revokeTracked() relative to session()->invalidate() in impersonate() (:32) or leave() (:83) \u2014 the current order is required and reordering would make revocation a silent no-op (reconcile_notes.disagreed_and_how_settled)."
+      ],
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "php artisan test --compact --filter=ImpersonateControllerTest",
+      "ui_impact": "A warning notification now appears in the admin panel after exiting admin mode; the amber ADMIN MODE banner disappears on the same render.",
+      "blast_radius": [
+        "auth/session: the only method that strips admin_impersonator",
+        "activity_log gains impersonation-exit rows"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "S4",
+      "title": "Harden exit-admin against GET reachability (H1, route half)",
+      "approach": "A destructive, session-mutating action must not sit behind a GET that a prefetch, a history replay or a stray click can fire. Convert the route to POST and the banner link to a CSRF-protected form submit. Scope is exit-admin only.",
+      "target_files": [
+        "routes/web.php",
+        "resources/views/filament/hooks/impersonate.blade.php"
+      ],
+      "intended_diffs": [
+        "routes/web.php:45 \u2014 Route::get('auth/impersonate/exit-admin', ...) becomes Route::post(...), name unchanged so route('impersonate.exit-admin') keeps resolving.",
+        "impersonate.blade.php:6-8 \u2014 replace the <a href> wrapper with <form method=\"POST\" action=\"{{ route('impersonate.exit-admin') }}\"> + @csrf and an x-filament::button type=\"submit\" color=\"warning\"; keep the label and layout identical inside the existing flex row.",
+        "Leave the 'Leave' link (route('impersonate.leave'), blade :9-11 and :17-19) as a GET \u2014 it is out of the H1 mechanism and its effect is self-evident (full logout + redirect to Backyard). Noted rather than silently widened.",
+        "No other caller of route('impersonate.exit-admin') exists in app code (rg: blade, ImpersonateControllerTest:153, okf/concepts/impersonation.md only)."
+      ],
+      "depends_on": [
+        "S3"
+      ],
+      "parallelizable": false,
+      "test_filter": "php artisan test --compact --filter=ImpersonateControllerTest",
+      "ui_impact": "The Exit Admin Mode control renders as a form submit button on every admin page. Visually unchanged.",
+      "blast_radius": [
+        "auth/session: the exit-admin route contract changes verb \u2014 any bookmark or stale tab issuing GET now 405s instead of silently revoking (intended)",
+        "the banner blade renders on every page of the admin panel"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "S5",
+      "title": "Add a tab-scoped Scout credential accessor",
+      "approach": "One small module that owns where the Scout PWA's credential lives, so the four existing readers stop reaching into localStorage directly. Force-login tabs mark themselves tab-scoped (sessionStorage, which survives reload and is not shared with other tabs); normal driver login keeps using localStorage so the PWA still rehydrates on relaunch.",
+      "target_files": [
+        "resources/js/clarity-scout/lib/scoutCredentials.js"
+      ],
+      "intended_diffs": [
+        "New module exporting the key constants currently duplicated as string literals (scanner_token / scanner_user / scanner_kit / scanner_is_impersonating / scanner_trips_enabled / scanner_enabled_map_layers / scanner_teammate_overlay_enabled).",
+        "markTabScoped(): writes a scout_credential_scope='tab' marker into sessionStorage. Called once, first thing, by forceAuthenticate().",
+        "resolveStorage(): returns sessionStorage when the marker is present, otherwise localStorage. Resolved per call so it is correct both on the force-login boot and on a reload of that same tab. Deliberately a marker check, not a read-through fallback \u2014 a force-login tab must never silently adopt the driver's own localStorage token.",
+        "getCredential(key) / setCredential(key, value) / removeCredential(key) / clearCredentials() wrapping the resolved storage in try/catch, matching the existing defensive style of auth.js safeParse().",
+        "No imports from this module yet, so nothing changes behaviourally until S6 lands."
+      ],
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "n/a (no unit-test runner for JS in this repo \u2014 package.json exposes vite + playwright only; verified in S9)",
+      "ui_impact": "none",
+      "blast_radius": [],
+      "complexity": "simple"
+    },
+    {
+      "id": "S6",
+      "title": "Route every Scout credential read/write through the accessor (H2)",
+      "approach": "Swap the direct localStorage calls in all four known readers/writers for the accessor in one change, so REST, boot and analytics agree on which credential this tab owns. Echo already receives its token as an argument and stays per-tab with no edit.",
+      "target_files": [
+        "resources/js/clarity-scout/lib/fetch.js",
+        "resources/js/clarity-scout/stores/auth.js",
+        "resources/js/clarity-scout/main.js",
+        "resources/js/clarity-scout/lib/track.js"
+      ],
+      "intended_diffs": [
+        "fetch.js:24 \u2014 authHeaders() reads getCredential(TOKEN) instead of localStorage.getItem('scanner_token'). handleUnauthorized()'s three removals at :74-76 become clearCredentials(). Admin/Bird's-Eye mode branch (:16-23) untouched.",
+        "auth.js \u2014 forceAuthenticate() calls markTabScoped() BEFORE any write, then its writes at :207-209 land in the tab-scoped slot; store hydration (:37-39), login() writes (:118-120), logout() removals (:143-146), fetchUser() writes (:189-190), the persist* flag helpers (:57-80) and parseEnabledMapLayers() (:12-20) all move to the accessor so a force-login tab's flags and cached identity stay with that tab.",
+        "main.js:17-20 \u2014 validate the injected payload before booting: if token, user or kit is missing/empty, record a signed-out reason and route to /scout/login instead of calling forceAuthenticate() on a malformed object. Folds in prep's downgraded defence-in-depth item at zero extra file cost; it is defensive only (Q14 shows no realistic null-token path).",
+        "main.js:22 \u2014 the non-force boot reads getCredential(TOKEN), so a plain /scout reload in a force-login tab rehydrates that tab's driver and a reload in the driver's own tab rehydrates the driver.",
+        "track.js:15 \u2014 the analytics gate reads getCredential(TOKEN) so it cannot diverge from authHeaders().",
+        "echo.js needs no edit: connectEcho(token) already takes the token as an argument (:15, :40), so passing the tab's own token keeps realtime and REST on the same driver and closes the split-brain described in Q15."
+      ],
+      "depends_on": [
+        "S5"
+      ],
+      "parallelizable": false,
+      "test_filter": "npx playwright test tests/e2e/dev-2596-force-login-tab-isolation.spec.ts",
+      "ui_impact": "A second force-login tab no longer repoints an already-open Scout tab at a different driver. The driver's own PWA still rehydrates across reloads and relaunches.",
+      "blast_radius": [
+        "client auth identity for every Scout PWA request \u2014 a mistake signs drivers out or leaves a tab authenticating as the wrong driver",
+        "touches the driver's normal-login rehydrate path (main.js:22), not just the force-login path",
+        "credential storage location changes with live PWA installs in the field; a driver mid-shift must not be logged out by the deploy (normal login stays on localStorage, so it is not)"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "S7",
+      "title": "PHP tests: consecutive distinct drivers, denied outcomes, legacy session shape",
+      "approach": "Close the confirmed coverage gap (every existing test is single-driver or same-driver-twice) and pin the new denial and legacy-shape contracts.",
+      "target_files": [
+        "tests/Feature/Http/Controllers/ClarityScoutForceLoginControllerTest.php",
+        "tests/Unit/Support/Scout/ScoutForceTokensTest.php"
+      ],
+      "intended_diffs": [
+        "Feature: force-login three DIFFERENT drivers in one admin session and assert all three force tokens remain valid and usable (the reported failure).",
+        "Feature: force-login with an active driver clarity-scout-token present and assert coexistence in both directions (AC1 + AC5 'coexist').",
+        "Feature: a 403 with no admin_impersonator writes an activity_log row with outcome=denied and returns a response whose body names the reason (AC4).",
+        "Feature: a 404 for a kit with no assigned user writes a denied row and keeps its message.",
+        "Unit (new, follows tests/Unit/Support/Scout/* convention): mintFor() buckets ids per driver; revokeTracked() with no driver clears every bucket; revokeTracked($driver) clears only that driver's; a legacy flat list<int> in the session is still fully revoked; pruned ids do not survive in the session bucket; KEEP_PER_DRIVER=3 still holds per driver and the duplicate-GET token stays usable.",
+        "Re-run ClarityScoutMiddlewareTest and ScoutChannelAuthTest unchanged as regression cover for the force-ability bypass."
+      ],
+      "depends_on": [
+        "S1",
+        "S2"
+      ],
+      "parallelizable": true,
+      "test_filter": "php artisan test --compact --filter='ClarityScoutForceLoginControllerTest|ScoutForceTokensTest'",
+      "ui_impact": "none",
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "S8",
+      "title": "PHP tests: exit-admin revocation scope, audit row and POST verb",
+      "approach": "Update the one existing exit-admin test for the new verb and add the observability assertions that are also the H1 regression detector.",
+      "target_files": [
+        "tests/Feature/Http/Controllers/ImpersonateControllerTest.php"
+      ],
+      "intended_diffs": [
+        "ImpersonateControllerTest:153 \u2014 $this->get(route('impersonate.exit-admin')) becomes $this->post(...); keep the existing assertions that the force token is revoked and admin_impersonator is gone.",
+        "Add: exitAdminMode() writes an activity_log row in the 'impersonation' log name.",
+        "Add: a GET to the exit-admin route is rejected (405), proving a prefetch or history replay can no longer revoke silently.",
+        "Add: after exitAdminMode(), a subsequent force-login attempt is denied with an explicit reason and a denied activity row \u2014 the end-to-end H1 regression test.",
+        "Add: re-impersonation (:32) still revokes every tracked token across drivers (intended semantics, explicitly pinned so a later change cannot 'improve' it into a token leak)."
+      ],
+      "depends_on": [
+        "S3",
+        "S4"
+      ],
+      "parallelizable": true,
+      "test_filter": "php artisan test --compact --filter=ImpersonateControllerTest",
+      "ui_impact": "none",
+      "blast_radius": [],
+      "complexity": "simple"
+    },
+    {
+      "id": "S9",
+      "title": "Playwright e2e: per-tab credential isolation",
+      "approach": "H2 is a multi-tab defect and is untestable in PHPUnit. The repo already has a Playwright harness (playwright.config.ts, tests/e2e/*.spec.ts) and a local-only /__qa/login lever that sets admin_impersonator directly, so drive two force-login tabs in one browser context and assert their identities stay separate.",
+      "target_files": [
+        "tests/e2e/dev-2596-force-login-tab-isolation.spec.ts"
+      ],
+      "intended_diffs": [
+        "Sign in via /__qa/login (routes/web.php:182-194, .test-host gated) to obtain admin_impersonator, then open /scout/force-login/{kitA} and /scout/force-login/{kitB} as two pages in the same context.",
+        "Assert page A's outbound Authorization header (via page.route or a request listener) still carries driver A's bearer after page B has booted, and that /api/scout/me in page A resolves to driver A.",
+        "Assert a reload of page A keeps driver A (tab-scoped credential survives reload).",
+        "Assert the driver's own normal-login tab still rehydrates from localStorage after a reload, so S6 has not broken the field PWA path.",
+        "No new dependency: @playwright/test is already in devDependencies and 'test:e2e' already exists. Do not add vitest \u2014 that would be a dependency change requiring separate approval."
+      ],
+      "depends_on": [
+        "S6"
+      ],
+      "parallelizable": true,
+      "test_filter": "npx playwright test tests/e2e/dev-2596-force-login-tab-isolation.spec.ts",
+      "ui_impact": "none",
+      "blast_radius": [],
+      "complexity": "simple"
+    }
+  ],
+  "execution_waves": [
+    {
+      "wave": 1,
+      "subtasks": [
+        "S1",
+        "S2",
+        "S3",
+        "S5"
+      ],
+      "note": "Disjoint target_files, safe to run in parallel."
+    },
+    {
+      "wave": 2,
+      "subtasks": [
+        "S4",
+        "S6"
+      ],
+      "note": "S4 after S3 (one coherent exit-admin change); S6 after S5 (imports the new module). S4 and S6 are disjoint from each other."
+    },
+    {
+      "wave": 3,
+      "subtasks": [
+        "S7",
+        "S8",
+        "S9"
+      ],
+      "note": "Disjoint test files, safe to run in parallel."
+    }
+  ],
+  "blast_radius_nodes": [
+    "S1",
+    "S2",
+    "S3",
+    "S4",
+    "S6"
+  ],
+  "human_approval": "REQUIRED before Phase 4: S1, S2, S3, S4 and S6 all carry auth/session blast radius. S1 changes a live session payload shape while pre-deploy sessions are in flight; S4 changes a route verb used by a banner rendered on every admin page; S6 relocates the credential that every Scout PWA request in the field reads. Pairing with the PR #410 author is advisable because S1 reshapes the tracking mechanism that PR introduced.",
+  "plan_approval": {
+    "required": true,
+    "reason": "auth/session blast radius",
+    "status": "approved",
+    "by": "Dalton",
+    "at": "2026-09-17T17:27:46Z",
+    "sizing_pick": "one_pr_both_lanes"
+  },
+  "excluded_sites": [
+    {
+      "site": "app/Http/Middleware/ClarityScoutMiddleware.php:25-27",
+      "reason": "The clarity-scout-force hard bypass is intentional and documented; narrowing it would break Bird's Eye and the force-login contract \u2014 H2 is fixed on the client instead."
+    },
+    {
+      "site": "routes/channels.php:19-45",
+      "reason": "Already correct \u2014 :22 pins the channel to the token's own user id and :30 mirrors the middleware bypass; no edit needed once each tab holds its own bearer."
+    },
+    {
+      "site": "resources/js/clarity-scout/lib/echo.js:38-43",
+      "reason": "connectEcho(token) takes the bearer as an argument, so it becomes per-tab-correct for free under S6; editing it would add a file for no behaviour change."
+    },
+    {
+      "site": "app/Filament/Resources/ScoutUsersResource.php:353-354",
+      "reason": "The stale visible() check cannot be fixed without polling the table (broad UI + query cost for every admin); AC4 is met instead by S2's explicit, audited rejection and S3's notification."
+    },
+    {
+      "site": "app/Support/Scout/ScoutForceTokens.php:49 (concurrent-mint session-write clobber, H4 variant)",
+      "reason": "Not deterministically testable in PHPUnit and a real fix needs request-level session locking; residual risk is bounded by the 60-minute TTL and reduced by S1 storing prune()'s surviving ids rather than appending blindly."
+    },
+    {
+      "site": "config/session.php:35 (120-minute idle lifetime)",
+      "reason": "Global session policy, not a DEV-2596 defect; the user-facing remedy is S2's 403 message naming an expired admin session."
+    },
+    {
+      "site": "resources/views/clarity-scout.blade.php:20 and resources/js/clarity-scout/router/index.js:35",
+      "reason": "The forceAuth payload shape and the /scout/force-login redirect are unchanged by this plan, so neither file is touched."
+    },
+    {
+      "site": "app/Models/User.php:248,252 \u00b7 ScoutOrgSettings:92 \u00b7 AnalyticsService:15 \u00b7 ClarityScoutShiftController:33,117",
+      "reason": "All read isScoutForceImpersonator / currentAccessToken abilities, which this plan does not change; they are re-verified by the existing suites, not edited."
+    },
+    {
+      "site": "public/clarity-scout-sw.js:83-90 and app/Http/Controllers/Api/ClarityScoutAuthController.php:64,66,97",
+      "reason": "Verified safe and load-bearing (PR #410 carve-out; coexistence by exact token-name match). Preserved untouched \u2014 AC5 'coexist' depends on them."
+    },
+    {
+      "site": "routes/web.php:188 (__qa/login)",
+      "reason": "Unchanged as a QA lever and consumed by S9. routes/web.php is touched only at :45 for the exit-admin verb."
+    },
+    {
+      "site": "okf/concepts/impersonation.md:49 (documents pre-#410 by-name revocation) and docs/investigations/scout-audit/scout-audit-report.md:42-49 (stale TTL/revocation claims)",
+      "reason": "Wiki and doc drift. CLAUDE.md forbids writing to okf/ while work is in flight \u2014 queued for the post-approval pass, not part of this plan's diffs."
+    },
+    {
+      "site": "~60 unrelated admin_impersonator consumers + ~30 tests (missed_caller_candidates.conditional_blast_radius)",
+      "reason": "Only in play if admin_impersonator's storage moves, which is explicitly rejected (refuted C2). Untouched by design."
+    }
+  ],
+  "sizing": {
+    "file_count": {
+      "production": 10,
+      "production_files": [
+        "app/Support/Scout/ScoutForceTokens.php",
+        "app/Http/Controllers/ClarityScoutForceLoginController.php",
+        "app/Http/Controllers/ImpersonateController.php",
+        "routes/web.php",
+        "resources/views/filament/hooks/impersonate.blade.php",
+        "resources/js/clarity-scout/lib/scoutCredentials.js (new)",
+        "resources/js/clarity-scout/lib/fetch.js",
+        "resources/js/clarity-scout/stores/auth.js",
+        "resources/js/clarity-scout/main.js",
+        "resources/js/clarity-scout/lib/track.js"
+      ],
+      "tests": 4,
+      "test_files": [
+        "tests/Feature/Http/Controllers/ClarityScoutForceLoginControllerTest.php",
+        "tests/Unit/Support/Scout/ScoutForceTokensTest.php",
+        "tests/Feature/Http/Controllers/ImpersonateControllerTest.php",
+        "tests/e2e/dev-2596-force-login-tab-isolation.spec.ts (new)"
+      ],
+      "total": 14
+    },
+    "concern_count": 4,
+    "concerns": [
+      "force-token session tracking scope (H3)",
+      "exit-admin observability and reachability (H1)",
+      "rejection surfacing and audit (AC4)",
+      "per-tab client credential isolation (H2)"
+    ],
+    "gate": {
+      "preference": "<=6 production files",
+      "actual": 10,
+      "triggers_stop": false,
+      "why_not_stop": "The plan exceeds the file preference but the excess is already partitioned along a clean seam: the server lane (S1-S4, S7, S8) and the client lane (S5, S6, S9) share zero files, zero symbols and zero test runners, and each closes its defects on its own. No node was padded \u2014 the 10th file is reached only because H2 has four independent localStorage readers that prep explicitly requires changing together (caution at proposed_changes[3]). Phase 4 should land it as two PRs rather than trim a defect."
+    },
+    "split_recommendation": {
+      "would_split": true,
+      "pick": "Land the server lane first: S1, S2, S3, S4 + S7, S8 \u2014 5 production files (ScoutForceTokens, ClarityScoutForceLoginController, ImpersonateController, routes/web.php, impersonate.blade.php), verified by PHPUnit. Then the client lane: S5, S6 + S9 \u2014 5 production files (scoutCredentials.js, fetch.js, auth.js, main.js, track.js), verified by Playwright.",
+      "reason": "10 production files across 4 concerns and two runtimes exceeds the <=6 preference, and the two lanes are genuinely independent: the server lane closes H1, H3 and AC4; the client lane closes H2. Splitting keeps each auth/session review reviewable in one sitting and lets the server lane (which carries the session-shape deploy hazard) ship and be observed before the client credential relocation follows. Reviewing them together would put a session payload migration and a field-PWA credential move in the same diff."
+    }
+  },
+  "verification": {
+    "commands": [
+      "php artisan test --compact --filter='ClarityScoutForceLoginControllerTest|ScoutForceTokensTest|ImpersonateControllerTest'",
+      "php artisan test --compact --filter='ClarityScoutMiddlewareTest|ScoutChannelAuthTest' (regression, unchanged files)",
+      "npm run build (S5/S6 touch bundled sources)",
+      "npx playwright test tests/e2e/dev-2596-force-login-tab-isolation.spec.ts",
+      "vendor/bin/pint --dirty --format agent",
+      "composer analyse"
+    ],
+    "perf_validation": "not required \u2014 no ClickHouse involvement; auth/session on a 1:1 admin-to-driver request path (resource_envelope.scale_relevant = false)",
+    "manual_qa": "prep-context.qa_hint steps 1, 2, 5, 6 and 7. Step 6 is the PR #410 non-regression pass (duplicate GET keeps the live token, pruning caps at 3 per driver, the service worker still refuses to cache force-login HTML). Step 3 (re-impersonation kills all tabs) is expected behaviour, not a bug to fix.",
+    "deploy_note": "S1 changes a session payload shape. Live admin sessions written before deploy hold the flat list; the normalise() tolerance in S1 is what keeps their first post-deploy exit from leaving gate-bypassing tokens alive. Verify it with the legacy-shape unit test before release, not after."
+  },
+  "not_closed_by_this_plan": [
+    "AC2 single-incident attribution: root cause stays competing-open (Q2/Q4/Q5 unknown per the 2026-09-17 interview). The plan closes the code-grounded root-cause class \u2014 H1, H2, H3 \u2014 which is what the resolved blocker authorises.",
+    "The 120-minute idle-session 403 mechanism (H4 residual) is surfaced by S2's message but not eliminated.",
+    "okf/concepts/impersonation.md:49 drift \u2014 queued for the post-approval wiki pass per CLAUDE.md."
+  ]
+}

@@ -1,0 +1,201 @@
+{
+  "key": "DEV-2232",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2232",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "plan-arbiter",
+      "model": "opus (driver-inline)",
+      "effort": "inherit",
+      "phase": "plan",
+      "dur_s": 0,
+      "note": "one-node transcription plan authored inline by the opus driver; no separate dispatch"
+    },
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 117
+    },
+    {
+      "slot": "review",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 480
+    },
+    {
+      "slot": "agent-qa",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "verify",
+      "dur_s": 120
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "clarity/scout.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "answered:false open question (guard end() too?)",
+    "escalate.recommend=true (analytics/audit integrity)"
+  ],
+  "escalation_note": "Triggers fired but the only open item is a human product-scope decision (guard end()?) that blind best-of-N candidates cannot resolve; fast-pass was exhaustive (17 tool-uses) + grep backstop confirmed no missed site, so single-pass prep + backstop was used and the question routed to the Phase 2 gate.",
+  "best_of_n": false,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "1b1e7a8608e661de37526f478c980d3d065182ed",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "(single-node fast path — REPO_PATH, no worktree)",
+      "branch": "claude/DEV-2232",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 1,
+  "pr": {
+    "number": 291,
+    "url": "https://github.com/insight-lpr/platform/pull/291",
+    "draft": false
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": "already In Progress at intake (no transition needed)",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "undraft did not fire a GH-action; pipeline transitioned In Progress -> In Code Review via Atlassian MCP (transition id 4) @ 2026-07-24",
+  "assumed": [],
+  "comment_ids": {
+    "status": "37604",
+    "build_record": "37678"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "provisioned_early": true,
+    "provisioning": {
+      "bootstrap": "ran",
+      "deps": "via-bootstrap",
+      "migrations": "ran",
+      "docker_daemon": "n/a",
+      "ch_container": "n/a",
+      "frontend_build": "not-needed",
+      "postgres_db": "zod_claude_dev_2232 (dev) + zod_testing_claude_dev_2232 (testing)",
+      "ch_strategy": "deferred",
+      "herd_site": "clarity-claude_dev_2232.test"
+    }
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact --filter=ClarityScoutShiftControllerTest",
+        "passed": 14,
+        "failed": 0,
+        "note": "TDD red->green (1 failed pre-fix -> 14 passed, 82 assertions). Full suite deferred to CI per CLAUDE.md 'never run unit tests automatically'."
+      }
+    ],
+    "deviations": [],
+    "review": {
+      "lanes": [
+        "correctness",
+        "security",
+        "testintegrity"
+      ],
+      "scores": [
+        100,
+        100,
+        100
+      ],
+      "findings_fixed": [],
+      "findings_residual": [
+        "non-scoring nit: no-open-shift `data` payload duplicated in status() (guard branch + $shift===null branch); extract a private helper. Maintainability only, not applied (functional policy: nits never).",
+        "known residual (Dalton-deferred): end() (POST /shift/end) has the same impersonation side-effect class; out of scope for DEV-2232 (start only). Filed as follow-up DEV-2236 (linked Relates)."
+      ],
+      "lane_sources": [
+        {
+          "lane": "correctness",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "security",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "testintegrity",
+          "source": "in-session-agent"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "4b8cac645df0ca695a2c89b4c8adebbb1d6d8ea5",
+      "rework_pivot": false
+    },
+    "ac": [
+      {
+        "item": "An impersonating admin polling GET /api/scout/shift/status creates no kit_shifts row and fires no ShiftStart analytics/audit events.",
+        "status": "SATISFIED",
+        "evidence": "Guard at status() line 62 before currentOpenForKit (B3); controller+EnsureOpenShift construct clean (B2); feature test 14/14 + 3-lane review 100/100 pin the runtime impersonator path (no row / no track / no audit). Live force-login walkthrough deferred to human QA (hp-2)."
+      },
+      {
+        "item": "A normal (non-impersonated) drivers shift-start behavior is unchanged.",
+        "status": "SATISFIED",
+        "evidence": "Verified LIVE during seeding: a real Sanctum token for driver user 2 (kit 16, recent scan) polling /shift/status opened a shift (open:true). Existing tests green; route resolves (B1)."
+      },
+      {
+        "item": "The Scout PWA shows no open shift while impersonating.",
+        "status": "SATISFIED",
+        "evidence": "Human QA confirmed (Dalton, 2026-07-24): while impersonating, the PWA shows no open shift / no End Shift button; normal-driver contrast holds. Backend returns open:false."
+      }
+    ]
+  },
+  "handoff": "done — human QA complete, env torn down"
+}

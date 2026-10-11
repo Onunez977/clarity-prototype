@@ -1,0 +1,30 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Lower the two Scout zoom-visibility floors 12 -> 11 and rebuild assets",
+      "approach": "In resources/js/clarity-scout/components/ScannerMap.vue, change PATH_LAYERS_MIN_ZOOM (line 134) from 12 to 11 and RANGE_HIT_MARKERS_MIN_ZOOM (line 129) from 12 to 11. Leave every other zoom constant/literal untouched (NO_SCAN_LABEL_MIN_ZOOM already 11; TRAIL_ARROWS_MIN_ZOOM=14, LIVE_ZOOM=16, bootZoom/fallbackZoom=12 all out of scope per Dalton). Then run `npm run build` and commit the regenerated public/build assets + manifest.json. Revert any boost-doc regen (CLAUDE.md/AGENTS.md/.junie) that npm build sweeps in.",
+      "target_files": [
+        "resources/js/clarity-scout/components/ScannerMap.vue",
+        "public/build/manifest.json",
+        "public/build/assets"
+      ],
+      "intended_diffs": "ScannerMap.vue:129  const RANGE_HIT_MARKERS_MIN_ZOOM = 12; -> 11\nScannerMap.vue:134  const PATH_LAYERS_MIN_ZOOM = 12; -> 11\npublic/build/*  regenerated Vite bundle hashes + manifest.json (mechanical)",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "simple"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "ScannerMap.vue NO_SCAN_LABEL_MIN_ZOOM (=11)", "reason": "already at the target floor; not named."},
+    {"site": "ScannerMap.vue TRAIL_ARROWS_MIN_ZOOM (=14)", "reason": "Dalton confirmed out of scope."},
+    {"site": "ScannerMap.vue LIVE_ZOOM (=16)", "reason": "camera punch-in target, not a visibility gate."},
+    {"site": "ScannerMap.vue bootZoom/fallbackZoom (=12)", "reason": "default VIEW zoom; Dalton confirmed unchanged."},
+    {"site": "focusOnHit/fitToDriverPositions/focusZoneFeature clamps", "reason": "user-driven camera interactions, not defaults."}
+  ],
+  "testing_note": "JS-only change; repo has NO JS test runner. Per CLAUDE.md execution policy ('Never run unit tests automatically; CI runs tests after commit'), no local test suite run — the change touches zero PHP so the PHP suite is irrelevant. Verification is agent/human QA at the Scout map (zoom-11 boundary) + CI on push.",
+  "perf_note": "No deferred-perf CH design on a >1B-row surface: no query, endpoint, or schema changes. The existing (uncapped) scan-path fetch is unchanged; lowering the floor merely lets it fire one zoom level (~4x viewport area) further out. That widening risk is a QA verification item (60-day range at zoom 11), not a Phase 3.5 perf-gate trigger. perf_validation.required=false."
+}

@@ -1,0 +1,349 @@
+{
+  "key": "DEV-2313",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2313",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "plan-arbiter",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "plan",
+      "dur_s": 0,
+      "note": "authored inline by opus driver (single-node DAG, small additive scope)"
+    },
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 808
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 772
+    },
+    {
+      "slot": "implement:t1",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 1269
+    },
+    {
+      "slot": "review-r2",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 771
+    },
+    {
+      "slot": "review-r3",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 329
+    },
+    {
+      "slot": "implement:t1-hardening",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "implement",
+      "dur_s": 369
+    },
+    {
+      "slot": "review-r4",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 266
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "knowledge/clarity/scout.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "answered:false questions (2, needs-human scope)",
+    "fast-pass escalate.recommend",
+    "architecture pivot: rework to DEV-1756 full spec (GPS-position check-in recorder incl. HH/AA) \u2014 supersedes scan-based on-read count approach"
+  ],
+  "best_of_n": true,
+  "needs_human_interview": true,
+  "missed_caller_candidates": [],
+  "perf_validation": {
+    "required": true,
+    "ch_tables": [
+      "clarity.sc_positions",
+      "clarity.hotlist",
+      "zod.public_hotlist_address",
+      "zod.public_address"
+    ],
+    "approach": "per-kit windowed sc_positions PK-range read + bbox/geoDistance open-address match, every 5 min, 15-min idempotent lookback",
+    "measurement": "READ-ONLY prod CH Cloud (2026-08-10): sc_positions total ~254.96M rows (2026-04-12..2026-08-10, unbounded, not >1B). Per-kit windowed read (busiest kit): 15-min window ~122ms/6,464 fixes; 60-min ~124ms/31,391 fixes -> index-bounded (ORDER BY (kit_mapping,timestamp_utc)), not table-size-sensitive. Fleet ~142 active kits/15min, ~159/1h. Est per-cycle sweep ~150 kits x ~120ms read + bbox match << 300s (5-min) budget. Aggregates/timings only; no raw rows/identifiers.",
+    "verdict": "go",
+    "measured_at": "2026-08-10",
+    "correction_2026_08_11": {
+      "finding": "The earlier 'per-kit ~120ms, index-bounded' measured ONLY the sc_positions windowed read, not the full match. The full per-kit query re-scanned zod.public_hotlist_address (311M rows; ORDER BY id, so the hotlist_id join cannot prune) + clarity.hotlist FINAL, once PER KIT -> ~2.5-12s/kit (Cloud-variance) reading 311M+ rows. At fleet scale (~150 kits every 5 min) that overruns the cycle and hammers CH.",
+      "fix": "A+B. (A) Enumerate open-order addresses once per ORG via new ScoutOpenOrderAddressesQuery. (B) Cache that per-org set 15 min. The per-kit matcher (ScoutCheckInMatchQuery) now injects the cached set as a CH values() literal (chunked at 2000 to stay under max_query_size) and reads only sc_positions -> no per-kit 311M scan. Row-for-row equivalence with the old combined query PROVEN against prod (kit jasonstephens / org 321316, 41/41 identical). Both query classes smoke-tested end-to-end vs real local CH.",
+      "verified_at": "2026-08-11"
+    }
+  },
+  "diff_base": "5bd830bea02401c21bc83c90e9d1ed3cea7ee881",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "complex",
+      "model": "sonnet",
+      "title": "GPS-position check-in recorder"
+    }
+  ],
+  "review_number": 4,
+  "pr": {
+    "number": 314,
+    "url": "https://github.com/insight-lpr/platform/pull/314",
+    "draft": true
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": "already In Progress at intake (global transition offered but not re-posted)",
+  "jira_transitioned_by": null,
+  "jira_transitioned_detail": null,
+  "assumed": [
+    "cadence/granularity: per-kit per-day, nightly ~4:00 (Dalton delegated)",
+    "no backfill (Dalton delegated)",
+    "persistence target: Postgres platform table (Dalton delegated)",
+    "fan-out: Scout-enabled drivers; endpoint left live; per-kit failure skip-and-log"
+  ],
+  "comment_ids": {
+    "status": "38134",
+    "open_questions": "38136"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "provisioning": {
+      "bootstrap": "skipped-already-provisioned",
+      "deps": "not-run",
+      "migrations": "already-migrated",
+      "docker_daemon": "already-running",
+      "ch_container": "created (clarity-qa-clickhouse)",
+      "frontend_build": "n/a",
+      "postgres_db": "zod_claude_dev_2313_fc4790 (+ testing zod_testing_claude_dev_2313_fc4790)",
+      "ch_strategy": "docker",
+      "herd_site": "clarity-claude_dev_2313_fc4790.test"
+    },
+    "provisioned_early": true,
+    "agent_qa_real": true
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact --filter=ScoutRecordCheckInsCommandTest",
+        "passed": 11,
+        "failed": 0
+      }
+    ],
+    "deviations": [
+      {
+        "source": "implement",
+        "edit": "repointed .env.testing CLICKHOUSE_DATABASE_CLARITY/ZOD to literal clarity/zod (hardcoded-prefix gotcha); gitignored, no repo footprint",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "implement",
+        "edit": "ScoutCheckInMatchQuery extends the address_links CTE with any(hotlist_id) so scout_check_ins can carry hotlist_id (uniqueness is (kit,address,hour), so multi-hotlist-per-address picks one arbitrarily)",
+        "ac_ref": null,
+        "ac_delta": null
+      },
+      {
+        "source": "implement",
+        "edit": "reverted recurring boost-doc churn (php 8.4.23->8.3 in CLAUDE.md/AGENTS.md/.junie) regenerated by artisan make: commands",
+        "ac_ref": null,
+        "ac_delta": null
+      }
+    ],
+    "review": {
+      "lanes": [
+        3,
+        1,
+        1
+      ],
+      "scores": [
+        94,
+        94,
+        90,
+        100,
+        100,
+        100,
+        100,
+        100,
+        94
+      ],
+      "findings_fixed": [
+        "proximity-radius test gap (added within-bbox-beyond-radius + hour-boundary tests)",
+        "any() nondeterministic attribution (deterministic argMin/min direct-preferred; matched_at from earliest fix; firstOrCreate)",
+        "test-adequacy hardening (requested): CH liveness probe surfaces outage vs silent 0; +3 tests (non-UTC->UTC bucket, multi-driver scoping+kitless skip, CH-unreachable graceful)"
+      ],
+      "findings_residual": [
+        "N+1 enumeration every 5 min (bounded at Scout explicit-grant scale) \u2014 perf follow-up",
+        "addslashes kit_mapping interpolation (not exploitable; matches sibling convention)",
+        "docblock 'never drift' vs rollup double-count of a shared direct+staging address (pre-existing, different contract)",
+        "org_id unsignedInteger vs bigint nit"
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "claude2",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "claude3",
+          "source": "in-session-agent"
+        },
+        {
+          "lane": "claude1-rn3",
+          "source": "in-session-agent"
+        }
+      ],
+      "rerun_required": false,
+      "reviewed_sha": "6f0a8cb81cf6d918a9552699862cc3b8023f4b61",
+      "rework_pivot": false,
+      "rerun_reason": "A+B perf refactor (per-org enumeration + cache + values-injection) supersedes the RN4-reviewed single-query design",
+      "a_b_review": {
+        "at": "2026-08-11",
+        "lane": "insightlpr:adversarial-reviewer (opus)",
+        "score": 100,
+        "scoring_defects": 0,
+        "fixed": "OBS-1: ScoutOpenOrderAddressesQuery coords were min(lng)/min(lat) per-axis -> could blend across un-merged CDC versions; changed to argMax(lng/lat, _peerdb_version) so a lng/lat pair comes from one consistent (latest) version.",
+        "residual_non_scoring": "OBS-2 driver-enumeration N+1 (bounded, logged follow-up); multi-chunk >2000 path untested (trivial merge); constant duplication 160.934/0.003 (pre-existing)."
+      },
+      "final_audit": {
+        "at": "2026-08-11",
+        "lanes": [
+          "sql-data",
+          "runtime-ops",
+          "tests-ac-docs"
+        ],
+        "scores": [
+          100,
+          100,
+          94
+        ],
+        "fixed": [
+          "M-2: stale okf claim (rollup 'joins clarity.recovery_address') corrected to the DEV-2163 zod address path",
+          "M-1: +4 tests \u2014 per-org enumeration-failure skip (env=local rethrow + dead CH), per-kit skip-and-log (cache-primed enumeration + dead CH matcher), --since window widening, multi-chunk merge (chunk_size=1)",
+          "lane-1 nit: matcher coords via single tuple argMin((lng,lat),ts) \u2014 no same-second axis blending",
+          "sweep: ScoutOpenOrderAddressesQuery zod. hardcode -> self::zodDb() (matches HotlistAddressGeohashQuery)",
+          "okf gotchas: prod CH-outage alerting corollary (alert on report(), command log reads quiet) + pennant:purge flag-flip runbook note"
+        ],
+        "residual_non_scoring": "prod outage log-mirage documented; setPermissionsTeamId leak (codebase convention); bounded N+1s; duplicate per-kit match when two drivers share a kit; hour_bucket toString assumes UTC CH server (platform-wide assumption); 160.934/bbox/hotlistOrgFilter duplication (follow-up)",
+        "local_test_run": "17/17 green vs real local CH + cloned zod_testing PG"
+      }
+    },
+    "ac": [
+      {
+        "item": "AC-1",
+        "status": "SATISFIED",
+        "evidence": "B6 live run: `scout:record-check-ins` recorded 2 check-ins across 1 kit into scout_check_ins (kit 16: direct hotlist 2313001 + staging hotlist 2313002), one row per (kit,address,hour)."
+      },
+      {
+        "item": "AC-2",
+        "status": "SATISFIED",
+        "evidence": "B5 ScoutCheckInMatchQuery executed read-only against real local CH \u2192 2 matches with correct is_staged/hotlist_id; flag gate confirmed by B8 (flag off \u2192 0 rows). Query reuses ScoutCheckInRollupQuery's open Direct/Staging CTEs."
+      },
+      {
+        "item": "AC-3",
+        "status": "SATISFIED",
+        "evidence": "Backend-only diff (6 files); B1 boot + route:list OK (no route breakage). No UI surface touched."
+      },
+      {
+        "item": "AC-4",
+        "status": "SATISFIED",
+        "evidence": "B3 schedule:list shows `*/5 * * * * scout:record-check-ins`; routes/console.php has withoutOverlapping/runInBackground/onOneServer; per-kit try/catch skip-and-log (0 skipped this run)."
+      },
+      {
+        "item": "AC-5",
+        "status": "SATISFIED",
+        "evidence": "B7 idempotent: second run recorded 0, scout_check_ins count stayed 2 (firstOrCreate on unique (kit_id,address_id,hour_bucket)). Deterministic attribution (RN3 review 100/100)."
+      },
+      {
+        "item": "AC-6",
+        "status": "SATISFIED",
+        "evidence": "B5/B6: only the open Direct (own org 5) + open Staging (approved partner org 6) orders matched; historical/HH/AA out of scope by construction (hotlistOrgFilter + status=Open)."
+      }
+    ]
+  },
+  "pivot": {
+    "at": "2026-08-07",
+    "from": "nightly scan-based count rollup",
+    "to": "backend GPS-position check-in recorder (DEV-1756 full spec)",
+    "scrap_files": [
+      "app/Console/Commands/ScoutAggregateCheckIns.php",
+      "app/Models/ScoutCheckInRollup.php",
+      "database/migrations/2026_08_07_174115_create_scout_check_in_rollups_table.php",
+      "tests/Feature/Console/Commands/ScoutAggregateCheckInsCommandTest.php",
+      "routes/console.php (schedule line)"
+    ]
+  },
+  "blocked_on": null,
+  "hh_aa_finding": "HH=Historical Hits (hit_type H), AA=Staging Historical (hit_type Z) per RDN metrics pusher (RdnMetricType/RdnHitHourCountQuery). Hit-type categories, not a distinct address source. No new ingestion path.",
+  "exclusion_resolution": {
+    "at": "2026-08-11",
+    "decision": "no-hit-within-30min exclusion belongs to DEV-1758 (RDN push-time filter), NOT the DEV-2313 recorder",
+    "choice": "Option A \u2014 recorder stays broad (Direct+Staging, no exclusion); exclusion documented on DEV-1758",
+    "comments": {
+      "dev2313_scoping_confirm": "38150",
+      "dev1758_exclusion_note": "38151"
+    },
+    "recorder_complete_as_built": true
+  }
+}

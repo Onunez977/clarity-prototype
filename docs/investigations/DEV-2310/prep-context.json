@@ -1,0 +1,115 @@
+{
+  "key": "DEV-2310",
+  "route": "bug",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "synthesis": "On the Scout map (a Vue SPA shared by the driver Scout PWA and the admin Bird's Eye Org Map via mapStore.adminMode), the active-kit position layer — the driver's own live 'you are here' dot and, in admin mode, one marker per driver — disappears the instant the date-range pill is switched off 'Today'. Root cause is entirely frontend: DateRangeControl.selectRange() flips mapStore.liveMode=false on any non-Today pill, and liveMode currently gates BOTH the correct historical-vs-live overlay behavior AND the always-current active-kit layer's render + poll. The two backend live-position endpoints (ClarityScoutMapController::kitPosition, ClarityScoutBirdsEyeController::driverPositions) take no date-range parameter and always return the latest fix within a fixed ~24h cutoff, so no backend change is needed. The fix is to decouple the active-kit icon layer (marker render + the poll that keeps it fresh) from liveMode/the date filter, while leaving genuinely historical-vs-live overlays (scan-path lines, trail lines, hit heatmap, today-scoped stats/recent-hits) gated as they are.",
+  "scope": {
+    "summary": "Frontend-only decoupling of the active-kit icon layer from mapStore.liveMode/the date filter, so icons render and keep polling across all five ranges. Admin (Bird's Eye) sites are settled; whether the driver's own single dot is also in scope is the one open material question (see questions).",
+    "proposed_changes": [
+      {"file": "resources/js/clarity-scout/components/ScannerMap.vue", "change": "In updateDriverMarkers(), remove the `if (!mapStore.liveMode) { clear all driverMarkers; return; }` early-return (lines 712-716) so admin driver markers always reconcile from mapStore.driverPositions regardless of range. Update the now-stale comment at 710-711 and the liveMode-watcher comment at 1805-1806 (the watcher at 1807-1812 becomes a harmless repaint no-op; keep it).", "reason": "ADMIN: the exact render gate that wipes every admin kit icon on a non-Today range.", "ref": "resources/js/clarity-scout/components/ScannerMap.vue:708-716"},
+      {"file": "resources/js/clarity-scout/composables/useBirdsEyePolling.js", "change": "Split fetchLive(): always run map.fetchDriverPositions() (+ map.fetchDriverPaths()) every tick/onOnline regardless of map.liveMode; keep dashboard.fetchStats('today') + fetchRecentHits('today') gated on map.liveMode (today-only, intentional per DEV-2179). Preserve the offline/hidden-tab pause for the now-unconditional position fetch.", "reason": "ADMIN: even after the render gate is removed, the poll stops refreshing positions off-Today, so markers would freeze/go stale within one ~10s interval — violating AC6 ('always live').", "ref": "resources/js/clarity-scout/composables/useBirdsEyePolling.js:26-59"},
+      {"file": "resources/js/clarity-scout/stores/map.js", "change": "In setLiveMode(false), stop calling clearKitPosition() so the driver's own kitPosition (dot + live trail + localStorage) survives the Today→historical transition; keep activeHeatmaps.delete('hits'). Update the clearKitPosition/ setLiveMode comments (891-893, 903-905) to match.", "reason": "DRIVER (conditional on scope answer): the store-level source that nulls the driver's own dot on leaving Live.", "ref": "resources/js/clarity-scout/stores/map.js:906-923"},
+      {"file": "resources/js/clarity-scout/components/MapShell.vue", "change": "Remove the defensive `watch(() => mapStore.liveMode, (on) => { if (!on) mapStore.clearKitPosition(); })` (324-328), and drop the `mapStore.liveMode &&` clause from the LiveTracking v-if (line 12) so the driver kit-position poll (useKitPositionPolling, which also drives fetchLivePath for the live trail) stays mounted across ranges (keep the `viewMode === 'dashboard' && !adminMode` clauses).", "reason": "DRIVER: a second clear of kitPosition on the same transition, plus the mount gate that stops the driver poll (dot + live trail) entirely off-Today.", "ref": "resources/js/clarity-scout/components/MapShell.vue:12,324-328"},
+      {"file": "resources/js/clarity-scout/components/ScannerMap.vue", "change": "TRAILS (Dalton: persist across all ranges, overlay both): in updateOverlayLayers, drop the `mapStore.liveMode &&` gate from the driver live-trail dot-extension (1354) and PathLayer (1366), and from the admin driver-trails PathLayer (1383, keep `adminMode &&`). In updateTrailArrows (817) and syncTrailArrowVisibility (863), drop the `mapStore.liveMode` gate so the direction arrows ride the now-persistent trail. Leave the scan-paths layer (1322, gated on !liveMode) untouched so it still renders underneath in historical views.", "reason": "Makes the live GPS trail (driver) and per-driver trails (admin) persist across all ranges, layered over the historical scan-path overlay, per the 'overlay both' decision.", "ref": "resources/js/clarity-scout/components/ScannerMap.vue:817,863,1354,1366,1383"}
+    ],
+    "target_files": [
+      "resources/js/clarity-scout/components/ScannerMap.vue",
+      "resources/js/clarity-scout/composables/useBirdsEyePolling.js",
+      "resources/js/clarity-scout/stores/map.js",
+      "resources/js/clarity-scout/components/MapShell.vue",
+      "public/build/** (rebuilt + committed per repo convention)"
+    ],
+    "out_of_scope": [
+      "Backend endpoints (ClarityScoutMapController::kitPosition, ClarityScoutBirdsEyeController::driverPositions) — already range-agnostic; no change.",
+      "Historical scan-path overlay (ScannerMap.vue:992 fetch, :1322 render) — STAYS as-is; the live trail is drawn ON TOP of it in non-Today views (per Dalton's 'overlay both' decision), scan-paths are not removed or changed.",
+      "The hit heatmap and today-scoped stats/recent-hits — remain Today-only (intentional, DEV-2179).",
+      "App.vue's 'My Location'/recenter button and the noKitsReporting empty-state banner (both liveMode-gated) — Dalton confirmed leave as-is.",
+      "Zoom defaults gated on liveMode (ScannerMap.vue:156,329-346,1549) — unrelated to icon/trail visibility, leave as-is.",
+      "DriverSelector active_in_range roster filtering (DEV-2293) — unrelated, already correct."
+    ]
+  },
+  "acceptance_criteria": [
+    {"item": "Active kit icons remain visible when 'Today' is selected", "source": "ticket", "decision": "implement", "reason": "Already true; regression guard."},
+    {"item": "Active kit icons remain visible when 'Yesterday' is selected", "source": "ticket", "decision": "implement", "reason": "Fixed by decoupling render + poll from liveMode."},
+    {"item": "Active kit icons remain visible when 'Last 7 Days' is selected", "source": "ticket", "decision": "implement", "reason": "Same root cause."},
+    {"item": "Active kit icons remain visible when 'Last 15 Days' is selected", "source": "ticket", "decision": "implement", "reason": "Same root cause."},
+    {"item": "Active kit icons remain visible when 'Last 30 Days' is selected", "source": "ticket", "decision": "implement", "reason": "Same root cause."},
+    {"item": "The active-kit icon layer is independent of the date filter — always reflects current/live kit positions", "source": "ticket", "decision": "implement", "reason": "Requires BOTH the render-gate removal AND keeping the position poll running (admin: useBirdsEyePolling split; driver: LiveTracking stays mounted)."},
+    {"item": "Switching between date filters does not cause active kit icons to flash, disappear, or reload", "source": "ticket", "decision": "implement", "reason": "With the clears removed, the native markers are never torn down on a liveMode flip — only reconciled; needs agent-browser + human visual confirmation."}
+  ],
+  "questions": [
+    {"q": "Scope: does 'active kit icons' cover ONLY the admin Bird's Eye Org Map markers, or ALSO the driver Scout PWA's own single live dot?", "answered": true, "answer": "BOTH surfaces — fix the admin per-driver markers AND the driver's own live dot (4 files: ScannerMap.vue, useBirdsEyePolling.js, stores/map.js, MapShell.vue).", "source": "human:Dalton 2026-08-06"},
+    {"q": "Should the live TRAIL lines (admin per-driver trail + driver's own live-trail) also persist across all ranges, or stay Today-only?", "answered": true, "answer": "ALSO persist trails across all ranges, drawn ON TOP of the historical scan-path overlay (overlay both — scan-paths stay, live trail is layered over them in non-Today views). Trail direction arrows ride the trail and persist with it. This expands scope to the trail render gates (ScannerMap.vue:817,863,1354,1366,1383) and the admin fetchDriverPaths poll.", "source": "human:Dalton 2026-08-06"},
+    {"q": "Should App.vue's 'My Location'/recenter button and the noKitsReporting empty-state banner (both liveMode-gated) also be decoupled?", "answered": true, "answer": "No — leave as-is (still liveMode-gated). Not part of 'active kit icons'.", "source": "human:Dalton 2026-08-06"},
+    {"q": "Is the disappearance caused by a backend endpoint scoping positions by the date range?", "answered": true, "answer": "No. ClarityScoutMapController::kitPosition() and ClarityScoutBirdsEyeController::driverPositions() take no range/date parameter; both use a fixed ~24h live cutoff. The bug is entirely frontend.", "source": "code"},
+    {"q": "Is useKitPositionPolling.js a missed gating site (grep backstop flagged lines 60/102)?", "answered": true, "answer": "No — false positive. fetchKitPosition()/fetchLivePath() run unconditionally every tick (lines 52-55) and in catchUp (100-101); the liveMode gate at 60/102 only guards the today stats/recent-hits sub-tasks. The driver poll's only effective gate is LiveTracking's mount (MapShell.vue:12), already in the inventory.", "source": "code"}
+  ],
+  "blockers": [],
+  "notes": [
+    "No JS test runner exists in this repo (package.json has only dev/build). This is a pure Vue/Pinia SPA change with zero PHP surface — no automated test to write/run; verification is agent-browser + human QA across the in-scope surface(s) x 5 ranges, plus the AC-7 flash/no-flash visual judgment (human).",
+    "platform commits built assets (public/build tracked): the fix requires `npm run build` + committing rebuilt assets. Note `npm run build` regenerates CLAUDE.md/AGENTS.md/boost docs — revert those before committing.",
+    "Shared driver+admin component (ScannerMap.vue / stores/map.js / DateRangeControl.vue) — any change must be verified on BOTH surfaces even if scoped to one.",
+    "There are TWO redundant driver clears (map.js setLiveMode + MapShell defensive watch) and TWO redundant admin gates (updateDriverMarkers render + useBirdsEyePolling poll); a partial edit that fixes only one of each pair looks like a flaky/partial fix. Address each pair together.",
+    "Keep comments minimal (Dalton preference) but the existing comments at ScannerMap.vue:710-711/1805-1806, MapShell.vue:324-325, and map.js:891-893/903-905 currently DOCUMENT the behavior being reversed — update/remove them so they don't mislead."
+  ],
+  "tests": [
+    {"file": "N/A — no JS test runner in this repo", "what_it_pins": "Cannot be pinned by an automated test. Verify via agent-browser (drive each of the 5 date-range pills on the in-scope surface(s), assert the kit marker(s) remain present and keep updating) + human QA for the no-flash judgment."}
+  ],
+  "grounding": {
+    "key_files": [
+      "resources/js/clarity-scout/components/DateRangeControl.vue:55-77 (selectRange flips mapStore.liveMode on any non-Today pill)",
+      "resources/js/clarity-scout/stores/map.js:894-923 (clearKitPosition + setLiveMode; setLiveMode(false) clears the driver dot)",
+      "resources/js/clarity-scout/components/MapShell.vue:12 (LiveTracking mount gated on liveMode) + 324-328 (defensive clearKitPosition watch)",
+      "resources/js/clarity-scout/components/ScannerMap.vue:708-716 (updateDriverMarkers early-return wipes admin markers when !liveMode) + 1805-1812 (liveMode watcher) + 1733-1762 (kitPosition watcher removes driver dot when null)",
+      "resources/js/clarity-scout/composables/useBirdsEyePolling.js:26-59 (fetchLive/tick/onOnline gate the whole admin poll on map.liveMode)",
+      "resources/js/clarity-scout/composables/useKitPositionPolling.js:52-68 (driver poll — fetchKitPosition unconditional; only stats/hits gated)",
+      "app/Http/Controllers/Api/ClarityScoutMapController.php (kitPosition — no range param)",
+      "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:122+ (driverPositions — no range param)"
+    ],
+    "code_flow": "DateRangeControl.selectRange(non-today) -> mapStore.setLiveMode(false) [driver: clearKitPosition nulls the dot] + dashboard.setRange (stats/hits only). MapShell's defensive watch also nulls kitPosition and unmounts LiveTracking (stops the driver poll). ScannerMap's kitPosition watch removes the driver's native marker; ScannerMap's liveMode watch calls updateDriverMarkers() which early-returns and wipes all admin markers. useBirdsEyePolling.tick() stops calling fetchDriverPositions while !liveMode. Backend endpoints are called successfully but their range-agnostic results are discarded by these frontend gates.",
+    "tables": [],
+    "related_components": ["useKitPositionPolling (driver poll)", "useBirdsEyePolling (admin poll)", "LiveTracking.vue (driver poll mount gate)", "stores/map.js (shared liveMode/kitPosition/driverPositions)", "stores/dashboard.js (range state — does NOT touch positions)"]
+  },
+  "exhaustiveness": {
+    "patterns_used": ["git grep -ni liveMode|clearKitPosition|setLiveMode|kitPosition|driverPositions|updateDriverMarkers|LiveTracking|useKitPositionPolling|useBirdsEyePolling across resources/js/clarity-scout", "direct read of every disputed site", "backend controller check for range params"],
+    "sites": [
+      {"site": "resources/js/clarity-scout/components/ScannerMap.vue:712-716", "verdict": "buggy", "reason": "ADMIN render gate — wipes all driver markers when !liveMode."},
+      {"site": "resources/js/clarity-scout/composables/useBirdsEyePolling.js:43,56", "verdict": "buggy", "reason": "ADMIN poll gate — stops refreshing positions off-Today."},
+      {"site": "resources/js/clarity-scout/stores/map.js:920", "verdict": "buggy", "reason": "DRIVER — setLiveMode(false) nulls the driver's own dot."},
+      {"site": "resources/js/clarity-scout/components/MapShell.vue:326-328", "verdict": "buggy", "reason": "DRIVER — redundant defensive clear of kitPosition."},
+      {"site": "resources/js/clarity-scout/components/MapShell.vue:12", "verdict": "buggy", "reason": "DRIVER — unmounts LiveTracking (stops the driver poll) off-Today."},
+      {"site": "resources/js/clarity-scout/components/ScannerMap.vue:1807-1812", "verdict": "safe", "reason": "liveMode watcher; becomes a harmless repaint no-op once updateDriverMarkers no longer clears — keep, update comment."},
+      {"site": "resources/js/clarity-scout/composables/useKitPositionPolling.js:60,102", "verdict": "safe", "reason": "Grep-backstop false positive — only stats/hits sub-tasks gated; fetchKitPosition is unconditional."},
+      {"site": "resources/js/clarity-scout/components/ScannerMap.vue:1354,1366,1383", "verdict": "buggy", "reason": "IN SCOPE (Dalton: persist trails). Live-trail + admin driver-trails gated on liveMode — ungate so trails persist across ranges over the scan-path overlay."},
+      {"site": "resources/js/clarity-scout/components/ScannerMap.vue:817,863", "verdict": "buggy", "reason": "IN SCOPE — trail direction arrows gated on liveMode; ungate so they ride the persistent trail."},
+      {"site": "resources/js/clarity-scout/components/ScannerMap.vue:1322,992", "verdict": "safe", "reason": "Historical scan-path overlay (render + fetch) — STAYS as-is; live trail layers over it."},
+      {"site": "app/Http/Controllers/Api/ClarityScoutMapController.php / ClarityScoutBirdsEyeController.php", "verdict": "safe", "reason": "No date-range param; already range-agnostic."}
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [],
+    "ch_tables": ["clarity.sc_positions (read-only, via existing endpoints, unchanged)", "clarity.kit_scan_paths (read-only, unchanged)"],
+    "mv_or_cdc_implications": "None — frontend-only render/poll lifecycle change; no query, MV, or cutoff-window change.",
+    "indexes_relied_on": []
+  },
+  "derivation_log": [
+    "Traced DateRangeControl.selectRange -> mapStore.setLiveMode as the sole liveMode-flip on a non-Today pick.",
+    "Read setLiveMode/clearKitPosition (map.js:894-923), MapShell.vue:12 + 324-328, ScannerMap.vue updateDriverMarkers (708-716) + liveMode watcher (1805-1812), useBirdsEyePolling (26-59), useKitPositionPolling (52-108) to enumerate every icon-layer/poll gate.",
+    "Confirmed backend kitPosition()/driverPositions() take no range param (fixed ~24h cutoff) -> frontend-only.",
+    "Resolved grep-backstop false positive: useKitPositionPolling fetches position unconditionally; the effective driver gate is LiveTracking's mount."
+  ],
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "AC-1..5", "kind": "agent", "intent": "Seed 1+ kit with a recent sc_positions fix; on the in-scope surface(s) cycle Today/Yesterday/7/15/30d and assert the kit icon(s) remain rendered after each switch."},
+      {"ac": "AC-6", "kind": "agent", "intent": "Parked on a non-Today range, wait >1 poll interval and confirm the position keeps refreshing (poll still firing) — not a frozen last-known marker."},
+      {"ac": "AC-7", "kind": "human", "intent": "Visually confirm no flash/flicker/reload when toggling rapidly between pills."}
+    ],
+    "seed_scenario": "One Scout-enabled org with 2+ kits, each with a kit_settings row and a recent (within ~24h) clarity.sc_positions GPS fix so both kitPosition() (driver) and driverPositions() (admin) return live points. Log in as an org admin for the Bird's Eye lane and (if driver is in scope) as a kit's driver for the Scout PWA lane; toggle all five range pills on each.",
+    "personas": ["Org admin viewing Bird's Eye Org Map (multi-driver markers)", "Scout driver viewing own single live dot (if in scope)"],
+    "pg_tables": ["platform.kits", "platform.kit_settings"],
+    "ch_tables": ["clarity.sc_positions", "clarity.kit_scan_paths"]
+  },
+  "confidence": 88,
+  "escalate": {"recommend": true, "reason": "Reconciled from best-of-3 + fast-pass + grep backstop. Root cause and sites are settled; one material scope question (driver+admin vs admin-only) and two scope-refinement questions remain -> gate BLOCKED, human interview."}
+}

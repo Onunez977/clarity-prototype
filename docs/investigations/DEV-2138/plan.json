@@ -1,0 +1,26 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Remove the Repos stat tile everywhere (Org Map stat bar + profile This Week grid)",
+      "approach": "Frontend visibility removal, no server change. (1) MapStatsBar.vue: delete the conditionally-spread Repos tile block from the `stats` computed array and replace it with a one-line breadcrumb comment (pulled pending direct/staging split, DEV-2138); delete the now-dead `repos` count-up ref (:130); delete the now-dead `isCompact` destructure (:99) and the `useViewport` import if it becomes unused. (2) ProfilePanel.vue: delete the Repos cell from the 'This Week' grid and change the grid from `grid-cols-2` to `grid-cols-3` so the 3 remaining stats (Scans, Direct Hits, Staging Hits) fill the row evenly with no empty cell. Then `npm run build` and commit the regenerated public/build assets; revert any boost-doc regeneration (CLAUDE.md/AGENTS.md/etc.).",
+      "target_files": [
+        "resources/js/clarity-scout/components/MapStatsBar.vue",
+        "resources/js/clarity-scout/components/ProfilePanel.vue"
+      ],
+      "intended_diffs": "MapStatsBar.vue: remove lines ~191-197 (Repos comment + spread) → breadcrumb comment; remove line 130 (`const repos = useCountUp(...)`); remove line 99 (`const { isCompact } = useViewport();`) + its now-unused import. ProfilePanel.vue: remove the 4th grid `<div>` (Repos, ~lines 67-70) and change `grid grid-cols-2 gap-4` → `grid grid-cols-3 gap-4` on the This Week container (~line 54).",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "simple",
+      "verification_note": "No JS test runner exists; verification is manual/visual via the QA pipeline (Phase 6 agent-qa browser + Phase 7 human-qa). Confirm: (a) Repos tile absent from Org Map stat bar on desktop AND mobile, Today AND historical; (b) remaining stat-bar tiles redistribute with no blank cell / orphaned border-l; (c) profile This Week shows 3 stats in an even row, no gap; (d) no console error and no lint/build failure from removed refs."
+    }
+  ],
+  "excluded_sites": [
+    "HelpPanel.vue 'Repossessions' glossary — static help copy, not a live tile (safe).",
+    "ClarityScoutDashboardController.php repos_affected + ClarityScoutBirdsEyeController.php — server-side metric computation left intact by design (ticket defers the direct/staging split); no client tile removed here renders from a change in these."
+  ],
+  "sizing": "1 file-group, 1 concern (pull the Repos metric from driver-facing UI), 2 files, no migrations/auth/billing/CH-purge. Well under the >6-file / multi-concern split threshold. Single node."
+}

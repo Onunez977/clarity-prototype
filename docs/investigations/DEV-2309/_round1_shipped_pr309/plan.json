@@ -1,0 +1,26 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Bypass ScanTimezoneScope on the activity aggregate + pin with a query-shape test",
+      "approach": "In app/Console/Commands/CloseInactiveShiftsCommand.php latestActivityFor(), add ->withoutGlobalScope(ScanTimezoneScope::class) to the Scan::query()->where('kit_id',...)->max('scanned_at') chain (import App\\Models\\Scopes\\ScanTimezoneScope). Keep ShowVisibleScan (is_visible=true). Then add a feature test that enables the zod query log, runs scout:close-inactive-shifts with a seeded open shift + stale visible scan, and asserts no executed query matches /timezones|ST_Within/i while the shift still closes correctly.",
+      "target_files": [
+        "app/Console/Commands/CloseInactiveShiftsCommand.php",
+        "tests/Feature/Console/Commands/CloseInactiveShiftsCommandTest.php"
+      ],
+      "intended_diffs": "Command: import ScanTimezoneScope; change the $latestScan query to `Scan::query()->withoutGlobalScope(ScanTimezoneScope::class)->where('kit_id',$kitId)->max('scanned_at')`. Test: add latest_activity_lookup_does_not_join_timezones() using DB::connection('zod')->enableQueryLog(), asserting no logged query contains 'timezones' or 'ST_Within' and the shift is closed with end_type=Assumed.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "CloseInactiveShiftsCommandTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple"
+    }
+  ],
+  "excluded_sites": [
+    {"site": "app/Models/Scan.php:402 scanCountByKitNameAggregate", "reason": "Already removes ScanTimezoneScope — safe."},
+    {"site": "app/Filament/.../ListScans.php:329 buildPostgresQuery", "reason": "Already removes ScanTimezoneScope — safe."}
+  ],
+  "perf_validation_required": false,
+  "notes": "No platform migration (scans is zod-managed). No blast-radius globs touched. Sizing: 2 files, one concern — no split."
+}

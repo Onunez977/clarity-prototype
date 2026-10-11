@@ -1,0 +1,40 @@
+{
+  "key": "DEV-2138",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2138",
+  "phase": "done",
+  "models": {"base": "haiku", "recall": "haiku", "prep": "sonnet", "plan": "opus", "implement": "opus", "implement_simple": "sonnet", "offload": "sonnet", "review": "opus"},
+  "flags": {"companion": false, "review_policy": "functional", "jira_mirror": true,
+            "start_at": null, "stop_at": null, "only": null, "skip": [], "force": false},
+  "knowledge_cards_loaded": [],
+  "escalated": true,
+  "escalation_triggers": ["answered:false questions (2)", "confidence 68 < 80", "escalate.recommend=true"],
+  "missed_caller_candidates": [],
+  "diff_base": "26875de97daf287e6e1d1efe5e3d94b8f1d8a572",
+  "subtasks": [{"id": "t1", "status": "merged", "worktree_path": "", "branch": "claude/DEV-2138", "complexity": "simple", "model": "driver-inline"}],
+  "review_number": 1,
+  "pr": {"number": 250, "url": "https://github.com/insight-lpr/platform/pull/250", "draft": true},
+  "pr_urls": {},
+  "jira_in_progress_by": "dalton.mccleery@insightlpr.com @ 2026-07-01T14:40:00Z",
+  "jira_transitioned_by": "manual-dalton.mccleery@insightlpr.com",
+  "assumed": [],
+  "comment_ids": {"status": "33772", "build_record": "33806"},
+  "qa": {"ledger": "", "agent_report": "", "ac_results": "", "torn_down": false,
+         "provisioning": {"note": "no QA env provisioned — Phase 6 live QA skipped by Dalton's decision"}},
+  "qa_torn_down_note": "n/a — no env was ever provisioned (qa.ledger unset)",
+  "record": {
+    "tests": [{"cmd": "npm run build", "passed": 1, "failed": 0, "note": "no unit tests possible — no JS test runner; build succeeded, assets regenerated"}],
+    "deviations": [],
+    "review": {"lanes": 1, "engine": "in-session insightlpr:adversarial-reviewer (opus)", "scores": [100], "gate": "pass min=100", "findings_fixed": [], "findings_residual": ["non-scoring nit: MapStatsBar.vue:188-191 two rationale comments read densely (cosmetic, not fixed)"], "rigor_substitution_flag": "Formal nested-claude-p rigor lane (review.sh) could not run under embedded harness (auth). In-session adversarial-reviewer used instead; re-run review.sh in a logged-in env before merge for belt-and-suspenders."},
+    "ac": [
+      {"item": "The Repos stat tile is hidden on desktop, consistent with mobile.", "status": "SATISFIED", "evidence": "Removed unconditionally from the MapStatsBar `stats` array (no breakpoint gate remains) → hidden on all breakpoints + all date ranges; ProfilePanel 'This Week' Repos cell also removed. Adversarial review confirmed `repos_affected` absent from the built bundles (clarity-scout-BlPXbqK3.js, ScoutHome-1H270nCo.js). Live browser QA skipped by Dalton's explicit decision (trivial bundle-verified change); manual eyeball deferred to Dalton."},
+      {"item": "No empty gap is left in the stat row where the tile was.", "status": "SATISFIED", "evidence": "MapStatsBar flex-1 cells reflow over the shortened array; `border-l` on i>0 recomputes so no orphaned divider. ProfilePanel grid changed grid-cols-2→grid-cols-3 with exactly 3 remaining cells → even fill. Verified in built bundle (grid-cols-3 present)."}
+    ]
+  },
+  "verify_note": "Phase 6 live QA (qa-prep + agent-qa) SKIPPED by Dalton's decision — trivial deletion-only change, review empirically verified the built bundle. No QA env provisioned → no teardown required (qa.ledger unset).",
+  "repo_path_note": "REPO_PATH is the harness worktree (.claude/worktrees/frosty-sutherland-b35f16), NOT the main checkout — main checkout is dirty with unrelated Scout work. Branch renamed from claude/frosty-sutherland-b35f16."
+}

@@ -1,0 +1,109 @@
+{
+  "key": "DEV-2113",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "escalated": true,
+  "escalation_triggers": ["answered:false questions present", "prep escalate.recommend=true", "AC ambiguity (AC-2)"],
+  "escalation_note": "Deep N=3 reconcile SKIPPED deliberately: escalation is requirements-driven (what 'match left pane' means; whether the bug still reproduces post-DEV-2080), not technical-uncertainty-driven. The load-bearing code claim (backend hits() already filters Open+validDisposition for both Direct & Staging clusters; frontend addRangeHitMarkers does no client-side filtering) was independently re-verified by the driver at ClarityScoutMapController.php:218-221 and ScannerMap.vue:436-448. N=3 blind code passes cannot resolve human-decision questions.",
+
+  "synthesis": "Oscar (via Eric) reported that on a historical date range the Scout map rendered closed/repossessed hit logo markers, while the left 'Live Hits Pending Repossession' pane showed only open hits. ROOT CAUSE (confirmed via read-only live ClickHouse reproduction): clarity.hits_hot.hotlist_status is a per-row snapshot frozen at hit-write time and NEVER back-updated when the order is later repossessed/closed (30d: 17% of plate-keys carry >1 distinct status across rows). The marker endpoint (ClarityScoutMapController@hits) includes Staging Live ('S') rows, which are almost always stamped Open (16,021 open vs 1,302 closed) and rarely re-scanned to ever get a closing row, does NO plate dedup, and filters hotlist_status=1 at the raw-row level -> so a plate repossessed long ago still has a stale-Open Staging row that passes the filter and gets pinned. The leak is 91% Staging (216/218 problem plate-keys are Staging; only 7 Direct). The left pane and heatmap escape this only because they are Direct-only (where closed rows dominate) + the pane plate-dedupes. FIX (human-approved): filter historical markers by the order's CURRENT status from clarity.hotlist (CDC-synced, FINAL) via a semi-join on hits_hot.hotlist_id -> clarity.hotlist.id, replacing the frozen per-row hotlist_status filter. Correct for both Direct and Staging; preserves Staging markers (DEV-2052); keeps per-hit marker granularity; aligns with DEV-2080's canonical-status direction.",
+
+  "scope": {
+    "summary": "Filter the historical map markers by the order's CURRENT hotlist status (clarity.hotlist.status = Open, via clarity.hotlist FINAL keyed on hits_hot.hotlist_id) instead of the frozen per-row hits.hotlist_status. Replace the `->where('hotlist_status', Open)` filter in ClarityScoutMapController@hits with a current-status semi-join, applied BEFORE the limit so the cap counts only currently-open hits. Keep validDisposition() (per-hit, correct). Keep per-hit marker granularity (no plate dedup). Update existing tests to seed clarity.hotlist rows (current status now governs, not the hit row's status) and add Staging + Direct stale-status regression cases.",
+    "proposed_changes": [
+      {"file": "app/Http/Controllers/Api/ClarityScoutMapController.php", "change": "In hits(): replace ->where('hotlist_status', HotlistStatusEnum::Open->value) with a current-status filter sourced from clarity.hotlist. Recommended efficient shape: (1) collect candidate hotlist_ids from the scoped hit set, (2) resolve which are currently Open via Hotlist (FINAL global scope) ->forStatus(Open), (3) constrain the marker query to hotlist_id IN (open set) BEFORE limit(MAX+1). Keep ->validDisposition() and the kit_org_id/kit_id/forHitTypes/forCreatedBetween scoping. The cap must apply to currently-open hits only.", "reason": "The frozen per-row hotlist_status lets stale-Open Staging rows through (and could wrongly drop a currently-open plate whose row is stale-closed). clarity.hotlist.status is the CDC-synced current truth.", "ref": "app/Http/Controllers/Api/ClarityScoutMapController.php:220"},
+      {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php", "change": "Update existing marker tests to seed clarity.hotlist rows (matching hotlist_id) since current hotlist status now governs inclusion, not the hit row's denormalized status. Add regression cases: (a) Staging Live ('S') hit with stale-Open hit-row status but clarity.hotlist.status=Repossessed -> EXCLUDED; (b) Staging Live with hotlist Open -> INCLUDED; (c) Direct equivalent of (a) -> EXCLUDED. Carry #[Group('controllers')] #[Group('clarity-scout')].", "reason": "Pins the new current-status semantics for both clusters; the existing test_map_hits_only_returns_open_status_hits relied solely on the hit-row status and must be updated to seed the hotlist.", "ref": "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php:476"}
+    ],
+    "target_files": ["app/Http/Controllers/Api/ClarityScoutMapController.php", "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php"],
+    "out_of_scope": [
+      "resources/js/clarity-scout/components/ScannerMap.vue — no client-side status filtering; renders server data as-is. No change needed.",
+      "Left pane (DashboardOverlay.vue / recentHits) — Direct-only by design; not the leaking surface. Out of scope (AC-2 = same rule, not record parity).",
+      "HitDirectHotspotQuery (heatmap density) — Direct-only + org-scoped; not the leaking surface. Out of scope (could be aligned later but not requested).",
+      "Plate-level marker dedup — explicitly declined by human; per-hit spatial markers preserved.",
+      "Fixing the denormalized hotlist_status at the CDC/ingestion layer (chlocal) — cross-repo; not this ticket.",
+      "Cache TTL of scanner:map-hits-v2 — intentional 2-15min staleness, not requested."
+    ]
+  },
+
+  "acceptance_criteria": [
+    {"item": "On any historical range, map hit icons show OPEN hits only — repossessed/closed absent.", "source": "ticket", "decision": "implement", "reason": "Fix = filter markers by CURRENT clarity.hotlist.status, fixing the stale-Open Staging leak. Verify via QA + regression tests."},
+    {"item": "Map icon set matches the left 'Hits Pending' list for the same range.", "source": "ticket", "decision": "implement", "reason": "Human clarified AC-2 = the same open-only RULE (currently-open), not record-for-record parity. The current-status filter makes the map apply the same currently-open rule the pane does."},
+    {"item": "Regression test covering historical markers excluding repossessed hits.", "source": "ticket", "decision": "implement", "reason": "Add Staging + Direct current-status (stale-row) regression cases; update existing tests to seed clarity.hotlist."}
+  ],
+
+  "questions": [
+    {"q": "Is the deliverable confirm-and-pin, or does a real residual bug remain?", "answered": true, "answer": "Real bug remains (human observed repossessed logo markers post-DEV-2080). Reproduced live: stale-Open Staging rows leak through the per-row status filter.", "source": "human:Dalton 2026-06-26"},
+    {"q": "AC-2: same open-only RULE, or literally the same plate set?", "answered": true, "answer": "Same open-only RULE (currently-open). Not record-for-record parity. Fix makes the map apply the current-status rule.", "source": "human:Dalton 2026-06-26"},
+    {"q": "Which surface showed the repossessed icon?", "answered": true, "answer": "Logo hit markers (Direct/Staging clusters). Confirmed root cause = stale per-row hotlist_status, 91% Staging. Fix = current-status semi-join to clarity.hotlist.", "source": "human:Dalton 2026-06-26"},
+    {"q": "Fix approach: drop staging vs join to current status?", "answered": true, "answer": "Join to current status (clarity.hotlist.status via hotlist_id semi-join), replacing the frozen per-row filter. Preserves Staging markers.", "source": "human:Dalton 2026-06-26"},
+    {"q": "Marker granularity: per-hit or one-per-plate?", "answered": true, "answer": "Keep per-hit markers (no plate dedup) — spatial history preserved.", "source": "human:Dalton 2026-06-26"}
+  ],
+
+  "blockers": [],
+  "missed_caller_candidates": [],
+
+  "notes": [
+    "Backend fix already present: ClarityScoutMapController@hits lines 208-224 — final()->forKitOrg->kit_id->forHitTypes([Live,Staging_Live])->forCreatedBetween->where(hotlist_status,Open)->validDisposition(). Comment at 213-215 explicitly states markers show open hits only.",
+    "Frontend ScannerMap.vue addRangeHitMarkers (425-460) splits by hit_type for clustering only; no status filter.",
+    "DEV-2080 (847c05bc) replaced the prior '!= Repossessed' (which leaked Hold/ClosedPositive/Closed) with '= Open'.",
+    "Existing tests: test_map_hits_only_returns_open_status_hits (Direct repossessed exclusion, line 476); test_map_hits_includes_staging_live_alongside_direct (Staging presence, both Open, line 434). Gap = Staging repossessed exclusion.",
+    "Test conventions: #[Group('controllers')] #[Group('clarity-scout')]; inline CH row inserts into hits_hot for <=90d ranges; no factories for CH rows."
+  ],
+
+  "tests": [
+    {"file": "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php", "what_it_pins": "Staging Live ('S') repossessed hits are excluded from the historical /map/hits result; only Open Staging Live returned."}
+  ],
+
+  "grounding": {
+    "key_files": [
+      "app/Http/Controllers/Api/ClarityScoutMapController.php:188",
+      "app/Http/Controllers/Api/ClarityScoutMapController.php:218",
+      "app/Http/Controllers/Api/ClarityScoutMapController.php:220",
+      "resources/js/clarity-scout/components/ScannerMap.vue:425",
+      "resources/js/clarity-scout/components/ScannerMap.vue:436",
+      "app/Http/Controllers/Api/ClarityScoutDashboardController.php:131",
+      "app/Clickhouse/Queries/HitDirectHotspotQuery.php:60",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php:476"
+    ],
+    "code_flow": "Range pill -> dashboard.setRange + mapStore.setLiveMode(false) -> ScoutHome watcher -> mapStore.fetchRangeHits -> GET /api/scout/map/hits?range -> ClarityScoutMapController@hits (Open + validDisposition, Direct+Staging) -> cached -> mapStore.rangeHits -> ScannerMap.vue addRangeHitMarkers (renders verbatim, splits by hit_type).",
+    "tables": ["clarity.hits_hot (<=90d ranges)", "clarity.hits_cold (>90d ranges + heatmap)"],
+    "related_components": ["ClarityScoutMapController@hits", "ClarityScoutMapController@heatmapHits", "ScannerMap.vue addRangeHitMarkers", "ClarityScoutDashboardController@recentHits (left pane)", "HitDirectHotspotQuery"]
+  },
+
+  "exhaustiveness": {
+    "grep_patterns": ["hotlist_status in ClarityScout*.php", "validDisposition|liveValid|forStatus in ClarityScout*.php", "hotlist_status|validDisposition in HitDirectHotspotQuery.php", "hotlist_status|validDisposition|forStatus|liveValid in app/Clickhouse/Models/", "hotlist_status|validDisposition|repossessed|disposition in resources/js/clarity-scout/"],
+    "sites": [
+      {"location": "app/Http/Controllers/Api/ClarityScoutMapController.php:220", "verdict": "safe", "reason": "hits() filters Open+validDisposition for both clusters (driver-verified)."},
+      {"location": "resources/js/clarity-scout/components/ScannerMap.vue:436", "verdict": "safe", "reason": "addRangeHitMarkers renders rangeHits verbatim; no client-side filter (driver-verified)."},
+      {"location": "app/Http/Controllers/Api/ClarityScoutDashboardController.php:131", "verdict": "safe", "reason": "recentHits = liveValid + forStatus(Open); left pane Direct-only by design."},
+      {"location": "app/Clickhouse/Queries/HitDirectHotspotQuery.php:60", "verdict": "safe", "reason": "heatmap density filters Open + valid disposition in raw SQL; org-wide by design."},
+      {"location": "resources/js/clarity-scout/components/ScannerMap.vue:366", "verdict": "safe", "reason": "addHitMarkers (trip mode) uses tripHits (liveValid at controller), not the historical marker path."}
+    ]
+  },
+
+  "data_impact": {
+    "pg_tables": [],
+    "ch_tables": ["clarity.hits_hot (read)", "clarity.hits_cold (read)"],
+    "mv_or_cdc_implications": "None. Test-only addition (if confirmed). hits tables read-only with FINAL.",
+    "indexes_relied_on": ["hits_hot/cold ORDER BY (kit_org_id, kit_id, hit_created_at)"]
+  },
+
+  "derivation_log": [
+    {"query_shape": "git log origin/scanner-app -- ClarityScoutMapController.php / ScannerMap.vue", "param_classes": ["branch=scanner-app", "paths=2"], "aggregate_result": "DEV-2080/2055/2052/2053 land the marker filter + Direct/Staging clusters", "why": "establish precedents + that Open filter already shipped"},
+    {"query_shape": "driver Read ClarityScoutMapController.php:185-274", "param_classes": [], "aggregate_result": "hits() filters Open+validDisposition for [Live,Staging_Live]", "why": "verify load-bearing backend claim"},
+    {"query_shape": "driver Read ScannerMap.vue:420-485", "param_classes": [], "aggregate_result": "addRangeHitMarkers renders verbatim, no status filter", "why": "verify load-bearing frontend claim"}
+  ],
+
+  "qa_hint": {
+    "plan_sketch": [
+      {"ac": "AC-1", "kind": "human", "intent": "Select a 15-day historical range; verify only Open plates show logo markers; no repossessed/closed."},
+      {"ac": "AC-3", "kind": "agent", "intent": "Run ClarityScoutMapControllerTest Open-only tests (Direct + new Staging) — pass."}
+    ],
+    "seed_scenario": "Kit user whose org has CH hits_hot rows in a 15-day range: one Direct Open, one Direct Repossessed, one Staging Live Open, one Staging Live Repossessed. /api/scout/map/hits?range should return only the two Open rows.",
+    "personas": ["Driver (kit-associated user, clarity-scout permission)"],
+    "pg_tables": ["platform.users", "platform.kits", "platform.orgs"],
+    "ch_tables": ["clarity.hits_hot", "clarity.hits_cold"]
+  },
+
+  "confidence": 87
+}

@@ -1,0 +1,136 @@
+{
+  "key": "DEV-2653",
+  "track": "product",
+  "generated_at": "2026-09-24T12:40:00Z",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "confidence": 86,
+  "base_sha": "25870f75661f07a27a69124a414e557d4c11fff0",
+  "escalate": {
+    "recommend": false,
+    "reason": "Scope and AC-5 are locked by Jira comments 41300 and 41303. Concat versus hash is an implement choice and this plan keeps the existing concat shape. No remaining product decision needs a human park."
+  },
+  "reconcile": {
+    "method": "Single prep pass against main @ 25870f75661f07a27a69124a414e557d4c11fff0. Live Jira re-GET 2026-09-24 matches the dispatch on scope. Best-of-N not run: the open items were already written on the ticket.",
+    "candidates": 1,
+    "driver_verified": [
+      "database/schema/clickhouse-schema.sql on this SHA defines clarity.billing_claim_events (line 18), clarity.billing_claim_events_v (line 85), and clarity.billing_claim_events_mv (line 102, REFRESH EVERY 1 HOUR APPEND).",
+      "ScanPlateStatsBatchQuery::sharedRangeCacheKey() is line 400 and sharedMonthCacheKey() is line 447. Both are class-neutral concat keys with :tz=. sharedFetchFailureMarkerKey() is line 442 and is org-scoped only.",
+      "Consumers of those keys: UniqueScanCounts (writer), UniqueScansLeaderboard (passive month-key reader plus range writer), RatioAgainstUniqueScans (writer) used by UniqueLprCaseClaims, LprRepossessions, and RecoveryCounts. CompanyMetricsOverview::cards() order is unique-scan-counts, then the three ratio cards, then unique-scans-leaderboard.",
+      "Current-month token split: UniqueScanCounts::getMonthlyData() and UniqueScansLeaderboard::chartSeries() store the open month under the literal 'this_month'. RatioAgainstUniqueScans::fetchUniqueScansSeries() stores every bucket, including the open month, under Y-m. Past months already share Y-m. A cold render therefore still runs a second scans_cold read for the open month.",
+      "The dashboard date filter value 'this_month' is a different string from that cache token. Range sharing for the selected window already goes through sharedRangeCacheKey() and ScanPlateStatsBatchQueryContractTest::test_unique_scan_counts_and_the_leaderboard_share_the_this_month_key_on_an_unlisted_viewer_zone.",
+      "DashboardWidget::getCacheTTL() (line 285): index !== 0 and not impersonating returns +1 year; index === 0 returns +10 minutes; impersonating returns +10 seconds for every index. UniqueScanCounts::IMPERSONATED_PAST_MONTH_TTL_MINUTES floors past-month writes at 10 minutes and its docblock says that floor is not a change to getCacheTTL().",
+      "HeldFlexibleCache::heldFlexible() (line 44) treats a hit as cache()->has($key) AND cache()->has('illuminate:cache:flexible:created:'.$key). A plain cache()->remember() writer omits the companion key.",
+      "LprRepossessionsQuery::sharedMonthlySeriesCacheKey() (line 250) and sharedWindowCacheKey() (line 279) exist and are class-neutral. LprRepossessions::getMonthlyData() and currentPeriodTotal() pass them to heldFlexible() with the literal pair [3600, 86400], which bypasses getCacheTTL() including the 10-second impersonation collapse.",
+      "UniqueLprCaseClaimsQuery declares no shared*CacheKey method. UniqueLprCaseClaims::getMonthlyData() caches through buildWidgetCacheKey('monthly-series:Y-m') and heldFlexible([3600, 86400]). That key is class-prefixed. Comment 41300 says do not build shared billing-leg cache plumbing; the per-card cache stays until DEV-2659.",
+      "ClickhouseQuery::buildCacheKey() (line 40) is sorted key=value concat and skips cacheTTL and underscore-prefixed payload keys. UniqueLprCaseClaimsQuery and LprRepossessionsQuery do not extend ClickhouseQuery.",
+      "okf/concepts/company-metrics-dashboard.md records the 1-year / 10-minute / 10-second ladder and the class_basename trap. okf/concepts/billing-events.md records that zod.public_billing_events is ORDER BY id and a window does not prune. okf/concepts/data-architecture.md: ClickHouse is read-only. okf/concepts/impersonation.md and PG-009 record that a card-local Cache::flexible pair skips the ladder."
+    ]
+  },
+  "synthesis": "After DEV-2651 the five ScanPlateStatsBatchQuery consumers already share past-month Y-m keys. They do not share the open month, because two writers use the rolling token 'this_month' and the ratio trait uses Y-m. Put every org-total month bucket on Y-m so one render fills the key once. Keep LprRepossessionsQuery's class-neutral keys and point their heldFlexible TTL at the ladder. Do not add a shared cache for UniqueLprCaseClaimsQuery. Teach getCacheTTL() that a month is not year-cacheable until 8 days after it ended; the existing 10-minute open-month TTL covers the ~2 hour minimum and the days before that. AC-5 docblocks differ per class.",
+  "scope": {
+    "summary": "PHP cache sharing for ScanPlateStatsBatchQuery. Keep LprRepossessionsQuery shared keys and put them on the TTL ladder. Leave UniqueLprCaseClaimsQuery without billing-leg shared-cache plumbing. Closed-month settle window lives on DashboardWidget::getCacheTTL.",
+    "in": [
+      "Unify the ScanPlateStatsBatchQuery org-total month key on Y-m, including the open month.",
+      "Closed-month settle window on getCacheTTL (~2h minimum inside an 8-day wait before +1 year).",
+      "LprRepossessions shared-key reads use the ladder instead of [3600, 86400].",
+      "AC-5 docblock per class."
+    ],
+    "out_of_scope": [
+      "UniqueLprCaseClaimsQuery shared cache helpers, and any change to its SQL or to UniqueLprCaseClaims's existing class-prefixed heldFlexible cache (comment 41300: nothing changes until DEV-2659).",
+      "DEV-2659 query rewrites onto billing_claim_events_v.",
+      "DEV-2657 / DEV-2660 hotlist legs.",
+      "DEV-2654.",
+      "Zod migrations.",
+      "Cloud ClickHouse writes.",
+      "Hashing cache keys. Keep concat.",
+      "okf/ edits during this run."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "AC-1 A single dashboard render executes each shared query at most once across every card that needs it. Assert by counting executions, not wall clock.",
+      "source": "ticket description",
+      "decision": "implement",
+      "reason": "Past-month Y-m keys already share. The open-month token split ('this_month' versus Y-m) is the remaining second scans_cold read. Range keys already share when start, end, and timezone match; do not retarget the date-filter value."
+    },
+    {
+      "item": "AC-2 The shared key is class-neutral and includes every parameter that changes the answer (org, window, and timezone where applicable).",
+      "source": "ticket description",
+      "decision": "implement",
+      "reason": "sharedMonthCacheKey and sharedRangeCacheKey already do this. The open-month fix keeps :tz= and puts the calendar month in the key. LprRepossessionsQuery series key stays without :tz= because the series is UTC and identical per org. Its window key already carries day and :tz=."
+    },
+    {
+      "item": "AC-3 The TTL ladder still applies, including the 10-second impersonation collapse, for every card that reads through the shared cache.",
+      "source": "ticket description",
+      "decision": "implement",
+      "reason": "LprRepossessions is the shared-cache reader that still passes [3600, 86400]. Point that pair at getCacheTTL(). UniqueLprCaseClaims is class-prefixed, not a shared-key reader, and stays as it is. UniqueScanCounts's 10-minute past-month impersonation floor stays; its docblock already says it is local to that namespace."
+    },
+    {
+      "item": "AC-4 Monthly maps carry their window in the key. A month rollover cannot serve a map missing its newest month.",
+      "source": "ticket description",
+      "decision": "implement",
+      "reason": "LprRepossessions and UniqueLprCaseClaims already put Y-m on the series key. Replacing the rolling 'this_month' token on the scan-plate month key with Y-m is the same rule for that namespace."
+    },
+    {
+      "item": "AC-5 The N-way cold-start ceiling is recorded per class. UniqueLprCaseClaimsQuery points at DEV-2659 reading clarity.billing_claim_events_v. LprRepossessionsQuery points its billing leg at DEV-2659 and its hotlist legs at DEV-2657 / DEV-2660. ScanPlateStatsBatchQuery does not point at DEV-2655.",
+      "source": "Jira comment 41300, locked by comment 41303",
+      "decision": "implement",
+      "reason": "Docblocks only. No query rewrite and no new shared cache on UniqueLprCaseClaimsQuery."
+    },
+    {
+      "item": "Closed-month settle window on the TTL ladder: a month is not treated as closed until at least ~2 hours after it ends, and not year-cached until 8 days after it ends.",
+      "source": "Jira comment 41300, owner locked by comment 41303",
+      "decision": "implement",
+      "reason": "getCacheTTL grows an optional month-end argument. Until 8 days have passed, return the existing 10-minute open-month TTL. That satisfies the 2-hour minimum without a new duration. Impersonation still returns 10 seconds before this branch."
+    }
+  ],
+  "questions": [
+    {
+      "id": "Q1",
+      "question": "Concat or hash for the shared key shape?",
+      "answered": true,
+      "answer": "Keep concat. sharedMonthCacheKey, sharedRangeCacheKey, and the LprRepossessionsQuery keys are already concat, and ClickhouseQuery::buildCacheKey is concat. Hashing would fork the live namespace.",
+      "source": "Implement choice. Comment 41303 says this is not a forecast gate.",
+      "impact": "No key migration and no cold start caused by a new prefix."
+    },
+    {
+      "id": "Q2",
+      "question": "What TTL applies between month-end+2h and month-end+8d?",
+      "answered": true,
+      "answer": "The existing open-month TTL, 10 minutes, for the whole span from month end until 8 days later. Then +1 year. The ~2 hour minimum is inside that span. No third duration.",
+      "source": "Implement choice under the locked 2-hour / 8-day windows. The only duration used is already on the ladder.",
+      "impact": "One just-closed month refreshes every 10 minutes for 8 days, then caches for a year. Callers that do not pass a month end keep +1 year."
+    },
+    {
+      "id": "Q3",
+      "question": "Does UniqueLprCaseClaims lose its existing heldFlexible cache?",
+      "answered": true,
+      "answer": "No. Do not add shared billing-leg cache plumbing. Do not remove the class-prefixed heldFlexible cache. Comment 41300: until DEV-2659 ships, nothing changes for that query.",
+      "source": "Jira comment 41300.",
+      "impact": "That card's monthly series still bypasses getCacheTTL via [3600, 86400]. The settle window is on the ladder for callers that use it. DEV-2659 is when this card changes source."
+    }
+  ],
+  "jira_drift": [
+    {
+      "item": "Ticket description AC-5 still says the ceiling points at DEV-2655 for the ticket as a whole, and the context still frames both funnel queries as cache work.",
+      "versus": "Comments 41300 and 41303.",
+      "material": false,
+      "action": "Journal only. The dispatch already locked the comments. Description body was not edited. No ping."
+    },
+    {
+      "item": "Comments 41312 and 41447 say the fleet ledger is ready and this run should mark provisioned against docs/investigations/DEV-2653/qa-prep-ledger.json.",
+      "versus": "This run stops at phase=plan. Next is Provision, which waits for a fleet ledger. The SCHEMA-GATE ledger keyed clarity_schema_gate is not a product cite.",
+      "material": false,
+      "action": "Journal only. Not a scope or AC change. No ping."
+    }
+  ],
+  "okf": [
+    "okf/index.md",
+    "okf/concepts/data-architecture.md",
+    "okf/concepts/company-metrics-dashboard.md",
+    "okf/concepts/billing-events.md",
+    "okf/concepts/platform-gotchas.md",
+    "okf/concepts/impersonation.md"
+  ]
+}

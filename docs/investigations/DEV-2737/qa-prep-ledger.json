@@ -1,0 +1,257 @@
+{
+  "version": 2,
+  "key": "DEV-2737",
+  "ticket": "DEV-2737",
+  "unblocks": [
+    "DEV-2737 verify-only Agent QA"
+  ],
+  "repo": "insight-lpr/platform",
+  "app": "clarity",
+  "status": "live",
+  "phase": "provision_env",
+  "phase_detail": "path_a_fleet_twin_live",
+  "scope": "Stand Path A keyed fleet twin for DEV-2737 (PR #472 tip 084969ea \u2014 verify-only / no product PHP). Separate containers/ports/DBs from all torn Path A keys. Cloud CH READ-ONLY.",
+  "host": {
+    "machine": "Galadriel fleet Linux box",
+    "hostname": "grok-bot-vm-403507934",
+    "note": "Mac Herd/Expose is NOT the live-QA host"
+  },
+  "path_a": {
+    "note": "Path A live for DEV-2737 only after peers torn on QA Ready.",
+    "soft_ok_vs": "schema-drift peer / torn peer fleets (prior LPR Repossessions coverage, status-log retirement, and other Path A peers)",
+    "live_ledger_count": 1,
+    "live_keys": [
+      "DEV-2737"
+    ],
+    "no_global_current_env": true,
+    "mac_herd_refused": true,
+    "cloud_ch_writes": false
+  },
+  "other_live_fleet_ledgers": [
+    {
+      "key": "torn peer fleet (ports 18086/15438/18129)",
+      "path": "sibling investigation qa-prep ledger (ticket key omitted)",
+      "status": "torn_down",
+      "live": false,
+      "note": "Refuse reuse :18086/:15438/:18129"
+    },
+    {
+      "key": "torn status-log retirement fleet (ports 18085/15437/18128)",
+      "path": "sibling investigation qa-prep ledger (ticket key omitted)",
+      "status": "torn_down",
+      "live": false,
+      "note": "Refuse reuse :18085/:15437/:18128"
+    },
+    {
+      "key": "torn peer fleet (ports 18084/15436/18127)",
+      "path": "sibling investigation qa-prep ledger (ticket key omitted)",
+      "status": "torn_down",
+      "live": false,
+      "note": "Refuse reuse :18084/:15436/:18127"
+    },
+    {
+      "key": "torn peer fleet",
+      "path": "sibling investigation qa-prep ledger (ticket key omitted)",
+      "status": "torn_down",
+      "live": false,
+      "note": "Torn"
+    },
+    {
+      "key": "schema-drift peer",
+      "path": "sibling investigation qa-prep ledger (ticket key omitted)",
+      "status": "unknown_or_torn",
+      "live": false,
+      "note": "Do not reuse :18125"
+    },
+    {
+      "key": "torn prior LPR Repossessions coverage fleet (ports 18083/15435/18126)",
+      "path": "sibling investigation qa-prep ledger (ticket key omitted)",
+      "status": "torn_down",
+      "live": false,
+      "note": "Refuse reuse :18083/:15435/:18126"
+    },
+    {
+      "key": "torn peer fleet (ports 18082/15434/18124)",
+      "path": "sibling investigation qa-prep ledger (ticket key omitted)",
+      "status": "torn_down",
+      "live": false,
+      "note": "Refuse reuse :18082/:15434/:18124"
+    }
+  ],
+  "live_fleet_ledger": {
+    "key": "DEV-2737",
+    "status": "live",
+    "site": "http://127.0.0.1:18087",
+    "postgres": "0.0.0.0:15439",
+    "clickhouse": "0.0.0.0:18130",
+    "live": true
+  },
+  "site": {
+    "local_url": "http://127.0.0.1:18087",
+    "login_path": "/app/login",
+    "fleet_reachable_url": "http://127.0.0.1:18087",
+    "container": "clarity-qa-app-dev-2737",
+    "image": "reused slim FrankenPHP runtime (sibling tag omitted)",
+    "image_note": "Reused slim FrankenPHP runtime image (sibling tag omitted)",
+    "publish": "0.0.0.0:18087->80",
+    "http_probe": "GET /app/login -> 200",
+    "probe_passed": true,
+    "hard_stop": null,
+    "checkout": "/workspace/dev-2737-wt",
+    "checkout_sha": "084969eaf4f9fbeed26f1fd93e36d356e438e2f6",
+    "checkout_note": "insight-lpr/platform @ 084969ea (PR #472 tip) worktree /workspace/dev-2737-wt; vendor+filament assets from matching composer.lock sibling worktree",
+    "note": "Path A stand for DEV-2737 verify-only. Not Mac Herd. Does not share DSN/ports with any other key.",
+    "qa_user": {
+      "id": 1,
+      "email": "test@tester.com",
+      "password_ref": "/workspace/first-glance/secrets/dev-2737-qa-user-password.txt",
+      "schema": "overwatch.users",
+      "also_platform_users": true
+    }
+  },
+  "postgres": {
+    "container": "clarity-qa-postgres-dev-2737",
+    "image": "postgis/postgis:16-3.4",
+    "publish": "0.0.0.0:15439->5432",
+    "host": "0.0.0.0",
+    "host_from_box": "127.0.0.1",
+    "host_from_app_container": "172.20.0.1",
+    "port": 15439,
+    "dev_db": "zod_dev_2737",
+    "testing_db": "zod_testing_dev_2737",
+    "user": "clarity",
+    "password_ref": "/workspace/first-glance/secrets/dev-2737-pg-password.txt",
+    "superuser_password_ref": "/workspace/first-glance/secrets/dev-2737-pg-superuser-password.txt",
+    "env_ref": "/workspace/first-glance/secrets/clarity-qa-dev-2737.env",
+    "seed": "Restored zod_schema_gate.restore.sql into zod_dev_2737 (139 public BASE TABLE; platform 41); testing DB empty+postgis; QA user id=1 (platform.users + overwatch.users) test@tester.com",
+    "cloudagent_note": "Published 0.0.0.0:15439; east-west from app uses 172.20.0.1:15439",
+    "dsn_summary": "postgresql://clarity@127.0.0.1:15439/zod_dev_2737 (password via password_ref)",
+    "prove_public_base_tables": 139,
+    "prove_platform_base_tables": 41
+  },
+  "clickhouse": {
+    "strategy": "docker",
+    "container": "clarity-qa-clickhouse-dev-2737",
+    "image": "clickhouse/clickhouse-server:25.8.11.66",
+    "host": "0.0.0.0",
+    "http_port": 18130,
+    "publish": "0.0.0.0:18130->8123",
+    "https": false,
+    "username": "default",
+    "password_ref": "/workspace/first-glance/secrets/dev-2737-ch-password.txt",
+    "database": "clarity_dev_2737",
+    "database_clarity": "clarity_dev_2737",
+    "database_clarity_testing": "clarity_testing_dev_2737",
+    "database_zod": "zod_dev_2737",
+    "database_zod_testing": "zod_testing_dev_2737",
+    "databases": [
+      "clarity_dev_2737",
+      "clarity_testing_dev_2737",
+      "zod_dev_2737",
+      "zod_testing_dev_2737"
+    ],
+    "schema_applied": {
+      "source_remap": "/workspace/docs/investigations/DEV-2737/seed-work/schema_*_dev_2737.sql",
+      "source_from": "sibling fleet seed-work schema SQL remapped onto this ticket's databases (source ticket key omitted)",
+      "billing_claim_source": "/workspace/docs/investigations/DEV-2737/seed-work/apply-three-dev-2737.sql",
+      "method": "clickhouse-client --multiquery on Docker",
+      "clarity_tables_with_billing": 31,
+      "recovery_scans_present": true,
+      "billing_claim_events_on_main": true,
+      "billing_claim_note": "billing_claim_events + _v + _mv on clarity_dev_2737"
+    },
+    "tunnel_public_host": null,
+    "tunnel_tool": null,
+    "tunnel_status": "not_attempted \u2014 fleet reachable via 0.0.0.0:18130 publish",
+    "fleet_dsn_http": "http://127.0.0.1:18130/?database=clarity_dev_2737",
+    "http_port_path_notes": "CH HTTP 8123 published 0.0.0.0:18130; refuse reuse 18124-18129",
+    "prove_select": {
+      "result": "PASS",
+      "probe": "recovery_scans + billing_claim + table_count",
+      "table_count": 31,
+      "recovery_scans": true,
+      "billing_claim": [
+        "billing_claim_events",
+        "billing_claim_events_mv",
+        "billing_claim_events_v"
+      ],
+      "query": "system.tables recovery_scans/billing_claim on clarity_dev_2737",
+      "local_http": "http://127.0.0.1:18130",
+      "tunnel_http": null,
+      "cloud_touched": false,
+      "at": "2026-09-28T10:20:52-05:00"
+    },
+    "cloud_touched": false,
+    "cloud_write_attempted": false,
+    "teardown_done": false,
+    "status": "live",
+    "network": "clarity-qa-dev-2737",
+    "network_gateway": "172.20.0.1",
+    "clickhouse_from_app": {
+      "CLICKHOUSE_DRIVER": "clickhouse",
+      "CLICKHOUSE_HOST": "172.20.0.1",
+      "CLICKHOUSE_PORT": 18130
+    },
+    "host_from_box": "127.0.0.1",
+    "host_from_app_container": "172.20.0.1",
+    "port": 18130,
+    "dev_db": "clarity_dev_2737",
+    "testing_db": "clarity_testing_dev_2737"
+  },
+  "network": {
+    "name": "clarity-qa-dev-2737",
+    "gateway": "172.20.0.1",
+    "note": "Own dedicated docker network; DB_HOST/CLICKHOUSE_HOST=gateway"
+  },
+  "cloud_touched": false,
+  "prove_passed": true,
+  "mac_herd_refused": true,
+  "soft_ok_vs": "schema-drift peer / torn peer fleets (prior LPR Repossessions coverage, status-log retirement, and other Path A peers)",
+  "artifacts": {
+    "ledger_docs": "/workspace/docs/investigations/DEV-2737/qa-prep-ledger.json",
+    "ledger_first_glance": "/workspace/first-glance/docs/investigations/DEV-2737/qa-prep-ledger.json",
+    "seed_work": "/workspace/docs/investigations/DEV-2737/seed-work/",
+    "schema_remap_meta": "/workspace/docs/investigations/DEV-2737/seed-work/schema_remap_meta.json",
+    "billing_claim_ddl": "/workspace/docs/investigations/DEV-2737/seed-work/apply-three-dev-2737.sql",
+    "pg_fixture_source": "sibling postgres schema-gate restore SQL (ticket key omitted)",
+    "restand_prove": "/workspace/docs/investigations/DEV-2737/restand-prove.md",
+    "stand_fleet_script": "/workspace/docs/investigations/DEV-2737/stand-fleet.sh",
+    "stand_fleet_log": "/workspace/docs/investigations/DEV-2737/stand-fleet.log",
+    "gateway": "/workspace/docs/investigations/DEV-2737/gateway.txt"
+  },
+  "secrets": {
+    "dir": "/workspace/first-glance/secrets/",
+    "refs": [
+      "/workspace/first-glance/secrets/dev-2737-pg-password.txt",
+      "/workspace/first-glance/secrets/dev-2737-pg-superuser-password.txt",
+      "/workspace/first-glance/secrets/dev-2737-ch-password.txt",
+      "/workspace/first-glance/secrets/dev-2737-qa-user-password.txt",
+      "/workspace/first-glance/secrets/clarity-qa-dev-2737.env"
+    ]
+  },
+  "timestamp": "2026-09-28T10:20:52-05:00",
+  "timestamp_label": "2026-09-28 10:20:52 CDT (America/Chicago)",
+  "qa_log": [
+    {
+      "at": "2026-09-28T10:20:52-05:00",
+      "stage": "qa-prep",
+      "event": "provisioned_live",
+      "details": "DEV-2737 Path A fleet twin LIVE: site :18087 login 200; PG :15439; CH :18130 table_count=31; gateway=172.20.0.1; checkout=/workspace/dev-2737-wt@084969eaf4f9; path_a live_keys=[DEV-2737]; verify-only; cloud_touched=false; mac_herd_refused=true"
+    }
+  ],
+  "hard_stops": [],
+  "jira_provisioned": false,
+  "status_board_posted": false,
+  "baton": null,
+  "teardown_done": false,
+  "torn_down": false,
+  "notes": [
+    "Separate from all torn Path A keys \u2014 no shared containers/ports/DBs/DSN",
+    "Ports: app 18087, PG 15439, CH 18130",
+    "Network clarity-qa-dev-2737 gateway 172.20.0.1",
+    "Cloud ClickHouse READ-ONLY",
+    "Path A live_ledger_count=1 [DEV-2737]",
+    "Verify-only / no product PHP (PR #472)",
+    "Checkout /workspace/dev-2737-wt @ 084969eaf4f9fbeed26f1fd93e36d356e438e2f6"
+  ]
+}

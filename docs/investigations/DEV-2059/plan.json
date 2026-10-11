@@ -1,0 +1,37 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Scout hit disposition — Sanctum endpoint (kit-scoped), scan_id in driver payloads, MapShell disposition control with optimistic removal",
+      "approach": "Full-stack, single cohesive feature (driver Scout only). BACKEND: (1) New controller App\\Http\\Controllers\\Api\\ClarityScoutScanDispositionController (single __invoke), reusing ScanDispositionRequest for validation; authorize the scan to the DRIVER'S OWN KIT only via Scan::query()->where('id',$request->input('scan_id'))->where('kit_id',$request->user()->kit_id)->firstOrFail() (404 on another kit's scan — do NOT use forOrg()); then $scan->updateDisposition(disposition,user,reason) (which already writes Postgres + dispatches SyncDispositionToClickhouse) and Analytics::track('disposition-saved',...) mirroring DispositionController; return 200 on success, 500 on exception (mirror the existing controller's try/catch + Log::error). (2) Register Route::post('scan/disposition', ClarityScoutScanDispositionController::class)->middleware('throttle:30,1') INSIDE the existing scout auth:sanctum + ClarityScoutMiddleware group in routes/api.php (full path /api/scout/scan/disposition). (3) Add 'scan_id' => $hit->scan_id to the driver map hits() payload (ClarityScoutMapController) and add 'scan_id' => $hit->scan_id alongside the existing 'id' in the driver recentHits() payload (ClarityScoutDashboardController). scan_id is already a distinct CH column selected by the default * projection — verify $hit->scan_id resolves; no CH query change. FRONTEND (no JS test runner; manual/agent QA): (4) MapShell.vue — add a disposition <select> + Invalid-Scan reason-capture UI inside the existing BottomSheet hit-details content, mirroring resources/views/components/scans/disposition-popup.blade.php (reason grid shown only for the literal 'Invalid Scan'); options mirror DispositionEnum's standard formOptions set (use the cleanest existing way to reach the Scout frontend; a static options list matching DispositionEnum is acceptable if no enum-to-JS bridge exists). (5) map.js — add an action (e.g. updateSelectedHitDisposition) that POSTs {scan_id, disposition, reason} to /scout/scan/disposition via lib/fetch.js (Bearer), and on HTTP 200 OPTIMISTICALLY removes the hit from selectedHits/markers + clears selection (mirror the optimistic DOM removal in resources/js/app.js:111-113), reconciling on the next poll.",
+      "target_files": [
+        "app/Http/Controllers/Api/ClarityScoutScanDispositionController.php (new)",
+        "routes/api.php",
+        "app/Http/Controllers/Api/ClarityScoutMapController.php",
+        "app/Http/Controllers/Api/ClarityScoutDashboardController.php",
+        "resources/js/clarity-scout/components/MapShell.vue",
+        "resources/js/clarity-scout/stores/map.js",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutScanDispositionControllerTest.php (new)",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php (update payload assertion)",
+        "tests/Feature/Http/Controllers/Api/ClarityScoutDashboardControllerTest.php (update payload assertion)"
+      ],
+      "intended_diffs": "See approach. New controller ~40 lines modeled on DispositionController but kit-scoped. routes/api.php: one route line in the scout group. Two 1-line payload additions (scan_id). MapShell.vue: a select + conditional reason UI + submit handler. map.js: one store action with optimistic removal. Tests: a new endpoint test (200 own-kit / 404 other-kit / validation / Queue::fake dispatch / reason capture) modeled on DispositionControllerTest; scan_id assertions added to the two existing payload tests.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "ClarityScout",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex",
+      "security_note": "Kit-scoped tenancy is the security-critical invariant: a driver must NOT be able to disposition a scan outside their assigned kit_id. Enforce with where('kit_id',$user->kit_id)->firstOrFail(); pin with a cross-kit 404 test. Phase 5 escalates to 3 review lanes (auth/permission territory)."
+    }
+  ],
+  "excluded_sites": [
+    "ClarityScoutMapController::hits ->validDisposition() (:216), ClarityScoutBirdsEyeController::hits/stats/recentHits (:305/:488/:553), ClarityScoutDashboardController::stats/recentHits (:75/:140), HitDirectHotspotQuery (:74), ClarityScoutTripsController (:83/:204/:315/:472) — the forDispositions/validDisposition allowlist is ALREADY applied on every read surface and pinned by tests; NOT in scope (ticket premise stale).",
+    "Scan::updateDisposition -> SyncDispositionToClickhouse dispatch — ALREADY dispatched (restored by DEV-2176); NOT in scope.",
+    "Admin Bird's-Eye disposition control + its web-session route — OUT of scope per Dalton (driver-only).",
+    "DayOverlay.vue / TripOverlay.vue hit sheets + their scan_id — OUT of scope per Dalton (MapShell map+recent-hits only; trip/day stay read-only).",
+    "Any CH read-query change / repoint to CDC/scans_metadata — explicitly avoided (DEV-2176 measured ~3.7s/query and reverted); keep reading the flat disposition column."
+  ],
+  "perf_gate": {"required": false, "reason": "No CH read query is added or changed; scan_id is an existing column added to an existing projection. No deferred-perf CH-at-scale design."},
+  "sizing": "One cohesive full-stack feature: 5 code files (1 new controller, 1 route line, 2 one-line payload adds, 2 frontend files) + 3 test files across 3 layers. Just over the 6-file heuristic counting tests, but a single tightly-coupled feature (endpoint<->payload<->UI contract), not multiple distinct concerns — no ticket split recommended; Dalton opted into the scope at the gate."
+}

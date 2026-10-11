@@ -1,0 +1,44 @@
+{
+  "key": "DEV-2325",
+  "route": "bug",
+  "base_branch": "main",
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Bound buildZoneSummaries() spatial join (MATERIALIZED CTE) + relabel terminal-failure skip reason",
+      "approach": "Two coupled changes in the end-of-shift summary path, both TDD (red before green):\n\n(1) QUERY FIX — app/Services/Scout/BuildShiftSummary.php::buildZoneSummaries() (currently 178-193). Rewrite the raw SQL so Postgres computes the shift's small candidate scan set BEFORE the spatial predicate: wrap the scans pre-filter in a MATERIALIZED CTE, then join THAT to platform.zones. Keep the read on DB::connection('platform') (NO zod re-route). Preserve output columns, ORDER BY, and the fact it counts ALL scans incl hidden (raw SQL intentionally bypasses ShowVisibleScan — do NOT add an is_visible filter). Reorder the bindings to match the new placeholder order (CTE: kit_id, start, end; outer: org_id). A bbox (z.geom && s.geo) pre-filter ahead of ST_Contains is optional belt-and-suspenders (redundant with the GiST index but harmless) — implementer's discretion.\n\n(2) AC-3 RELABEL — app/Jobs/Scout/SendEndOfShiftSummary.php::failed() (125-142). Record a build/query-timeout-specific summary_skipped_reason distinct from the mail-send case: when the terminal exception is a DB/query failure (the observed 57014, an Illuminate\\Database\\QueryException) record 'build_failed'; otherwise keep 'mail_failed' for a genuine mail-send failure. Keep the existing Log::error (Nightwatch ingests it). No new alert channel. summary_skipped_reason is varchar(64) with no check constraint → no migration.",
+      "intended_diffs": "BuildShiftSummary.php: replace the buildZoneSummaries() DB::connection('platform')->select(...) SQL+bindings with:\n  WITH shift_scans AS MATERIALIZED (\n    SELECT id, scanned_at, geo FROM public.scans\n    WHERE kit_id = ? AND scanned_at >= ? AND scanned_at <= ?\n  )\n  SELECT s.id AS scan_id, s.scanned_at AS scanned_at,\n         z.id AS zone_id, z.name AS zone_name, z.color AS zone_color\n  FROM shift_scans s\n  JOIN platform.zones z ON public.ST_Contains(z.geom, s.geo)\n  WHERE z.org_id = ? AND z.deleted_at IS NULL\n  ORDER BY s.scanned_at, z.id\n  -- bindings: [kit_id, startedAt, endedAt, org_id]\n(loadZonePolygonsForMap stays unchanged.)\nSendEndOfShiftSummary.php::failed(): compute $reason = $exception instanceof QueryException ? 'build_failed' : 'mail_failed'; forceFill(['summary_skipped_reason' => $reason]). Add the QueryException import.",
+      "target_files": [
+        "app/Services/Scout/BuildShiftSummary.php",
+        "app/Jobs/Scout/SendEndOfShiftSummary.php",
+        "tests/Feature/Services/Scout/BuildShiftSummaryTest.php",
+        "tests/Feature/Jobs/Scout/SendEndOfShiftSummaryTest.php"
+      ],
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": "BuildShiftSummaryTest|SendEndOfShiftSummaryTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "tests_plan": [
+    {
+      "file": "tests/Feature/Services/Scout/BuildShiftSummaryTest.php",
+      "what_it_pins": "New test closing the documented cross-connection gap: seed public.scans directly via DB::connection('platform')->table('scans')->insert(...) inside the shift window/kit (some inside a zone, some outside), create a Zone and call rebuildGeometryFromDefinition() so z.geom is populated; assert forShift()'s zone breakdown (scans/hits/timeInZoneMinutes) is unchanged/correct after the rewrite, AND (DB::connection('platform')->enableQueryLog(), DEV-2309 style) that the emitted SQL now contains the CTE fence (str_contains 'shift_scans' and 'materialized'). Freeze time near the fixture (Carbon setTestNow) per the CH hot-table TTL / forWindow recency gotchas."
+    },
+    {
+      "file": "tests/Feature/Jobs/Scout/SendEndOfShiftSummaryTest.php",
+      "what_it_pins": "Add a case: a terminal QueryException (simulating the 57014, e.g. a BuildShiftSummary mock/binding that throws QueryException) → failed() records summary_skipped_reason='build_failed'. Keep/adjust the existing terminal_failure_records_mail_failed_skip_reason so a genuine mail-send failure still records 'mail_failed'."
+    }
+  ],
+  "excluded_sites": [
+    {"site": "app/Filament/Client/Resources/ClientSearchScansResource.php:92", "reason": "same-family latent risk (unfenced Scan::query()->forOrg() carries the ScanTimezoneScope join into Filament count()/pagination); no prod evidence in DEV-2325 — recommend a FOLLOW-UP ticket, do not fix here"},
+    {"site": "app/Jobs/Scout/SendEndOfShiftSummary.php handle() lock/transaction scope", "reason": "long lock-hold + external I/O (3 CH round trips + synchronous Mail::send) inside the kit_shifts lockForUpdate is a secondary risk; narrowing it safely needs a claim/CAS column to preserve the documented cross-dispatch idempotency; not required by any AC — optional follow-up"},
+    {"site": "app/Services/Scout/BuildShiftSummary.php::loadZonePolygonsForMap() (294-328)", "reason": "bounded org_id + explicit small zone-id IN list; not a timeout risk; unchanged, stays on the platform connection"},
+    {"site": "app/Services/Scout/BuildShiftSummary.php Hit::whereIn scan_id (253-258)", "reason": "runs on 'zod', bounded by the already-materialized scan-id list; not the root cause"},
+    {"site": "DEV-2309-fixed sites (CloseInactiveShiftsCommand::latestActivityFor, EnsureOpenShift)", "reason": "already carry withoutGlobalScope(ScanTimezoneScope); untouched"}
+  ],
+  "perf_gate": "N/A — the large table (public.scans) is Postgres, not a >1B-row ClickHouse surface, so the WS6 CH-at-scale perf gate does not apply. AC-1's effectiveness at prod scale is (per the AC's own wording) verified via post-deploy laravel.log; the MATERIALIZED CTE bounds cost by first principles (partition pruning + (kit_id,scanned_at) btree → tiny scan set before the spatial join).",
+  "sizing": "4 files, one cohesive bugfix (2 ACs: bound the query + make the terminal failure legible). Within one ticket; no split."
+}

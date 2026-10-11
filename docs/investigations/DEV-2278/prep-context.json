@@ -1,0 +1,261 @@
+{
+  "key": "DEV-2278",
+  "mode": "normal",
+  "gate": "CLEAN",
+  "synthesis": "Root cause (confirmed by two independent blind prep passes + direct source verification): ClarityScoutMapController::heatmapOrders() unconditionally runs BOTH the 'direct' and 'staging' order layers through clipRowsToAssignedZones(), which returns [] whenever the authenticated user has zero assigned zones (User->zones() empty). A Scout kit reached via the admin Force-Login impersonation flow (ClarityScoutForceLoginController) \u2014 as in the reported demo \u2014 has no assigned zone, so both order layers render blank. Live Hit Density 'works' because heatmapHits() only clips when the client explicitly sends zone_ids (opt-in), degrading to org-wide; Teammate Activity 'works' because Force-Login hard-codes teammate_overlay_enabled=true. This also proves the repro surface is the DRIVER Scout PWA via Force-Login, NOT the Bird's Eye org-map SPA (where Teammate Activity is hidden in adminMode). The adminMode/HTML-not-JSON fetch-leak hypothesis (DEV-2116/2184) was investigated and RULED OUT: the driver heatmap endpoints live in routes/api.php under auth:sanctum + ClarityScoutMiddleware, are never reachable by the web.php SPA catch-all, and return a normal 200 JSON empty FeatureCollection. CONFLICT: the in-app HelpPanel copy (HelpPanel.vue:158 and :346), authored 2026-07-01 (#249) \u2014 one day AFTER the code that clips both layers (2026-06-30, #242) \u2014 documents 'Direct Orders and Live Hit Density show across the whole organization' while 'Staging Orders is clipped to your zone(s)'. So the current documented product intent is Direct=org-wide, Staging=zone-clipped; the code clips both. Fixing Direct to org-wide matches the documented intent and the ticket's expected behavior. Whether Staging should ALSO render for zone-less drivers is a genuine product decision (its zone gate is a deliberate AC#4 'push users to configure zones' nudge).",
+  "scope": {
+    "summary": "Give Direct Orders a graceful zero-zone fallback: clipped to assigned zone(s) when the driver has >=1 zone, org-wide (run-area/bbox) when they have none. Staging Orders unchanged.",
+    "proposed_changes": [
+      {
+        "file": "app/Http/Controllers/Api/ClarityScoutMapController.php",
+        "change": "In heatmapOrders(), make the Direct layer's zone clip conditional: when the user has >=1 assigned zone, clip Direct to zones (unchanged); when the user has ZERO assigned zones, skip the clip for Direct (org-wide/run-area). Staging is ALWAYS clipped (unchanged). Update the heatmapOrders (:417-419) and clipRowsToAssignedZones (:624-628) docblocks to describe the Direct zero-zone fallback.",
+        "reason": "Root-cause fix restoring Direct to org-wide, matching documented intent (HelpPanel.vue:158,:346) and the ticket's expected behavior.",
+        "ref": "app/Http/Controllers/Api/ClarityScoutMapController.php:452"
+      },
+      {
+        "file": "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php",
+        "change": "Invert the tests that currently pin Direct-is-zone-clipped (test_heatmap_orders_direct_is_empty_without_assigned_zones / test_heatmap_orders_direct_clips_to_assigned_zones) to assert Direct renders regardless of assigned zones; fix the stale comment at ~:1104 ('Direct ignores zones either way') and adjust the direct+staging union test's fixture to the corrected behavior. Keep the Staging zone-clip tests unchanged (unless the gate decision relaxes Staging).",
+        "reason": "Existing tests pin the contested behavior; they must move in lockstep with the fix or CI fails and intent gets re-litigated silently.",
+        "ref": "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php:1100-1207"
+      },
+      {
+        "file": "resources/js/clarity-scout/components/HelpPanel.vue",
+        "change": "Reword the Direct Orders zone copy at :158 and :346 to reflect the conditional behavior: Direct Orders show across your assigned zone(s), or org-wide when you have no zones assigned. Staging stays 'clipped to your zone(s)'. Then npm run build and commit rebuilt public/build assets.",
+        "reason": "Keep in-app docs accurate after Direct becomes zone-clipped-when-zoned / org-wide-when-zoneless (Dalton's decision).",
+        "ref": "resources/js/clarity-scout/components/HelpPanel.vue:158,346"
+      }
+    ],
+    "target_files": [
+      "app/Http/Controllers/Api/ClarityScoutMapController.php",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php",
+      "resources/js/clarity-scout/components/HelpPanel.vue"
+    ],
+    "out_of_scope": [
+      "ClarityScoutBirdsEyeController::heatmapOrders (Bird's Eye org-map) \u2014 clips by org run-area not assigned-zones; not implicated. (Flagged: its heatmap endpoints have no test coverage \u2014 follow-up ticket, not this fix.)",
+      "Staging Orders' zone gate \u2014 untouched unless the gate decision relaxes it.",
+      "Empty-state UX when a layer legitimately returns zero features.",
+      "HotlistAddressGeohashQuery / DEV-2183 plate guard \u2014 verified unrelated."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "item": "Direct Orders renders for a driver with ZERO assigned zones (org-wide/run-area, not blank); for a driver with >=1 zone it stays clipped to their zone(s) as before.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Per Dalton's gate decision (2026-08-03): graceful zero-zone fallback for Direct only."
+    },
+    {
+      "item": "Staging Orders behavior is UNCHANGED (zone-clipped; empty when no zones).",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Dalton: leave Staging as-is. Becomes a regression guard, not a change."
+    },
+    {
+      "item": "Live Hit Density and Teammate Activity continue to work for the impersonated driver (regression guard).",
+      "source": "ticket",
+      "decision": "implement",
+      "reason": "Already working; proposed change touches neither path."
+    },
+    {
+      "item": "In-app Help copy (HelpPanel.vue :158, :346) accurately describes Direct Orders as zone-clipped when zones exist / org-wide when none; rebuilt assets committed.",
+      "source": "derived",
+      "decision": "implement",
+      "reason": "Dalton approved updating the copy to match the new behavior."
+    }
+  ],
+  "questions": [
+    {
+      "q": "Direct Orders: confirm the fix is to make Direct render org-wide (stop clipping it to assigned zones), matching HelpPanel.vue and the ticket. Evidence strongly supports yes \u2014 the help copy (authored one day after the clip code) says Direct is org-wide.",
+      "answered": true,
+      "answer": "Direct Orders: clip to the driver's assigned zone(s) when they have >=1 zone; when they have ZERO zones, do NOT clip (show org-wide/run-area). This graceful fallback only changes the zero-zone case and fixes the impersonated-demo repro.",
+      "source": "human:Dalton 2026-08-03"
+    },
+    {
+      "q": "Staging Orders: should it ALSO render org-wide for drivers with no assigned zones, or intentionally stay zone-clipped (empty until zones are configured \u2014 the deliberate AC#4 nudge, per HelpPanel copy)? The ticket expects both layers to render, but the reporter may not know Staging is zone-gated by design.",
+      "answered": true,
+      "answer": "Staging Orders: leave exactly as-is (zone-clipped; empty when no zones). No change.",
+      "source": "human:Dalton 2026-08-03"
+    }
+  ],
+  "blockers": [],
+  "notes": [
+    "Two independent blind prep passes converged on the identical root cause with file:line grounding; adminMode fetch-leak hypothesis independently ruled out by both.",
+    "Zones (zone_user pivot) are a newer feature (migrations 2026-05-12); many real Scout drivers may have no assigned zone, so this bug (as coded) silently blanks Direct+Staging Orders for a large fraction of users \u2014 consistent with High severity.",
+    "clipRowsToAssignedZones is private to ClarityScoutMapController (not shared via ScoutMapHelpers); BirdsEyeController has its own run-area clip and is unaffected.",
+    "Stale test comment at ClarityScoutMapControllerTest.php:~1104 ('Direct ignores zones either way') contradicts the passing test at ~:1154 that asserts Direct IS clipped \u2014 a signal the #242/#195 Direct-clip may be unreconciled against its own intent.",
+    "Dalton (2026-08-03) approved updating HelpPanel.vue copy to match the conditional Direct behavior \u2014 adds a Vue edit + npm run build + committed public/build assets to this PR."
+  ],
+  "tests": [
+    {
+      "file": "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php",
+      "what_it_pins": "Direct Orders renders for a driver with zero assigned zones when in-range data exists (inverted from the current 'empty-without-zones' assertion)."
+    },
+    {
+      "file": "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php",
+      "what_it_pins": "Staging Orders behavior without zones \u2014 pins whatever the confirmed decision is (default: stays empty)."
+    },
+    {
+      "file": "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php",
+      "what_it_pins": "Live Hit Density / Teammate paths unaffected (regression)."
+    }
+  ],
+  "grounding": {
+    "key_files": [
+      "app/Http/Controllers/Api/ClarityScoutMapController.php:421-472 (heatmapOrders \u2014 clips both layers at :452)",
+      "app/Http/Controllers/Api/ClarityScoutMapController.php:633-656 (clipRowsToAssignedZones \u2014 returns [] on zero assigned zones, :637-638)",
+      "app/Http/Controllers/Api/ClarityScoutMapController.php:396-411 (heatmapHits \u2014 zone clip opt-in, org-wide fallback)",
+      "app/Http/Controllers/Api/ClarityScoutMapController.php:131-154 (teammatePaths \u2014 force-login impersonators always get overlay)",
+      "app/Http/Controllers/Api/Concerns/ScoutMapHelpers.php:126-176 (orderRows \u2014 same query for direct/staging; only the clip differs)",
+      "app/Http/Controllers/ClarityScoutForceLoginController.php:14-59 (requires session admin_impersonator; hard-codes teammate_overlay_enabled=true)",
+      "app/Filament/Resources/ScoutUsersResource.php:346-354 (Filament Force Login action)",
+      "resources/js/clarity-scout/stores/map.js:393-470 (fetchOrdersHeatmap sends no zone_ids; server-side clip only)",
+      "resources/js/clarity-scout/components/DashboardOverlay.vue:466-500 (heatmapLayers; Teammate hidden when adminMode)",
+      "resources/js/clarity-scout/components/HelpPanel.vue:158,346 (documented intent: Direct org-wide, Staging zone-clipped)",
+      "routes/api.php:46 (driver heatmap/orders route, auth:sanctum) ; routes/web.php:129 (Bird's Eye admin route, out of scope)",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutMapControllerTest.php:1100-1207 (pinned direct/staging zone behavior + stale comment)"
+    ],
+    "code_flow": "Force Login (ScoutUsersResource) -> ClarityScoutForceLoginController (admin_impersonator, teammate_overlay_enabled=true, Sanctum token) -> driver clarity-scout PWA boots -> DashboardOverlay toggles direct/staging in mapStore.activeHeatmaps -> ScannerMap syncHeatmaps -> mapStore.fetchOrdersHeatmap -> GET /api/scout/map/heatmap/orders -> heatmapOrders() -> orderRows() (HotlistAddressGeohashQuery, bbox+run-area) -> clipRowsToAssignedZones() unconditionally for BOTH -> [] when kit's user has no zone_user rows -> 200 JSON empty FeatureCollection -> layer stays blank.",
+    "tables": [
+      "platform.zones",
+      "platform.zone_user",
+      "platform.org_run_areas",
+      "zod.public_address",
+      "zod.public_hotlist_address",
+      "clarity.hotlist"
+    ],
+    "related_components": [
+      "ClarityScoutMapController",
+      "ClarityScoutBirdsEyeController (unaffected)",
+      "ScoutMapHelpers",
+      "HotlistAddressGeohashQuery",
+      "Zone model + zone_user pivot",
+      "map.js (Pinia)",
+      "DashboardOverlay.vue",
+      "ScannerMap.vue",
+      "HelpPanel.vue",
+      "ClarityScoutForceLoginController"
+    ]
+  },
+  "exhaustiveness": {
+    "patterns_used": [
+      "grep adminMode/BASE_URL gating across resources/js/clarity-scout",
+      "diff driver heatmapOrders vs admin BirdsEye heatmapOrders",
+      "git blame/log on clip line + HelpPanel zone copy for intent chronology",
+      "grep every heatmap fetch + admin route registration",
+      "test-file grep for all heatmap/order/zone tests + coverage gaps"
+    ],
+    "sites": [
+      {
+        "site": "ClarityScoutMapController.php:452 (heatmapOrders clips both)",
+        "verdict": "buggy",
+        "reason": "Empties Direct Orders for any zone-less driver; primary root-cause sink."
+      },
+      {
+        "site": "ClarityScoutMapController.php:395 (heatmapHits optional clip)",
+        "verdict": "safe",
+        "reason": "Opt-in zone clip; degrades to org-wide."
+      },
+      {
+        "site": "ClarityScoutBirdsEyeController.php:400-446 (admin heatmapOrders, run-area clip)",
+        "verdict": "safe",
+        "reason": "Org run-area clip, not per-user zone; unaffected. No test coverage \u2014 follow-up, not a confirmed bug."
+      },
+      {
+        "site": "ClarityScoutMapController.php:139 (teammatePaths force-login bypass)",
+        "verdict": "safe",
+        "reason": "Unrelated to zones; explains Teammate Activity working."
+      },
+      {
+        "site": "resources/js/clarity-scout/lib/fetch.js / stores/map.js buildUrl",
+        "verdict": "safe",
+        "reason": "adminMode fetch-leak hypothesis verified FALSE; endpoints in api.php, return 200 JSON."
+      }
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [
+      "platform.zones",
+      "platform.zone_user",
+      "platform.org_run_areas"
+    ],
+    "ch_tables": [
+      "zod.public_address",
+      "zod.public_hotlist_address",
+      "clarity.hotlist"
+    ],
+    "mv_or_cdc_implications": "None \u2014 HotlistAddressGeohashQuery reads raw CDC-fed tables; the fix only changes which PHP-side rows are post-filtered, not the ClickHouse query.",
+    "indexes_relied_on": []
+  },
+  "derivation_log": [],
+  "qa_hint": {
+    "plan_sketch": [
+      {
+        "ac": "Direct Orders renders for zone-less impersonated driver",
+        "kind": "agent",
+        "intent": "Force-login into a zone-less Scout kit, enable Direct Orders, assert non-empty features when seeded in-range order data exists (empty pre-fix)."
+      },
+      {
+        "ac": "Staging Orders (per decision)",
+        "kind": "human",
+        "intent": "Confirm Staging behavior for zone-less driver matches the gate decision."
+      },
+      {
+        "ac": "Live Hit Density + Teammate Activity unaffected",
+        "kind": "agent",
+        "intent": "Regression check both still render in the same force-login session."
+      }
+    ],
+    "seed_scenario": "One org with (optionally) an org_run_area; a Scout kit whose assigned user has zero zone_user rows; at least one Direct-order geohash cell and one Staging-order geohash cell within the test viewport bbox; plus a hit row for Live Hit Density.",
+    "personas": [
+      "org admin (force-login)",
+      "impersonated zone-less Scout driver"
+    ],
+    "pg_tables": [
+      "platform.zones",
+      "platform.zone_user",
+      "platform.org_run_areas"
+    ],
+    "ch_tables": [
+      "zod.public_address",
+      "zod.public_hotlist_address",
+      "clarity.hotlist"
+    ]
+  },
+  "confidence": 85,
+  "escalate": {
+    "recommend": true,
+    "reason": "Code root cause airtight and independently confirmed, but the correct fix hinges on a product decision (Direct org-wide? Staging fallback?) that only Dalton can settle \u2014 surfaced at the gate."
+  },
+  "missed_caller_candidates": [
+    {
+      "file": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php",
+      "symbol": "heatmapOrders",
+      "referenced_at": "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php:400",
+      "note": "already out-of-scope (run-area clip, not assigned-zone)"
+    },
+    {
+      "file": "app/Models/User.php",
+      "symbol": "zones()/zone_user",
+      "referenced_at": "app/Models/User.php:144",
+      "note": "the assigned-zones relation used by the clip"
+    },
+    {
+      "file": "app/Models/Zone.php",
+      "symbol": "intersectingGeohashes",
+      "referenced_at": "app/Models/Zone.php:130",
+      "note": "geohash intersection used by clip"
+    },
+    {
+      "file": "resources/js/clarity-scout/stores/map.js",
+      "symbol": "fetchOrdersHeatmap/activeHeatmaps",
+      "referenced_at": "resources/js/clarity-scout/stores/map.js:188,273-306",
+      "note": "frontend consumer; no change expected"
+    },
+    {
+      "file": "resources/js/clarity-scout/components/ScannerMap.vue",
+      "symbol": "fetchOrdersHeatmap/activeHeatmaps",
+      "referenced_at": "resources/js/clarity-scout/components/ScannerMap.vue:934,949,952",
+      "note": "frontend consumer; no change expected"
+    }
+  ]
+}

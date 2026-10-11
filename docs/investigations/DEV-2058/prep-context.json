@@ -1,0 +1,93 @@
+{
+  "synthesis": "The Scout hit modal in DayOverlay.vue (and its counterpart TripOverlay.vue) is a full-viewport teleport overlay (`fixed inset-0 z-50 flex items-center justify-center`) — it covers the entire map and entirely obscures whichever marker was tapped (AC-1). The modal currently shows plate + timestamp + two images; it needs to also display make/model/year/color from the hotlist (AC-2). Those vehicle fields (vehicle_year, vehicle_make, vehicle_model) ARE present in hits_cold/hits_hot schemas and already propagated by the hits_cold_mv, but are NOT selected by the ClarityScoutTripsController day()/show() endpoints — so backend work is needed to include them. Vehicle color comes from scan metadata (ScanMetaData.vehicle_color), which is a different source not currently joined in the Scout CH queries. Vehicle state is the hotlist's us_state (hotlist_us_state in hits_cold). The DEV-2052 type-label mechanism lives in MapShell.vue as a computed `hitTypeLabel` mapping hit_type L→'Direct Live', S→'Staging Live'; the same pattern can be copied into DayOverlay.vue since the hits_detail payload already carries hit_type.",
+  "scope": {
+    "summary": "Two-part frontend+backend change: (1) reposition the modal so it anchors offset from the marker rather than covering it; (2) add vehicle info fields (year/make/model + type label) to the modal, requiring a backend select expansion to expose those fields from hits_cold.",
+    "proposed_changes": [
+      "DayOverlay.vue (lines 244–282): Replace the bespoke `fixed inset-0 z-50 flex items-center justify-center bg-black/70` hit-lightbox with the EXISTING BottomSheet.vue component (already imported + used for the 'Route Overview' panel at DayOverlay.vue:103). It floats at bottom-28/z-30 above the bottom-nav pill, with drag handle + light backdrop — no new positioning logic, consistent UX, and resolves AC-1 by construction (the marker above the sheet stays visible).",
+      "DayOverlay.vue modal body (now inside BottomSheet slot): Add type label (hit_type L/S → 'Direct Live'/'Staging Live' badge, same classes as MapShell.vue hitTypeLabel), and a vehicle info row (year make model + registration state) with v-if guards for nullable values. vehicle_color is DEFERRED (not included).",
+      "TripOverlay.vue (lines 157–196): Identical modal markup — apply same positioning fix and vehicle info additions to stay in sync.",
+      "ClarityScoutTripsController.php day() (line 295): Expand .select([...]) to include 'vehicle_year', 'vehicle_make', 'vehicle_model', 'hotlist_us_state'; add them to the hitsDetail array (lines 350–361).",
+      "ClarityScoutTripsController.php show() (line 446): Same select and payload expansion for the trip detail endpoint (lines 461–469).",
+      "Cache key bump on day() and show() if schema of cached payload changes (prevent stale cached responses missing new fields)."
+    ],
+    "target_files": [
+      "resources/js/clarity-scout/components/DayOverlay.vue:242-283",
+      "resources/js/clarity-scout/components/TripOverlay.vue:156-197",
+      "app/Http/Controllers/Api/ClarityScoutTripsController.php:295,350-361,446,461-469",
+      "tests/Feature/Http/Controllers/Api/ClarityScoutTripsControllerTest.php"
+    ],
+    "out_of_scope": [
+      "vehicle_color from scan metadata — not in hits_cold; would require a separate PG or scan_metadata join not currently done in this CH-only endpoint. Defer unless explicitly approved.",
+      "MapShell.vue modal (map-hit markers) — already updated by DEV-2052; only Trips/Day overlay modals are in scope.",
+      "New ClickHouse schema changes — vehicle_year/make/model/hotlist_us_state already exist in hits_cold.",
+      "Hit type label on the SidePanel list rows (compact view) — ticket only specifies the modal."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "text": "Modal does not obscure its associated marker across common screen sizes/scales (small laptop + tablet).",
+      "decision": "implement",
+      "reason": "Current `fixed inset-0` backdrop + centered card definitely obscures the marker. Fix: position the card toward a screen edge (e.g. bottom-sheet on <768px, top-offset card on ≥768px) so the map marker area remains partially visible, or shift the card to bottom half of the screen. The specific approach needs design approval (see questions)."
+    },
+    {
+      "id": "AC-2",
+      "text": "Modal shows relevant vehicle info for the selected hit, labeled by type (Direct/Staging Live).",
+      "decision": "implement",
+      "reason": "vehicle_year, vehicle_make, vehicle_model exist in hits_cold schema. hit_type is already in the hits_detail payload (line 355/465 of controller). Type label pattern is already built in MapShell.vue (DEV-2052). Backend select expansion is straightforward. vehicle_color is NOT in hits_cold — defer or explicitly approve a separate lookup."
+    }
+  ],
+  "questions": [
+    {
+      "q": "Approve the modal-repositioning approach + the exact vehicle fields to surface?",
+      "answered": true,
+      "answer": "Reuse the existing BottomSheet.vue component for the hit modal (it floats at bottom-28 / z-30, ABOVE the floating bottom-nav pill at bottom-8/z-40, with drag handle + light bg-black/20 backdrop) — consistent with the 'Route Overview' BottomSheet already used in DayOverlay.vue. This clears the bottom nav by offset (no overlap, no z-fight) and grows upward (max-h 70vh, scroll). Vehicle fields to surface: vehicle_year + vehicle_make + vehicle_model + hotlist_us_state (registration state), labeled by hit_type via the DEV-2052 hitTypeLabel pattern.",
+      "source": "human:dalton 2026-06-18"
+    },
+    {
+      "q": "Is vehicle_color (PG ScanMetaData, not hits_cold) in scope?",
+      "answered": true,
+      "answer": "DEFER vehicle_color. No secondary PG lookup this ticket — ship year/make/model + hotlist_us_state from ClickHouse (hits_cold) only. Note the deferral in the Build Record; color can be a follow-up.",
+      "source": "human:dalton 2026-06-18"
+    }
+  ],
+  "blockers": [],
+  "grounding": {
+    "key_files": [
+      "resources/js/clarity-scout/components/DayOverlay.vue:242-283",
+      "resources/js/clarity-scout/components/TripOverlay.vue:156-197",
+      "resources/js/clarity-scout/components/MapShell.vue (DEV-2052 hitTypeLabel pattern, lines 118-129)",
+      "app/Http/Controllers/Api/ClarityScoutTripsController.php:245-395 (day()), 397-492 (show())",
+      "projects/chlocal/database/schemas/clickhouse/clarity/tables/hits_cold.sql:15,35-37 (hotlist_us_state, vehicle_year/make/model confirmed present)"
+    ],
+    "code_flow": "User taps hit row in SidePanel → `selectedHit = hit` (DayOverlay.vue:217) → teleported modal renders with `fixed inset-0 z-50 flex items-center justify-center bg-black/70` backdrop covering the full viewport → modal card shows plate + time + two images. The hit object is populated from `dayDetail.hits_detail` (computed via `trips.dayDetail.hits_detail`), which is fetched by `trips.fetchDayDetail(date)` → GET /api/scout/trips/day/{date} → `ClarityScoutTripsController::day()`. The controller's hits query selects only [ocr, hit_created_at, hit_type, lat, lng, scan_guid] from hits_cold — vehicle fields are NOT selected. vehicle_year/make/model exist as Nullable(String) columns in hits_cold (confirmed in schema). DEV-2052 type label lives in MapShell.vue as `hitTypeLabel` computed from `hit_type` L→'Direct Live', S→'Staging Live'.",
+    "tables": ["clarity.hits_cold", "clarity.hits_hot"],
+    "related_components": [
+      "resources/js/clarity-scout/components/MapShell.vue (DEV-2052 type label, same hit payload pattern)",
+      "resources/js/clarity-scout/stores/trips.js (fetchDayDetail, dayDetail state)",
+      "app/Http/Controllers/Api/ClarityScoutMapController.php (hits() endpoint — already returns hit_type; DEV-2052 already done)"
+    ]
+  },
+  "data_impact": {
+    "pg_tables": [],
+    "ch_tables": ["clarity.hits_cold", "clarity.hits_hot"],
+    "mv_or_cdc_implications": "No schema changes needed. vehicle_year/make/model/hotlist_us_state already exist in hits_cold (CDC-populated via hits_cold_mv). Only the SELECT list in the controller changes — no migrations required.",
+    "notes": "Cache key for scanner:day:{orgId}:{kitId}:{date} and scanner:trip should be bumped (append :v2 or similar) to avoid returning stale cached payloads that lack the new vehicle fields after deploy."
+  },
+  "tests": [
+    {
+      "file": "tests/Feature/Http/Controllers/Api/ClarityScoutTripsControllerTest.php",
+      "what_it_pins": "Existing day() and show() controller tests — extend insertHitCold() / insertHitHot() helpers to include vehicle_year/make/model/hotlist_us_state, and add assertions that hits_detail items carry those fields (nullable-aware). Also add hit_type assertion if not already present."
+    }
+  ],
+  "confidence": 82,
+  "escalate": {
+    "recommend": false,
+    "reason": "Both changes are self-contained frontend+controller work with no new migrations or external dependencies. The open questions are design/scope choices (repositioning approach + exact vehicle fields), not technical blockers. Once answered, implementation is straightforward."
+  },
+  "gate": "CLEAN",
+  "gate_reasons": [
+    "Design approved (human:dalton 2026-06-18): reuse BottomSheet.vue for the hit modal; surface year/make/model + state, labeled by hit_type.",
+    "vehicle_color scope resolved: DEFERRED (CH-only, no PG lookup this ticket)."
+  ]
+}

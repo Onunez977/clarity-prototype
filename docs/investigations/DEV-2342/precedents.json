@@ -1,0 +1,61 @@
+{
+  "recall_source": "haiku recall offload (adad0df2) + DEV-2342 description links",
+  "precedents": [
+    {
+      "key": "DEV-2313",
+      "status": "In Code Review",
+      "relevance": "Introduced scout:record-check-ins + ScoutCheckInMatchQuery on the 5-min cadence with the 10-min overlap lock — the base case being fixed. Wrote a parallel matcher instead of lifting ScoutCheckInRollupQuery's CTE.",
+      "applicable": "yes",
+      "why": "This is the code DEV-2342 rewrites. Its parallel-implementation choice is the direct cause of the amplifier."
+    },
+    {
+      "key": "DEV-2347",
+      "status": "Done",
+      "relevance": "Per-org queued-job dispatcher (Horizon) re-architecture.",
+      "applicable": "yes",
+      "why": "Folded into DEV-2342 W3 — the useful part is a hard maxProcesses ceiling. Closed; do NOT re-do the synchronous->job fan-out blindly (maxProcesses=1 serializes)."
+    },
+    {
+      "key": "DEV-2348",
+      "status": "Done",
+      "relevance": "Lock expiry/lookback coupling.",
+      "applicable": "yes",
+      "why": "Folded into DEV-2342 W3 as an invariant: if lock expiry rises, lookback must be >= it. Today expiry 10 < lookback 15 => zero loss window; do not break."
+    },
+    {
+      "key": "DEV-2349",
+      "status": "Done",
+      "relevance": "Profile the ~104-min cycle; answered by comment 38238.",
+      "applicable": "yes",
+      "why": "Root-cause measurement is folded into DEV-2342 (PK bypass, round-trip amplifier)."
+    },
+    {
+      "key": "DEV-2339",
+      "status": "Done",
+      "relevance": "ScoutOpenOrderAddressesQuery CH timeout (error 159); prune-first rewrite (~10.3s enumeration).",
+      "applicable": "yes",
+      "why": "Only ~2.7% of cycle duration; W2 removes the enumeration's PHP round-trip entirely, so ScoutOpenOrderAddressesQuery may become unused by the recorder."
+    },
+    {
+      "key": "DEV-2163",
+      "status": "Done",
+      "relevance": "ScoutCheckInRollupQuery address-source correctness (open public_hotlist_address, not recovery_address) + bbox hazard.",
+      "applicable": "yes",
+      "why": "The rollup query is the architecture to lift for W2; its bbox/address-source hazards are binding on the rewrite."
+    },
+    {
+      "key": "DEV-2012",
+      "status": "Done",
+      "relevance": "sc_positions GPS feed; introduced the lower(kit_mapping) reader convention.",
+      "applicable": "yes",
+      "why": "The lower(kit_mapping) convention is exactly what disables the sc_positions PK (root cause 1); W1 (chlocal projection) exists to make it prunable."
+    },
+    {
+      "key": "DEV-1758",
+      "status": "unknown",
+      "relevance": "The documented extension point in ScoutCheckInRollupQuery's docblock ('lift the matches stream when it needs an event-style feed').",
+      "applicable": "yes",
+      "why": "W2 IS lifting that matches stream. Named in the docblock as the intended consumer."
+    }
+  ]
+}

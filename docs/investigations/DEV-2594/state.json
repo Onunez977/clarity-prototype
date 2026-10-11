@@ -1,0 +1,198 @@
+{
+  "key": "DEV-2594",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": "bug route default; scout-recovery-probability candidates are a different feature and behind main \u2014 keep main",
+  "branch": "claude/DEV-2594",
+  "main_checkout": "/Users/daltonmccleery/Herd/platform",
+  "run_root": "/Users/daltonmccleery/Herd/platform/.claude/worktrees/DEV-2594",
+  "phase": "done",
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "no_spawn": true,
+    "start_at": "intake",
+    "stop_at": "handoff",
+    "only": null,
+    "skip": [],
+    "force": false,
+    "eli5": true
+  },
+  "knowledge_cards_loaded": [
+    "knowledge/clarity/scout.md"
+  ],
+  "escalated": true,
+  "escalation_triggers": [
+    "answered:false questions",
+    "confidence < 80",
+    "escalate.recommend"
+  ],
+  "best_of_n": false,
+  "needs_human_interview": false,
+  "missed_caller_candidates": [
+    {
+      "file": "resources/js/clarity-scout/components/ScannerMap.vue",
+      "symbol": "setSelectedHit",
+      "referenced_at": "450,516"
+    },
+    {
+      "file": "resources/js/clarity-scout/components/DayOverlay.vue",
+      "symbol": "selectedHit = hit",
+      "referenced_at": "218"
+    },
+    {
+      "file": "resources/js/clarity-scout/components/TripOverlay.vue",
+      "symbol": "selectedHit = hit",
+      "referenced_at": "133"
+    }
+  ],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "b28821cf6cd094f0d2794126a400c8b15a2070fe",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "",
+      "branch": "",
+      "complexity": "complex",
+      "model": "sonnet"
+    }
+  ],
+  "review_number": 1,
+  "pr": {
+    "number": 423,
+    "url": "https://github.com/insight-lpr/platform/pull/423",
+    "draft": false
+  },
+  "pr_urls": {
+    "main": "https://github.com/insight-lpr/platform/pull/423"
+  },
+  "spawned_sessions": [],
+  "jira_in_progress_by": "daltonmccleery@gmail.com @ 2026-09-18T13:42:39Z",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "In Code Review via MCP transition id=4 @ 2026-09-18T19:20:59Z",
+  "assumed": [],
+  "comment_ids": {
+    "status": "40173",
+    "build_record": "40254"
+  },
+  "qa": {
+    "ledger": "",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": true,
+    "resource_envelope": {
+      "path": ".context/qa-resource-envelope.json",
+      "verdict": "not-measured",
+      "basis": "n/a",
+      "peak_rss_bytes": null,
+      "wall_clock_seconds": null,
+      "plausible_concurrency": null,
+      "projected_marginal_gb": null,
+      "headroom_gb": null,
+      "host_ram_gb": null,
+      "extrapolation_factor": null
+    },
+    "provisioning": {
+      "bootstrap": "ready",
+      "frontend_build": "npm-run-build-done",
+      "postgres_db": "zod_claude_dev_2594",
+      "ch_strategy": "deferred",
+      "herd_site": "https://clarity-claude_dev_2594.test",
+      "kit_assignment": "kit_settings user_id=1 for kit 1"
+    },
+    "provisioned_early": false
+  },
+  "record": {
+    "tests": [],
+    "deviations": [],
+    "review": {
+      "lanes": 1,
+      "scores": [
+        93
+      ],
+      "findings_fixed": [],
+      "findings_residual": [
+        "DayOverlay/TripOverlay still z-20+24px (out of AC)",
+        "No automated UI click pin \u2014 rely on browser QA"
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "in-session-agent"
+        }
+      ],
+      "gate_score": 100,
+      "gate_score_src": "arbitration",
+      "rounds": [
+        {
+          "rn": 1,
+          "reason": "gate",
+          "at": "2026-09-18T13:47:13Z"
+        }
+      ],
+      "unresolved_premises": [],
+      "rerun_required": false,
+      "reviewed_sha": "efa6ed875887be1382b79ac205fd71e58479b038",
+      "rework_pivot": false
+    },
+    "ac": [
+      {
+        "item": "Reproduced in a Scout user session",
+        "status": "SATISFIED",
+        "evidence": "force-login kit tad03; Live Hits visible after CH seed"
+      },
+      {
+        "item": "Root cause identified, not worked around",
+        "status": "SATISFIED",
+        "evidence": "stale --scout-controls-h + z-25 over z-20; fixed publisher + stacking"
+      },
+      {
+        "item": "Every card in the hit stack opens its detail view on click, including the most recent one",
+        "status": "SATISFIED",
+        "evidence": "human QA on QA2594A/B/C; newest=QA2594A"
+      },
+      {
+        "item": "Verified on desktop and on the in-vehicle form factor Scout users actually use",
+        "status": "SATISFIED",
+        "evidence": "agent CDP desktop+compact; human QA click paths"
+      }
+    ]
+  },
+  "pr_url": "https://github.com/insight-lpr/platform/pull/423",
+  "pr_number": 423
+}

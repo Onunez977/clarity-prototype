@@ -1,0 +1,157 @@
+{
+  "key": "DEV-2660",
+  "track": "product",
+  "phase": "plan",
+  "gate": "CLEAN",
+  "authoritative": true,
+  "dual_plan_note": "Primary plan from Ultra-Plan dual-plan (#23). Claude draft compare is not this plan.",
+  "input": "docs/investigations/DEV-2660/prep-context.json",
+  "base_sha": "76d4f5fcfdb37a9cb3b7b667c9e34a0d2f4f3266",
+  "branch_path": "main\u2192main",
+  "first_glance_comment": "42078",
+  "ship_surface": "Retire LprRepossessionsQuery recoveries-leg zod.public_hotlist_status_log join. Read clarity.hotlist.first_repossessed_at (minIf status 3). Keep public_hotlist FINAL (org, vin) match. Keep {floor} on the clarity subquery (default; m2c may drop). Keep -7 predicate, un-normalised vin, sentinels, class off ClickhouseQuery. Product PHP only.",
+  "floor_decision": {
+    "decision": "keep",
+    "reason": "Still shrinks the clarity.hotlist hash build side (toDate(first_repossessed_at) >= {floor}). Never was a sort-key prune on the log (ORDER BY id). Answer-neutral vs min(claim_date)-7. Packet m2c may overturn if summary is within noise; default keep. -7 on db_repos stays either way.",
+    "overturn_packet": "m2c-floor"
+  },
+  "timestamp_column": "clarity.hotlist.first_repossessed_at",
+  "min_vs_max": {
+    "adopt": "min",
+    "forecast_residue_pct": 0.187,
+    "source": "Jira comment 42078"
+  },
+  "final_on_clarity_hotlist": "measure_decides",
+  "preflight_25": {
+    "cloud": "READ-ONLY",
+    "required_before_swap": true,
+    "not_live_baseline": [
+      9137,
+      9149
+    ],
+    "packets": [
+      "ac1-agreement",
+      "ac3-jul-2026-db-repos",
+      "ac4-summary-header",
+      "final-on-clarity-hotlist",
+      "m2c-floor",
+      "m4-min-max-residue",
+      "m5-mv-backfill"
+    ],
+    "window_ac3": "2026-07-01 00:00:00 UTC through 2026-07-31 23:59:59 UTC, org = 0",
+    "summary_fields": [
+      "read_rows",
+      "read_bytes",
+      "memory_usage"
+    ],
+    "executed_this_phase": false,
+    "stop_conditions": [
+      "AC-3 delta larger than measured m4 residue",
+      "Non-trivial m5 MV-backfill NULL count",
+      "AC-4 bytes go up vs old baseline"
+    ]
+  },
+  "preflight_18": {
+    "strategy": "real fleet Docker ClickHouse later",
+    "provisioned_in_this_phase": false,
+    "dsn_invented": false,
+    "not_a_done_signal": [
+      "CLICKHOUSE_DRIVER=pgsql",
+      "invented Mac/Herd DSN",
+      "ClickHouse Cloud writes"
+    ]
+  },
+  "non_goals": [
+    "Product PHP in this Ultra-Plan phase",
+    "Cloud ClickHouse writes",
+    "Inventing a fleet DSN / Mac Herd host",
+    "phase=provisioned",
+    "Collapsing both hotlist joins into one clarity.hotlist rewrite",
+    "hotlist_status_aggregate",
+    "Reopening the billing-leg change",
+    "Editing CohortClosedQuery or CohortDeclinedQuery",
+    "repo_date / order_date / close_date / first_declined_at / first_closed_positive_at as recoveries timestamp",
+    "Normalising h.vin",
+    "Extending ClickhouseQuery",
+    "join_use_nulls = 1",
+    "Cache retune",
+    "okf/ edits",
+    "New abstractions (preflight #24)",
+    "chlocal / schema dump / projection work"
+  ],
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Cloud READ-ONLY measure packet (#25)",
+      "approach": "Run ac1-agreement, ac3-jul-2026-db-repos, ac4-summary-header, and final-on-clarity-hotlist on Cloud ClickHouse READ-ONLY. Record figures. Stop the swap if AC-1 or AC-3 miss the locked tolerance (AC-1 agreement with known 0.187% min-vs-max residue).",
+      "target_files": [
+        "docs/investigations/DEV-2660/cloud-parity-jul-2026.md"
+      ],
+      "intended_diffs": "Measurement artifact only. No product PHP.",
+      "depends_on": [],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "moderate"
+    },
+    {
+      "id": "t2",
+      "title": "Recoveries SQL swap",
+      "approach": "Drop status-log LEFT JOIN. Add clarity.hotlist join for first_repossessed_at on h.id with h.id != 0 and {floor} retained on that subquery (unless m2c drops it). Flip db_repos predicate to toDate(ch.first_repossessed_at, 'UTC') >= d.claim_date - 7. Keep public_hotlist FINAL match, un-normalised vin, d.agent_org_id != 0, class off ClickhouseQuery. Rewrite docblock for AC-7 and {floor} keep reason. FINAL keyword on clarity.hotlist follows t1.",
+      "target_files": [
+        "app/Clickhouse/Queries/LprRepossessionsQuery.php"
+      ],
+      "intended_diffs": "SQL contains first_repossessed_at and no public_hotlist_status_log. {floor} present unless m2c dropped it. Both sentinels present. Docblock records transition-timestamp viability.",
+      "depends_on": [
+        "t1"
+      ],
+      "parallelizable": false,
+      "test_filter": null,
+      "ui_impact": false,
+      "blast_radius": [
+        "lpr-repossessions"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "t3",
+      "title": "Test pins and sentinel fixture",
+      "approach": "Update BillingClaimDedupTest: NotContains status-log; keep floor literal while {floor} stays; assert first_repossessed_at and both sentinels. Move stray-zero fixture onto clarity.hotlist id=0. Add min()-semantics fixture (two status-3 transitions). Seed clarity.hotlist rows.",
+      "target_files": [
+        "tests/Unit/Clickhouse/BillingClaimDedupTest.php",
+        "tests/Feature/Clickhouse/LprRepossessionsQueryTest.php"
+      ],
+      "intended_diffs": "Pins assert first_repossessed_at path, no status-log, no 2026-06-24 floor literal, both sentinels, class not subclass of ClickhouseQuery.",
+      "depends_on": [
+        "t2"
+      ],
+      "parallelizable": false,
+      "test_filter": "BillingClaimDedupTest|LprRepossessionsQueryTest",
+      "ui_impact": false,
+      "blast_radius": [
+        "lpr-repossessions"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "t4",
+      "title": "Fidelity / cache-scope green",
+      "approach": "Keep CompanyMetricsCacheScopeTest asserting the hotlist-match key and this ship key in the query docblock. Touch CardQuerySqlFidelityTest only if a reflected SQL string breaks.",
+      "target_files": [
+        "tests/Unit/Clickhouse/CompanyMetricsCacheScopeTest.php",
+        "tests/Filament/Widgets/Dashboard/Concerns/CardQuerySqlFidelityTest.php"
+      ],
+      "intended_diffs": "Suite green; no intentional cache or card-key change.",
+      "depends_on": [
+        "t2"
+      ],
+      "parallelizable": true,
+      "test_filter": "CompanyMetricsCacheScopeTest|CardQuerySqlFidelityTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "simple"
+    }
+  ],
+  "next_phase": "Provision (waits a fleet ledger for this key). Do not mark phase=provisioned in this run. Implement runs #25 measure before the PHP swap."
+}

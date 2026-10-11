@@ -1,0 +1,139 @@
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "New HitPlateStatsBatchQuery \u2014 batched uniqExact(ocr) per month per hit_type from clarity.hits_cold",
+      "approach": "Add a ClickhouseQuery sibling to HitStatsBatchQuery that returns the DEDUPED plate count. Mirror HitStatsBatchQuery's public shape exactly (static handle() for the 13-month batch, static handleRange() for today/last_7d) and return the SAME four array keys (live_hit_count, historical_hit_count, staging_live_hit_count, staging_historical_hit_count) so SharedHitStatsData::getHitStatsColumn() indexes both maps with no branching. The only source that carries a plate is clarity.hits_cold (hit_stats_daily has no plate column); hits_cold is the FULL table (hits_hot is a 90-day TTL copy of the same schema \u2014 database/schema/clickhouse-schema.sql:129,131), so ONE cold query covers the whole 13-month window and no hot/cold seam is introduced. Org scoping is kit_org_id (F3/C4: hit_stats_daily.org_id is the kit org; org 165 \u2014 the largest hotlist_org_id \u2014 returns ZERO hit_stats_daily rows). No disposition filter (F9: the chlocal MV applies none). FINAL only \u2014 _peerdb_is_deleted is the native engine is-deleted arg (F7), so no extra WHERE. hit_type is enumerated explicitly as L/H/S/Z, which structurally excludes the undocumented 'F' (Missed_Opportunity_Historical, 34 rows) and M/P. TDD: write the test first.",
+      "target_files": [
+        "app/Clickhouse/Queries/HitPlateStatsBatchQuery.php",
+        "tests/Feature/Clickhouse/HitPlateStatsBatchQueryTest.php"
+      ],
+      "intended_diffs": "app/Clickhouse/Queries/HitPlateStatsBatchQuery.php (NEW, ~90 lines): `final class HitPlateStatsBatchQuery extends ClickhouseQuery` with `declare(strict_types=1)`.\n  - `private const DATETIME_PATTERN = '/^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$/';` \u2014 validate `start`/`end` with preg_match and throw InvalidArgumentException on mismatch (copy the guard idiom + comment from RdnHitHourCountQuery.php:11,25-30; addslashes is not a SQL escape). `org_id` is `(int)` cast.\n  - `public static function handle(array $arguments = []): array` \u2192\n    SELECT toStartOfMonth(hit_created_at) AS month,\n           uniqExactIf(ocr, hit_type = 'L') AS live_hit_count,\n           uniqExactIf(ocr, hit_type = 'H') AS historical_hit_count,\n           uniqExactIf(ocr, hit_type = 'S') AS staging_live_hit_count,\n           uniqExactIf(ocr, hit_type = 'Z') AS staging_historical_hit_count\n    FROM <clarityDb>.hits_cold FINAL\n    WHERE kit_org_id = {orgId}\n      AND hit_created_at >= toDateTime('{start}')\n      AND hit_created_at <= toDateTime('{end}')\n    GROUP BY month ORDER BY month\n    Then `$result[date('Y-m', strtotime($row['month']))] = [ ...four (int) casts... ]` \u2014 byte-for-byte the same month-key derivation as HitStatsBatchQuery.php:34 so the two series land on identical keys.\n  - `public static function handleRange(array $arguments = []): array` \u2014 the same SELECT without toStartOfMonth/GROUP BY; returns the four keys as a flat array, with the `empty($rows)` zero-fill guard copied from HitStatsBatchQuery.php:69-76.\n  - Table prefix via `static::clarityDb()` (ClickhouseQuery.php:102) rather than a hardcoded `clarity.` \u2014 required for the per-worktree local-CH QA databases. `DB::connection('clarity_clickhouse')->select($sql)`.\n  - Docblock states, in one short paragraph: this is the ONLY plate-carrying source; uniqExact is mandatory and bare count() is forbidden here (F15 \u2014 FINAL cannot collapse rows whose sort key differs and the key contains the mutable hit_created_at, so raw counts run up to ~30% high; uniqExact(ocr) is immune because the duplicate rows carry the same ocr); kit_org_id is deliberate; no validDisposition().\n\ntests/Feature/Clickhouse/HitPlateStatsBatchQueryTest.php (NEW): PHPUnit, `#[Group('clickhouse')]`, `use RequiresClickhouse` + `setupRequiresClickhouse()` in setUp \u2014 model the file on tests/Feature/Clickhouse/HitStatsBatchQueryTest.php. Seed with a private helper doing `DB::connection('clarity_clickhouse')->table('clarity.hits_cold')->insert([...])`, using the column set at tests/Feature/ClarityScout/HitDirectHotspotQueryTest.php:172-192 plus an explicit `id`. Freeze time with Carbon::setTestNow and clear it in tearDown. Four assertions:\n  1. dedup collapses within a month \u2014 3 rows, ocr 'AAA1111','AAA1111','BBB2222', same month, hit_type 'L' \u2192 live_hit_count === 2 (a count() implementation returns 3 and fails).\n  2. months do NOT collapse into each other \u2014 the SAME ocr in two different months returns 1 for EACH month key, and the two month keys are both present.\n  3. kit_org_id scoping \u2014 seed one row with kit_org_id=ORG/hotlist_org_id=OTHER and one with kit_org_id=OTHER/hotlist_org_id=ORG; querying ORG must return only the first (this is the assertion that fails if a worker reaches for scopeForOrg/hotlist_org_id).\n  4. FINAL/ReplacingMergeTree \u2014 two rows with the same `id` and different `_version`, and one row with `_peerdb_is_deleted = 1`, must not double-count or count the deleted row.\n  Plus one hit_type-isolation assertion: an 'F'-type row (and an 'M'/'P') must land in NONE of the four buckets.\n  Note in the test docblock that hits_cold has NO TTL (only hits_hot does), so fixtures need not be anchored to now(); they are anchored to a frozen now() anyway for determinism.",
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "HitPlateStatsBatchQueryTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t2",
+      "title": "SharedHitStatsData data layer \u2014 resolve the unique series on its OWN cache keys and flip getCardTotal() to it",
+      "approach": "Thread the dedup series through SharedHitStatsData using the identical batching/caching discipline the total path already uses, but under a strictly separate cache-key namespace and separate static memos. This is the DEV-2324 constraint (DashboardWidget.php:330-338): one method, one cache key, two consumers \u2014 two independent series may NEVER write into each other's keys. Then override getCardTotal() so the tile headline becomes the deduped count (AC-1) and add getTotalHitCount() exposing the previous total for AC-2. Because the base toStat() (DashboardWidget.php:287-295) already renders getCardTotal(), AC-1 lands here with no presentation change. getDescription() in the trait switches to the unique series (AC-5). Trait methods take precedence over methods inherited from the parent class \u2014 the trait already relies on this for getMonthlyData()/getDescription()/getRangeTotal(), so the override mechanism is proven in this exact file.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/Concerns/SharedHitStatsData.php",
+        "tests/Filament/Widgets/Dashboard/Concerns/DashboardCardMetricsTest.php"
+      ],
+      "intended_diffs": "app/Filament/Widgets/Dashboard/Concerns/SharedHitStatsData.php:\n  - Add `use App\\Clickhouse\\Queries\\HitPlateStatsBatchQuery;` alongside the existing HitStatsBatchQuery import.\n  - Add `protected static array $sharedUniqueMonthlyStats = [];` and `protected static array $sharedUniqueRangeStats = [];` next to the existing pair at :13-15. (Static props declared in a trait are per-using-class, which is what the existing code and DashboardCardMetricsTest's ReflectionProperty(...,'sharedRangeStats') already assume.)\n  - Add `private const UNIQUE_NAMESPACE = 'unique:';` \u2014 every unique cache key is `{widget-prefix}:unique:{dateType}:org={orgId}`, so it can never alias a total key.\n  - REFACTOR (do not duplicate) `buildMonthlyDataFromCache()` at :123-141: add a trailing `string $namespace = ''` parameter and build the key as `$widgetPrefix.':'.$namespace.$dateType.':org='.$orgId`. The `for ($i = 12; $i >= 0; $i--)` loop stays EXACTLY as-is and is now the single bucketing loop for BOTH series \u2014 this is what DashboardMonthLabelsTest (DEV-1927) pins, and a parallel copy of the loop is the thing that must not appear.\n  - Add `protected function getUniqueMonthlyData(bool $formatted = true): array` \u2014 a mirror of getMonthlyData() at :26-43 that memoizes under `$this->monthlyDataMemo['unique-'.$memoKey]`, calls resolvePastUniqueMonths()/resolveCurrentUniqueMonth(), then `buildMonthlyDataFromCache($orgId, $timezone, $column, $formatted, self::UNIQUE_NAMESPACE)`.\n  - Add `private function resolvePastUniqueMonths(int $orgId, string $timezone): void` \u2014 a mirror of :45-100 with three differences and NOTHING else: (a) guard on `static::$sharedUniqueMonthlyStats[$orgId]`, (b) cache keys carry UNIQUE_NAMESPACE, (c) `HitPlateStatsBatchQuery::query([...])` instead of HitStatsBatchQuery::query([...]). Pass the SAME $batchStart/$batchEnd strings the total path builds at :77-80 \u2014 do NOT apply convertToUtc() or otherwise re-derive the window. Both series must smear the month boundary identically; making the unique query 'more correct' about timezone is what would produce a visible total/unique mismatch at month edges (and it is DEV-1927 territory, which this ticket must not touch). TTL is `$this->getCacheTTL(1)`, same as the total path.\n  - Add `private function resolveCurrentUniqueMonth(int $orgId, string $timezone): void` \u2014 mirror of :102-121 with UNIQUE_NAMESPACE keys, `getSharedUniqueHitStatsForRange()`, and `$this->getCacheTTL(0)`.\n  - Add `protected function getSharedUniqueHitStatsForRange(string $start, string $end): array` \u2014 mirror of :170-203 keyed into `static::$sharedUniqueRangeStats`, calling `HitPlateStatsBatchQuery::handleRange([...])`. DELIBERATELY NO try/catch: do not copy the catch block from the total sibling at :179-198. Rationale, and put it in the docblock: ClickhouseQuery already swallows Throwable in production|testing and returns [] (ClickhouseQuery.php:29-37), so a catch here is dead code that can only persist a fabricated 0 under a key the description also reads \u2014 exactly what DashboardWidget::getRangeTotal()'s docblock at :351-362 forbids. Leaving the pre-existing catch on the TOTAL sibling untouched is deliberate; do not 'fix' it as drift.\n  - Add `protected function currentPeriodUnique(): int` \u2014 mirror of DashboardWidget::currentPeriodTotal() at :340-349, using `$this->buildWidgetCacheKey(self::UNIQUE_NAMESPACE.$this->date, $orgId)` (yields `live-hits:unique:today:org=N`) and `$this->getCacheTTL()`. `cache()->remember()` with NO try/catch inside it.\n  - Add `public function getCardTotal(): int` \u2014 AC-1. Same branch structure as DashboardWidget::getCardTotal() at :317-328 but reading the unique series: today/last_7d \u2192 currentPeriodUnique(); last_month \u2192 `getUniqueMonthlyData(formatted: false)[count-2]`; default \u2192 `[count-1]`.\n  - Add `public function getTotalHitCount(): int` \u2014 the previous getCardTotal() behaviour verbatim (currentPeriodTotal() / getMonthlyData(formatted:false)), consumed by t3 for the AC-2 secondary. Docblock: 'the raw hit count, demoted to the Stat description by DEV-2406; the headline is now the deduped plate count.'\n  - MODIFY getDescription() at :143-158 \u2014 AC-5: swap `$this->getMonthlyData()` for `$this->getUniqueMonthlyData()`, and swap `currentPeriodTotal()` for `currentPeriodUnique()` in the today/last_7d branches so all four description shapes describe one metric. Leave the DashboardWidget copy at :139-154 alone (pre-existing duplication; it serves ScanCount/RecoveryCounts).\n\ntests/Filament/Widgets/Dashboard/Concerns/DashboardCardMetricsTest.php:\n  - UPDATE test_hit_widgets_resolve_the_card_total_through_the_shared_batch_seam (:287-313). Its premise flips: getCardTotal() is now the UNIQUE figure. Seed BOTH static memos with DIFFERENT sentinels under their exact keys \u2014 `sharedRangeStats` \u2192 [column => 555] and `sharedUniqueRangeStats` \u2192 [column => 222] \u2014 then assert `getCardTotal() === 222` AND `getTotalHitCount() === 555`. Distinct sentinels are the point: with one shared value a source mix-up passes silently.\n  - ADD a cache-key isolation test: for one hit widget with $date='this_month', put a sentinel in `live-hits:2026-07:org=N` and a different one in `live-hits:unique:2026-07:org=N`, then assert getMonthlyData()/getUniqueMonthlyData() each return their own value in the July slot and that neither call overwrote the other's key. This is the direct regression guard for the DEV-2324 defect.\n  - ADD an AC-5 assertion: with the two series seeded to different current/last-month values, getDescription() renders the UNIQUE numbers.\n  - TRAP TO AVOID (state it in a comment): resolvePastUniqueMonths()/resolveCurrentUniqueMonth() only skip ClickHouse when EVERY key is warm. Any test that must stay CH-free has to seed all four hitWidgetMap prefixes for months 12..1 PLUS the `:unique:this_month:` key, otherwise the widget silently attempts a real query, gets [] swallowed in the testing env, and asserts against zeros.",
+      "depends_on": [
+        "t1"
+      ],
+      "parallelizable": false,
+      "test_filter": "DashboardCardMetricsTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    },
+    {
+      "id": "t3",
+      "title": "SharedHitStatsData presentation \u2014 secondary total, grouped two-series chart, expanded-only legend",
+      "approach": "Land AC-2/3/4 entirely inside SharedHitStatsData so nothing reaches ScanCount or RecoveryCounts. All three overrides go in the trait, never on the DashboardWidget base class and never on the shared vendor stat.blade.php: the base $options and getData() are shared by six widgets (F6), and Stat::description() already renders in the small fi-wi-stats-overview-stat-description slot (stat.blade.php:75-78, precedent KitUsers.php:59). The legend is enabled ONLY when $this->expanded. Same file as t2, so this runs strictly after it.",
+      "target_files": [
+        "app/Filament/Widgets/Dashboard/Concerns/SharedHitStatsData.php",
+        "tests/Filament/Pages/DashboardCardExpansionTest.php",
+        "tests/Filament/Widgets/Dashboard/DashboardMonthLabelsTest.php",
+        "tests/Filament/Widgets/Dashboard/LiveHitsTest.php",
+        "tests/Filament/Widgets/Dashboard/HistoricalHitsTest.php",
+        "tests/Filament/Widgets/Dashboard/StagingLiveHitsTest.php",
+        "tests/Filament/Widgets/Dashboard/StagingHistoricalHitsTest.php"
+      ],
+      "intended_diffs": "app/Filament/Widgets/Dashboard/Concerns/SharedHitStatsData.php:\n  - ADD `public function toStat(?string $selectedCard = null): Stat` \u2014 AC-2. Copy DashboardWidget::toStat() (:287-295) and insert one call: `->description(\\number_format($this->getTotalHitCount()).' total hits')` between Stat::make() and ->chart(). Headline stays `\\number_format($this->getCardTotal())`, which t2 already made the deduped figure. Requires `use Filament\\Widgets\\StatsOverviewWidget\\Stat;`. NO change to resources/views/vendor/filament-widgets/stats-overview-widget/stat.blade.php.\n  - MODIFY the sparkline source: also override `protected function chartSeries(): array` (BuildsDateFilterChartSeries.php:47-64) to read `getUniqueMonthlyData(formatted: false)`. The compact card's headline and the sparkline directly beside it must describe the same metric; leaving the sparkline on totals is the same class of incoherence DEV-2324 fixed. Do NOT touch BuildsDateFilterChartSeries itself \u2014 RecoveryLeader.php:235 consumes chartSeries() too. Leave DashboardWidget::getSparklinePoints() alone (no app-code caller; tests only).\n  - ADD `public function getData(): array` \u2014 AC-3. Two makeDataset() entries over the SAME `$this->getGraphLabels()`:\n      makeDataset($label.' (Total)', $this->getMonthlyData())\n      makeDataset($label.' (Unique Plates)', $this->getUniqueMonthlyData(), 'rgba('.\\implode(', ', $this->getRgbColor()).', 0.85)')\n    where $label comes from getDatasetLabel() exactly as the base does at :127-129. CRITICAL: neither call passes the `$stack` argument \u2014 makeDataset() (DashboardWidget.php:189-201) only emits a 'stack' key when one is given, and the base $options sets no scales.*.stacked, so Chart.js renders the two datasets side by side. Passing a stack (as RecoveryLeader.php:271 does) would silently stack them and fail AC-3. The unique dataset takes a SOLID backgroundColor so it is visually distinguishable from the total dataset's per-bar generateColors() highlight array.\n  - ADD `protected function getOptions(): array|RawJs|null` \u2014 AC-4. `$options = $this->options;` (a value copy \u2014 never mutate $this->options, mount() already writes tooltip.borderColor into it at DashboardWidget.php:98), then `$options['plugins']['legend']['display'] = $this->expanded;` plus `['position' => 'top']` and `['labels' => ['usePointStyle' => true]]`. Return $options. Signature must match ChartWidget::getOptions() (vendor/filament/widgets/src/ChartWidget.php:100) \u2014 import Filament\\Support\\RawJs for the union type. Because this lives in the trait, only the four SharedHitStatsData users get it; ScanCount and RecoveryCounts keep the base $options with legend.display => false. This is the hard blast-radius constraint: do NOT flip the base-class $options.\n\ntests/Filament/Pages/DashboardCardExpansionTest.php \u2014 ADD two tests (keep #[Group('pages')] #[Group('dashboard')], Carbon::setTestNow, actingAs admin, and pre-seed BOTH cache namespaces for all four prefixes so no ClickHouse call is attempted):\n  1. test_expanded_hit_chart_renders_two_grouped_datasets_with_distinct_labels \u2014 for each of LiveHits/HistoricalHits/StagingLiveHits/StagingHistoricalHits: assert getData()['datasets'] has exactly 2 entries; the two 'label' values differ and one contains 'Unique'; `array_key_exists('stack', $dataset) === false` for BOTH (the anti-stacking assertion); each dataset's data array has the same length as getData()['labels'], which is 13.\n  2. test_the_chart_legend_is_enabled_only_on_expanded_hit_widgets \u2014 via ReflectionMethod on the protected getOptions(): each hit widget with expanded=false \u2192 legend.display === false, with expanded=true \u2192 legend.display === true; and the REGRESSION half, ScanCount and RecoveryCounts \u2192 legend.display === false in BOTH states.\n\ntests/Filament/Widgets/Dashboard/DashboardMonthLabelsTest.php \u2014 ADD a hit-tile case to the DEV-1927 coverage (the file currently only exercises ScanCount/RecoveryLeader): with Carbon::setTestNow('2026-05-31 12:00:00') \u2014 the month-overflow anchor \u2014 seed a distinct sentinel per month into `live-hits:unique:{Y-m}:org=N` (and `:unique:this_month:`), then array_combine(getGraphLabels(), getUniqueMonthlyData(formatted:false)) and assert February's sentinel sits under \"Feb '26\" and the full label\u2192value map matches. This is what proves the unique series went through the SAME bucketing loop rather than a parallel one.",
+      "depends_on": [
+        "t2"
+      ],
+      "parallelizable": false,
+      "test_filter": "DashboardCardExpansionTest|DashboardMonthLabelsTest|LiveHitsTest|HistoricalHitsTest|StagingLiveHitsTest|StagingHistoricalHitsTest",
+      "ui_impact": true,
+      "blast_radius": [],
+      "complexity": "complex"
+    }
+  ],
+  "excluded_sites": [
+    {
+      "site": "app/Clickhouse/Queries/HitStatsBatchQuery.php",
+      "reason": "Option B keeps the TOTAL on hit_stats_daily; the existing totals path is not modified at all."
+    },
+    {
+      "site": "tests/Feature/Clickhouse/HitStatsBatchQueryTest.php",
+      "reason": "Pins the unchanged totals path \u2014 must keep passing byte-for-byte unchanged; run it as a regression, never edit it."
+    },
+    {
+      "site": "app/Clickhouse/Models/HitStatsDaily.php",
+      "reason": "Only needed if the total were re-sourced to hits_cold; Option B rejects that."
+    },
+    {
+      "site": "app/Clickhouse/Models/Hit.php",
+      "reason": "The new query is raw SQL like its HitStatsBatchQuery/RdnHitHourCountQuery siblings; no new Eloquent scope is required and scopeForOrg (hotlist_org_id) must NOT be used here."
+    },
+    {
+      "site": "app/Filament/Widgets/Dashboard/{LiveHits,HistoricalHits,StagingLiveHits,StagingHistoricalHits}.php",
+      "reason": "Every change lands in the shared SharedHitStatsData trait; the four leaf classes carry only heading/color/column and need no edit."
+    },
+    {
+      "site": "app/Filament/Widgets/Dashboard/Concerns/DashboardWidget.php",
+      "reason": "Shared base class for six widgets \u2014 editing $options, getData(), toStat() or getCardTotal() here would land on ScanCount and RecoveryCounts (F6). Hard blast-radius constraint."
+    },
+    {
+      "site": "app/Filament/Widgets/Dashboard/Concerns/BuildsDateFilterChartSeries.php",
+      "reason": "chartSeries() is also consumed by RecoveryLeader; the hit-tile change is an override in SharedHitStatsData, not an edit here."
+    },
+    {
+      "site": "resources/views/vendor/filament-widgets/stats-overview-widget/stat.blade.php",
+      "reason": "App-wide vendor blade. Stat::description() already renders in the small description slot (:75-78); precedent KitUsers.php:59. Candidate 2's proposal to edit it was checked against the code and rejected."
+    },
+    {
+      "site": "app/Filament/Widgets/Dashboard/{ScanCount,RecoveryCounts,RecoveryLeader,KitUsers}.php",
+      "reason": "Out of scope; they appear only as regression assertions (legend must stay off on ScanCount/RecoveryCounts)."
+    },
+    {
+      "site": "app/Filament/Widgets/Dashboard/CompanyMetricsOverview.php",
+      "reason": "Builds the grid by calling toStat() on each card; the trait's toStat() override is picked up with no change here."
+    },
+    {
+      "site": "app/Http/Controllers/Api/ClarityScoutDashboardController.php",
+      "reason": "Scout's uniqExactIf(ocr) surface confirms the technique is already in-repo, but it is a different surface with a different (validDisposition) definition; not touched."
+    },
+    {
+      "site": "client-portal client_historical_hits_hourly / uniqExactState(hotlist_id)",
+      "reason": "Different surface and a different dedup definition (hotlist entries, not plates); Q1 resolved to uniqExact(ocr) for these tiles only."
+    },
+    {
+      "site": "chlocal materialized views (hit_stats_daily_mv.sql, hits_cold_mv.sql)",
+      "reason": "Different repo. The measured 0.17-0.27s cost removes the performance argument for a new rollup; no MV or schema change is proposed."
+    },
+    {
+      "site": "DEV-2189 historical backfill (backfill_hits_cold_watermark_gap.py)",
+      "reason": "Upstream data-quality work in chlocal. March 2026 unique-plate figures stay ~6-9% short on Z until it runs; documented caveat, not a blocker (F15)."
+    },
+    {
+      "site": "database/migrations/**",
+      "reason": "No schema change of any kind in this ticket."
+    },
+    {
+      "site": "okf/ wiki pages",
+      "reason": "CLAUDE.md forbids writing to okf/ while work is in flight; queue the kit_org_id-scoping fact, the uniqExact-not-count() constraint, and the two-source pairing for a post-merge pass."
+    }
+  ],
+  "scope_expansions": [
+    {
+      "node": "t3",
+      "added": [
+        "tests/Filament/Widgets/Dashboard/LiveHitsTest.php",
+        "tests/Filament/Widgets/Dashboard/HistoricalHitsTest.php",
+        "tests/Filament/Widgets/Dashboard/StagingLiveHitsTest.php",
+        "tests/Filament/Widgets/Dashboard/StagingHistoricalHitsTest.php"
+      ],
+      "reason": "PLAN GAP found by the t2 worker: AC-5 moves getDescription()'s today/last_7d branches onto the unique cache key, so these four tests \u2014 which seed ONLY the total 'today' key and assert on it \u2014 fail. Verified: 4 failed / 8 passed, and confirmed via git stash that they passed before the change. They pin behavior the ticket deliberately changes, so updating them is in scope, not drift."
+    }
+  ]
+}

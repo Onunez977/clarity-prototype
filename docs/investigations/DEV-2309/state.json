@@ -1,0 +1,264 @@
+{
+  "key": "DEV-2309",
+  "app": "clarity",
+  "route": "bug",
+  "mode": "normal",
+  "base_branch": "main",
+  "base_branch_reason": null,
+  "branch": "claude/DEV-2309",
+  "phase": "handoff",
+  "round": 3,
+  "models": {
+    "base": "haiku",
+    "recall": "haiku",
+    "prep": "sonnet",
+    "plan": "opus",
+    "plan_arbiter": "opus",
+    "implement": "sonnet",
+    "implement_simple": "sonnet",
+    "arbitrate": "opus",
+    "offload": "sonnet",
+    "review": "opus"
+  },
+  "efforts": {
+    "prep": "inherit",
+    "plan": "inherit",
+    "plan_arbiter": "inherit",
+    "implement": "inherit",
+    "implement_simple": "inherit",
+    "arbitrate": "inherit",
+    "offload": "inherit",
+    "review": "inherit"
+  },
+  "timings": [
+    {
+      "slot": "prep-fastpass",
+      "model": "sonnet",
+      "effort": "inherit",
+      "phase": "prep",
+      "dur_s": 476
+    },
+    {
+      "slot": "plan-arbiter",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "plan",
+      "dur_s": 130
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 678
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 708
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 840
+    },
+    {
+      "slot": "review",
+      "model": "opus",
+      "effort": "inherit",
+      "phase": "review",
+      "dur_s": 679
+    }
+  ],
+  "flags": {
+    "companion": false,
+    "review_policy": "functional",
+    "jira_mirror": true,
+    "start_at": null,
+    "stop_at": null,
+    "only": null,
+    "skip": [],
+    "force": false
+  },
+  "knowledge_cards_loaded": [
+    "knowledge/clarity/scout.md",
+    "knowledge/clickhouse/core.md"
+  ],
+  "escalated": false,
+  "escalation_triggers": [],
+  "best_of_n": false,
+  "gate": "CLEAN",
+  "needs_human_interview": false,
+  "missed_caller_candidates": [],
+  "perf_validation": {
+    "required": false,
+    "ch_tables": [],
+    "approach": "started_at bound on PG scans + CH sc_positions; no CH-at-scale deferral",
+    "measurement": "",
+    "verdict": "pending",
+    "measured_at": null
+  },
+  "diff_base": "900211b8c",
+  "subtasks": [
+    {
+      "id": "t1",
+      "status": "merged",
+      "worktree_path": "/Users/daltonmccleery/Herd/platform/.claude/worktrees/dev-2309-r3",
+      "branch": "claude/DEV-2309",
+      "complexity": "complex",
+      "model": "driver-inline (single-node fast path)"
+    }
+  ],
+  "review_number": 4,
+  "pr": {
+    "number": 327,
+    "url": "https://github.com/insight-lpr/platform/pull/327",
+    "draft": false
+  },
+  "pr_urls": {},
+  "jira_in_progress_by": "already In Progress at intake (no transition needed)",
+  "jira_transitioned_by": "pipeline-mcp",
+  "jira_transitioned_detail": "In Code Review via transition id 4 after human QA complete",
+  "assumed": [],
+  "comment_ids": {
+    "status": "38083",
+    "build_record": "38086"
+  },
+  "qa": {
+    "ledger": ".context/qa-prep-ledger.json",
+    "agent_report": ".context/qa-agent-report.md",
+    "ac_results": ".context/qa-ac-results.json",
+    "verdict": "PASS",
+    "torn_down": false,
+    "resource_envelope": {
+      "path": ".context/qa-agent-report.md",
+      "verdict": "not-measured",
+      "peak_rss_bytes": 92553216,
+      "wall_clock_seconds": 0.25,
+      "plausible_concurrency": 1,
+      "projected_marginal_gb": null,
+      "headroom_gb": null,
+      "host_ram_gb": null,
+      "extrapolation_factor": 100000000.0,
+      "basis": "toy 4 kit_shifts vs 4.59B prod scans; CH deferred"
+    },
+    "provisioning": {
+      "bootstrap": "dev:migrate + tiger patch + tinker seed",
+      "postgres_db": "zod_claude_dev_2309",
+      "ch_strategy": "deferred",
+      "herd_site": "clarity-claude_dev_2309"
+    },
+    "provisioned_early": true
+  },
+  "record": {
+    "tests": [
+      {
+        "cmd": "php artisan test --compact --filter=CloseInactiveShiftsCommandTest",
+        "passed": 10,
+        "failed": 0,
+        "skipped": 2,
+        "note": "10 passed after KitShift trim; 2 CH skipped."
+      }
+    ],
+    "deviations": [
+      {
+        "source": "qa-loop",
+        "edit": "KitShift timestamptz offset serialize; abs(diffInMinutes); convertToUtc scan bound; parse scanned_at as UTC",
+        "ac_ref": "AC-7",
+        "ac_delta": "NOT SATISFIED (zero-activity stayed open) \u2192 SATISFIED (live diff=240, close at started_at)"
+      },
+      {
+        "source": "qa-loop",
+        "edit": "Operator trimmed KitShift timestamptz Attribute before merge; command-only PR",
+        "ac_ref": "AC-7",
+        "ac_delta": "KitShift write fix dropped \u2014 zero-activity close remains tz-conditional locally; prod closer still ships"
+      }
+    ],
+    "review": {
+      "lanes": [
+        "claude1",
+        "claude2",
+        "claude3"
+      ],
+      "scores": [
+        72,
+        80,
+        64
+      ],
+      "min_score": 64,
+      "gate": "FAIL",
+      "findings_fixed": [
+        "RN1 H-1: reject ClickHouse empty-max() epoch sentinel so ended_at cannot be 1970-01-01",
+        "RN1 H1/M1: dispatch failure no longer increments failedCount or rolls back a committed close",
+        "RN2 H signed diffInMinutes: abs() like EnsureOpenShift",
+        "RN2 H timestamptz stamp: KitShift Attribute writes Y-m-d H:i:sP so PG session tz cannot reinterpret naive UTC",
+        "RN2 H PG scanned_at bound: convertToUtc($since->copy()); parse max as UTC",
+        "RN3 H: revert abs() \u2014 signed elapsed minutes; future activity stays open. Pin: UTC instant round-trip + future started_at skip"
+      ],
+      "findings_residual": [
+        "CH bound + epoch guard untested in CI (requireClickhouse skipped; CH deferred)",
+        "Swallowed dispatch() leaves summary_sent_at/summary_skipped_reason both null with no recovery sweep",
+        "Per-shift Kit lookup + CH round-trip N+1 pre-existing (OOS / DEV-2347)"
+      ],
+      "lane_sources": [
+        {
+          "lane": "claude1",
+          "source": "harness-claude-p"
+        },
+        {
+          "lane": "claude2",
+          "source": "harness-claude-p"
+        },
+        {
+          "lane": "claude3",
+          "source": "harness-claude-p"
+        }
+      ],
+      "rerun_required": true,
+      "reviewed_sha": null,
+      "rework_pivot": true,
+      "residual_ticket": "DEV-2365",
+      "pr_comment": "https://github.com/insight-lpr/platform/pull/327#issuecomment-5282655666"
+    },
+    "ac": [
+      {
+        "id": "AC-1",
+        "status": "SATISFIED"
+      },
+      {
+        "id": "AC-2",
+        "status": "SATISFIED"
+      },
+      {
+        "id": "AC-3",
+        "status": "DEFERRED"
+      },
+      {
+        "id": "AC-4",
+        "status": "SATISFIED"
+      },
+      {
+        "id": "AC-5",
+        "status": "DEFERRED"
+      },
+      {
+        "id": "AC-6",
+        "status": "SATISFIED"
+      },
+      {
+        "id": "AC-7",
+        "status": "SATISFIED",
+        "note": "live re-run after offset write: diff=240, ended_at=started_at, type=assumed"
+      },
+      {
+        "id": "AC-8",
+        "status": "SATISFIED"
+      }
+    ]
+  },
+  "notes": "Human QA complete. PR 327 ready. KitShift trimmed. Review rerun_required still true \u2014 pipeline done not claimed. Operator merging to stop prod 30-min abort."
+}

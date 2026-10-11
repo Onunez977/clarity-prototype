@@ -1,0 +1,30 @@
+{
+  "precedents": [
+    {
+      "key": "DEV-1756",
+      "status": "Done",
+      "age_days": 60,
+      "relevance": "Initial backend implementation: ScoutCheckInRollupQuery + GET /api/scout/dashboard/check-in-counts endpoint + feature tests. Introduced the check-in backend logic being verified.",
+      "applicable": "yes — the origin of the check-in backend; parent of DEV-2163"
+    },
+    {
+      "key": "DEV-1757",
+      "status": "Done",
+      "age_days": 60,
+      "relevance": "Scout dashboard UI to display automated check-in counts for logged-in user (direct + staging buckets).",
+      "applicable": "yes — UI consumer of the checkInCounts endpoint"
+    },
+    {
+      "key": "DEV-2163",
+      "status": "Done",
+      "age_days": 28,
+      "relevance": "Fix address source in ScoutCheckInRollupQuery (recovery_address -> public_hotlist_address->public_address path); counts returning 0 in prod. PR #258.",
+      "applicable": "yes — prior correctness bug in the check-in query; documents the address-source data model"
+    }
+  ],
+  "checkin_surface_files": [
+    "app/Clickhouse/Queries/ScoutCheckInRollupQuery.php",
+    "app/Http/Controllers/Api/ClarityScoutDashboardController.php (checkInCounts)"
+  ],
+  "note": "Recall surfaced the READ/display side (rollup + counts endpoint). Ticket asks about the WRITE/SAVE path ('saved in background', 'backend logic running') — prep must locate where/how check-in records are persisted and whether that background logic actually runs."
+}

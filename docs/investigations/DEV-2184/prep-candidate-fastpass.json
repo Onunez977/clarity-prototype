@@ -1,0 +1,15 @@
+{
+  "candidate": "fastpass",
+  "synthesis": "Scout admin Bird's Eye (DEV-2116) shares Pinia stores/components with the driver PWA. Admin route space: /scout/org-map/api/* holds real admin JSON endpoints; /scout/org-map/{any?} is a Vue-Router SPA catch-all returning the Blade shell (200 text/html) for any GET not matching a registered admin api route. Any driver-only JS fetch not gated on mapStore.adminMode hits a nonexistent admin route, falls through to the catch-all, gets 200 text/html, and response.json() throws 'Unexpected token <' — exactly the ticket error. NOT a backend 500. The ticket's named sink (fetchKitPosition/fetchLivePath via useKitPositionPolling, mounted by LiveTracking) was ALREADY fixed in DEV-2179 (merged, ancestor of HEAD) via a !adminMode gate in MapShell.vue + an adminMode ternary in ScannerMap.vue. Still live: App.vue's watch(auth.isAuthenticated) unconditionally calls shift.fetchStatus()+notifications.fetch(), ungated, and isAuthenticated is true in admin mode → two guaranteed HTML/JSON-parse errors per Bird's Eye load.",
+  "scope_summary": "Gate App.vue shift/notifications on !mapStore.adminMode; add a JSON-404 catch-all inside the /scout/org-map/api route group (durable AC1 fix); widen driverPositions/driverPaths try/catch to cover scopedKits(); add a feature test pinning the JSON-404 fallback.",
+  "target_files": ["resources/js/clarity-scout/App.vue", "routes/web.php", "app/Http/Controllers/Api/ClarityScoutBirdsEyeController.php", "tests/Feature/Http/Controllers/Api/ClarityScoutBirdsEyeControllerTest.php"],
+  "confidence": 62,
+  "escalate": true,
+  "open_questions": [
+    "Does the exact reported error still reproduce on current main, or was it seen before DEV-2179 shipped?",
+    "Is AC3 (all-driver positions render) still failing today given driverPositions/driverPaths + ScannerMap rendering look structurally sound?",
+    "Are there other still-ungated driver-only fetches beyond shift/notifications?"
+  ],
+  "settled": "No unhandled backend exception found; the HTML comes from the SPA catch-all matching a nonexistent admin route, not an error path. AC2's 'server-side error' framing does not literally match the code.",
+  "note": "Full candidate detail captured in conversation; this is the persisted summary for reconcile."
+}

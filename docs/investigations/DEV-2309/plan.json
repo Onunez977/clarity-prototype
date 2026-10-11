@@ -1,0 +1,92 @@
+{
+  "ticket": "DEV-2309",
+  "phase": "3-plan",
+  "arbiter": "single",
+  "sizing": {
+    "file_count": 2,
+    "distinct_concerns": 1,
+    "split_recommended": false,
+    "reason": "One command plus its test class; a single concern (make the sweep survivable and observable). Under the >6-file / multi-concern split threshold."
+  },
+  "perf_validation": {
+    "required": false,
+    "reason": "The >1B-row surface (public.scans, ~4.6B) is Postgres, not ClickHouse; the ClickHouse touch (clarity.sc_positions) is a consistency-only lower bound on an existing max. No ClickHouse-at-scale perf work is being deferred."
+  },
+  "subtasks": [
+    {
+      "id": "t1",
+      "title": "Make scout:close-inactive-shifts survive a failing shift, log its outcome, and bound both activity lookups by shift.started_at",
+      "approach": "Mirror the ScoutRecordCheckIns isolation/observability pattern in CloseInactiveShiftsCommand. (a) Wrap the entire per-shift body — latestActivityFor lookup, the close transaction, and the SendEndOfShiftSummary dispatch — in a try/catch that calls report($e), Log::warning's the kit/shift context, increments a failed counter, and continues to the next shift; the command still returns SUCCESS. (b) A failed lookup must never fall through to the `$latestActivity ?? $shift->started_at` null fallback, so the catch has to sit outside the lookup and the shift is left open. (c) Replace the console-only summary with Log::info('scout:close-inactive-shifts: completed', [closed, skipped, failed, duration_ms]) measured with microtime(true), keeping $this->info for interactive/dry-run use. (d) Change latestActivityFor/latestGpsFor signatures to accept Carbon $since and filter scanned_at >= $since / timestamp_utc >= $since, passing $shift->started_at from the loop; keep withoutGlobalScope(ScanTimezoneScope) and leave the ShowVisibleScan global scope in place. (e) Extend the existing test class with the query-shape pin, the pre-shift-scan-ignored case, the throwing-shift isolation case, and the failed-count log assertion, keeping latest_activity_lookup_does_not_join_timezones green.",
+      "target_files": [
+        "app/Console/Commands/CloseInactiveShiftsCommand.php",
+        "tests/Feature/Console/Commands/CloseInactiveShiftsCommandTest.php"
+      ],
+      "intended_diffs": {
+        "app/Console/Commands/CloseInactiveShiftsCommand.php": [
+          "imports: add `use Illuminate\\Support\\Facades\\Log;` alongside the existing DB/Carbon imports.",
+          "handle() ~L42-46: add `$startedAt = microtime(true);` and `$failedCount = 0;` next to the existing $closedCount/$skippedCount.",
+          "handle() L55-93: wrap the whole foreach body in try { ... } catch (\\Throwable $e) { report($e); Log::warning('scout:close-inactive-shifts: shift failed', ['shift_id' => $shift->id, 'kit_id' => $shift->kit_id, 'error' => $e->getMessage()]); $this->warn(...); $failedCount++; continue; }. The try opens BEFORE `$latestActivity = $this->latestActivityFor(...)` so a thrown lookup never reaches the `?? $shift->started_at` fallback, and closes AFTER `SendEndOfShiftSummary::dispatch($shift->id); $closedCount++;`. `continue` statements inside the try (skip + dry-run) continue the foreach unchanged.",
+          "handle() L56: `$latestActivity = $this->latestActivityFor($shift->kit_id, $shift->started_at);`",
+          "handle() L95-100: keep the existing `$this->info(...)` human summary (extended with the failed count) and add, before it, `$durationMs = (int) round((microtime(true) - $startedAt) * 1000);` plus `Log::info('scout:close-inactive-shifts: completed', ['closed' => $closedCount, 'skipped' => $skippedCount, 'failed' => $failedCount, 'duration_ms' => $durationMs]);` — same shape as ScoutRecordCheckIns.php:114-121. Return self::SUCCESS regardless of $failedCount.",
+          "handle() L49-53 early return: leave the `No open shifts to evaluate.` short-circuit as-is (no counters to report).",
+          "latestActivityFor L110-118: signature becomes `private function latestActivityFor(int $kitId, Carbon $since): ?Carbon`; the Scan query gains `->where('scanned_at', '>=', $since)` after `->where('kit_id', $kitId)` and keeps `->withoutGlobalScope(ScanTimezoneScope::class)` (round-1 fix) and the implicit ShowVisibleScan scope; the GPS call becomes `$this->latestGpsFor($kitId, $since)`. Docblock gains a line stating the lookup means 'latest activity DURING the shift' and that null still falls back to started_at at the call site.",
+          "latestGpsFor L137-154: signature becomes `private function latestGpsFor(int $kitId, Carbon $since): ?Carbon`; the ClickHouse query gains `->where('timestamp_utc', '>=', $since->copy()->utc()->toDateTimeString())` before `->max('timestamp_utc')`. The existing `catch (\\Throwable) { return null; }` STAYS — it is the documented 'ClickHouse unreachable / local pgsql bridge' degrade-to-scans-alone path, and swallowing it here is deliberate and pre-existing; only the Postgres lookup propagates to the new per-shift catch."
+        ],
+        "tests/Feature/Console/Commands/CloseInactiveShiftsCommandTest.php": [
+          "Keep all seven existing tests, including latest_activity_lookup_does_not_join_timezones (L184-216) and the two requireClickhouse() cases.",
+          "Extend latest_activity_lookup_does_not_join_timezones (or add a sibling activity_lookup_is_bounded_by_shift_started_at) to assert the zod query log contains a scanned_at aggregate whose SQL also carries a `scanned_at >= ` bound — asserting positively on the bound, not just negatively on timezones/ST_Within.",
+          "Add scan_recorded_before_shift_started_at_is_ignored: open shift started_at = now()->subHours(8) with a scan at now()->subHours(12); assert the shift closes and ended_at equals started_at (the no-in-shift-activity fallback), not the pre-shift scan time.",
+          "Add a_failing_shift_is_skipped_and_later_shifts_still_close: two kits with open stale shifts; force kit A's Postgres activity lookup to throw (e.g. Queue::fake() + a partial mock / an intentionally broken Scan query binding, or bind a Scan model whose query throws) while kit B has one stale visible scan after started_at. Assert command exits SUCCESS, shift A ended_at is still null (failed lookup ≠ no activity), shift B is closed as Assumed, and SendEndOfShiftSummary was pushed only for B.",
+          "Add completed_log_reports_closed_skipped_and_failed_counts: Log::spy(); run the command over a mixed set; assert Log::info was called with 'scout:close-inactive-shifts: completed' and a context array carrying closed/skipped/failed/duration_ms keys, with failed matching the forced-failure count.",
+          "Use the existing helpers (insertScan, KitShift::factory()->forKit()->open(), Queue::fake()) and the existing requireClickhouse() guard for anything touching sc_positions; the new tests are Postgres-only and must NOT require ClickHouse."
+        ]
+      },
+      "depends_on": [],
+      "parallelizable": true,
+      "test_filter": "CloseInactiveShiftsCommandTest",
+      "ui_impact": false,
+      "blast_radius": [],
+      "complexity": "complex",
+      "notes": [
+        "Command must exit SUCCESS even when failed > 0 — a non-zero exit would make the scheduler treat a partially-successful sweep as a failed run.",
+        "Do NOT touch app/Services/Scout/EnsureOpenShift.php: it is already bounded and already drops ScanTimezoneScope.",
+        "Out of scope per Dalton: ClickHouse cutover for the scan max, any zod DDL/index/migration, statement_timeout changes, ShowVisibleScan/is_visible semantics, the onOneServer duplicate-run glance."
+      ]
+    }
+  ],
+  "excluded_sites": [
+    {
+      "site": "app/Services/Scout/EnsureOpenShift.php:132-137",
+      "reason": "Prep verdict safe — exists() with two timestamp lower bounds, request-local, already bounded and already withoutGlobalScope(ScanTimezoneScope)."
+    },
+    {
+      "site": "app/Services/Scout/EnsureOpenShift.php:152-159",
+      "reason": "Prep verdict safe — 24h window plus limit(5000), request-local; no unbounded aggregate."
+    },
+    {
+      "site": "app/Console/Commands/ScoutRecordCheckIns.php:67-121",
+      "reason": "Prep verdict safe — this is the isolation/logging pattern being copied, not a second defect; read-only reference."
+    },
+    {
+      "site": "app/Jobs/Scout/SendEndOfShiftSummary.php",
+      "reason": "Prep verdict safe — DEV-2325 shipped; the dispatch is only relocated inside the new per-shift try/catch, the job itself is unchanged."
+    },
+    {
+      "site": "app/Dto/Scout/ShiftSummaryDto.php:52",
+      "reason": "Prep verdict safe — comment-only mention of the command name in an abs() duration note; not a caller of the activity lookup."
+    }
+  ],
+  "coverage_check": {
+    "buggy_sites_from_prep": [
+      {
+        "site": "app/Console/Commands/CloseInactiveShiftsCommand.php:47,55-56,110-115",
+        "covered_by": "t1"
+      },
+      {
+        "site": "app/Console/Commands/CloseInactiveShiftsCommand.php:137-153",
+        "covered_by": "t1"
+      }
+    ],
+    "uncovered": []
+  }
+}
